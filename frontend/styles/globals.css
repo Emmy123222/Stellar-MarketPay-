@@ -1,0 +1,137 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg:          #0c0a06;
+    --surface:     #151208;
+    --surface-2:   #1f1a0d;
+    --border:      rgba(251, 191, 36, 0.12);
+    --border-hover:rgba(251, 191, 36, 0.30);
+    --gold:        #f59e0b;
+    --gold-light:  #fbbf24;
+    --gold-dim:    rgba(245, 158, 11, 0.15);
+    --text:        #fef3c7;
+    --muted:       #a8956a;
+    --subtle:      #4a3d28;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+}
+
+@layer components {
+  .card {
+    @apply bg-[#151208] border border-[rgba(251,191,36,0.12)] rounded-2xl p-6;
+  }
+
+  .card-hover {
+    @apply card hover:border-[rgba(251,191,36,0.28)] hover:bg-[#1a1509] transition-all duration-200 cursor-pointer;
+  }
+
+  .btn-primary {
+    @apply bg-market-500 hover:bg-market-400 text-ink-900 font-semibold px-6 py-3 rounded-xl
+           transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed
+           focus:outline-none focus:ring-2 focus:ring-market-400 focus:ring-offset-2 focus:ring-offset-ink-900;
+  }
+
+  .btn-secondary {
+    @apply border border-market-500/30 hover:border-market-500/60 text-market-400
+           font-medium px-6 py-3 rounded-xl transition-all duration-200
+           bg-market-500/5 hover:bg-market-500/10
+           focus:outline-none focus:ring-2 focus:ring-market-400 focus:ring-offset-2 focus:ring-offset-ink-900;
+  }
+
+  .btn-ghost {
+    @apply text-market-400/70 hover:text-market-400 font-medium px-4 py-2 rounded-lg
+           transition-colors duration-150 hover:bg-market-500/8;
+  }
+
+  .input-field {
+    @apply w-full bg-ink-700 border border-[rgba(251,191,36,0.18)] rounded-xl px-4 py-3
+           text-amber-100 placeholder-amber-900/50
+           focus:outline-none focus:border-market-500/50 focus:ring-1 focus:ring-market-500/30
+           transition-all duration-200 font-body text-sm;
+  }
+
+  .textarea-field {
+    @apply input-field resize-none leading-relaxed;
+  }
+
+  .label {
+    @apply block text-xs font-semibold text-amber-600/80 uppercase tracking-widest mb-2;
+  }
+
+  .badge {
+    @apply text-xs font-medium px-2.5 py-1 rounded-full border;
+  }
+
+  .badge-open {
+    @apply badge bg-emerald-500/10 text-emerald-400 border-emerald-500/20;
+  }
+
+  .badge-progress {
+    @apply badge bg-market-500/10 text-market-400 border-market-500/20;
+  }
+
+  .badge-complete {
+    @apply badge bg-blue-500/10 text-blue-400 border-blue-500/20;
+  }
+
+  .badge-cancelled {
+    @apply badge bg-red-500/10 text-red-400 border-red-500/20;
+  }
+
+  .address-tag {
+    @apply font-mono text-xs bg-ink-700 text-market-400/80 px-2.5 py-1 rounded-lg border border-market-500/15;
+  }
+
+  .section-title {
+    @apply font-display text-2xl font-bold text-amber-100;
+  }
+
+  .divider {
+    @apply border-t border-[rgba(251,191,36,0.08)] my-6;
+  }
+}
+
+@layer utilities {
+  .gold-glow    { box-shadow: 0 0 24px rgba(245,158,11,0.20); }
+  .gold-glow-sm { box-shadow: 0 0 12px rgba(245,158,11,0.12); }
+
+  .text-gradient-gold {
+    background: linear-gradient(135deg, #fbbf24, #f59e0b, #fcd34d);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .bg-noise {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  }
+
+  .bg-lines {
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 39px,
+      rgba(251,191,36,0.03) 39px,
+      rgba(251,191,36,0.03) 40px
+    );
+  }
+}

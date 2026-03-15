@@ -1,0 +1,26 @@
+node_modules/
+.next/
+out/
+target/
+dist/
+build/
+*.log
+
+# Env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Cargo
+Cargo.lock
