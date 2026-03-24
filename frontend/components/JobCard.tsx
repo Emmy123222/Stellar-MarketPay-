@@ -2,13 +2,20 @@
  * components/JobCard.tsx
  * Displays a single job listing in the browse grid.
  */
-import { formatXLM, statusClass, statusLabel, timeAgo } from "@/utils/format";
+import { formatDeadline, formatXLM, statusClass, statusLabel, timeAgo } from "@/utils/format";
 import type { Job } from "@/utils/types";
 import Link from "next/link";
 
 interface JobCardProps { job: Job; }
 
 export default function JobCard({ job }: JobCardProps) {
+  const formattedDeadline = job.deadline ? formatDeadline(job.deadline) : "";
+  const deadlineTime = job.deadline ? new Date(job.deadline).getTime() : NaN;
+  const hasValidDeadline = !!formattedDeadline && !Number.isNaN(deadlineTime);
+  const msUntilDeadline = hasValidDeadline ? deadlineTime - Date.now() : null;
+  const isClosed = msUntilDeadline !== null && msUntilDeadline < 0;
+  const isClosingSoon = msUntilDeadline !== null && msUntilDeadline >= 0 && msUntilDeadline <= 72 * 60 * 60 * 1000;
+
   return (
     <Link href={`/jobs/${job.id}`}>
       <div className="card-hover group animate-fade-in">
@@ -48,7 +55,20 @@ export default function JobCard({ job }: JobCardProps) {
             <p className="font-mono font-semibold text-market-400 text-sm">{formatXLM(job.budget)}</p>
           </div>
           <div className="text-right">
-            <p className="text-xs text-amber-800 mb-0.5">{job.applicantCount} applicant{job.applicantCount !== 1 ? "s" : ""}</p>
+            <p className="text-xs text-amber-800 mb-0.5">
+              {job.applicantCount} applicant{job.applicantCount !== 1 ? "s" : ""}
+              {hasValidDeadline ? ` | Due ${formattedDeadline}` : ""}
+            </p>
+            {isClosed && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide bg-slate-500/20 text-slate-300 border-slate-400/30 mb-0.5">
+                Closed
+              </span>
+            )}
+            {!isClosed && isClosingSoon && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide bg-red-500/20 text-red-300 border-red-400/40 mb-0.5">
+                Closing soon
+              </span>
+            )}
             <p className="text-xs text-amber-800/60">{timeAgo(job.createdAt)}</p>
           </div>
         </div>
