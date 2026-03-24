@@ -7,7 +7,7 @@ import Link from "next/link";
 import WalletConnect from "@/components/WalletConnect";
 import { fetchMyJobs, fetchMyApplications } from "@/lib/api";
 import { getXLMBalance } from "@/lib/stellar";
-import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass } from "@/utils/format";
+import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard } from "@/utils/format";
 import type { Job, Application } from "@/utils/types";
 import clsx from "clsx";
 
@@ -24,6 +24,21 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [myApplications, setMyApplications] = useState<Application[]>([]);
   const [balance, setBalance] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+
+  const handleCopy = async () => {
+    if (!publicKey) return;
+    const success = await copyToClipboard(publicKey);
+    if (success) {
+      setCopied(true);
+      setCopyError(false);
+      setTimeout(() => setCopied(false), 2000);
+    } else {
+      setCopyError(true);
+      setTimeout(() => setCopyError(false), 2000);
+    }
+  };
 
   useEffect(() => {
     if (!publicKey) return;
@@ -59,6 +74,27 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="address-tag">{shortenAddress(publicKey)}</span>
+            <button
+              onClick={handleCopy}
+              className={clsx(
+                "p-1.5 rounded-md transition-all flex items-center justify-center h-7 min-w-[28px]",
+                copied ? "text-emerald-400 bg-emerald-400/10 border border-emerald-400/20" : 
+                copyError ? "text-red-400 bg-red-400/10 border border-red-400/20" : 
+                "text-amber-600 hover:text-amber-300 hover:bg-amber-400/10 border border-transparent"
+              )}
+              title="Copy public key"
+            >
+              {copied ? (
+                <span className="text-xs font-medium px-1">Copied!</span>
+              ) : copyError ? (
+                <span className="text-xs font-medium px-1">Failed</span>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              )}
+            </button>
           </div>
         </div>
         <Link href="/post-job" className="btn-primary text-sm py-2.5 px-5 flex-shrink-0">+ Post a Job</Link>
