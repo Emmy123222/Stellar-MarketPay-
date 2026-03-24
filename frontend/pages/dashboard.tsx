@@ -9,6 +9,7 @@ import { fetchMyJobs, fetchMyApplications } from "@/lib/api";
 import { getXLMBalance } from "@/lib/stellar";
 import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard } from "@/utils/format";
 import type { Job, Application } from "@/utils/types";
+import EditProfileForm from "@/components/EditProfileForm";
 import clsx from "clsx";
 
 interface DashboardProps {
@@ -16,7 +17,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied";
+type Tab = "posted" | "applied" | "edit_profile";
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [tab, setTab] = useState<Tab>("posted");
@@ -137,14 +138,16 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-market-500/10 mb-6">
-        {(["posted", "applied"] as Tab[]).map((t) => (
+      <div className="flex border-b border-market-500/10 mb-6 overflow-x-auto">
+        {(["posted", "applied", "edit_profile"] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={clsx(
-              "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px",
+              "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap",
               tab === t ? "border-market-400 text-market-300" : "border-transparent text-amber-700 hover:text-amber-400"
             )}>
-            {t === "posted" ? `Jobs Posted (${myJobs.length})` : `Applications (${myApplications.length})`}
+            {t === "posted" ? `Jobs Posted (${myJobs.length})` : 
+             t === "applied" ? `Applications (${myApplications.length})` : 
+             "Edit Profile"}
           </button>
         ))}
       </div>
@@ -182,7 +185,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             ))}
           </div>
         )
-      ) : (
+      ) : tab === "applied" ? (
         myApplications.length === 0 ? (
           <div className="card text-center py-16">
             <p className="font-display text-xl text-amber-100 mb-2">No applications yet</p>
@@ -213,7 +216,9 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             ))}
           </div>
         )
-      )}
+      ) : tab === "edit_profile" ? (
+        <EditProfileForm publicKey={publicKey} />
+      ) : null}
     </div>
   );
 }
