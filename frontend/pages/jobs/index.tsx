@@ -1,51 +1,41 @@
 /**
- * pages/jobs/index.tsx
- * Browse all open jobs with category filtering.
- */
-import { useState, useEffect } from "react";
-import { useRouter } from "next/router";
-import Link from "next/link";
-import JobCard from "@/components/JobCard";
+* pages/jobs/index.tsx
+* Browse all open jobs with category filtering.
+*/
+import JobCard, { JobCardSkeleton } from "@/components/JobCard";
 import { fetchJobs } from "@/lib/api";
 import { JOB_CATEGORIES } from "@/utils/format";
 import type { Job } from "@/utils/types";
 import clsx from "clsx";
+import Link from "next/link";
+import { useRouter } from "next/router";
+import { useEffect, useState } from "react";
 
 export default function JobsPage() {
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   const category = (router.query.category as string) || "";
-  const status   = (router.query.status   as string) || "open";
-  const searchParam = (router.query.search as string) || "";
-
-  const [searchInput, setSearchInput] = useState(searchParam);
+  const status = (router.query.status as string) || "open";
 
   useEffect(() => {
-    if (router.isReady) {
-      setSearchInput(searchParam);
-    }
-  }, [searchParam, router.isReady]);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      if (searchInput !== searchParam && router.isReady) {
-        router.push({ pathname: "/jobs", query: { ...router.query, search: searchInput || undefined } }, undefined, { shallow: true });
-      }
-    }, 300);
-    return () => clearTimeout(handler);
-  }, [searchInput, searchParam, router]);
-
-  useEffect(() => {
-    if (!router.isReady) return;
     setLoading(true);
-    fetchJobs({ category: category || undefined, status: status || undefined, limit: 50, search: searchParam || undefined })
+    fetchJobs({ category: category || undefined, status: status || undefined, limit: 50 })
       .then(setJobs)
       .catch(() => setError("Could not load jobs."))
       .finally(() => setLoading(false));
-  }, [category, status, searchParam, router.isReady]);
+  }, [category, status]);
+
+  const filtered = search.trim()
+    ? jobs.filter((j) =>
+      j.title.toLowerCase().includes(search.toLowerCase()) ||
+      j.description.toLowerCase().includes(search.toLowerCase()) ||
+      j.skills.some((s) => s.toLowerCase().includes(search.toLowerCase()))
+    )
+    : jobs;
 
   const setFilter = (key: string, val: string) => {
     router.push({ pathname: "/jobs", query: { ...router.query, [key]: val || undefined } }, undefined, { shallow: true });
@@ -58,7 +48,7 @@ export default function JobsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="font-display text-3xl font-bold text-amber-100 mb-1">Browse Jobs</h1>
-          <p className="text-amber-800 text-sm">{loading ? "Loading..." : `${jobs.length} job${jobs.length !== 1 ? "s" : ""} found`}</p>
+          <p className="text-amber-800 text-sm">{loading ? "Loading..." : `${filtered.length} job${filtered.length !== 1 ? "s" : ""} found`}</p>
         </div>
         <Link href="/post-job" className="btn-primary text-sm py-2.5 px-5 flex-shrink-0">+ Post a Job</Link>
       </div>
@@ -67,7 +57,7 @@ export default function JobsPage() {
       <div className="relative mb-6">
         <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-800" />
         <input
-          type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
+          type="text" value={search} onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by title, skill, or keyword..."
           className="input-field pl-10"
         />
@@ -118,14 +108,7 @@ export default function JobsPage() {
           {loading ? (
             <div className="grid sm:grid-cols-2 gap-4">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="card animate-pulse space-y-3">
-                  <div className="h-5 bg-market-500/8 rounded w-3/4" />
-                  <div className="h-3 bg-market-500/5 rounded w-full" />
-                  <div className="h-3 bg-market-500/5 rounded w-5/6" />
-                  <div className="flex gap-2 mt-2">
-                    {[1,2,3].map(j => <div key={j} className="h-5 w-16 bg-market-500/8 rounded-full" />)}
-                  </div>
-                </div>
+                <JobCardSkeleton key={`job-skeleton-${i}`} />
               ))}
             </div>
           ) : error ? (
@@ -133,17 +116,15 @@ export default function JobsPage() {
               <p className="text-red-400 mb-3">{error}</p>
               <button onClick={() => window.location.reload()} className="btn-secondary text-sm">Retry</button>
             </div>
-          ) : jobs.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="card text-center py-16">
-              <p className="font-display text-xl text-amber-100 mb-2">
-                {searchParam ? `No results for "${searchParam}"` : "No jobs found"}
-              </p>
+              <p className="font-display text-xl text-amber-100 mb-2">No jobs found</p>
               <p className="text-amber-800 text-sm mb-6">Try adjusting your filters or search term</p>
               <Link href="/post-job" className="btn-primary text-sm">Post the first job →</Link>
             </div>
           ) : (
             <div className="grid sm:grid-cols-2 gap-4">
-              {jobs.map((job) => <JobCard key={job.id} job={job} />)}
+              {filtered.map((job) => <JobCard key={job.id} job={job} />)}
             </div>
           )}
         </div>
