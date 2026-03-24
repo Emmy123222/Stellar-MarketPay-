@@ -7,7 +7,7 @@ import Link from "next/link";
 import WalletConnect from "@/components/WalletConnect";
 import { fetchMyJobs, fetchMyApplications } from "@/lib/api";
 import { getXLMBalance } from "@/lib/stellar";
-import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard } from "@/utils/format";
+import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV } from "@/utils/format";
 import type { Job, Application } from "@/utils/types";
 import EditProfileForm from "@/components/EditProfileForm";
 import clsx from "clsx";
@@ -166,6 +166,15 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           </div>
         ) : (
           <div className="space-y-3">
+            <div className="flex justify-end mb-2">
+              <button 
+                onClick={() => exportJobsToCSV(myJobs)} 
+                className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-2"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                Download CSV
+              </button>
+            </div>
             {myJobs.map((job) => (
               <Link key={job.id} href={`/jobs/${job.id}`}>
                 <div className="card-hover flex items-center justify-between gap-4">
@@ -194,6 +203,15 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           </div>
         ) : (
           <div className="space-y-3">
+            <div className="flex justify-end mb-2">
+              <button 
+                onClick={() => exportApplicationsToCSV(myApplications)} 
+                className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-2"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                Download CSV
+              </button>
+            </div>
             {myApplications.map((app) => (
               <Link key={app.id} href={`/jobs/${app.jobId}`}>
                 <div className="card-hover flex items-center justify-between gap-4">

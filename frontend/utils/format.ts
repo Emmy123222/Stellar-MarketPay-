@@ -4,7 +4,7 @@
  */
 
 import { formatDistanceToNow, format } from "date-fns";
-import type { JobStatus } from "./types";
+import type { JobStatus, Job, Application } from "./types";
 
 export function formatXLM(amount: string | number, decimals = 4): string {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
@@ -45,3 +45,43 @@ export const JOB_CATEGORIES = [
   "UI/UX Design", "Technical Writing", "DevOps", "Security Audit",
   "Data Analysis", "Mobile Development", "Other",
 ];
+
+function downloadCSV(csv: string, filename: string) {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+export function exportJobsToCSV(jobs: Job[]) {
+  const headers = ["Title", "Status", "Budget (XLM)", "Category", "Applicants", "Created Date"];
+  const rows = jobs.map(j => [
+    `"${j.title.replace(/"/g, '""')}"`,
+    statusLabel(j.status),
+    j.budget,
+    j.category,
+    j.applicantCount.toString(),
+    formatDate(j.createdAt)
+  ]);
+  const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+  const dateStr = new Date().toISOString().split("T")[0];
+  downloadCSV(csv, `marketpay-jobs-${dateStr}.csv`);
+}
+
+export function exportApplicationsToCSV(apps: Application[]) {
+  const headers = ["Job ID", "Bid Amount (XLM)", "Status", "Proposal", "Applied Date"];
+  const rows = apps.map(a => [
+    a.jobId,
+    a.bidAmount,
+    a.status,
+    `"${a.proposal.substring(0, 100).replace(/"/g, '""')}${a.proposal.length > 100 ? '...' : ''}"`,
+    formatDate(a.createdAt)
+  ]);
+  const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+  const dateStr = new Date().toISOString().split("T")[0];
+  downloadCSV(csv, `marketpay-applications-${dateStr}.csv`);
+}
