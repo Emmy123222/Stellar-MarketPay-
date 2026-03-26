@@ -19,6 +19,8 @@ const links = [
   { href: "/post-job",    label: "Post a Job" },
 ];
 
+const STELLAR_NETWORK = process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet";
+
 export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarProps) {
   const router = useRouter();
 
@@ -35,6 +37,16 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
             Stellar<span className="text-market-400">MarketPay</span>
           </span>
         </Link>
+
+        {/* Network badge */}
+        <span className={clsx(
+          "hidden md:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border flex-shrink-0",
+          STELLAR_NETWORK === "mainnet"
+            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+            : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+        )}>
+          {STELLAR_NETWORK === "mainnet" ? "Mainnet" : "Testnet"}
+        </span>
 
         {/* Nav links */}
         <div className="hidden md:flex items-center gap-1">
