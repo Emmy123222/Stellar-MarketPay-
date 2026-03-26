@@ -64,6 +64,12 @@ router.post("/", (req, res, next) => {
     );
 
     const token = jwt.sign({ publicKey: accountId }, JWT_SECRET, { expiresIn: "24h" });
+    res.cookie("jwt", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 24 * 60 * 60 * 1000,
+    });
     res.json({ success: true, token });
   } catch (e) {
     res.status(401).json({ error: "Unauthorized: " + e.message });
