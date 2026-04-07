@@ -2,15 +2,16 @@
  * pages/dashboard.tsx
  * User dashboard — shows posted jobs, applications, and wallet balance.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import WalletConnect from "@/components/WalletConnect";
-import { fetchMyJobs, fetchMyApplications } from "@/lib/api";
-import { getXLMBalance, getUSDCBalance } from "@/lib/stellar";
+import { fetchMyJobs, fetchMyApplications, fetchApplications } from "@/lib/api";
+import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
 import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV } from "@/utils/format";
 import type { Job, Application } from "@/utils/types";
 import EditProfileForm from "@/components/EditProfileForm";
 import SendPaymentForm from "@/components/SendPaymentForm";
+import { useToast } from "@/components/Toast";
 import clsx from "clsx";
 
 interface DashboardProps {
@@ -20,15 +21,46 @@ interface DashboardProps {
 
 type Tab = "posted" | "applied" | "send" | "edit_profile";
 
+function syncDashboardNavBadge(count: number) {
+  if (typeof document === "undefined") return;
+
+  const navLink = document.querySelector('a[href="/dashboard"]');
+  if (!(navLink instanceof HTMLElement)) return;
+
+  navLink.classList.add("relative");
+
+  let badge = navLink.querySelector("[data-dashboard-badge]");
+  if (count <= 0) {
+    badge?.remove();
+    return;
+  }
+
+  if (!(badge instanceof HTMLSpanElement)) {
+    badge = document.createElement("span");
+    badge.setAttribute("data-dashboard-badge", "true");
+    badge.className = "absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-market-400 text-ink-900 text-[10px] font-bold flex items-center justify-center shadow-[0_0_18px_rgba(251,191,36,0.45)]";
+    navLink.appendChild(badge);
+  }
+
+  badge.textContent = count > 9 ? "9+" : String(count);
+}
+
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
+  const toast = useToast();
   const [tab, setTab] = useState<Tab>("posted");
   const [myJobs, setMyJobs] = useState<Job[]>([]);
   const [myApplications, setMyApplications] = useState<Application[]>([]);
   const [balance, setBalance]           = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance]   = useState<string | null>(null);
+  const [notificationCount, setNotificationCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
+  const latestJobsRef = useRef<Job[]>([]);
+  const latestApplicationsRef = useRef<Application[]>([]);
+  const latestJobApplicationsRef = useRef<Map<string, Application[]>>(new Map());
+  const seenNotificationsRef = useRef<Set<string>>(new Set());
+  const refreshPromiseRef = useRef<Promise<void> | null>(null);
 
   const handleCopy = async () => {
     if (!publicKey) return;
@@ -43,23 +75,131 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     }
   };
 
-  useEffect(() => {
-    if (!publicKey) return;
-    Promise.all([
+  const loadDashboardData = useCallback(async () => {
+    if (!publicKey) return null;
+
+    const [jobs, apps, bal, usdc] = await Promise.all([
       fetchMyJobs(publicKey),
       fetchMyApplications(publicKey),
       getXLMBalance(publicKey),
       getUSDCBalance(publicKey),
-    ])
-      .then(([jobs, apps, bal, usdc]) => {
-        setMyJobs(jobs);
-        setMyApplications(apps);
-        setBalance(bal);
-        setUsdcBalance(usdc);
-      })
+    ]);
+
+    const jobApplications = new Map<string, Application[]>();
+    const applicationLists = await Promise.all(
+      jobs.map((job) =>
+        fetchApplications(job.id).catch(() => [])
+      )
+    );
+
+    jobs.forEach((job, index) => {
+      jobApplications.set(job.id, applicationLists[index]);
+    });
+
+    setMyJobs(jobs);
+    setMyApplications(apps);
+    setBalance(bal);
+    setUsdcBalance(usdc);
+    latestJobsRef.current = jobs;
+    latestApplicationsRef.current = apps;
+    latestJobApplicationsRef.current = jobApplications;
+
+    return { jobs, apps, jobApplications };
+  }, [publicKey]);
+
+  const pushNotification = useCallback(
+    (key: string, message: string, variant: "success" | "info" = "info") => {
+      if (seenNotificationsRef.current.has(key)) return;
+
+      seenNotificationsRef.current.add(key);
+      setNotificationCount((count) => count + 1);
+      if (variant === "success") {
+        toast.success(message);
+        return;
+      }
+      toast.info(message);
+    },
+    [toast]
+  );
+
+  const refreshNotifications = useCallback(async () => {
+    if (!publicKey) return;
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+
+    refreshPromiseRef.current = (async () => {
+      const previousApplications = latestApplicationsRef.current;
+      const previousJobApplications = latestJobApplicationsRef.current;
+      const nextData = await loadDashboardData();
+      if (!nextData) return;
+
+      const { jobs, apps, jobApplications } = nextData;
+
+      for (const job of jobs) {
+        const previousIds = new Set(
+          (previousJobApplications.get(job.id) ?? []).map((application) => application.id)
+        );
+
+        for (const application of jobApplications.get(job.id) ?? []) {
+          if (!previousIds.has(application.id)) {
+            pushNotification(
+              `job:${job.id}:application:${application.id}`,
+              `New application received for: ${job.title}`,
+              "success"
+            );
+          }
+        }
+      }
+
+      const previousStatuses = new Map(
+        previousApplications.map((application) => [application.id, application.status])
+      );
+
+      for (const application of apps) {
+        const previousStatus = previousStatuses.get(application.id);
+        if (previousStatus && previousStatus !== application.status) {
+          pushNotification(
+            `application:${application.id}:status:${application.status}`,
+            `Application status updated: ${application.status}`,
+            application.status === "accepted" ? "success" : "info"
+          );
+        }
+      }
+    })().finally(() => {
+      refreshPromiseRef.current = null;
+    });
+
+    return refreshPromiseRef.current;
+  }, [loadDashboardData, publicKey, pushNotification]);
+
+  useEffect(() => {
+    if (!publicKey) return;
+
+    loadDashboardData()
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [publicKey]);
+  }, [loadDashboardData, publicKey]);
+
+  useEffect(() => {
+    syncDashboardNavBadge(notificationCount);
+    return () => syncDashboardNavBadge(0);
+  }, [notificationCount]);
+
+  useEffect(() => {
+    if (!publicKey) {
+      setNotificationCount(0);
+      seenNotificationsRef.current.clear();
+      syncDashboardNavBadge(0);
+      return;
+    }
+
+    const stopStreaming = streamAccountTransactions(publicKey, () => {
+      void refreshNotifications();
+    });
+
+    return () => {
+      stopStreaming();
+    };
+  }, [publicKey, refreshNotifications]);
 
   if (!publicKey) {
     return (
@@ -79,7 +219,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="font-display text-3xl font-bold text-amber-100 mb-1">Dashboard</h1>
+          <div className="flex items-center gap-3 mb-1">
+            <h1 className="font-display text-3xl font-bold text-amber-100">Dashboard</h1>
+            {notificationCount > 0 && (
+              <span className="inline-flex items-center rounded-full bg-market-400/15 px-2.5 py-1 text-xs font-semibold text-market-300 border border-market-400/25">
+                {notificationCount} new
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="address-tag">{shortenAddress(publicKey)}</span>
