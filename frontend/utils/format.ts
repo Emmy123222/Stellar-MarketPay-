@@ -84,6 +84,21 @@ export function formatDeadline(dateString: string): string {
   catch { return ""; }
 }
 
+export type DeadlineState = "none" | "closing_soon" | "closed";
+
+export function getDeadlineState(dateString?: string | null, now = Date.now()): DeadlineState {
+  if (!dateString) return "none";
+
+  const deadline = new Date(dateString);
+  const deadlineTime = deadline.getTime();
+  if (Number.isNaN(deadlineTime)) return "none";
+
+  if (deadlineTime <= now) return "closed";
+  if (deadlineTime - now <= 72 * 60 * 60 * 1000) return "closing_soon";
+
+  return "none";
+}
+
 export function shortenAddress(address: string, chars = 6): string {
   if (!address || address.length < chars * 2) return address;
   return `${address.slice(0, chars)}...${address.slice(-chars)}`;
