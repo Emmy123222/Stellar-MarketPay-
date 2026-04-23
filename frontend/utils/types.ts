@@ -57,6 +57,16 @@ export interface Application {
   createdAt: string;
 }
 
+export interface ProfileStats {
+  totalApplications: number;
+  acceptedApplications: number;
+  successRate: number;
+}
+
+export interface ResponseTimeStats {
+  averageDays: number | null;
+}
+
 export interface UserProfile {
   publicKey: string;
   displayName?: string;
