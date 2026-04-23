@@ -308,7 +308,7 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
 
         {showDeleteConfirmation && selectedTemplateName && (
           <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 space-y-3">
-            <p className="text-sm text-red-300">Delete template "{selectedTemplateName}"?</p>
+            <p className="text-sm text-red-300">Delete template &quot;{selectedTemplateName}&quot;?</p>
             <div className="flex flex-wrap gap-3">
               <button type="button" onClick={handleConfirmDelete} className="btn-secondary px-4 py-2 text-sm">
                 Confirm Delete
@@ -499,8 +499,8 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
           <div className="p-4 rounded-xl bg-market-900/60 border border-market-500/20 space-y-3">
             <p className="text-xs font-medium text-amber-800/70 uppercase tracking-wider">Transaction progress</p>
             <div className="flex items-center gap-3">
-              <StepDot status={step === "posting" ? "active" : step === "idle" || step === "error" ? "idle" : "done"} />
-              <span className={clsx("text-sm", step === "posting" ? "text-amber-100" : step === "idle" ? "text-amber-800/50" : "text-green-400")}>
+              <StepDot status={step === "posting" ? "active" : step === "error" ? "idle" : "done"} />
+              <span className={clsx("text-sm", step === "posting" ? "text-amber-100" : step === "error" ? "text-amber-800/50" : "text-green-400")}>
                 Posting job
               </span>
             </div>
@@ -552,7 +552,7 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
           {pendingOverwriteTemplate && (
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 space-y-3">
               <p className="text-sm text-amber-100">
-                A template named "{pendingOverwriteTemplate.name}" already exists. Overwrite it?
+                A template named &quot;{pendingOverwriteTemplate.name}&quot; already exists. Overwrite it?
               </p>
               <div className="flex flex-wrap gap-3">
                 <button type="button" onClick={handleConfirmOverwrite} className="btn-secondary px-4 py-2 text-sm">

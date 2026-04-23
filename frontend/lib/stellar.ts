@@ -11,9 +11,6 @@ import { SorobanRpc } from "@stellar/stellar-sdk";
 
 const NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as "testnet" | "mainnet";
 const HORIZON_URL = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
-const SOROBAN_RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
-
-/** Soroban RPC (Stellar RPC) — used for smart contract calls. */
 const SOROBAN_RPC_URL =
   process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ||
   (NETWORK === "mainnet"
@@ -29,9 +26,6 @@ export const XLM_SAC_ADDRESS =
   NETWORK === "mainnet"
     ? "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
     : "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
-
-/** Shared Soroban RPC client for simulate / prepare / submit / poll. */
-export const sorobanServer = new SorobanServer(SOROBAN_RPC_URL, { allowHttp: SOROBAN_RPC_URL.startsWith("http://") });
 
 // USDC asset issued by Circle
 export const USDC_ISSUER =
@@ -177,7 +171,7 @@ export async function buildReleaseEscrowTransaction(
     );
 
     const built = new TransactionBuilder(account, {
-      fee: BASE_FEE,
+      fee: "1000000",
       networkPassphrase: NETWORK_PASSPHRASE,
     })
       .addOperation(op)
@@ -202,7 +196,7 @@ export async function submitSignedSorobanTransaction(signedXdr: string): Promise
     throw new Error(friendlySorobanError(err));
   }
 
-  let sent: Api.SendTransactionResponse;
+  let sent: SorobanRpc.Api.SendTransactionResponse;
   try {
     sent = await sorobanServer.sendTransaction(tx);
   } catch (err: unknown) {
@@ -224,10 +218,10 @@ export async function submitSignedSorobanTransaction(signedXdr: string): Promise
   const maxAttempts = 90;
   for (let i = 0; i < maxAttempts; i += 1) {
     const info = await sorobanServer.getTransaction(hash);
-    if (info.status === Api.GetTransactionStatus.SUCCESS) {
+    if (info.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
       return { hash };
     }
-    if (info.status === Api.GetTransactionStatus.FAILED) {
+    if (info.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
       throw new Error(
         "The on-chain transaction failed. Open the explorer link to see details, or verify the escrow state matches this job."
       );
