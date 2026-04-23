@@ -9,10 +9,20 @@ const { createRateLimiter } = require("../middleware/rateLimiter");
 const profileUpdateRateLimiter = createRateLimiter(5, 1); // 5 profile updates per minute
 const generalProfileRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for getting profiles
 
-const { getProfile, upsertProfile, updateAvailability } = require("../services/profileService");
+const { getProfile, upsertProfile, updateAvailability, getProfileStats, getResponseTime } = require("../services/profileService");
 
 router.get("/:publicKey", generalProfileRateLimiter ,async (req, res, next) => {
   try { res.json({ success: true, data: await getProfile(req.params.publicKey) }); }
+  catch (e) { next(e); }
+});
+
+router.get("/:publicKey/stats", generalProfileRateLimiter, async (req, res, next) => {
+  try { res.json({ success: true, data: await getProfileStats(req.params.publicKey) }); }
+  catch (e) { next(e); }
+});
+
+router.get("/:publicKey/response-time", generalProfileRateLimiter, async (req, res, next) => {
+  try { res.json({ success: true, data: await getResponseTime(req.params.publicKey) }); }
   catch (e) { next(e); }
 });
 
