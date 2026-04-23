@@ -260,7 +260,6 @@ async function getProfile(publicKey) {
   const profile = rowToProfile(rows[0]);
   profile.rating = rows[0].avg_rating !== null ? parseFloat(rows[0].avg_rating) : null;
   profile.ratingCount = rows[0].rating_count;
-  profile.tier = calculateFreelancerTier(profile.completedJobs, profile.rating);
 
   // Calculate reputation score (simple formula: higher weight on ratings, lower on time)
   // Max score 100.
@@ -329,7 +328,7 @@ async function getProfile(publicKey) {
  *   role: 'freelancer',
  * });
  */
-async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, portfolioFiles, availability, role, email, emailNotificationsEnabled, webhookUrl, webhookSecret }) {
+async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, availability, role }) {
   validatePublicKey(publicKey);
 
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 15) : null;

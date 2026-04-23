@@ -148,14 +148,8 @@ function rowToJob(row) {
     deadline: row.deadline,
     timezone: row.timezone,
     screeningQuestions: row.screening_questions || [],
-    disputeReason:      row.dispute_reason,
-    disputeDescription: row.dispute_description,
-    disputedBy:         row.disputed_by,
-    disputedAt:         row.disputed_at,
-    createdAt:          row.created_at,
-    updatedAt:          row.updated_at,
-    viewCount:          row.view_count || 0,
-    expiresAt:          row.expires_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -314,7 +308,6 @@ function decodeCursor(cursor) {
  * @property {string} [search] - Search term for title, description, or skills.
  * @property {string} [cursor] - Pagination cursor.
  * @property {string} [timezone] - Filter by timezone.
- * @property {boolean} [includeExpired=false] - Whether to include expired jobs.
  */
 
 /**
@@ -324,7 +317,7 @@ function decodeCursor(cursor) {
  * @returns {Promise<{jobs: Object[], nextCursor: string|null}>} An object containing the list of jobs and an optional next cursor for pagination.
  * @throws {Error} If the provided cursor is invalid.
  */
-async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone, includeExpired = false, viewerAddress } = {}) {
+async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone } = {}) {
   const conditions = [];
   const params = [];
 
