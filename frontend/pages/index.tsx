@@ -4,11 +4,30 @@
  */
 import Link from "next/link";
 import { useState } from "react";
+import type { GetStaticProps } from "next";
 import WalletConnect from "@/components/WalletConnect";
+import { fetchRecentlyCompletedJobs } from "@/lib/api";
+import { formatXLM } from "@/utils/format";
+import type { Job } from "@/utils/types";
+
+// Category → emoji icon mapping for compact cards
+const CATEGORY_ICONS: Record<string, string> = {
+  "Smart Contracts": "📜",
+  "Frontend Development": "🖥️",
+  "Backend Development": "⚙️",
+  "UI/UX Design": "🎨",
+  "Technical Writing": "✍️",
+  "DevOps": "🚀",
+  "Security Audit": "🔐",
+  "Data Analysis": "📊",
+  "Mobile Development": "📱",
+  "Other": "💼",
+};
 
 interface HomeProps {
   publicKey: string | null;
   onConnect: (pk: string) => void;
+  completedJobs: Job[];
 }
 
 const STEPS = [
@@ -30,7 +49,7 @@ const CATEGORIES = [
   "DevOps", "Data Analysis",
 ];
 
-export default function Home({ publicKey, onConnect }: HomeProps) {
+export default function Home({ publicKey, onConnect, completedJobs }: HomeProps) {
   const [showConnect, setShowConnect] = useState(false);
 
   return (
@@ -118,6 +137,52 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
           </div>
         </div>
 
+        {/* ── Recently Completed ──────────────────────────────────────────── */}
+        <div className="mb-20">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h2 className="font-display text-3xl font-bold text-amber-100 mb-1">Recently Completed</h2>
+              <p className="text-amber-800 text-sm font-body">Real work, real payments — settled on Stellar.</p>
+            </div>
+            <Link href="/jobs?status=completed"
+              className="text-sm text-market-400 hover:text-market-300 transition-colors font-body whitespace-nowrap">
+              View all completed work →
+            </Link>
+          </div>
+
+          {completedJobs.length === 0 ? (
+            <div className="card text-center py-12">
+              <p className="text-3xl mb-3">🏁</p>
+              <p className="text-amber-700 font-body text-sm">No completed jobs yet — be the first to finish one.</p>
+            </div>
+          ) : (
+            <div className="grid sm:grid-cols-3 gap-4">
+              {completedJobs.map((job) => (
+                <Link key={job.id} href={`/jobs/${job.id}`}>
+                  <div className="card group hover:border-market-500/25 transition-all h-full flex flex-col">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xl" aria-hidden="true">
+                        {CATEGORY_ICONS[job.category] ?? "💼"}
+                      </span>
+                      <span className="text-xs text-amber-800 font-body truncate">{job.category}</span>
+                      <span className="ml-auto flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                        ✓ Done
+                      </span>
+                    </div>
+                    <h3 className="font-display font-semibold text-amber-200 text-sm leading-snug group-hover:text-market-300 transition-colors line-clamp-2 mb-3 flex-1">
+                      {job.title}
+                    </h3>
+                    <div className="pt-2 border-t border-[rgba(251,191,36,0.07)]">
+                      <p className="text-xs text-amber-800 mb-0.5">Budget</p>
+                      <p className="font-mono font-semibold text-market-400 text-sm">{formatXLM(job.budget)}</p>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* ── Why Stellar ─────────────────────────────────────────────────── */}
         <div className="card mb-20 bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18">
           <div className="max-w-3xl mx-auto text-center">
@@ -165,3 +230,16 @@ export default function Home({ publicKey, onConnect }: HomeProps) {
     </div>
   );
 }
+
+export const getStaticProps: GetStaticProps = async () => {
+  let completedJobs: Job[] = [];
+  try {
+    completedJobs = await fetchRecentlyCompletedJobs(3);
+  } catch {
+    // Backend may be unavailable at build time — render empty state gracefully
+  }
+  return {
+    props: { completedJobs },
+    revalidate: 60, // ISR: refresh every 60 seconds
+  };
+};

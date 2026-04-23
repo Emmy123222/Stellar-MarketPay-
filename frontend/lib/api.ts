@@ -97,6 +97,17 @@ export async function fetchJobs(params?: { category?: string; status?: string; l
 }
 
 /**
+ * Fetches the most recently completed jobs for social proof on the home page.
+ *
+ * @param limit Number of completed jobs to fetch (default 3).
+ * @returns Array of completed jobs, newest first.
+ */
+export async function fetchRecentlyCompletedJobs(limit = 3): Promise<Job[]> {
+  const { jobs } = await fetchJobs({ status: "completed", limit });
+  return jobs;
+}
+
+/**
  * Fetches a single job by its identifier.
  *
  * @param id Job identifier.
