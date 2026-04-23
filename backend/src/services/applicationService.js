@@ -124,7 +124,7 @@ async function acceptApplication(applicationId, clientAddress) {
 
     // Accept this one
     const { rows: updated } = await client.query(
-      "UPDATE applications SET status = 'accepted' WHERE id = $1 RETURNING *",
+      "UPDATE applications SET status = 'accepted', accepted_at = NOW() WHERE id = $1 RETURNING *",
       [applicationId]
     );
 

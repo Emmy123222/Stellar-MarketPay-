@@ -7,10 +7,11 @@ import { useState } from "react";
 import { createJob, updateJobEscrowId, deleteJob } from "@/lib/api";
 import { buildCreateEscrowTransaction, submitSorobanTransaction } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import { JOB_CATEGORIES, SKILL_SUGGESTIONS } from "@/utils/format";
+import { JOB_CATEGORIES, SKILL_SUGGESTIONS, formatUSDEquivalent, getMonthlyEstimate } from "@/utils/format";
 import { useRouter } from "next/router";
 import clsx from "clsx";
 import { useToast } from "@/components/Toast";
+import { usePriceContext } from "@/contexts/PriceContext";
 
 interface PostJobFormProps { publicKey: string; }
 
@@ -19,6 +20,7 @@ type Step = "idle" | "posting" | "locking" | "done" | "error";
 export default function PostJobForm({ publicKey }: PostJobFormProps) {
   const router = useRouter();
   const toast = useToast();
+  const { xlmPriceUsd } = usePriceContext();
   const [form, setForm] = useState({
     title: "", description: "", budget: "", category: "", skillInput: "", deadline: "",
   });
@@ -28,6 +30,9 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+
+  const usdPreview = formatUSDEquivalent(form.budget, xlmPriceUsd);
+  const monthlyEst = getMonthlyEstimate(form.budget, xlmPriceUsd);
 
   const set = (key: string, val: string) => setForm((f) => ({ ...f, [key]: val }));
 
@@ -211,8 +216,16 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
           </div>
           <div>
             <label className="label">Budget (XLM)</label>
-            <input type="number" value={form.budget} onChange={(e) => set("budget", e.target.value)}
-              placeholder="e.g. 500" min="1" step="1" className="input-field" />
+            <div className="relative">
+              <input type="number" value={form.budget} onChange={(e) => set("budget", e.target.value)}
+                placeholder="e.g. 500" min="1" step="1" className="input-field pr-24" />
+              {usdPreview && (
+                <div className="absolute inset-y-0 right-0 flex flex-col justify-center pr-3 pointer-events-none text-right">
+                  <span className="text-[10px] font-semibold text-market-400">{usdPreview.replace('≈ ', '')}</span>
+                  <span className="text-[9px] text-amber-800/40 leading-none">{monthlyEst}</span>
+                </div>
+              )}
+            </div>
             <p className="mt-1 text-xs text-amber-800/50">Will be locked in escrow on hire</p>
           </div>
         </div>

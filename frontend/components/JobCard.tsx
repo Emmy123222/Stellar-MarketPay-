@@ -3,7 +3,7 @@
  * Displays a single job listing in the browse grid.
  */
 import Link from "next/link";
-import { formatDeadline, formatXLM, statusClass, statusLabel, timeAgo, formatUSDEquivalent } from "@/utils/format";
+import { formatDeadline, formatXLM, statusClass, statusLabel, timeAgo, formatUSDEquivalent, getMonthlyEstimate } from "@/utils/format";
 import type { Job } from "@/utils/types";
 import { usePriceContext } from "@/contexts/PriceContext";
 
@@ -51,11 +51,17 @@ export default function JobCard({ job }: JobCardProps) {
 
         {/* Footer */}
         <div className="flex items-center justify-between pt-3 border-t border-[rgba(251,191,36,0.07)]">
-          <div>
+          <div className="group/tooltip relative">
             <p className="text-xs text-amber-800 mb-0.5">Budget</p>
-            <p className="font-mono font-semibold text-market-400 text-sm">{formatXLM(job.budget)}</p>
+            <p className="font-mono font-semibold text-market-400 text-sm cursor-help">{formatXLM(job.budget)}</p>
             {usdEquivalent && (
-              <p className="text-xs text-amber-800/60 mt-0.5">{usdEquivalent}</p>
+              <div className="absolute bottom-full left-0 mb-2 hidden group-hover/tooltip:block z-20">
+                <div className="bg-ink-800 border border-market-500/30 text-amber-100 text-[10px] py-1.5 px-2.5 rounded shadow-xl whitespace-nowrap backdrop-blur-md">
+                  <p className="font-semibold text-market-300">{usdEquivalent}</p>
+                  <p className="text-amber-800/80 mt-0.5">{getMonthlyEstimate(job.budget, xlmPriceUsd)}</p>
+                </div>
+                <div className="w-2 h-2 bg-ink-800 border-r border-b border-market-500/30 rotate-45 -mt-1 ml-3" />
+              </div>
             )}
           </div>
           <div className="text-right">

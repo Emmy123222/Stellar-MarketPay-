@@ -40,7 +40,18 @@ async function getProfile(publicKey) {
   const { rows } = await pool.query(
     `SELECT p.*,
        ROUND(AVG(r.stars)::numeric, 2) AS avg_rating,
-       COUNT(r.id)::int                AS rating_count
+       COUNT(r.id)::int                AS rating_count,
+       -- Reputation metrics
+       (SELECT ROUND(AVG(EXTRACT(EPOCH FROM (a.accepted_at - j.created_at)) / 3600)::numeric, 1)
+        FROM jobs j
+        JOIN applications a ON a.job_id = j.id
+        WHERE j.client_address = p.public_key AND a.status = 'accepted' AND a.accepted_at IS NOT NULL
+       ) AS avg_accept_hours,
+       (SELECT ROUND(AVG(EXTRACT(EPOCH FROM (e.released_at - e.created_at)) / 3600)::numeric, 1)
+        FROM escrows e
+        JOIN jobs j ON j.id = e.job_id
+        WHERE j.client_address = p.public_key AND e.status = 'released' AND e.released_at IS NOT NULL
+       ) AS avg_release_hours
      FROM profiles p
      LEFT JOIN ratings r ON r.rated_address = p.public_key
      WHERE p.public_key = $1
@@ -57,6 +68,28 @@ async function getProfile(publicKey) {
   const profile = rowToProfile(rows[0]);
   profile.rating      = rows[0].avg_rating !== null ? parseFloat(rows[0].avg_rating) : null;
   profile.ratingCount = rows[0].rating_count;
+  
+  // Calculate reputation score (simple formula: higher weight on ratings, lower on time)
+  // Max score 100.
+  let repScore = 0;
+  if (profile.rating) repScore += profile.rating * 15; // up to 75
+  
+  // Bonus for fast acceptance (avg < 24h)
+  const acceptHours = parseFloat(rows[0].avg_accept_hours || 0);
+  if (acceptHours > 0 && acceptHours < 24) repScore += 15;
+  else if (acceptHours > 0 && acceptHours < 72) repScore += 10;
+  
+  // Bonus for fast release (avg < 48h)
+  const releaseHours = parseFloat(rows[0].avg_release_hours || 0);
+  if (releaseHours > 0 && releaseHours < 48) repScore += 10;
+  else if (releaseHours > 0 && releaseHours < 168) repScore += 5;
+
+  profile.reputationScore = Math.min(repScore, 100);
+  profile.reputationMetrics = {
+    avgAcceptHours: acceptHours,
+    avgReleaseHours: releaseHours
+  };
+
   return profile;
 }
 
