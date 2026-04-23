@@ -57,12 +57,14 @@ export default function ApplicationForm({ job, publicKey, prefillData, onSuccess
     setLoading(true);
     setError(null);
     try {
+      const referredBy = typeof window !== "undefined" ? localStorage.getItem(`referral_${job.id}`) : null;
       await submitApplication({
         jobId: job.id,
         freelancerAddress: publicKey,
         proposal: proposal.trim(),
         bidAmount: parseFloat(bidAmount).toFixed(7),
-          screeningAnswers: job.screeningQuestions && job.screeningQuestions.length > 0 ? screeningAnswers : undefined,
+        screeningAnswers: job.screeningQuestions && job.screeningQuestions.length > 0 ? screeningAnswers : undefined,
+        referredBy: referredBy || undefined,
       });
       toast.success("Proposal submitted successfully!");
       onSuccess();
