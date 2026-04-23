@@ -5,7 +5,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import WalletConnect from "@/components/WalletConnect";
-import { fetchMyJobs, fetchMyApplications } from "@/lib/api";
+import { fetchMyJobs, fetchMyApplications, fetchUnreadCount } from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
 import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV } from "@/utils/format";
 import type { Job, Application } from "@/utils/types";
@@ -25,6 +25,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [tab, setTab] = useState<Tab>("posted");
   const [myJobs, setMyJobs] = useState<Job[]>([]);
   const [myApplications, setMyApplications] = useState<Application[]>([]);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
   const [balance, setBalance]           = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance]   = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,12 +57,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       fetchMyApplications(publicKey),
       getXLMBalance(publicKey),
       getUSDCBalance(publicKey),
+      fetchUnreadCount(),
     ])
-      .then(([jobs, apps, bal, usdc]) => {
+      .then(([jobs, apps, bal, usdc, unread]) => {
         setMyJobs(jobs);
         setMyApplications(apps);
         setBalance(bal);
         setUsdcBalance(usdc);
+        setUnreadCount(unread);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -204,12 +207,21 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         {(["posted", "applied", "send", "edit_profile"] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={clsx(
-              "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap",
+              "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap flex items-center gap-2",
               tab === t ? "border-market-400 text-market-300" : "border-transparent text-amber-700 hover:text-amber-400"
             )}>
-            {t === "posted"      ? `Jobs Posted (${myJobs.length})` :
-             t === "applied"     ? `Applications (${myApplications.length})` :
-             t === "send"        ? "Send Payment" :
+            {t === "posted"    ? `Jobs Posted (${myJobs.length})` :
+             t === "applied"   ? (
+               <>
+                 <span>Applications</span>
+                 {unreadCount > 0 && (
+                   <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-red-500 text-white">
+                     {unreadCount > 99 ? "99+" : unreadCount}
+                   </span>
+                 )}
+               </>
+             ) :
+             t === "send"      ? "Send Payment" :
              "Edit Profile"}
           </button>
         ))}

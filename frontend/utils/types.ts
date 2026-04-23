@@ -94,3 +94,13 @@ export interface EscrowState {
   status: "locked" | "released" | "refunded" | "disputed";
   createdLedger: number;
 }
+
+export interface Message {
+  id: string;
+  jobId: string;
+  senderAddress: string;
+  receiverAddress: string;
+  content: string;
+  read: boolean;
+  createdAt: string;
+}

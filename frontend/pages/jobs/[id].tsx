@@ -12,6 +12,7 @@ import FreelancerTierBadge from "@/components/FreelancerTierBadge";
 import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
 import ProposalComparison from "@/components/ProposalComparison";
+import MessageThread from "@/components/MessageThread";
 import { fetchJob, fetchApplications, acceptApplication, releaseEscrow } from "@/lib/api";
 import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
 import {
@@ -300,6 +301,19 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           )}
         </div>
       )}
+
+       {/* ── Message Thread (only for in-progress jobs, visible to client & freelancer) ── */}
+       {job.status === "in_progress" && publicKey && job.freelancerAddress && (
+         (job.clientAddress === publicKey || job.freelancerAddress === publicKey) && (
+           <div className="mb-6">
+             <MessageThread
+               jobId={job.id}
+               currentUserAddress={publicKey}
+               otherUserAddress={job.clientAddress === publicKey ? job.freelancerAddress! : job.clientAddress}
+             />
+           </div>
+         )
+       )}
 
       {/* Applications (client view) */}
       {isClient && applications.length > 0 && (

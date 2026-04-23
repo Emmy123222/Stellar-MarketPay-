@@ -112,3 +112,22 @@ CREATE TABLE IF NOT EXISTS ratings (
 
 CREATE INDEX IF NOT EXISTS ratings_rated_address_idx ON ratings(rated_address);
 CREATE INDEX IF NOT EXISTS ratings_job_id_idx        ON ratings(job_id);
+
+-- ─────────────────────────────────────────
+-- messages
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS messages (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id           UUID        NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  sender_address   TEXT        NOT NULL REFERENCES profiles(public_key),
+  receiver_address TEXT        NOT NULL REFERENCES profiles(public_key),
+  content          TEXT        NOT NULL CHECK (char_length(content) >= 1 AND char_length(content) <= 2000),
+  read             BOOLEAN    NOT NULL DEFAULT FALSE,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS messages_job_id_idx       ON messages(job_id);
+CREATE INDEX IF NOT EXISTS messages_sender_idx       ON messages(sender_address);
+CREATE INDEX IF NOT EXISTS messages_receiver_idx     ON messages(receiver_address);
+CREATE INDEX IF NOT EXISTS messages_read_idx         ON messages(read);
+CREATE INDEX IF NOT EXISTS messages_created_at_idx   ON messages(created_at DESC);

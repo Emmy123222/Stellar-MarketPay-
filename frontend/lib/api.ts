@@ -18,7 +18,7 @@
  */
 
 import axios from "axios";
-import type { Availability, Job, Application, UserProfile, Rating } from "@/utils/types";
+import type { Availability, Job, Application, UserProfile, Rating, Message } from "@/utils/types";
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000",
@@ -416,3 +416,49 @@ export async function fetchRatings(publicKey: string) {
   const { data } = await api.get<{ success: boolean; data: Rating[] }>(`/api/ratings/${publicKey}`);
   return data.data;
 }
+
+// ─── Messages ──────────────────────────────────────────────────────────────────
+
+/**
+ * Fetches all messages for a specific job.
+ * Automatically marks messages as read for the current user.
+ *
+ * @param jobId Job identifier.
+ * @returns Messages sorted chronologically (oldest first).
+ * @throws {import("axios").AxiosError} If unauthorized, job not found, or request fails.
+ * @see backend/src/routes/messageRoutes.js
+ */
+export async function fetchMessages(jobId: string): Promise<Message[]> {
+  const { data } = await api.get<{ success: boolean; data: Message[] }>(`/api/messages/job/${jobId}`);
+  return data.data;
+}
+
+/**
+ * Sends a message in a job thread.
+ *
+ * Request payload shape:
+ * - `content` (string): message text (1-2000 characters).
+ *
+ * @param jobId Job identifier.
+ * @param content Message content.
+ * @returns The created message object.
+ * @throws {import("axios").AxiosError} If unauthorized, validation fails, or request fails.
+ * @see backend/src/routes/messageRoutes.js
+ */
+export async function sendMessage(jobId: string, content: string): Promise<Message> {
+  const { data } = await api.post<{ success: boolean; data: Message }>(`/api/messages/job/${jobId}`, { content });
+  return data.data;
+}
+
+/**
+ * Fetches the total unread message count for the authenticated user.
+ *
+ * @returns Number of unread messages.
+ * @throws {import("axios").AxiosError} If not authenticated or request fails.
+ * @see backend/src/routes/messageRoutes.js
+ */
+export async function fetchUnreadCount(): Promise<number> {
+  const { data } = await api.get<{ success: boolean; data: { unreadCount: number } }>("/api/messages/unread-count");
+  return data.data.unreadCount;
+}
+
