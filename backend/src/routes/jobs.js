@@ -151,15 +151,13 @@ router.get("/recommended/:publicKey", generalJobRateLimiter, async (req, res, ne
 });
 
 // GET /api/jobs/:id — get single job
-router.get("/:id", generalJobRateLimiter, async (req, res, next) => {
-  try {
-    const job = await getJob(req.params.id);
-    res.json({ success: true, data: job });
-  } catch (e) { next(e); }
+router.get("/:id", generalJobRateLimiter , async (req, res, next) => {
+  try { res.json({ success: true, data: await getJob(req.params.id) }); }
+  catch (e) { next(e); }
 });
 
 // POST /api/jobs — create a new job
-router.post("/", jobCreationRateLimiter, async (req, res, next) => {
+router.post("/", jobCreationRateLimiter , async (req, res, next) => {
   try {
     const job = await createJob(req.body);
     res.status(201).json({ success: true, data: job });

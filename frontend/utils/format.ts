@@ -219,12 +219,12 @@ export interface ProgressData {
 
 export function availabilitySummary(availability?: Availability | null): string {
   if (!availability) return "";
-  const { status, availableFrom, availableUntil } = availability;
-  if (status === "available" && !availableFrom && !availableUntil) return "Available now";
+  const { availableFrom, availableUntil, status } = availability;
+  if (status === "unavailable") return "Not currently accepting new work.";
   if (availableFrom && availableUntil) {
-    return `${availabilityStatusLabel(status)} from ${formatDate(availableFrom)} to ${formatDate(availableUntil)}`;
+    return `Available from ${formatDate(availableFrom)} to ${formatDate(availableUntil)}.`;
   }
-  if (availableFrom) return `${availabilityStatusLabel(status)} from ${formatDate(availableFrom)}`;
-  if (availableUntil) return `${availabilityStatusLabel(status)} until ${formatDate(availableUntil)}`;
-  return availabilityStatusLabel(status);
+  if (availableFrom) return `Available from ${formatDate(availableFrom)}.`;
+  if (availableUntil) return `Available until ${formatDate(availableUntil)}.`;
+  return "";
 }

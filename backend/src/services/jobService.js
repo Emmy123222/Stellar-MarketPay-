@@ -245,8 +245,7 @@ async function createJob({ title, description, budget, currency, category, skill
       clientAddress,
       deadline || null,
       timezone || null,
-      safeScreeningQuestions,
-      currency || 'XLM'
+      safeScreeningQuestions
     ]
   );
 

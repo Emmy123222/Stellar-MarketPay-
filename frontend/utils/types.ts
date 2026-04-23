@@ -8,7 +8,7 @@ export type UserRole  = "client" | "freelancer" | "both";
 export type Currency  = "XLM" | "USDC";
 export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent";
 export type AvailabilityStatus = "available" | "busy" | "unavailable";
-export type PortfolioItemType = "github" | "live" | "stellar_tx";
+export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent";
 
 export interface PortfolioItem {
   title: string;
