@@ -180,6 +180,17 @@ export async function fetchMyJobs(publicKey: string) {
   return data.data;
 }
 
+/**
+ * Tracks a referral click for a job.
+ * 
+ * @param jobId Job identifier.
+ * @param referrer Referrer's Stellar public key.
+ */
+export async function trackReferralClick(jobId: string, referrer: string) {
+  await api.post(`/api/jobs/${jobId}/referral`, { referrer });
+}
+
+
 // ─── Applications ─────────────────────────────────────────────────────────────
 
 /**
@@ -225,6 +236,7 @@ export async function fetchApplications(jobId: string) {
 export async function submitApplication(payload: {
   jobId: string; freelancerAddress: string; proposal: string; bidAmount: string;
   screeningAnswers?: Record<string, string>;
+  referredBy?: string;
 }) {
   const { data } = await api.post<{ success: boolean; data: Application }>("/api/applications", payload);
   return data.data;

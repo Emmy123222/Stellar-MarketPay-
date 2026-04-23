@@ -36,12 +36,14 @@ function rowToApp(row) {
     status:            row.status,
     screeningAnswers:  row.screening_answers || {},
     createdAt:         row.created_at,
+    referredBy:        row.referred_by,
   };
 }
 
 // ─── service functions ───────────────────────────────────────────────────────
 
-async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, screeningAnswers }) {
+async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, screeningAnswers, referredBy }) {
+
   validatePublicKey(freelancerAddress);
 
   // Validate the job (throws 404 if missing)
@@ -75,11 +77,11 @@ async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount
   // Insert; the UNIQUE(job_id, freelancer_address) constraint handles duplicates.
   let appRow;
   try {
-    const { rows } = await query(
-      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, status, screening_answers, created_at)
-       VALUES ($1, $2, $3, $4, 'pending', $5, NOW())
+    const { rows } = await pool.query(
+      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, status, screening_answers, referred_by, created_at)
+       VALUES ($1, $2, $3, $4, 'pending', $5, $6, NOW())
        RETURNING *`,
-      [jobId, freelancerAddress, proposal.trim(), parseFloat(bidAmount).toFixed(7), screeningAnswers || {}]
+      [jobId, freelancerAddress, proposal.trim(), parseFloat(bidAmount).toFixed(7), screeningAnswers || {}, referredBy || null]
     );
     appRow = rows[0];
   } catch (err) {

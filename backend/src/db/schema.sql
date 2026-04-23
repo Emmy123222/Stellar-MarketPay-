@@ -15,7 +15,9 @@ CREATE TABLE IF NOT EXISTS profiles (
   total_earned_xlm  NUMERIC(20,7) NOT NULL DEFAULT 0,
   rating            NUMERIC(3,2),                -- NULL until first rating
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reputation_points INTEGER     NOT NULL DEFAULT 0,
+  referral_count    INTEGER     NOT NULL DEFAULT 0
 );
 
 ALTER TABLE profiles
@@ -32,6 +34,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   title               TEXT        NOT NULL,
   description         TEXT        NOT NULL,
   budget              NUMERIC(20,7) NOT NULL,
+  currency            TEXT        NOT NULL DEFAULT 'XLM',
   category            TEXT        NOT NULL,
   skills              TEXT[]      NOT NULL DEFAULT '{}',
   status              TEXT        NOT NULL DEFAULT 'open',
@@ -63,6 +66,7 @@ CREATE TABLE IF NOT EXISTS applications (
   status              TEXT        NOT NULL DEFAULT 'pending',
   accepted_at         TIMESTAMPTZ,                 -- When the client accepted this application
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  referred_by         TEXT        REFERENCES profiles(public_key),
   UNIQUE (job_id, freelancer_address)              -- prevent duplicate applications
 );
 
@@ -112,3 +116,17 @@ CREATE TABLE IF NOT EXISTS ratings (
 
 CREATE INDEX IF NOT EXISTS ratings_rated_address_idx ON ratings(rated_address);
 CREATE INDEX IF NOT EXISTS ratings_job_id_idx        ON ratings(job_id);
+
+-- ─────────────────────────────────────────
+-- referrals (tracking clicks)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS referrals (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id              UUID        NOT NULL REFERENCES jobs(id),
+  referrer_address    TEXT        NOT NULL REFERENCES profiles(public_key),
+  ip_address          TEXT,                        -- optional, to prevent click spam
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS referrals_referrer_address_idx ON referrals(referrer_address);
+CREATE INDEX IF NOT EXISTS referrals_job_id_idx          ON referrals(job_id);

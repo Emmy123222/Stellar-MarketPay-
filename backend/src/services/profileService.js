@@ -137,6 +137,8 @@ function rowToProfile(row) {
     completedJobs: row.completed_jobs,
     totalEarnedXLM: row.total_earned_xlm,
     rating: row.rating !== null ? parseFloat(row.rating) : null,
+    reputationPoints: row.reputation_points || 0,
+    referralCount: row.referral_count || 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -191,6 +193,12 @@ async function getProfile(publicKey) {
   const releaseHours = parseFloat(rows[0].avg_release_hours || 0);
   if (releaseHours > 0 && releaseHours < 48) repScore += 10;
   else if (releaseHours > 0 && releaseHours < 168) repScore += 5;
+
+  // Bonus for referral activity (1 point per 2 referrals, max 10)
+  repScore += Math.min(Math.floor((profile.referralCount || 0) / 2), 10);
+
+  // Direct reputation points from referrals/completions
+  repScore += (profile.reputationPoints || 0);
 
   profile.reputationScore = Math.min(repScore, 100);
   profile.reputationMetrics = {

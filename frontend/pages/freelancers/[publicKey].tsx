@@ -279,6 +279,18 @@ export default function PublicFreelancerProfilePage() {
                   Acceptance to release
                 </p>
               </div>
+              <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
+                <p className="label mb-1">Referrals</p>
+                <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
+                  {state.profile.referralCount ?? 0}
+                </p>
+              </div>
+              <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
+                <p className="label mb-1">Reputation Bonus</p>
+                <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
+                  +{state.profile.reputationPoints ?? 0}
+                </p>
+              </div>
             </div>
 
             <div className="mb-6 sm:mb-8">

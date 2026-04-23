@@ -11,7 +11,7 @@ const generalJobRateLimiter = createRateLimiter(30, 1); // 100 requests per minu
 
 
 const jobService = require("../services/jobService");
-const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount } = jobService.default || jobService;
+const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount, trackReferral } = jobService.default || jobService;
 const { verifyJWT } = require("../middleware/auth");
 
 // ─── Feed Helpers ─────────────────────────────────────────────────────────────
@@ -101,6 +101,17 @@ router.patch("/:id/share", generalJobRateLimiter, async (req, res, next) => {
   try {
     const job = await incrementShareCount(req.params.id);
     res.json({ success: true, data: job });
+  } catch (e) { next(e); }
+});
+
+// POST /api/jobs/:id/referral — track a referral click
+router.post("/:id/referral", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { referrer } = req.body;
+    if (!referrer) return res.status(400).json({ success: false, error: "Referrer address is required" });
+    const ip = req.ip;
+    await trackReferral(req.params.id, referrer, ip);
+    res.json({ success: true });
   } catch (e) { next(e); }
 });
 
