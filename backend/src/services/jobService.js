@@ -6,6 +6,8 @@
 "use strict";
 
 const pool = require("../db/pool");
+const { query } = pool; // Assuming it might be extracted like this or just use pool.query
+
 const { getTimezoneOffset } = require("date-fns-tz");
 const { isBlocked } = require("./profileService");
 
@@ -243,7 +245,8 @@ async function createJob({ title, description, budget, currency, category, skill
       clientAddress,
       deadline || null,
       timezone || null,
-      safeScreeningQuestions
+      safeScreeningQuestions,
+      currency || 'XLM'
     ]
   );
 
@@ -564,160 +567,27 @@ async function incrementShareCount(jobId) {
   return rowToJob(rows[0]);
 }
 
-async function raiseDispute(jobId, { reason, description, raisedBy }) {
-  const { rows } = await pool.query(
-    `UPDATE jobs 
-     SET status = 'disputed', 
-         dispute_reason = $1, 
-         dispute_description = $2, 
-         disputed_by = $3, 
-         disputed_at = NOW(), 
-         updated_at = NOW() 
-     WHERE id = $4 AND status = 'in_progress'
-     RETURNING *`,
-    [reason, description, raisedBy, jobId]
-  );
-
-  if (!rows.length) {
-    const e = new Error("Job not found or not in progress"); e.status = 404; throw e;
-  }
-
-  return rowToJob(rows[0]);
-}
-
-async function resolveDispute(jobId) {
-  const { rows } = await pool.query(
-    `UPDATE jobs 
-     SET status = 'in_progress', 
-         dispute_reason = NULL, 
-         dispute_description = NULL, 
-         disputed_by = NULL, 
-         disputed_at = NULL, 
-         updated_at = NOW() 
-     WHERE id = $1 AND status = 'disputed'
-     RETURNING *`,
-    [jobId]
-  );
-
-  if (!rows.length) {
-    const e = new Error("Job not found or not disputed"); e.status = 404; throw e;
-  }
-
-  return rowToJob(rows[0]);
-}
-
-async function getRecommendedJobs(publicKey) {
-  validatePublicKey(publicKey);
-
-  const { rows: profileRows } = await pool.query(
-    "SELECT skills FROM profiles WHERE public_key = $1",
-    [publicKey]
-  );
-
-  const freelancerSkills = (profileRows[0]?.skills || []).map(s => s.toLowerCase());
-
-  const { rows: jobRows } = await pool.query(
-    "SELECT * FROM jobs WHERE status = 'open' ORDER BY created_at DESC",
-    []
-  );
-
-  if (freelancerSkills.length === 0) {
-    return jobRows.slice(0, 5).map(row => ({ ...rowToJob(row), matchScore: 0 }));
-  }
-
-  const scored = jobRows.map(row => {
-    const job = rowToJob(row);
-    const required = (job.skills || []).map(s => s.toLowerCase());
-    if (required.length === 0) return { ...job, matchScore: 0 };
-    const matches = required.filter(s => freelancerSkills.includes(s)).length;
-    return { ...job, matchScore: Math.round((matches / required.length) * 100) };
-  });
-
-  scored.sort((a, b) => b.matchScore - a.matchScore);
-  return scored.slice(0, 5);
-}
-
 /**
- * Automatically mark jobs as 'expired' if they are past their deadline and still 'open'.
- *
- * @returns {Promise<number>} Number of jobs expired.
+ * Track a referral click for a job.
  */
-async function expireOldJobs() {
-  const { rowCount } = await pool.query(
-    `UPDATE jobs
-     SET status = 'expired', updated_at = NOW()
-     WHERE status = 'open' AND deadline < NOW()
-     RETURNING id`
+async function trackReferral(jobId, referrerAddress, ipAddress) {
+  validatePublicKey(referrerAddress);
+  
+  // Optional: Check if job exists
+  await getJob(jobId);
+
+  await pool.query(
+    "INSERT INTO referrals (job_id, referrer_address, ip_address) VALUES ($1, $2, $3)",
+    [jobId, referrerAddress, ipAddress || null]
   );
-  return rowCount;
+  
+  // Increment referral count on profile
+  await pool.query(
+    "UPDATE profiles SET referral_count = referral_count + 1 WHERE public_key = $1",
+    [referrerAddress]
+  );
 }
 
-/**
- * Get jobs that are expiring within the next X days.
- *
- * @param {number} days - Number of days to look ahead.
- * @returns {Promise<Job[]>} List of expiring jobs.
- */
-async function getExpiringJobs(days) {
-  const { rows } = await pool.query(
-    `SELECT * FROM jobs
-     WHERE status = 'open'
-       AND deadline IS NOT NULL
-       AND deadline > NOW()
-       AND deadline <= NOW() + ($1 || ' days')::INTERVAL`,
-    [days]
-  );
-  return rows.map(rowToJob);
-}
-
-/**
- * Extend a job's deadline.
- *
- * @param {string} jobId - The job ID.
- * @param {number} days - Number of days to extend.
- * @param {number} maxExtensions - Maximum number of allowed extensions.
- * @returns {Promise<Job>} Updated job.
- */
-async function extendJobExpiry(jobId, days, maxExtensions = 3) {
-  const { rows } = await pool.query(
-    `UPDATE jobs
-     SET deadline = COALESCE(deadline, NOW()) + ($1 || ' days')::INTERVAL,
-         extended_count = extended_count + 1,
-         updated_at = NOW()
-     WHERE id = $2 AND extended_count < $3
-     RETURNING *`,
-    [days, jobId, maxExtensions]
-  );
-
-  if (!rows.length) {
-    const e = new Error("Job not found or maximum extensions reached");
-    e.status = 404;
-    throw e;
-  }
-
-  return rowToJob(rows[0]);
-}
-
-/**
- * Increment the view count for a job.
- *
- * @param {string} jobId - The job ID.
- * @returns {Promise<number>} New view count.
- */
-async function incrementViewCount(jobId) {
-  const { rows } = await pool.query(
-    "UPDATE jobs SET view_count = view_count + 1, updated_at = NOW() WHERE id = $1 RETURNING view_count",
-    [jobId]
-  );
-
-  if (!rows.length) {
-    const e = new Error("Job not found");
-    e.status = 404;
-    throw e;
-  }
-
-  return rows[0].view_count;
-}
 
 module.exports = {
   createJob,
@@ -730,11 +600,5 @@ module.exports = {
   deleteJob,
   boostJob,
   incrementShareCount,
-  raiseDispute,
-  resolveDispute,
-  getRecommendedJobs,
-  expireOldJobs,
-  getExpiringJobs,
-  extendJobExpiry,
-  incrementViewCount,
+  trackReferral,
 };

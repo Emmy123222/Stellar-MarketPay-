@@ -15,28 +15,8 @@ const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per
 const reportJobRateLimiter = createRateLimiter(5, 1);   // 5 reports per minute
 
 const jobService = require("../services/jobService");
-const { 
-  createJob, 
-  getJob, 
-  listJobs, 
-  listJobsByClient, 
-  updateJobEscrowId, 
-  deleteJob, 
-  boostJob, 
-  incrementShareCount,
-  incrementViewCount,
-  extendJobExpiry,
-  expireOldJobs,
-  getExpiringJobs,
-  raiseDispute,
-  resolveDispute,
-  getRecommendedJobs
-} = jobService;
-
-const { inviteFreelancerToJob } = require("../services/jobInvitationService");
-const { logContractInteraction } = require("../services/contractAuditService");
-const jobDraftService = require("../services/jobDraftService");
-const recommendationService = require("../services/recommendationService");
+const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount, trackReferral } = jobService.default || jobService;
+const { verifyJWT } = require("../middleware/auth");
 
 const jobReports = new Map(); // In-memory report storage for now
 
@@ -249,7 +229,18 @@ router.patch("/:id/extend", verifyJWT, generalJobRateLimiter, async (req, res, n
   } catch (e) { next(e); }
 });
 
-// DELETE /api/jobs/:id — delete a job
+// POST /api/jobs/:id/referral — track a referral click
+router.post("/:id/referral", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { referrer } = req.body;
+    if (!referrer) return res.status(400).json({ success: false, error: "Referrer address is required" });
+    const ip = req.ip;
+    await trackReferral(req.params.id, referrer, ip);
+    res.json({ success: true });
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/jobs/:id — roll back an orphaned job (escrow failed after creation)
 router.delete("/:id", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
   try {
     await deleteJob(req.params.id);

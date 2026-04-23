@@ -70,14 +70,14 @@ function rowToApp(row) {
     id: row.id,
     jobId: row.job_id,
     freelancerAddress: row.freelancer_address,
-    freelancerTier: calculateFreelancerTier(completedJobs, freelancerRating),
-    proposal: row.proposal,
-    bidAmount: row.bid_amount,
-    currency: row.currency || "XLM",
-    status: row.status,
-    screeningAnswers: row.screening_answers || {},
-    createdAt: row.created_at,
-    withdrawnAt: row.withdrawn_at || null,
+    freelancerTier:    calculateFreelancerTier(completedJobs, freelancerRating),
+    proposal:          row.proposal,
+    bidAmount:         row.bid_amount,
+    currency:          row.currency || 'XLM',
+    status:            row.status,
+    screeningAnswers:  row.screening_answers || {},
+    createdAt:         row.created_at,
+    referredBy:        row.referred_by,
   };
 }
 
@@ -153,8 +153,8 @@ async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount
   let appRow;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, status, screening_answers, created_at)
-       VALUES ($1, $2, $3, $4, 'pending', $5, NOW())
+      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, status, screening_answers, referred_by, created_at)
+       VALUES ($1, $2, $3, $4, 'pending', $5, $6, NOW())
        RETURNING *`,
       [jobId, freelancerAddress, proposal.trim(), parseFloat(bidAmount).toFixed(7), screeningAnswers || {}, referredBy || null]
     );

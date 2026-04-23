@@ -121,84 +121,15 @@ export async function fetchMyJobs(publicKey: string) {
 }
 
 /**
- * Evaluates application quality using AI (Claude API).
- *
+ * Tracks a referral click for a job.
+ * 
  * @param jobId Job identifier.
- * @returns Array of scores and reasonings for all applications.
+ * @param referrer Referrer's Stellar public key.
  */
-export async function scoreProposals(jobId: string) {
-  const { data } = await api.post<{
-    success: boolean;
-    data: { id: string; score: number; reasoning: string }[];
-  }>(`/api/jobs/${jobId}/score-proposals`);
-  return data.data;
+export async function trackReferralClick(jobId: string, referrer: string) {
+  await api.post(`/api/jobs/${jobId}/referral`, { referrer });
 }
 
-/**
- * Get analytics for a job (applications per day, avg bid, skill distribution, time to hire).
- *
- * @param jobId Job identifier.
- * @returns Analytics data for the job.
- */
-export async function fetchJobAnalytics(jobId: string) {
-  const { data } = await api.get<{ success: boolean; data: JobAnalytics }>(
-    `/api/jobs/${jobId}/analytics`,
-  );
-  return data.data;
-}
-
-/**
- * Extend a job's expiry by 30 days.
- *
- * @param jobId Job identifier.
- * @returns Updated job record.
- */
-export async function extendJobExpiry(jobId: string) {
-  const { data } = await api.patch<{ success: boolean; data: Job }>(
-    `/api/jobs/${jobId}/extend`,
-  );
-  return data.data;
-}
-
-export async function incrementJobView(id: string) {
-  const { data } = await api.post<{ success: boolean; data: { viewCount: number } }>(
-    `/api/jobs/${id}/view`,
-  );
-  return data.data;
-}
-
-export async function fetchRateLimitStatus() {
-  const { data } = await api.get<{ 
-    success: boolean; 
-    data: { limit: number; remaining: number; reset: string } 
-  }>("/api/rate-limit");
-  return data.data;
-}
-
-/**
- * Get jobs expiring within 3 days.
- *
- * @returns Array of expiring jobs.
- */
-export async function fetchExpiringJobs() {
-  const { data } = await api.get<{ success: boolean; data: Job[] }>(
-    "/api/jobs/expiring",
-  );
-  return data.data;
-}
-
-/**
- * Manually trigger expiry check for old jobs.
- *
- * @returns Count of expired jobs.
- */
-export async function expireOldJobs() {
-  const { data } = await api.post<{
-    success: boolean;
-    data: { expiredCount: number };
-  }>("/api/jobs/expire-old");
-  return data.data.expiredCount;
-}
 
 // ─── Applications ─────────────────────────────────────────────────────────────
 

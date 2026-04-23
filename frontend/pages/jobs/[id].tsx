@@ -5,9 +5,8 @@ import { useRouter } from "next/router";
 import ApplicationForm from "@/components/ApplicationForm";
 import RatingForm from "@/components/RatingForm";
 import ProposalComparison from "@/components/ProposalComparison";
-import ShareJobModal from "@/components/ShareJobModal";
-import WalletConnect from "@/components/WalletConnect";
-import { acceptApplication, fetchApplications, fetchJob, releaseEscrow } from "@/lib/api";
+import { fetchJob, fetchApplications, acceptApplication, releaseEscrow, trackReferralClick, fetchProfile } from "@/lib/api";
+import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
 import {
   accountUrl,
   buildReleaseEscrowTransaction,
@@ -57,19 +56,45 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [releaseSuccess, setReleaseSuccess] = useState(false);
   const [releaseTxHash, setReleaseTxHash] = useState<string | null>(null);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const [selectedApplications, setSelectedApplications] = useState<Set<string>>(new Set());
+  const [showComparison, setShowComparison] = useState(false);
+  const [prefillData, setPrefillData] = useState<{ bidAmount?: string; message?: string } | null>(null);
+
+  const isClient = publicKey && job?.clientAddress === publicKey;
+  const isFreelancer = publicKey && job?.freelancerAddress === publicKey;
+  const hasApplied = applications.some((application) => application.freelancerAddress === publicKey);
 
   useEffect(() => {
     if (!router.isReady || !jobId) return;
 
-    if (prefill) {
+    const { prefill, ref } = router.query;
+    if (typeof prefill === "string") {
       try {
         const decoded = JSON.parse(window.atob(prefill));
         setPrefillData(decoded);
       } catch {
         setPrefillData(null);
       }
-    } else {
-      setPrefillData(null);
+    }
+
+    if (typeof ref === "string") {
+      trackReferralClick(id as string, ref).catch(console.error);
+      localStorage.setItem(`referral_${id}`, ref);
+    }
+
+    Promise.all([fetchJob(id as string), fetchApplications(id as string)])
+      .then(([jobData, applicationData]) => {
+        setJob(jobData);
+        setApplications(applicationData);
+      })
+      .catch(() => router.push("/jobs"))
+      .finally(() => setLoading(false));
+  }, [id, router, router.isReady]);
+
+  useEffect(() => {
+    if (!isClient || applications.length === 0) {
+      setApplicantProfiles({});
+      return;
     }
 
     let cancelled = false;
@@ -140,7 +165,9 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     try {
       setActionError(null);
       await acceptApplication(applicationId, publicKey);
-      await refreshJobState();
+      const [j, apps] = await Promise.all([fetchJob(id as string), fetchApplications(id as string)]);
+      setJob(j); setApplications(apps);
+      setSelectedApplications(new Set());
     } catch {
       setActionError("Failed to accept application.");
     }
@@ -464,6 +491,34 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               ) : (
                 <p className="text-amber-800 text-sm">No specific skills were added for this brief.</p>
               )}
+              <a
+                href={accountUrl(job.clientAddress)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 mt-3 text-sm text-amber-700 hover:text-market-400 transition-colors"
+              >
+                Client: {shortenAddress(job.clientAddress)} ↗
+              </a>
+              
+              <div className="mt-4">
+                <button 
+                  onClick={() => {
+                    if (!publicKey) {
+                      setActionError("Please connect your wallet to refer others.");
+                      return;
+                    }
+                    const url = `${window.location.origin}/jobs/${job.id}?ref=${publicKey}`;
+                    navigator.clipboard.writeText(url);
+                    alert("Referral link copied to clipboard: " + url);
+                  }}
+                  className="inline-flex items-center gap-2 text-xs font-semibold text-market-400 hover:text-market-300 transition-colors bg-market-500/10 px-3 py-1.5 rounded-lg border border-market-500/20"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 100 2.684 3 3 0 000-2.684z" />
+                  </svg>
+                  Refer a Freelancer
+                </button>
+              </div>
             </div>
           </section>
 

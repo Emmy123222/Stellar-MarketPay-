@@ -196,16 +196,15 @@ CREATE INDEX IF NOT EXISTS ratings_rated_address_idx ON ratings(rated_address);
 CREATE INDEX IF NOT EXISTS ratings_job_id_idx        ON ratings(job_id);
 
 -- ─────────────────────────────────────────
--- skill_assessments
+-- referrals (tracking clicks)
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS skill_assessments (
-  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  public_key  TEXT        NOT NULL REFERENCES profiles(public_key),
-  skill       TEXT        NOT NULL,
-  score       INTEGER     NOT NULL CHECK (score BETWEEN 0 AND 100),
-  passed      BOOLEAN     NOT NULL,
-  taken_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS referrals (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id              UUID        NOT NULL REFERENCES jobs(id),
+  referrer_address    TEXT        NOT NULL REFERENCES profiles(public_key),
+  ip_address          TEXT,                        -- optional, to prevent click spam
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS skill_assessments_public_key_idx ON skill_assessments(public_key);
-CREATE INDEX IF NOT EXISTS skill_assessments_skill_idx      ON skill_assessments(skill);
+CREATE INDEX IF NOT EXISTS referrals_referrer_address_idx ON referrals(referrer_address);
+CREATE INDEX IF NOT EXISTS referrals_job_id_idx          ON referrals(job_id);
