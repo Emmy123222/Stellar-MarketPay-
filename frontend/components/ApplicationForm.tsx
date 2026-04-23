@@ -11,13 +11,17 @@ import { useToast } from "./Toast";
 interface ApplicationFormProps {
   job: Job;
   publicKey: string;
+  prefillData?: {
+    bidAmount?: string;
+    message?: string;
+  };
   onSuccess: () => void;
 }
 
-export default function ApplicationForm({ job, publicKey, onSuccess }: ApplicationFormProps) {
-  const [proposal, setProposal] = useState("");
+export default function ApplicationForm({ job, publicKey, prefillData, onSuccess }: ApplicationFormProps) {
+  const [proposal, setProposal] = useState(prefillData?.message || "");
   const toast = useToast();
-  const [bidAmount, setBidAmount] = useState(job.budget);
+  const [bidAmount, setBidAmount] = useState(prefillData?.bidAmount || job.budget);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -39,6 +43,7 @@ export default function ApplicationForm({ job, publicKey, onSuccess }: Applicati
         freelancerAddress: publicKey,
         proposal: proposal.trim(),
         bidAmount: parseFloat(bidAmount).toFixed(7),
+        currency: job.currency,
       });
       toast.success("Proposal submitted successfully!");
       onSuccess();

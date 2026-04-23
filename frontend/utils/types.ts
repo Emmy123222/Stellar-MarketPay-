@@ -5,12 +5,14 @@
 
 export type JobStatus = "open" | "in_progress" | "completed" | "cancelled";
 export type UserRole  = "client" | "freelancer" | "both";
+export type Currency  = "XLM" | "USDC";
 
 export interface Job {
   id: string;
   title: string;
   description: string;
-  budget: string;        // XLM amount as string
+  budget: string;        // Amount as string
+  currency: Currency;   // XLM or USDC
   category: string;
   skills: string[];
   status: JobStatus;
@@ -18,6 +20,9 @@ export interface Job {
   freelancerAddress?: string;
   escrowContractId?: string;
   applicantCount: number;
+  shareCount?: number;   // Track share clicks
+  boosted?: boolean;     // Featured/boosted status
+  boostedUntil?: string; // ISO date when boost expires
   createdAt: string;
   updatedAt: string;
   deadline?: string;
@@ -28,7 +33,8 @@ export interface Application {
   jobId: string;
   freelancerAddress: string;
   proposal: string;
-  bidAmount: string;     // XLM amount as string
+  bidAmount: string;     // Amount as string
+  currency: Currency;    // XLM or USDC
   status: "pending" | "accepted" | "rejected";
   createdAt: string;
 }

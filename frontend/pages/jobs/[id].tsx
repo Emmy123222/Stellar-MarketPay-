@@ -5,9 +5,11 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
+import Head from "next/head";
 import ApplicationForm from "@/components/ApplicationForm";
 import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
+import ShareJobModal from "@/components/ShareJobModal";
 import { fetchJob, fetchApplications, acceptApplication, releaseEscrow } from "@/lib/api";
 import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
 import {
@@ -40,6 +42,8 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [releaseSyncedWithBackend, setReleaseSyncedWithBackend] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [prefillData, setPrefillData] = useState<any>(null);
 
   const isClient     = publicKey && job?.clientAddress === publicKey;
   const isFreelancer = publicKey && job?.freelancerAddress === publicKey;
@@ -47,6 +51,18 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
 
   useEffect(() => {
     if (!id) return;
+    
+    // Check for prefill parameter
+    const { prefill } = router.query;
+    if (typeof prefill === 'string') {
+      try {
+        const decoded = JSON.parse(Buffer.from(prefill, 'base64').toString('utf8'));
+        setPrefillData(decoded);
+      } catch {
+        // Invalid prefill data, ignore
+      }
+    }
+    
     Promise.all([
       fetchJob(id as string),
       fetchApplications(id as string),
@@ -128,33 +144,45 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   if (!job) return null;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">
+    <>
+      {/* Open Graph Meta Tags */}
+      <Head>
+        <title>{job.title} - Stellar MarketPay</title>
+        <meta name="description" content={job.description.substring(0, 160)} />
+        <meta property="og:title" content={job.title} />
+        <meta property="og:description" content={job.description.substring(0, 160)} />
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content={`${typeof window !== 'undefined' ? window.location.origin : ''}/jobs/${job.id}`} />
+        <meta property="og:site_name" content="Stellar MarketPay" />
+        <meta property="og:image" content={`${typeof window !== 'undefined' ? window.location.origin : ''}/og-image.jpg`} />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={job.title} />
+        <meta name="twitter:description" content={job.description.substring(0, 160)} />
+      </Head>
 
-      {/* Back */}
-      <Link href="/jobs" className="inline-flex items-center gap-1.5 text-sm text-amber-800 hover:text-amber-400 transition-colors mb-6">
-        ← Back to Jobs
-      </Link>
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">
 
-      {/* Job header */}
-      <div className="card mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-5">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-2">
-              <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
-              <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">{job.category}</span>
+        {/* Back */}
+        <Link href="/jobs" className="inline-flex items-center gap-1.5 text-sm text-amber-800 hover:text-amber-400 transition-colors mb-6">
+          ← Back to Jobs
+        </Link>
+
+        {/* Job header */}
+        <div className="card mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-5">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
+                <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">{job.category}</span>
+                {job.boosted && new Date(job.boostedUntil || '') > new Date() && (
+                  <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">Featured</span>
+                )}
+              </div>
+              <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug">{job.title}</h1>
             </div>
-            <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug">{job.title}</h1>
-          </div>
-          <div className="flex-shrink-0 text-right">
-            <p className="text-xs text-amber-800 mb-1">Budget</p>
-            <p className="font-mono font-bold text-2xl text-market-400">{formatXLM(job.budget)}</p>
-          </div>
-        </div>
-
-        {/* Meta */}
-        <div className="flex flex-wrap gap-4 text-xs text-amber-800 mb-5 pb-5 border-b border-market-500/8">
-          <span>Posted {timeAgo(job.createdAt)}</span>
-          <span>{job.applicantCount} applicant{job.applicantCount !== 1 ? "s" : ""}</span>
+            <div className="flex-shrink-0 text-right">
+              <p className="text-xs text-amber-800 mb-1">Budget</p>
+              <p className="font-mono font-bold text-2xl text-market-400">{formatXLM(job.budget)} {job.currency}</p>
           {job.deadline && <span>Deadline: {formatDate(job.deadline)}</span>}
           <a href={accountUrl(job.clientAddress)} target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-1 hover:text-market-400 transition-colors">
@@ -273,6 +301,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             <ApplicationForm
               job={job}
               publicKey={publicKey}
+              prefillData={prefillData}
               onSuccess={() => { setShowApplyForm(false); setApplications((prev) => [...prev, {} as Application]); }}
             />
           ) : (
@@ -315,6 +344,15 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
         </div>
       )}
     </div>
+
+      {/* Share Modal */}
+      {showShareModal && job && (
+        <ShareJobModal
+          job={job}
+          onClose={() => setShowShareModal(false)}
+        />
+      )}
+    </>
   );
 }
 

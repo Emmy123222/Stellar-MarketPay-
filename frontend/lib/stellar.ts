@@ -11,7 +11,6 @@ import { SorobanRpc } from "@stellar/stellar-sdk";
 
 const NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as "testnet" | "mainnet";
 const HORIZON_URL = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
-const SOROBAN_RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
 
 /** Soroban RPC (Stellar RPC) — used for smart contract calls. */
 const SOROBAN_RPC_URL =
@@ -30,8 +29,12 @@ export const XLM_SAC_ADDRESS =
     ? "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
     : "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 
-/** Shared Soroban RPC client for simulate / prepare / submit / poll. */
-export const sorobanServer = new SorobanServer(SOROBAN_RPC_URL, { allowHttp: SOROBAN_RPC_URL.startsWith("http://") });
+// USDC SAC (Stellar Asset Contract) address on testnet
+export const USDC_SAC_ADDRESS =
+  NETWORK === "mainnet"
+    ? "CCU2PSEUPFGB5O4QLNBVCPGSJ6YHYIMFZTQDJTQTJ6LQI3M3J66OQ5YN"
+    : "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+
 
 // USDC asset issued by Circle
 export const USDC_ISSUER =
@@ -64,6 +67,25 @@ export async function getUSDCBalance(publicKey: string): Promise<string | null> 
     return usdc ? usdc.balance : null;
   } catch {
     return null;
+  }
+}
+
+export async function getBalances(publicKey: string): Promise<{ xlm: string; usdc: string | null }> {
+  try {
+    const account = await server.loadAccount(publicKey);
+    const xlm = account.balances.find((b) => b.asset_type === "native");
+    const usdc = account.balances.find(
+      (b): b is Horizon.HorizonApi.BalanceLineAsset =>
+        b.asset_type !== "native" &&
+        (b as Horizon.HorizonApi.BalanceLineAsset).asset_code === "USDC" &&
+        (b as Horizon.HorizonApi.BalanceLineAsset).asset_issuer === USDC_ISSUER
+    );
+    return {
+      xlm: xlm ? xlm.balance : "0",
+      usdc: usdc ? usdc.balance : null,
+    };
+  } catch {
+    return { xlm: "0", usdc: null };
   }
 }
 
@@ -260,24 +282,33 @@ export function explorerUrl(hash: string): string {
  * @param clientPublicKey  Stellar address of the client (signer + payer)
  * @param jobId            Backend job UUID
  * @param freelancerAddress Stellar address of the freelancer (placeholder — use a dummy if not yet known)
- * @param budgetXLM        Budget in XLM (e.g. "100.0000000")
+ * @param budget           Budget amount (e.g. "100.0000000")
+ * @param currency         Currency type ("XLM" or "USDC")
  */
 export async function buildCreateEscrowTransaction({
   clientPublicKey,
   jobId,
   freelancerAddress,
-  budgetXLM,
+  budget,
+  currency = "XLM",
 }: {
   clientPublicKey: string;
   jobId: string;
   freelancerAddress: string;
-  budgetXLM: string;
+  budget: string;
+  currency?: "XLM" | "USDC";
 }) {
   const contractId = process.env.NEXT_PUBLIC_CONTRACT_ID;
   if (!contractId) throw new Error("NEXT_PUBLIC_CONTRACT_ID is not set");
 
-  // Convert XLM to stroops (1 XLM = 10_000_000 stroops)
-  const amountStroops = BigInt(Math.round(parseFloat(budgetXLM) * 10_000_000));
+  // Convert budget to smallest unit based on currency
+  // XLM: 1 XLM = 10_000_000 stroops
+  // USDC: 1 USDC = 1_000_000 units (6 decimals)
+  const amountUnits = currency === "XLM" 
+    ? BigInt(Math.round(parseFloat(budget) * 10_000_000))
+    : BigInt(Math.round(parseFloat(budget) * 1_000_000));
+
+  const tokenAddress = currency === "XLM" ? XLM_SAC_ADDRESS : USDC_SAC_ADDRESS;
 
   const contract = new Contract(contractId);
   const sourceAccount = await sorobanServer.getAccount(clientPublicKey);
@@ -292,8 +323,8 @@ export async function buildCreateEscrowTransaction({
         nativeToScVal(jobId, { type: "string" }),
         new Address(clientPublicKey).toScVal(),
         new Address(freelancerAddress).toScVal(),
-        new Address(XLM_SAC_ADDRESS).toScVal(),
-        nativeToScVal(amountStroops, { type: "i128" }),
+        new Address(tokenAddress).toScVal(),
+        nativeToScVal(amountUnits, { type: "i128" }),
       )
     )
     .setTimeout(60)

@@ -210,7 +210,7 @@ export async function fetchApplications(jobId: string) {
  * @see backend/src/routes/applications.js
  */
 export async function submitApplication(payload: {
-  jobId: string; freelancerAddress: string; proposal: string; bidAmount: string;
+  jobId: string; freelancerAddress: string; proposal: string; bidAmount: string; currency: string;
 }) {
   const { data } = await api.post<{ success: boolean; data: Application }>("/api/applications", payload);
   return data.data;

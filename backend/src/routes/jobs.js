@@ -11,7 +11,7 @@ const generalJobRateLimiter = createRateLimiter(30, 1); // 100 requests per minu
 
 
 const jobService = require("../services/jobService");
-const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob } = jobService.default || jobService;
+const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount } = jobService.default || jobService;
 const { verifyJWT } = require("../middleware/auth");
 
 // GET /api/jobs — list jobs (with optional ?category=&status=&limit=&search=)
@@ -49,6 +49,31 @@ router.patch("/:id/escrow", verifyJWT, generalJobRateLimiter, async (req, res, n
   try {
     const { escrowContractId } = req.body;
     const job = await updateJobEscrowId(req.params.id, escrowContractId);
+    res.json({ success: true, data: job });
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/jobs/:id/boost — boost a job listing for 7 days
+router.patch("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { txHash } = req.body;
+    
+    if (!txHash || typeof txHash !== "string") {
+      return res.status(400).json({ success: false, error: "Transaction hash is required" });
+    }
+
+    // TODO: Verify Stellar payment of 10 XLM to platform wallet
+    // For now, we'll just accept the txHash
+    
+    const job = await boostJob(req.params.id, txHash);
+    res.json({ success: true, data: job });
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/jobs/:id/share — increment share count
+router.patch("/:id/share", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const job = await incrementShareCount(req.params.id);
     res.json({ success: true, data: job });
   } catch (e) { next(e); }
 });
