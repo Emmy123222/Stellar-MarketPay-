@@ -7,6 +7,8 @@ const {
   getProfile,
   upsertProfile,
   updateAvailability,
+  getProfileStats,
+  getResponseTime,
   MAX_PORTFOLIO_ITEMS,
 } = require("./profileService");
 
@@ -199,6 +201,50 @@ describe("profileService", () => {
         availableFrom: "2026-07-01T00:00:00.000Z",
         availableUntil: "2026-07-10T00:00:00.000Z",
       });
+    });
+  });
+
+  describe("getProfileStats", () => {
+    it("returns zero stats when no applications exist", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [{ total_applications: 0, accepted_applications: 0 }],
+      });
+
+      const stats = await getProfileStats(publicKey);
+      expect(stats).toEqual({
+        totalApplications: 0,
+        acceptedApplications: 0,
+        successRate: 0,
+      });
+    });
+
+    it("calculates success rate correctly", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [{ total_applications: 4, accepted_applications: 3 }],
+      });
+
+      const stats = await getProfileStats(publicKey);
+      expect(stats.successRate).toBe(75);
+    });
+  });
+
+  describe("getResponseTime", () => {
+    it("returns null when no data is available", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [{ avg_days: null }],
+      });
+
+      const result = await getResponseTime(publicKey);
+      expect(result.averageDays).toBeNull();
+    });
+
+    it("returns formatted average days", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [{ avg_days: "2.4567" }],
+      });
+
+      const result = await getResponseTime(publicKey);
+      expect(result.averageDays).toBe(2.5);
     });
   });
 });

@@ -21,7 +21,7 @@ const { getJob, updateJobStatus } = require("../services/jobService");
  * In v1.2 this will call the Soroban contract's release_escrow() function.
  * See ROADMAP.md v1.2 — Escrow Contract (Live).
  */
-router.post("/:jobId/release", (req, res, next) => {
+router.post("/:jobId/release", async (req, res, next) => {
   try {
     const { jobId } = req.params;
     const { clientAddress, contractTxHash } = req.body;
@@ -30,7 +30,7 @@ router.post("/:jobId/release", (req, res, next) => {
       const e = new Error("Invalid client address"); e.status = 400; throw e;
     }
 
-    const job = getJob(jobId);
+    const job = await getJob(jobId);
     if (job.clientAddress !== clientAddress) {
       const e = new Error("Only the job client can release escrow"); e.status = 403; throw e;
     }
@@ -48,6 +48,19 @@ router.post("/:jobId/release", (req, res, next) => {
 
     // Update job status
     await updateJobStatus(jobId, "completed");
+
+    // Credit referrer if applicable
+    const { rows: appRows } = await pool.query(
+      "SELECT referred_by FROM applications WHERE job_id = $1 AND status = 'accepted'",
+      [jobId]
+    );
+    if (appRows.length > 0 && appRows[0].referred_by) {
+      const referrer = appRows[0].referred_by;
+      await pool.query(
+        "UPDATE profiles SET reputation_points = reputation_points + 5 WHERE public_key = $1",
+        [referrer]
+      );
+    }
 
     res.json({ success: true, message: "Escrow released and job completed" });
   } catch (e) { next(e); }

@@ -183,3 +183,22 @@ export function getMonthlyEstimate(xlmAmount: string | number, xlmPriceUsd: numb
   const monthlyUsd = (num * xlmPriceUsd).toFixed(2);
   return `$${monthlyUsd}/mo est.`;
 }
+
+export function availabilityStatusLabel(status?: AvailabilityStatus | null): string {
+  if (status === "available") return "Available";
+  if (status === "busy") return "Busy";
+  if (status === "unavailable") return "Unavailable";
+  return "Unknown";
+}
+
+export function availabilitySummary(availability?: Availability | null): string {
+  if (!availability) return "";
+  const { availableFrom, availableUntil, status } = availability;
+  if (status === "unavailable") return "Not currently accepting new work.";
+  if (availableFrom && availableUntil) {
+    return `Available from ${formatDate(availableFrom)} to ${formatDate(availableUntil)}.`;
+  }
+  if (availableFrom) return `Available from ${formatDate(availableFrom)}.`;
+  if (availableUntil) return `Available until ${formatDate(availableUntil)}.`;
+  return "";
+}

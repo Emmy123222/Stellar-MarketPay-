@@ -8,6 +8,7 @@ export type UserRole  = "client" | "freelancer" | "both";
 export type Currency  = "XLM" | "USDC";
 export type PortfolioItemType = "github" | "live" | "stellar_tx";
 export type AvailabilityStatus = "available" | "busy" | "unavailable";
+export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent";
 
 export interface PortfolioItem {
   title: string;
@@ -54,7 +55,18 @@ export interface Application {
   currency: Currency;    // XLM or USDC
   status: "pending" | "accepted" | "rejected";
   screeningAnswers?: Record<string, string>;  // Question -> Answer mapping
+  referredBy?: string;
   createdAt: string;
+}
+
+export interface ProfileStats {
+  totalApplications: number;
+  acceptedApplications: number;
+  successRate: number;
+}
+
+export interface ResponseTimeStats {
+  averageDays: number | null;
 }
 
 export interface UserProfile {
@@ -71,6 +83,8 @@ export interface UserProfile {
   tier?: FreelancerTier;
   /** Number of ratings received (when returned by profile API). */
   ratingCount?: number;
+  reputationPoints?: number;
+  referralCount?: number;
   createdAt: string;
   updatedAt?: string;
 }

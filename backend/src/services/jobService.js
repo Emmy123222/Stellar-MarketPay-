@@ -4,8 +4,10 @@
  */
 "use strict";
 
-import { query } from "../db/pool";
-import { getTimezoneOffset } from "date-fns-tz";
+const pool = require("../db/pool");
+const { query } = pool; // Assuming it might be extracted like this or just use pool.query
+
+const { getTimezoneOffset } = require("date-fns-tz");
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -97,7 +99,7 @@ function rowToJob(row) {
  * Create a new job listing.
  * Note: client's profile row must already exist (FK constraint).
  */
-async function createJob({ title, description, budget, category, skills, deadline, timezone, clientAddress, screeningQuestions }) {
+async function createJob({ title, description, budget, currency, category, skills, deadline, timezone, clientAddress, screeningQuestions }) {
   validatePublicKey(clientAddress);
 
   if (!title || title.length < 10) {
@@ -122,21 +124,21 @@ async function createJob({ title, description, budget, category, skills, deadlin
   const { rows } = await query(
     `
     INSERT INTO jobs
-      (title, description, budget, category, skills, status, client_address, deadline, timezone, screening_questions, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8, $9, NOW(), NOW())
+      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, NOW(), NOW())
     RETURNING *
     `,
     [
       title.trim(),
       description.trim(),
       parseFloat(budget).toFixed(7),
-      currency,
+      currency || 'XLM',
       category,
       safeSkills,
       clientAddress,
       deadline || null,
       timezone || null,
-      safeScreeningQuestions,
+      safeScreeningQuestions
     ]
   );
 
@@ -321,7 +323,7 @@ async function boostJob(jobId, txHash) {
 }
 
 async function incrementShareCount(jobId) {
-  const { rows } = await query(
+  const { rows } = await pool.query(
     "UPDATE jobs SET share_count = COALESCE(share_count, 0) + 1, updated_at = NOW() WHERE id = $1 RETURNING *",
     [jobId]
   );
@@ -333,7 +335,29 @@ async function incrementShareCount(jobId) {
   return rowToJob(rows[0]);
 }
 
-export default {
+/**
+ * Track a referral click for a job.
+ */
+async function trackReferral(jobId, referrerAddress, ipAddress) {
+  validatePublicKey(referrerAddress);
+  
+  // Optional: Check if job exists
+  await getJob(jobId);
+
+  await pool.query(
+    "INSERT INTO referrals (job_id, referrer_address, ip_address) VALUES ($1, $2, $3)",
+    [jobId, referrerAddress, ipAddress || null]
+  );
+  
+  // Increment referral count on profile
+  await pool.query(
+    "UPDATE profiles SET referral_count = referral_count + 1 WHERE public_key = $1",
+    [referrerAddress]
+  );
+}
+
+
+module.exports = {
   createJob,
   getJob,
   listJobs,
@@ -344,4 +368,5 @@ export default {
   deleteJob,
   boostJob,
   incrementShareCount,
+  trackReferral,
 };
