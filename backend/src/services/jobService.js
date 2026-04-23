@@ -4,8 +4,9 @@
  */
 "use strict";
 
-import { query } from "../db/pool";
-import { getTimezoneOffset } from "date-fns-tz";
+const pool = require("../db/pool");
+const { getTimezoneOffset } = require("date-fns-tz");
+const { isBlocked } = require("./profileService");
 
 // ─── constants ───────────────────────────────────────────────────────────────
 

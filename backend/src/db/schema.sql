@@ -24,6 +24,9 @@ ALTER TABLE profiles
 ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS availability JSONB;
 
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS blocked_addresses TEXT[] NOT NULL DEFAULT '{}';
+
 -- ─────────────────────────────────────────
 -- jobs
 -- ─────────────────────────────────────────

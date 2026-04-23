@@ -137,6 +137,7 @@ function rowToProfile(row) {
     completedJobs: row.completed_jobs,
     totalEarnedXLM: row.total_earned_xlm,
     rating: row.rating !== null ? parseFloat(row.rating) : null,
+    blockedAddresses: Array.isArray(row.blocked_addresses) ? row.blocked_addresses : [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -256,10 +257,79 @@ async function updateAvailability(publicKey, availability) {
   return rowToProfile(rows[0]);
 }
 
+async function isBlocked(clientPublicKey, freelancerAddress) {
+  validatePublicKey(clientPublicKey);
+  validatePublicKey(freelancerAddress);
+
+  const { rows } = await pool.query(
+    `SELECT 1 FROM profiles WHERE public_key = $1 AND $2 = ANY(blocked_addresses)`,
+    [clientPublicKey, freelancerAddress]
+  );
+  return rows.length > 0;
+}
+
+async function blockFreelancer(clientPublicKey, freelancerAddress) {
+  validatePublicKey(clientPublicKey);
+  validatePublicKey(freelancerAddress);
+
+  if (clientPublicKey === freelancerAddress) {
+    const e = new Error("You cannot block yourself");
+    e.status = 400;
+    throw e;
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE profiles
+     SET blocked_addresses = array_append(blocked_addresses, $2),
+         updated_at = NOW()
+     WHERE public_key = $1
+       AND NOT ($2 = ANY(blocked_addresses))
+     RETURNING *`,
+    [clientPublicKey, freelancerAddress]
+  );
+
+  if (!rows.length) {
+    // Already blocked or profile not found; check which
+    const profile = await getProfile(clientPublicKey);
+    if (profile.blockedAddresses.includes(freelancerAddress)) {
+      const e = new Error("Freelancer is already blocked");
+      e.status = 409;
+      throw e;
+    }
+  }
+
+  return rowToProfile(rows[0]);
+}
+
+async function unblockFreelancer(clientPublicKey, freelancerAddress) {
+  validatePublicKey(clientPublicKey);
+  validatePublicKey(freelancerAddress);
+
+  const { rows } = await pool.query(
+    `UPDATE profiles
+     SET blocked_addresses = array_remove(blocked_addresses, $2),
+         updated_at = NOW()
+     WHERE public_key = $1
+     RETURNING *`,
+    [clientPublicKey, freelancerAddress]
+  );
+
+  if (!rows.length) {
+    const e = new Error("Profile not found");
+    e.status = 404;
+    throw e;
+  }
+
+  return rowToProfile(rows[0]);
+}
+
 module.exports = {
   getProfile,
   upsertProfile,
   updateAvailability,
+  isBlocked,
+  blockFreelancer,
+  unblockFreelancer,
   VALID_PORTFOLIO_TYPES,
   VALID_AVAILABILITY_STATUSES,
   MAX_PORTFOLIO_ITEMS,
