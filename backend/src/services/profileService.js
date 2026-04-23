@@ -409,70 +409,51 @@ async function updateAvailability(publicKey, availability) {
   return rowToProfile(rows[0]);
 }
 
-async function isBlocked(clientPublicKey, freelancerAddress) {
-  validatePublicKey(clientPublicKey);
-  validatePublicKey(freelancerAddress);
+async function getProfileStats(publicKey) {
+  validatePublicKey(publicKey);
 
   const { rows } = await pool.query(
-    `SELECT 1 FROM profiles WHERE public_key = $1 AND $2 = ANY(blocked_addresses)`,
-    [clientPublicKey, freelancerAddress]
+    `SELECT 
+       COUNT(*)::int AS total_applications,
+       COUNT(CASE WHEN status = 'accepted' THEN 1 END)::int AS accepted_applications
+     FROM applications
+     WHERE freelancer_address = $1`,
+    [publicKey]
   );
-  return rows.length > 0;
+
+  const stats = rows[0];
+  const total = stats.total_applications || 0;
+  const accepted = stats.accepted_applications || 0;
+  const successRate = total > 0 ? Math.round((accepted / total) * 100) : 0;
+
+  return {
+    totalApplications: total,
+    acceptedApplications: accepted,
+    successRate
+  };
 }
 
-async function blockFreelancer(clientPublicKey, freelancerAddress) {
-  validatePublicKey(clientPublicKey);
-  validatePublicKey(freelancerAddress);
-
-  if (clientPublicKey === freelancerAddress) {
-    const e = new Error("You cannot block yourself");
-    e.status = 400;
-    throw e;
-  }
+async function getResponseTime(publicKey) {
+  validatePublicKey(publicKey);
 
   const { rows } = await pool.query(
-    `UPDATE profiles
-     SET blocked_addresses = array_append(blocked_addresses, $2),
-         updated_at = NOW()
-     WHERE public_key = $1
-       AND NOT ($2 = ANY(blocked_addresses))
-     RETURNING *`,
-    [clientPublicKey, freelancerAddress]
+    `SELECT 
+       AVG(EXTRACT(EPOCH FROM (e.released_at - a.accepted_at)) / 86400)::numeric AS avg_days
+     FROM applications a
+     JOIN escrows e ON a.job_id = e.job_id
+     WHERE a.freelancer_address = $1 
+       AND a.status = 'accepted' 
+       AND a.accepted_at IS NOT NULL 
+       AND e.status = 'released' 
+       AND e.released_at IS NOT NULL`,
+    [publicKey]
   );
 
-  if (!rows.length) {
-    // Already blocked or profile not found; check which
-    const profile = await getProfile(clientPublicKey);
-    if (profile.blockedAddresses.includes(freelancerAddress)) {
-      const e = new Error("Freelancer is already blocked");
-      e.status = 409;
-      throw e;
-    }
-  }
+  const avgDays = rows[0].avg_days ? parseFloat(rows[0].avg_days) : null;
 
-  return rowToProfile(rows[0]);
-}
-
-async function unblockFreelancer(clientPublicKey, freelancerAddress) {
-  validatePublicKey(clientPublicKey);
-  validatePublicKey(freelancerAddress);
-
-  const { rows } = await pool.query(
-    `UPDATE profiles
-     SET blocked_addresses = array_remove(blocked_addresses, $2),
-         updated_at = NOW()
-     WHERE public_key = $1
-     RETURNING *`,
-    [clientPublicKey, freelancerAddress]
-  );
-
-  if (!rows.length) {
-    const e = new Error("Profile not found");
-    e.status = 404;
-    throw e;
-  }
-
-  return rowToProfile(rows[0]);
+  return {
+    averageDays: avgDays !== null ? parseFloat(avgDays.toFixed(1)) : null
+  };
 }
 
 /**
@@ -535,10 +516,8 @@ module.exports = {
   getProfile,
   upsertProfile,
   updateAvailability,
-  verifyIdentity,
-  getSkillEndorsements,
-  endorseSkill,
-  calculateFreelancerTier,
+  getProfileStats,
+  getResponseTime,
   VALID_PORTFOLIO_TYPES,
   VALID_AVAILABILITY_STATUSES,
   MAX_PORTFOLIO_ITEMS,

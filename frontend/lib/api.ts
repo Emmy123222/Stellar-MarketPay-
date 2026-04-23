@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { Availability, Job, Application, UserProfile, Rating, AssessmentInfo, AssessmentResult, SkillBadge } from "@/utils/types";
+import type { Availability, Job, Application, UserProfile, Rating, ProfileStats, ResponseTimeStats } from "@/utils/types";
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000",
@@ -287,16 +287,27 @@ export async function updateProfileAvailability(
 }
 
 /**
- * Verifies a user's identity via a DID provider and stores the resulting credential hash.
+ * Fetches application statistics for a freelancer profile.
  *
- * @param publicKey User Stellar public key.
- * @param didHash The credential hash/DID URI returned by the provider.
- * @returns The updated profile.
+ * @param publicKey Freelancer Stellar public key.
+ * @returns Statistics including total applications, accepted count, and success rate.
  */
-export async function verifyIdentity(publicKey: string, didHash: string) {
-  const { data } = await api.post<{ success: boolean; data: UserProfile }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/verify`,
-    { didHash },
+export async function fetchProfileStats(publicKey: string) {
+  const { data } = await api.get<{ success: boolean; data: ProfileStats }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/stats`
+  );
+  return data.data;
+}
+
+/**
+ * Fetches the average response time (acceptance to completion) for a freelancer.
+ *
+ * @param publicKey Freelancer Stellar public key.
+ * @returns Average response time in days.
+ */
+export async function fetchResponseTime(publicKey: string) {
+  const { data } = await api.get<{ success: boolean; data: ResponseTimeStats }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/response-time`
   );
   return data.data;
 }
