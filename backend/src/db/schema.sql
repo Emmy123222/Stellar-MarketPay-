@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS applications (
   proposal            TEXT        NOT NULL,
   bid_amount          NUMERIC(20,7) NOT NULL,
   status              TEXT        NOT NULL DEFAULT 'pending',
-  screening_answers   JSONB       NOT NULL DEFAULT '{}',
+  accepted_at         TIMESTAMPTZ,                 -- When the client accepted this application
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (job_id, freelancer_address)              -- prevent duplicate applications
 );
@@ -78,9 +78,23 @@ CREATE TABLE IF NOT EXISTS escrows (
   contract_id         TEXT        NOT NULL,
   amount_xlm          NUMERIC(20,7) NOT NULL,
   status              TEXT        NOT NULL DEFAULT 'funded',   -- funded | released | refunded
+  released_at         TIMESTAMPTZ,                 -- When the escrow was released
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ─────────────────────────────────────────
+-- progress_updates
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS progress_updates (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id          UUID        NOT NULL REFERENCES jobs(id),
+  author_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  update_text     TEXT        NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS progress_updates_job_id_idx ON progress_updates(job_id);
 
 -- ─────────────────────────────────────────
 -- ratings

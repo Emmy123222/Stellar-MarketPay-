@@ -11,7 +11,7 @@ const { createRateLimiter } = require("../middleware/rateLimiter");
 const escrowActionRateLimiter = createRateLimiter(30, 1); // 10 escrow actions per minute
 
 const router  = express.Router();
-const { escrows } = require("../services/store");
+const pool = require("../db/pool");
 const { getJob, updateJobStatus } = require("../services/jobService");
 
 /**
@@ -38,25 +38,18 @@ router.post("/:jobId/release", (req, res, next) => {
       const e = new Error("Job is not in progress"); e.status = 400; throw e;
     }
 
-    // Record escrow release (contractTxHash set when release_escrow ran on-chain)
-    const escrowRecord = {
-      jobId,
-      client:     job.clientAddress,
-      freelancer: job.freelancerAddress,
-      amount:     job.budget,
-      status:     "released",
-      releasedAt: new Date().toISOString(),
-      contractTxHash:
-        typeof contractTxHash === "string" && /^[0-9a-f]{64}$/i.test(contractTxHash.trim())
-          ? contractTxHash.trim()
-          : null,
-    };
-    escrows.set(jobId, escrowRecord);
+    // Record escrow release in DB
+    await pool.query(
+      `UPDATE escrows 
+       SET status = 'released', released_at = NOW(), updated_at = NOW() 
+       WHERE job_id = $1`,
+      [jobId]
+    );
 
     // Update job status
-    updateJobStatus(jobId, "completed");
+    await updateJobStatus(jobId, "completed");
 
-    res.json({ success: true, data: escrowRecord });
+    res.json({ success: true, message: "Escrow released and job completed" });
   } catch (e) { next(e); }
 });
 
@@ -64,11 +57,11 @@ router.post("/:jobId/release", (req, res, next) => {
  * GET /api/escrow/:jobId
  * Get escrow state for a job.
  */
-router.get("/:jobId", escrowActionRateLimiter ,(req, res, next) => {
+router.get("/:jobId", escrowActionRateLimiter ,async (req, res, next) => {
   try {
-    const record = escrows.get(req.params.jobId);
-    if (!record) { const e = new Error("No escrow record found for this job"); e.status = 404; throw e; }
-    res.json({ success: true, data: record });
+    const { rows } = await pool.query("SELECT * FROM escrows WHERE job_id = $1", [req.params.jobId]);
+    if (!rows.length) { const e = new Error("No escrow record found for this job"); e.status = 404; throw e; }
+    res.json({ success: true, data: rows[0] });
   } catch (e) { next(e); }
 });
 

@@ -163,7 +163,7 @@ export const SKILL_SUGGESTIONS = [
 
 /**
  * Converts an XLM amount to a USD equivalent string.
- * Returns null if price is unavailable so callers can fail silently.
+ * Returns null if price is unavailable.
  */
 export function formatUSDEquivalent(xlmAmount: string | number, xlmPriceUsd: number | null): string | null {
   if (xlmPriceUsd === null) return null;
@@ -171,4 +171,16 @@ export function formatUSDEquivalent(xlmAmount: string | number, xlmPriceUsd: num
   if (isNaN(num)) return null;
   const usd = (num * xlmPriceUsd).toFixed(2);
   return `≈ $${usd} USD`;
+}
+
+/**
+ * Calculates a monthly equivalent estimate for a given budget.
+ * If no duration is provided, it assumes the budget is for a month of work.
+ */
+export function getMonthlyEstimate(xlmAmount: string | number, xlmPriceUsd: number | null): string | null {
+  if (xlmPriceUsd === null) return null;
+  const num = typeof xlmAmount === "string" ? parseFloat(xlmAmount) : xlmAmount;
+  if (isNaN(num)) return null;
+  const monthlyUsd = (num * xlmPriceUsd).toFixed(2);
+  return `$${monthlyUsd}/mo est.`;
 }
