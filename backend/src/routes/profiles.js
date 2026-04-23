@@ -11,7 +11,7 @@ const { verifyJWT } = require("../middleware/auth");
 const profileUpdateRateLimiter = createRateLimiter(5, 1); // 5 profile updates per minute
 const generalProfileRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for getting profiles
 
-const { getProfile, upsertProfile, updateAvailability, getProfileStats, getResponseTime } = require("../services/profileService");
+const { getProfile, upsertProfile, updateAvailability, blockFreelancer, unblockFreelancer } = require("../services/profileService");
 
 router.get("/:publicKey/stats", generalProfileRateLimiter, async (req, res, next) => {
   try { res.json({ success: true, data: await getProfileStats(req.params.publicKey) }); }
@@ -121,64 +121,6 @@ router.delete("/:publicKey/block/:address", verifyJWT, profileUpdateRateLimiter,
     }
     const profile = await unblockFreelancer(req.params.publicKey, req.params.address);
     res.json({ success: true, data: profile });
-  } catch (e) { next(e); }
-});
-
-// GET /api/profiles/:publicKey/earnings — freelancer earnings history (Issue #181)
-router.get("/:publicKey/earnings", generalProfileRateLimiter, async (req, res, next) => {
-  try {
-    const { publicKey } = req.params;
-
-    const { rows: payments } = await pool.query(
-      `SELECT
-         e.id,
-         e.job_id,
-         e.amount_xlm,
-         e.released_at,
-         j.title  AS job_title,
-         j.client_address
-       FROM escrows e
-       JOIN jobs j ON e.job_id = j.id
-       WHERE j.freelancer_address = $1
-         AND e.status = 'released'
-       ORDER BY e.released_at DESC`,
-      [publicKey]
-    );
-
-    const { rows: monthly } = await pool.query(
-      `SELECT
-         TO_CHAR(DATE_TRUNC('month', e.released_at), 'YYYY-MM') AS month,
-         SUM(e.amount_xlm)::numeric                             AS total_xlm
-       FROM escrows e
-       JOIN jobs j ON e.job_id = j.id
-       WHERE j.freelancer_address = $1
-         AND e.status = 'released'
-         AND e.released_at >= NOW() - INTERVAL '6 months'
-       GROUP BY DATE_TRUNC('month', e.released_at)
-       ORDER BY DATE_TRUNC('month', e.released_at)`,
-      [publicKey]
-    );
-
-    const totalXlm = payments.reduce((sum, p) => sum + parseFloat(p.amount_xlm || 0), 0);
-
-    res.json({
-      success: true,
-      data: {
-        totalXlm: totalXlm.toFixed(7),
-        payments: payments.map((p) => ({
-          id: p.id,
-          jobId: p.job_id,
-          jobTitle: p.job_title,
-          amountXlm: p.amount_xlm,
-          releasedAt: p.released_at,
-          clientAddress: p.client_address,
-        })),
-        monthly: monthly.map((m) => ({
-          month: m.month,
-          totalXlm: parseFloat(m.total_xlm),
-        })),
-      },
-    });
   } catch (e) { next(e); }
 });
 
