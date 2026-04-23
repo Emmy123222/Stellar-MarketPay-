@@ -225,3 +225,13 @@ export interface SkillBadge {
   passed: boolean;
   earnedAt: string;
 }
+
+export interface Message {
+  id: string;
+  jobId: string;
+  senderAddress: string;
+  receiverAddress: string;
+  content: string;
+  read: boolean;
+  createdAt: string;
+}
