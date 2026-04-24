@@ -7,12 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
-import {
-  fetchPublicProfile,
-  verifyIdentity,
-  fetchSkillEndorsements,
-  endorseSkill,
-} from "@/lib/api";
+import { fetchPublicProfile, fetchSkillBadges } from "@/lib/api";
 import {
   availabilityStatusLabel,
   availabilitySummary,
@@ -20,12 +15,7 @@ import {
   shortenAddress,
 } from "@/utils/format";
 import { accountUrl, isValidStellarAddress } from "@/lib/stellar";
-import type {
-  AvailabilityStatus,
-  PortfolioItem,
-  SkillEndorsement,
-  UserProfile,
-} from "@/utils/types";
+import type { AvailabilityStatus, PortfolioItem, SkillBadge, UserProfile } from "@/utils/types";
 
 type LoadState =
   | { status: "loading" }
@@ -74,29 +64,7 @@ export default function PublicFreelancerProfilePage({
     typeof router.query.publicKey === "string" ? router.query.publicKey : "";
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
-  const [verifying, setVerifying] = useState(false);
-  const [endorsements, setEndorsements] = useState<SkillEndorsement[]>([]);
-  const [endorsingSkill, setEndorsingSkill] = useState<string | null>(null);
-
-  const isOwner = publicKey && rawKey === publicKey;
-
-  const handleVerifyIdentity = async () => {
-    if (!publicKey) return;
-    setVerifying(true);
-    try {
-      // Mocking DID verification flow (e.g. SpruceID/Rebase)
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      const mockDidHash = `did:pkh:stellar:${rawKey}#marketpay-kyc-${Date.now()}`;
-      const updatedProfile = await verifyIdentity(rawKey, mockDidHash);
-
-      setState({ status: "ok", profile: updatedProfile });
-    } catch (error) {
-      console.error("Verification error:", error);
-    } finally {
-      setVerifying(false);
-    }
-  };
+  const [badges, setBadges] = useState<SkillBadge[]>([]);
 
   const handleEndorse = async (skill: string) => {
     if (!publicKey || isOwner) return;
@@ -510,6 +478,26 @@ export default function PublicFreelancerProfilePage({
                 </p>
               )}
             </div>
+
+            {/* Verified skill badges */}
+            {badges.length > 0 && (
+              <div className="mb-6 sm:mb-8">
+                <h2 className="label mb-3">Verified Skills</h2>
+                <ul className="flex flex-wrap gap-2">
+                  {badges.map((b) => (
+                    <li key={b.skill} className="relative group">
+                      <span className="inline-flex items-center gap-1.5 text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-3 py-1.5 rounded-full cursor-default">
+                        ✓ {b.skill.charAt(0).toUpperCase() + b.skill.slice(1)}
+                      </span>
+                      {/* Score tooltip */}
+                      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg bg-ink-900 border border-market-500/20 px-2.5 py-1 text-xs text-amber-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10">
+                        Score: {b.score}% · {new Date(b.taken_at).toLocaleDateString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Verified skill badges */}
             {badges.length > 0 && (

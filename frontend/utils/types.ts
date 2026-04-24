@@ -99,29 +99,36 @@ export interface Rating {
   createdAt: string;
 }
 
-export interface ProposalTemplate {
-  id: string;
-  freelancerAddress: string;
-  name: string;
-  content: string;
-  createdAt: string;
-  updatedAt: string;
+export interface AssessmentQuestion {
+  id: number;
+  question: string;
+  options: string[];
 }
 
-export interface SkillEndorsement {
+export interface AssessmentInfo {
   skill: string;
-  count: number;
-  endorsers: string[];
+  label: string;
+  questions: AssessmentQuestion[];
+  durationSeconds: number;
+  passScore: number;
+  canRetake: boolean;
+  retakeAvailableAt: string | null;
+  lastAttempt: { score: number; passed: boolean; taken_at: string } | null;
 }
 
-export interface PriceAlertPreference {
-  freelancer_address: string;
-  min_xlm_price_usd?: string | null;
-  max_xlm_price_usd?: string | null;
-  email_notifications_enabled: boolean;
-  email?: string | null;
-  last_min_alert_at?: string | null;
-  last_max_alert_at?: string | null;
+export interface AssessmentResult {
+  skill: string;
+  score: number;
+  passed: boolean;
+  correct: number;
+  total: number;
+}
+
+export interface SkillBadge {
+  skill: string;
+  score: number;
+  passed: boolean;
+  taken_at: string;
 }
 
 export interface EscrowState {
