@@ -14,7 +14,7 @@ import ShareJobModal from "@/components/ShareJobModal";
 import ProposalComparison from "@/components/ProposalComparison";
 import clsx from "clsx";
 import { fetchJob, fetchApplications, acceptApplication, releaseEscrow, fetchProfile } from "@/lib/api";
-import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
+import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass, availabilityStatusLabel, availabilitySummary } from "@/utils/format";
 import {
   accountUrl,
   buildReleaseEscrowTransaction,
@@ -22,9 +22,7 @@ import {
   submitSignedSorobanTransaction,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import type { Application, Job, UserProfile } from "@/utils/types";
-
-type AvailabilityStatus = "available" | "busy" | "unavailable";
+import type { Application, AvailabilityStatus, Job, UserProfile } from "@/utils/types";
 
 interface JobDetailProps {
   publicKey: string | null;
@@ -36,21 +34,6 @@ function getAvailabilityBadgeClass(status?: AvailabilityStatus | null) {
   if (status === "busy") return "bg-amber-500/10 text-amber-300 border-amber-500/20";
   if (status === "unavailable") return "bg-red-500/10 text-red-400 border-red-500/20";
   return "bg-market-500/10 text-market-400 border-market-500/20";
-}
-
-function availabilityStatusLabel(status?: AvailabilityStatus | null): string {
-  if (status === "available") return "Available";
-  if (status === "busy") return "Busy";
-  if (status === "unavailable") return "Unavailable";
-  return "Unknown";
-}
-
-function availabilitySummary(availability?: { status?: string; availableFrom?: string; availableUntil?: string } | null): string {
-  if (!availability) return "";
-  const parts: string[] = [];
-  if (availability.availableFrom) parts.push(`From ${availability.availableFrom}`);
-  if (availability.availableUntil) parts.push(`Until ${availability.availableUntil}`);
-  return parts.join(" · ");
 }
 
 export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
