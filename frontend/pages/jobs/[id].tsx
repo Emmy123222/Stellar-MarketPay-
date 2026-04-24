@@ -11,6 +11,7 @@ import FreelancerTierBadge from "@/components/FreelancerTierBadge";
 import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
+import ProposalComparison from "@/components/ProposalComparison";
 import clsx from "clsx";
 import { fetchJob, fetchApplications, acceptApplication, releaseEscrow, fetchProfile } from "@/lib/api";
 import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
@@ -21,7 +22,9 @@ import {
   submitSignedSorobanTransaction,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import type { Application, AvailabilityStatus, Job, UserProfile } from "@/utils/types";
+import type { Application, Job, UserProfile } from "@/utils/types";
+
+type AvailabilityStatus = "available" | "busy" | "unavailable";
 
 interface JobDetailProps {
   publicKey: string | null;
@@ -33,6 +36,21 @@ function getAvailabilityBadgeClass(status?: AvailabilityStatus | null) {
   if (status === "busy") return "bg-amber-500/10 text-amber-300 border-amber-500/20";
   if (status === "unavailable") return "bg-red-500/10 text-red-400 border-red-500/20";
   return "bg-market-500/10 text-market-400 border-market-500/20";
+}
+
+function availabilityStatusLabel(status?: AvailabilityStatus | null): string {
+  if (status === "available") return "Available";
+  if (status === "busy") return "Busy";
+  if (status === "unavailable") return "Unavailable";
+  return "Unknown";
+}
+
+function availabilitySummary(availability?: { status?: string; availableFrom?: string; availableUntil?: string } | null): string {
+  if (!availability) return "";
+  const parts: string[] = [];
+  if (availability.availableFrom) parts.push(`From ${availability.availableFrom}`);
+  if (availability.availableUntil) parts.push(`Until ${availability.availableUntil}`);
+  return parts.join(" · ");
 }
 
 export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
@@ -53,6 +71,8 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [showShareModal, setShowShareModal] = useState(false);
   const [prefillData, setPrefillData] = useState<any>(null);
   const [expandedProposals, setExpandedProposals] = useState<Set<string>>(new Set());
+  const [selectedApplications, setSelectedApplications] = useState<Set<string>>(new Set());
+  const [showComparison, setShowComparison] = useState(false);
 
   const toggleProposalExpand = (appId: string) => {
     setExpandedProposals((prev) => {
@@ -69,8 +89,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
 
   useEffect(() => {
     if (!id) return;
-    
-    // Check for prefill parameter
+
     const { prefill } = router.query;
     if (typeof prefill === 'string') {
       try {
@@ -80,7 +99,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
         // Invalid prefill data, ignore
       }
     }
-    
+
     Promise.all([
       fetchJob(id as string),
       fetchApplications(id as string),
@@ -129,7 +148,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     if (!publicKey) return;
 
     try {
-      await acceptApplication(appId, publicKey);
+      await acceptApplication(applicationId, publicKey);
       const [j, apps] = await Promise.all([fetchJob(id as string), fetchApplications(id as string)]);
       setJob(j); setApplications(apps);
       setSelectedApplications(new Set());
@@ -221,7 +240,6 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
 
   return (
     <>
-      {/* Open Graph Meta Tags */}
       <Head>
         <title>{job.title} - Stellar MarketPay</title>
         <meta name="description" content={job.description.substring(0, 160)} />
@@ -238,39 +256,9 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">
 
-        {/* Back */}
         <Link href="/jobs" className="inline-flex items-center gap-1.5 text-sm text-amber-800 hover:text-amber-400 transition-colors mb-6">
           ← Back to Jobs
         </Link>
-
-        {/* Job header */}
-        <div className="card mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-5">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
-                <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
-                <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">{job.category}</span>
-                {job.boosted && new Date(job.boostedUntil || '') > new Date() && (
-                  <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">Featured</span>
-                )}
-              </div>
-              <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug">{job.title}</h1>
-            </div>
-            <div className="flex-shrink-0 text-right">
-              <p className="text-xs text-amber-800 mb-1">Budget</p>
-              <p className="font-mono font-bold text-2xl text-market-400">{formatXLM(job.budget)} {job.currency}</p>
-          {job.deadline && <span>Deadline: {formatDate(job.deadline)}</span>}
-          <a href={accountUrl(job.clientAddress)} target="_blank" rel="noopener noreferrer"
-            className="flex items-center gap-1 hover:text-market-400 transition-colors">
-            Client: {shortenAddress(job.clientAddress)} ↗
-          </a>
-        </div>
-
-        {/* Description */}
-        <div className="prose prose-sm max-w-none">
-          <h3 className="font-display text-base font-semibold text-amber-300 mb-3">Description</h3>
-          <p className="text-amber-700/90 leading-relaxed whitespace-pre-wrap font-body text-sm">{job.description}</p>
-        </div>
 
         <div className="card mb-6">
           <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-5">
@@ -333,257 +321,136 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             </div>
           )}
         </div>
-      )}
-
-      {/* Applications (client view) */}
-      {isClient && applications.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-display text-xl font-bold text-amber-100">
-              Applications ({applications.length})
-            </h2>
-            <div className="hidden sm:flex items-center gap-3 text-[10px] text-amber-800 font-medium uppercase tracking-wider">
-              <span className="flex items-center gap-1"><kbd className="bg-ink-900 px-1.5 py-0.5 rounded border border-market-500/20 text-market-400">↑↓</kbd> Navigate</span>
-              <span className="flex items-center gap-1"><kbd className="bg-ink-900 px-1.5 py-0.5 rounded border border-market-500/20 text-market-400">Enter</kbd> Accept</span>
-            </div>
-          </div>
-          <div className="space-y-4">
-            {applications.map((app) => (
-              <div
-                key={app.id}
-                className="card-hover group focus-visible:ring-2 focus-visible:ring-market-400 focus:outline-none"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    (e.currentTarget.nextElementSibling as HTMLElement)?.focus();
-                  } else if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    (e.currentTarget.previousElementSibling as HTMLElement)?.focus();
-                  } else if (e.key === "Enter" && e.target === e.currentTarget) {
-                    if (app.status === "pending" && job.status === "open") {
-                      handleAcceptApplication(app.id);
-                    }
-                  }
-                }}
-              >
-                <div className="flex flex-col sm:flex-row gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={selectedApplications.has(app.id)}
-                        onChange={() => handleToggleSelection(app.id)}
-                        disabled={!selectedApplications.has(app.id) && selectedApplications.size >= 3}
-                        className="w-4 h-4 rounded border-market-500/30 bg-market-500/10 text-market-400 focus:ring-market-500/50 cursor-pointer"
-                      />
-                      <a
-                        href={accountUrl(app.freelancerAddress)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="address-tag hover:border-market-500/40 transition-colors"
-                      >
-                        {shortenAddress(app.freelancerAddress)} ↗
-                      </a>
-                    </div>
-                    <p className="text-xs text-amber-800 mt-2">
-                      Applied {timeAgo(app.createdAt)}
-                    </p>
-                  </div>
-
-                  <div className="flex-shrink-0 flex items-center gap-3 sm:flex-col sm:items-end sm:gap-2">
-                    <span className="font-mono text-market-400 font-semibold text-sm">
-                      {formatXLM(app.bidAmount)}
-                    </span>
-                    <span
-                      className={clsx(
-                        "text-xs px-2.5 py-1 rounded-full border",
-                        app.status === "accepted"
-                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                          : app.status === "rejected"
-                            ? "bg-red-500/10 text-red-400 border-red-500/20"
-                            : "bg-market-500/10 text-market-400 border-market-500/20"
-                      )}
-                    >
-                      {app.status}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-4 pt-4 border-t border-market-500/10">
-                  <p className="text-amber-700/80 text-sm leading-relaxed">
-                    {expandedProposals.has(app.id)
-                      ? app.proposal
-                      : app.proposal.length > 150
-                        ? `${app.proposal.substring(0, 150)}...`
-                        : app.proposal}
-                  </p>
-                  {app.proposal.length > 150 && (
-                    <button
-                      onClick={() => toggleProposalExpand(app.id)}
-                      className="text-xs text-market-400 hover:text-market-300 mt-2 font-medium transition-colors"
-                    >
-                      {expandedProposals.has(app.id) ? "Show less" : "Read full proposal"}
-                    </button>
-                  )}
-                </div>
-
-                {app.screeningAnswers && Object.keys(app.screeningAnswers).length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-market-500/10">
-                    <h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-3">Screening Question Answers</h4>
-                    <div className="space-y-3">
-                      {Object.entries(app.screeningAnswers).map(([question, answer], index) => (
-                        <div key={index}>
-                          <p className="text-xs text-amber-300 font-medium mb-1">{question}</p>
-                          <p className="text-sm text-amber-700/80 bg-market-500/5 p-2 rounded border border-market-500/10">{answer}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {app.status === "pending" && job.status === "open" && (
-                  <div className="flex gap-3 mt-4 pt-4 border-t border-market-500/10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
-                    <button
-                      onClick={() => handleAcceptApplication(app.id)}
-                      className="btn-primary text-sm py-2 px-4"
-                    >
-                      Accept
-                    </button>
-                    <button className="btn-ghost text-sm py-2 px-4 text-red-400/70 hover:text-red-400 hover:bg-red-500/8">
-                      Reject
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Proposal Comparison Modal */}
-      {showComparison && (
-        <ProposalComparison
-          applications={selectedApps}
-          job={job}
-          publicKey={publicKey}
-          onClose={() => setShowComparison(false)}
-          onAccept={handleAcceptApplication}
-        />
-      )}
-
-      {/* Apply (freelancer view) */}
-      {!isClient && job.status === "open" && (
-        <div className="mb-6">
-          {!publicKey ? (
-            <div>
-              <p className="text-amber-800 text-sm mb-4 text-center">Connect your wallet to apply for this job</p>
-              <WalletConnect onConnect={onConnect} />
-            </div>
-          ) : hasApplied ? (
-            <div className="card text-center py-8 border-market-500/20">
-              <p className="text-market-400 font-medium mb-1">✅ Application submitted</p>
-              <p className="text-amber-800 text-sm">The client will review your proposal shortly.</p>
-            </div>
-          ) : showApplyForm ? (
-            <ApplicationForm
-              job={job}
-              publicKey={publicKey}
-              prefillData={prefillData}
-              onSuccess={() => { setShowApplyForm(false); setApplications((prev) => [...prev, {} as Application]); }}
-            />
-          ) : (
-            <div className="text-center">
-              <button onClick={() => setShowApplyForm(true)} className="btn-primary text-base px-10 py-3.5">
-                Apply for this Job
-              </button>
-            )}
-
-            {actionError && <p className="mt-3 text-red-400 text-sm">{actionError}</p>}
-          </div>
-        )}
 
         {isClient && applications.length > 0 && (
           <div className="mb-6">
-            <h2 className="font-display text-xl font-bold text-amber-100 mb-4">
-              Applications ({applications.length})
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display text-xl font-bold text-amber-100">
+                Applications ({applications.length})
+              </h2>
+              <div className="hidden sm:flex items-center gap-3 text-[10px] text-amber-800 font-medium uppercase tracking-wider">
+                <span className="flex items-center gap-1"><kbd className="bg-ink-900 px-1.5 py-0.5 rounded border border-market-500/20 text-market-400">↑↓</kbd> Navigate</span>
+                <span className="flex items-center gap-1"><kbd className="bg-ink-900 px-1.5 py-0.5 rounded border border-market-500/20 text-market-400">Enter</kbd> Accept</span>
+              </div>
+            </div>
             <div className="space-y-4">
-              {applications.map((application) => {
-                const applicantProfile = applicantProfiles[application.freelancerAddress];
+              {applications.map((app) => {
+                const applicantProfile = applicantProfiles[app.freelancerAddress];
                 const availability = applicantProfile?.availability;
 
                 return (
-                  <div key={application.id} className="card-hover group">
+                  <div
+                    key={app.id}
+                    className="card-hover group focus-visible:ring-2 focus-visible:ring-market-400 focus:outline-none"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        (e.currentTarget.nextElementSibling as HTMLElement)?.focus();
+                      } else if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        (e.currentTarget.previousElementSibling as HTMLElement)?.focus();
+                      } else if (e.key === "Enter" && e.target === e.currentTarget) {
+                        if (app.status === "pending" && job.status === "open") {
+                          handleAcceptApplication(app.id);
+                        }
+                      }
+                    }}
+                  >
                     <div className="flex flex-col sm:flex-row gap-4">
                       <div className="flex-1 min-w-0">
-                        <a
-                          href={accountUrl(application.freelancerAddress)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="address-tag hover:border-market-500/40 transition-colors"
-                        >
-                          {shortenAddress(application.freelancerAddress)} ↗
-                        </a>
-                        <p className="text-xs text-amber-800 mt-2">
-                          Applied {timeAgo(application.createdAt)}
-                        </p>
-                        <div className="mt-3">
-                          <span
-                            className={clsx(
-                              "text-xs px-2.5 py-1 rounded-full border",
-                              getAvailabilityBadgeClass(availability?.status)
-                            )}
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedApplications.has(app.id)}
+                            onChange={() => handleToggleSelection(app.id)}
+                            disabled={!selectedApplications.has(app.id) && selectedApplications.size >= 3}
+                            className="w-4 h-4 rounded border-market-500/30 bg-market-500/10 text-market-400 focus:ring-market-500/50 cursor-pointer"
+                          />
+                          <a
+                            href={accountUrl(app.freelancerAddress)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="address-tag hover:border-market-500/40 transition-colors"
                           >
-                            {availabilityStatusLabel(availability?.status)}
-                          </span>
-                          <p className="text-xs text-amber-800 mt-2">
-                            {availabilitySummary(availability) || "Availability has not been set yet."}
-                          </p>
+                            {shortenAddress(app.freelancerAddress)} ↗
+                          </a>
                         </div>
+                        <p className="text-xs text-amber-800 mt-2">
+                          Applied {timeAgo(app.createdAt)}
+                        </p>
+                        {availability && (
+                          <div className="mt-3">
+                            <span
+                              className={clsx(
+                                "text-xs px-2.5 py-1 rounded-full border",
+                                getAvailabilityBadgeClass(availability?.status)
+                              )}
+                            >
+                              {availabilityStatusLabel(availability?.status)}
+                            </span>
+                            <p className="text-xs text-amber-800 mt-2">
+                              {availabilitySummary(availability) || "Availability has not been set yet."}
+                            </p>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex-shrink-0 flex items-center gap-3 sm:flex-col sm:items-end sm:gap-2">
                         <span className="font-mono text-market-400 font-semibold text-sm">
-                          {formatXLM(application.bidAmount)}
+                          {formatXLM(app.bidAmount)}
                         </span>
                         <span
                           className={clsx(
                             "text-xs px-2.5 py-1 rounded-full border",
-                            application.status === "accepted"
+                            app.status === "accepted"
                               ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                              : application.status === "rejected"
+                              : app.status === "rejected"
                                 ? "bg-red-500/10 text-red-400 border-red-500/20"
                                 : "bg-market-500/10 text-market-400 border-market-500/20"
                           )}
                         >
-                          {application.status}
+                          {app.status}
                         </span>
                       </div>
                     </div>
 
                     <div className="mt-4 pt-4 border-t border-market-500/10">
                       <p className="text-amber-700/80 text-sm leading-relaxed">
-                        {expandedProposals.has(application.id)
-                          ? application.proposal
-                          : application.proposal.length > 150
-                            ? `${application.proposal.substring(0, 150)}...`
-                            : application.proposal}
+                        {expandedProposals.has(app.id)
+                          ? app.proposal
+                          : app.proposal.length > 150
+                            ? `${app.proposal.substring(0, 150)}...`
+                            : app.proposal}
                       </p>
-                      {application.proposal.length > 150 && (
+                      {app.proposal.length > 150 && (
                         <button
-                          onClick={() => toggleProposalExpand(application.id)}
+                          onClick={() => toggleProposalExpand(app.id)}
                           className="text-xs text-market-400 hover:text-market-300 mt-2 font-medium transition-colors"
                         >
-                          {expandedProposals.has(application.id) ? "Show less" : "Read full proposal"}
+                          {expandedProposals.has(app.id) ? "Show less" : "Read full proposal"}
                         </button>
                       )}
                     </div>
 
-                    {application.status === "pending" && job.status === "open" && (
+                    {app.screeningAnswers && Object.keys(app.screeningAnswers).length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-market-500/10">
+                        <h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-3">Screening Question Answers</h4>
+                        <div className="space-y-3">
+                          {Object.entries(app.screeningAnswers).map(([question, answer], index) => (
+                            <div key={index}>
+                              <p className="text-xs text-amber-300 font-medium mb-1">{question}</p>
+                              <p className="text-sm text-amber-700/80 bg-market-500/5 p-2 rounded border border-market-500/10">{answer}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {app.status === "pending" && job.status === "open" && (
                       <div className="flex gap-3 mt-4 pt-4 border-t border-market-500/10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
                         <button
-                          onClick={() => handleAcceptApplication(application.id)}
+                          onClick={() => handleAcceptApplication(app.id)}
                           className="btn-primary text-sm py-2 px-4"
                         >
                           Accept
@@ -598,6 +465,16 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               })}
             </div>
           </div>
+        )}
+
+        {showComparison && (
+          <ProposalComparison
+            applications={selectedApps}
+            job={job}
+            publicKey={publicKey}
+            onClose={() => setShowComparison(false)}
+            onAccept={handleAcceptApplication}
+          />
         )}
 
         {!isClient && job.status === "open" && (
@@ -631,33 +508,33 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                 </button>
               </div>
             )}
+
+            {actionError && <p className="mt-3 text-red-400 text-sm">{actionError}</p>}
           </div>
         )}
 
-      {/* Rating section (job completed) */}
-      {job.status === "completed" && publicKey && !ratingSubmitted && (
-        <div className="mt-6">
-          {isClient && job.freelancerAddress && (
-            <RatingForm
-              jobId={job.id}
-              ratedAddress={job.freelancerAddress}
-              ratedLabel="the freelancer"
-              onSuccess={() => setRatingSubmitted(true)}
-            />
-          )}
-          {isFreelancer && (
-            <RatingForm
-              jobId={job.id}
-              ratedAddress={job.clientAddress}
-              ratedLabel="the client"
-              onSuccess={() => setRatingSubmitted(true)}
-            />
-          )}
-        </div>
-      )}
-    </div>
+        {job.status === "completed" && publicKey && !ratingSubmitted && (
+          <div className="mt-6">
+            {isClient && job.freelancerAddress && (
+              <RatingForm
+                jobId={job.id}
+                ratedAddress={job.freelancerAddress}
+                ratedLabel="the freelancer"
+                onSuccess={() => setRatingSubmitted(true)}
+              />
+            )}
+            {isFreelancer && (
+              <RatingForm
+                jobId={job.id}
+                ratedAddress={job.clientAddress}
+                ratedLabel="the client"
+                onSuccess={() => setRatingSubmitted(true)}
+              />
+            )}
+          </div>
+        )}
+      </div>
 
-      {/* Share Modal */}
       {showShareModal && job && (
         <ShareJobModal
           job={job}
