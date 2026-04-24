@@ -71,6 +71,38 @@ export interface Rating {
   createdAt: string;
 }
 
+export interface AssessmentQuestion {
+  id: number;
+  question: string;
+  options: string[];
+}
+
+export interface AssessmentInfo {
+  skill: string;
+  label: string;
+  questions: AssessmentQuestion[];
+  durationSeconds: number;
+  passScore: number;
+  canRetake: boolean;
+  retakeAvailableAt: string | null;
+  lastAttempt: { score: number; passed: boolean; taken_at: string } | null;
+}
+
+export interface AssessmentResult {
+  skill: string;
+  score: number;
+  passed: boolean;
+  correct: number;
+  total: number;
+}
+
+export interface SkillBadge {
+  skill: string;
+  score: number;
+  passed: boolean;
+  taken_at: string;
+}
+
 export interface EscrowState {
   contractId: string;
   jobId: string;

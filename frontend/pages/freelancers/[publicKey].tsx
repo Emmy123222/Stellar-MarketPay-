@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
-import { fetchPublicProfile } from "@/lib/api";
+import { fetchPublicProfile, fetchSkillBadges } from "@/lib/api";
 import {
   availabilityStatusLabel,
   availabilitySummary,
@@ -15,7 +15,7 @@ import {
   shortenAddress,
 } from "@/utils/format";
 import { accountUrl, isValidStellarAddress } from "@/lib/stellar";
-import type { AvailabilityStatus, PortfolioItem, UserProfile } from "@/utils/types";
+import type { AvailabilityStatus, PortfolioItem, SkillBadge, UserProfile } from "@/utils/types";
 
 type LoadState =
   | { status: "loading" }
@@ -56,6 +56,7 @@ export default function PublicFreelancerProfilePage() {
   const rawKey = typeof router.query.publicKey === "string" ? router.query.publicKey : "";
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [badges, setBadges] = useState<SkillBadge[]>([]);
 
   const titleBase = useMemo(() => {
     if (state.status === "ok" && state.profile.displayName?.trim()) {
@@ -103,6 +104,11 @@ export default function PublicFreelancerProfilePage() {
         setState({ status: "error", message });
       }
     })();
+
+    // Fetch badges separately (non-blocking)
+    fetchSkillBadges(rawKey)
+      .then((data) => { if (!cancelled) setBadges(data.filter((b) => b.passed)); })
+      .catch(() => {});
 
     return () => {
       cancelled = true;
@@ -263,6 +269,26 @@ export default function PublicFreelancerProfilePage() {
                 <p className="text-amber-900/80 text-sm italic">No skills listed yet.</p>
               )}
             </div>
+
+            {/* Verified skill badges */}
+            {badges.length > 0 && (
+              <div className="mb-6 sm:mb-8">
+                <h2 className="label mb-3">Verified Skills</h2>
+                <ul className="flex flex-wrap gap-2">
+                  {badges.map((b) => (
+                    <li key={b.skill} className="relative group">
+                      <span className="inline-flex items-center gap-1.5 text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-3 py-1.5 rounded-full cursor-default">
+                        ✓ {b.skill.charAt(0).toUpperCase() + b.skill.slice(1)}
+                      </span>
+                      {/* Score tooltip */}
+                      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg bg-ink-900 border border-market-500/20 px-2.5 py-1 text-xs text-amber-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10">
+                        Score: {b.score}% · {new Date(b.taken_at).toLocaleDateString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div>
               <div className="flex items-center justify-between gap-3 mb-3">

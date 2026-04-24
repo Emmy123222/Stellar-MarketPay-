@@ -18,7 +18,7 @@
  */
 
 import axios from "axios";
-import type { Availability, Job, Application, UserProfile, Rating } from "@/utils/types";
+import type { Availability, Job, Application, UserProfile, Rating, AssessmentInfo, AssessmentResult, SkillBadge } from "@/utils/types";
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000",
@@ -413,5 +413,30 @@ export async function submitRating(payload: {
  */
 export async function fetchRatings(publicKey: string) {
   const { data } = await api.get<{ success: boolean; data: Rating[] }>(`/api/ratings/${publicKey}`);
+  return data.data;
+}
+
+// ─── Assessments ──────────────────────────────────────────────────────────────
+
+/** Fetches assessment questions and cooldown info for a skill. Requires JWT. */
+export async function fetchAssessment(skill: string): Promise<AssessmentInfo> {
+  const { data } = await api.get<{ success: boolean; data: AssessmentInfo }>(`/api/assessments/${skill}`);
+  return data.data;
+}
+
+/** Submits answers for grading. Returns score and pass/fail. Requires JWT. */
+export async function submitAssessment(skill: string, answers: Record<number, number>): Promise<AssessmentResult> {
+  const { data } = await api.post<{ success: boolean; data: AssessmentResult }>(
+    `/api/assessments/${skill}/submit`,
+    { answers }
+  );
+  return data.data;
+}
+
+/** Fetches all skill assessment results (badges) for a public profile. */
+export async function fetchSkillBadges(publicKey: string): Promise<SkillBadge[]> {
+  const { data } = await api.get<{ success: boolean; data: SkillBadge[] }>(
+    `/api/assessments/results/${encodeURIComponent(publicKey)}`
+  );
   return data.data;
 }
