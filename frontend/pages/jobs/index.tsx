@@ -35,6 +35,7 @@ function removeAlert(cat: string): void {
   saveAlerts(getAlerts().filter((c) => c !== cat));
 }
 
+
 export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   const router = useRouter();
   const { i18n } = useTranslation("common");
