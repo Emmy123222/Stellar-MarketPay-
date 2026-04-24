@@ -11,7 +11,7 @@ import { JOB_CATEGORIES, SKILL_SUGGESTIONS, formatUSDEquivalent, getMonthlyEstim
 import { useRouter } from "next/router";
 import clsx from "clsx";
 import { useToast } from "@/components/Toast";
-import { usePriceContext } from "@/contexts/PriceContext";
+import type { Currency } from "@/utils/types";
 
 interface PostJobFormProps { publicKey: string; }
 
@@ -50,7 +50,7 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
   const toast = useToast();
   const { xlmPriceUsd } = usePriceContext();
   const [form, setForm] = useState({
-    title: "", description: "", budget: "", category: "", skillInput: "", deadline: "", timezone: "",
+    title: "", description: "", budget: "", category: "", skillInput: "", deadline: "", currency: "XLM" as Currency,
   });
   const [skills, setSkills] = useState<string[]>([]);
   const [screeningQuestions, setScreeningQuestions] = useState<string[]>([""]);
@@ -320,17 +320,9 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
             </select>
           </div>
           <div>
-            <label className="label">Budget (XLM)</label>
-            <div className="relative">
-              <input type="number" value={form.budget} onChange={(e) => set("budget", e.target.value)}
-                placeholder="e.g. 500" min="1" step="1" className="input-field pr-24" />
-              {usdPreview && (
-                <div className="absolute inset-y-0 right-0 flex flex-col justify-center pr-3 pointer-events-none text-right">
-                  <span className="text-[10px] font-semibold text-market-400">{usdPreview.replace('≈ ', '')}</span>
-                  <span className="text-[9px] text-amber-800/40 leading-none">{monthlyEst}</span>
-                </div>
-              )}
-            </div>
+            <label className="label">Budget</label>
+            <input type="number" value={form.budget} onChange={(e) => set("budget", e.target.value)}
+              placeholder="e.g. 500" min="1" step="1" className="input-field" />
             <p className="mt-1 text-xs text-amber-800/50">Will be locked in escrow on hire</p>
           </div>
           <div>

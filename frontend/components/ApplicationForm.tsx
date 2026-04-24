@@ -62,7 +62,7 @@ export default function ApplicationForm({ job, publicKey, prefillData, onSuccess
         freelancerAddress: publicKey,
         proposal: proposal.trim(),
         bidAmount: parseFloat(bidAmount).toFixed(7),
-          screeningAnswers: job.screeningQuestions && job.screeningQuestions.length > 0 ? screeningAnswers : undefined,
+        currency: job.currency,
       });
       toast.success("Proposal submitted successfully!");
       onSuccess();

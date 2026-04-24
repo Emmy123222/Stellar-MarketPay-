@@ -41,7 +41,7 @@ function rowToApp(row) {
 
 // ─── service functions ───────────────────────────────────────────────────────
 
-async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, screeningAnswers }) {
+async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, currency = 'XLM' }) {
   validatePublicKey(freelancerAddress);
 
   // Validate the job (throws 404 if missing)
@@ -76,10 +76,10 @@ async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount
   let appRow;
   try {
     const { rows } = await query(
-      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, status, screening_answers, created_at)
-       VALUES ($1, $2, $3, $4, 'pending', $5, NOW())
+      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, currency, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
        RETURNING *`,
-      [jobId, freelancerAddress, proposal.trim(), parseFloat(bidAmount).toFixed(7), screeningAnswers || {}]
+      [jobId, freelancerAddress, proposal.trim(), parseFloat(bidAmount).toFixed(7), currency]
     );
     appRow = rows[0];
   } catch (err) {

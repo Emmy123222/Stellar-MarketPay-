@@ -6,12 +6,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import Head from "next/head";
-import clsx from "clsx";
 import ApplicationForm from "@/components/ApplicationForm";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
 import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
-import ProposalComparison from "@/components/ProposalComparison";
+import ShareJobModal from "@/components/ShareJobModal";
 import { fetchJob, fetchApplications, acceptApplication, releaseEscrow } from "@/lib/api";
 import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
 import {
@@ -50,31 +49,32 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [releaseSyncedWithBackend, setReleaseSyncedWithBackend] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
-  const [selectedApplications, setSelectedApplications] = useState<Set<string>>(new Set());
-  const [showComparison, setShowComparison] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [prefillData, setPrefillData] = useState<any>(null);
 
   const isClient = publicKey && job?.clientAddress === publicKey;
   const isFreelancer = publicKey && job?.freelancerAddress === publicKey;
   const hasApplied = applications.some((application) => application.freelancerAddress === publicKey);
 
   useEffect(() => {
-    if (!router.isReady || !id) return;
-
+    if (!id) return;
+    
+    // Check for prefill parameter
     const { prefill } = router.query;
-    if (typeof prefill === "string") {
+    if (typeof prefill === 'string') {
       try {
-        const decoded = JSON.parse(Buffer.from(prefill, "base64").toString("utf8"));
+        const decoded = JSON.parse(Buffer.from(prefill, 'base64').toString('utf8'));
         setPrefillData(decoded);
       } catch {
-        setPrefillData(null);
+        // Invalid prefill data, ignore
       }
     }
-
-    Promise.all([fetchJob(id as string), fetchApplications(id as string)])
-      .then(([jobData, applicationData]) => {
-        setJob(jobData);
-        setApplications(applicationData);
-      })
+    
+    Promise.all([
+      fetchJob(id as string),
+      fetchApplications(id as string),
+    ])
+      .then(([j, apps]) => { setJob(j); setApplications(apps); })
       .catch(() => router.push("/jobs"))
       .finally(() => setLoading(false));
   }, [id, router, router.isReady]);
@@ -210,33 +210,56 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
 
   return (
     <>
+      {/* Open Graph Meta Tags */}
       <Head>
         <title>{job.title} - Stellar MarketPay</title>
         <meta name="description" content={job.description.substring(0, 160)} />
         <meta property="og:title" content={job.title} />
         <meta property="og:description" content={job.description.substring(0, 160)} />
         <meta property="og:type" content="website" />
-        <meta
-          property="og:url"
-          content={`${typeof window !== "undefined" ? window.location.origin : ""}/jobs/${job.id}`}
-        />
+        <meta property="og:url" content={`${typeof window !== 'undefined' ? window.location.origin : ''}/jobs/${job.id}`} />
         <meta property="og:site_name" content="Stellar MarketPay" />
-        <meta
-          property="og:image"
-          content={`${typeof window !== "undefined" ? window.location.origin : ""}/og-image.jpg`}
-        />
+        <meta property="og:image" content={`${typeof window !== 'undefined' ? window.location.origin : ''}/og-image.jpg`} />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={job.title} />
         <meta name="twitter:description" content={job.description.substring(0, 160)} />
       </Head>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">
-        <Link
-          href="/jobs"
-          className="inline-flex items-center gap-1.5 text-sm text-amber-800 hover:text-amber-400 transition-colors mb-6"
-        >
+
+        {/* Back */}
+        <Link href="/jobs" className="inline-flex items-center gap-1.5 text-sm text-amber-800 hover:text-amber-400 transition-colors mb-6">
           ← Back to Jobs
         </Link>
+
+        {/* Job header */}
+        <div className="card mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-5">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
+                <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">{job.category}</span>
+                {job.boosted && new Date(job.boostedUntil || '') > new Date() && (
+                  <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">Featured</span>
+                )}
+              </div>
+              <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug">{job.title}</h1>
+            </div>
+            <div className="flex-shrink-0 text-right">
+              <p className="text-xs text-amber-800 mb-1">Budget</p>
+              <p className="font-mono font-bold text-2xl text-market-400">{formatXLM(job.budget)} {job.currency}</p>
+          {job.deadline && <span>Deadline: {formatDate(job.deadline)}</span>}
+          <a href={accountUrl(job.clientAddress)} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1 hover:text-market-400 transition-colors">
+            Client: {shortenAddress(job.clientAddress)} ↗
+          </a>
+        </div>
+
+        {/* Description */}
+        <div className="prose prose-sm max-w-none">
+          <h3 className="font-display text-base font-semibold text-amber-300 mb-3">Description</h3>
+          <p className="text-amber-700/90 leading-relaxed whitespace-pre-wrap font-body text-sm">{job.description}</p>
+        </div>
 
         <div className="card mb-6">
           <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-5">
@@ -535,39 +558,36 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           </div>
         )}
 
-        {isFreelancer && job.status !== "completed" && (
-          <div className="card border-market-500/20 text-center py-8">
-            <p className="font-display text-lg text-amber-100 mb-1">You are working on this job</p>
-            <p className="text-amber-800 text-sm">
-              Deliver the work and the client will release{" "}
-              <span className="text-market-400 font-mono">{formatXLM(job.budget)}</span> from escrow.
-            </p>
-          </div>
-        )}
+      {/* Rating section (job completed) */}
+      {job.status === "completed" && publicKey && !ratingSubmitted && (
+        <div className="mt-6">
+          {isClient && job.freelancerAddress && (
+            <RatingForm
+              jobId={job.id}
+              ratedAddress={job.freelancerAddress}
+              ratedLabel="the freelancer"
+              onSuccess={() => setRatingSubmitted(true)}
+            />
+          )}
+          {isFreelancer && (
+            <RatingForm
+              jobId={job.id}
+              ratedAddress={job.clientAddress}
+              ratedLabel="the client"
+              onSuccess={() => setRatingSubmitted(true)}
+            />
+          )}
+        </div>
+      )}
+    </div>
 
-        {job.status === "completed" && publicKey && !ratingSubmitted && (
-          <div className="mt-6">
-            {isClient && job.freelancerAddress && (
-              <RatingForm
-                jobId={job.id}
-                ratedAddress={job.freelancerAddress}
-                ratedLabel="the freelancer"
-                onSuccess={() => setRatingSubmitted(true)}
-              />
-            )}
-            {isFreelancer && (
-              <RatingForm
-                jobId={job.id}
-                ratedAddress={job.clientAddress}
-                ratedLabel="the client"
-                onSuccess={() => setRatingSubmitted(true)}
-              />
-            )}
-          </div>
-        )}
-      </div>
-
-      {showShareModal && job && <ShareJobModal job={job} onClose={() => setShowShareModal(false)} />}
+      {/* Share Modal */}
+      {showShareModal && job && (
+        <ShareJobModal
+          job={job}
+          onClose={() => setShowShareModal(false)}
+        />
+      )}
     </>
   );
 }

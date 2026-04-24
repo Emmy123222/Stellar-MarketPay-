@@ -97,7 +97,7 @@ function rowToJob(row) {
  * Create a new job listing.
  * Note: client's profile row must already exist (FK constraint).
  */
-async function createJob({ title, description, budget, category, skills, deadline, timezone, clientAddress, screeningQuestions }) {
+async function createJob({ title, description, budget, currency = 'XLM', category, skills, deadline, clientAddress }) {
   validatePublicKey(clientAddress);
 
   if (!title || title.length < 10) {
@@ -122,8 +122,8 @@ async function createJob({ title, description, budget, category, skills, deadlin
   const { rows } = await query(
     `
     INSERT INTO jobs
-      (title, description, budget, category, skills, status, client_address, deadline, timezone, screening_questions, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8, $9, NOW(), NOW())
+      (title, description, budget, currency, category, skills, status, client_address, deadline, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, NOW(), NOW())
     RETURNING *
     `,
     [
