@@ -26,6 +26,7 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
   const router = useRouter();
 
   const [hasNotification, setHasNotification] = useState(false);
+  const [hasJobAlertBadge, setHasJobAlertBadge] = useState(false);
 
   useEffect(() => {
     const handleActivity = () => {
@@ -41,6 +42,24 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
   useEffect(() => {
     if (router.pathname === "/dashboard") {
       setHasNotification(false);
+    }
+  }, [router.pathname]);
+
+  // Job-alert badge on Browse Jobs
+  useEffect(() => {
+    const handleAlertMatches = (e: Event) => {
+      const count = (e as CustomEvent<{ count: number }>).detail?.count ?? 0;
+      if (router.pathname !== "/jobs") {
+        setHasJobAlertBadge(count > 0);
+      }
+    };
+    window.addEventListener("job-alert-matches", handleAlertMatches);
+    return () => window.removeEventListener("job-alert-matches", handleAlertMatches);
+  }, [router.pathname]);
+
+  useEffect(() => {
+    if (router.pathname === "/jobs") {
+      setHasJobAlertBadge(false);
     }
   }, [router.pathname]);
 
@@ -82,6 +101,9 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
               {l.label}
               {l.href === "/dashboard" && hasNotification && (
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-emerald-400 rounded-full border border-ink-900" />
+              )}
+              {l.href === "/jobs" && hasJobAlertBadge && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-market-400 rounded-full border border-ink-900" />
               )}
             </Link>
           ))}
