@@ -6,58 +6,9 @@
 export type JobStatus = "open" | "in_progress" | "completed" | "cancelled" | "expired";
 export type UserRole  = "client" | "freelancer" | "both";
 export type Currency  = "XLM" | "USDC";
-export type JobVisibility = "public" | "private" | "invite_only";
 export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent";
 export type AvailabilityStatus = "available" | "busy" | "unavailable";
-export type PortfolioItemType = "github" | "live" | "stellar_tx" | "file";
-
-export interface PortfolioFile {
-  cid: string;
-  fileName: string;
-  mimeType: string;
-  size: number;
-  uploadedAt: string;
-}
-
-export interface TokenInfo {
-  contractId: string;
-  name: string;
-  symbol: string;
-  decimals: number;
-  icon?: string;
-  verified?: boolean;
-}
-
-export interface TokenBalance {
-  balance: string;
-  exists: boolean;
-  limit: string;
-}
-
-export interface ApplicationStatusCounts {
-  pending?: number;
-  accepted?: number;
-  rejected?: number;
-}
-
-export interface ApplicationPerDay {
-  day: string;
-  count: number;
-}
-
-export interface AverageBid {
-  currency: Currency;
-  avgBid: number;
-  count: number;
-}
-
-export interface JobAnalytics {
-  applicationsPerDay: ApplicationPerDay[];
-  averageBidAmount: AverageBid[];
-  skillDistribution: Record<string, number>;
-  daysToHire: number | null;
-  applicationStatusCounts: ApplicationStatusCounts;
-}
+export type PortfolioItemType = "github" | "live" | "stellar_tx";
 
 export interface PortfolioItem {
   title: string;
@@ -69,24 +20,6 @@ export interface Availability {
   status: AvailabilityStatus;
   availableFrom?: string;
   availableUntil?: string;
-}
-
-export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent";
-
-export type AvailabilityStatus = "available" | "busy" | "unavailable";
-
-export interface Availability {
-  status: AvailabilityStatus;
-  availableFrom?: string;   // ISO date string
-  availableUntil?: string;  // ISO date string
-}
-
-export type PortfolioItemType = "github" | "live" | "stellar_tx";
-
-export interface PortfolioItem {
-  title: string;
-  url: string;
-  type: PortfolioItemType;
 }
 
 export interface Job {
