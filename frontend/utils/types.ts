@@ -28,6 +28,67 @@ export interface TokenInfo {
   verified?: boolean;
 }
 
+export interface TokenBalance {
+  balance: string;
+  exists: boolean;
+  limit: string;
+}
+
+export interface ApplicationStatusCounts {
+  pending?: number;
+  accepted?: number;
+  rejected?: number;
+}
+
+export interface ApplicationPerDay {
+  day: string;
+  count: number;
+}
+
+export interface AverageBid {
+  currency: Currency;
+  avgBid: number;
+  count: number;
+}
+
+export interface JobAnalytics {
+  applicationsPerDay: ApplicationPerDay[];
+  averageBidAmount: AverageBid[];
+  skillDistribution: Record<string, number>;
+  daysToHire: number | null;
+  applicationStatusCounts: ApplicationStatusCounts;
+}
+
+export interface PortfolioItem {
+  title: string;
+  url: string;
+  type: PortfolioItemType;
+}
+
+export interface Availability {
+  status: AvailabilityStatus;
+  availableFrom?: string;
+  availableUntil?: string;
+}
+
+export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent";
+
+export type AvailabilityStatus = "available" | "busy" | "unavailable";
+
+export interface Availability {
+  status: AvailabilityStatus;
+  availableFrom?: string;   // ISO date string
+  availableUntil?: string;  // ISO date string
+}
+
+export type PortfolioItemType = "github" | "live" | "stellar_tx";
+
+export interface PortfolioItem {
+  title: string;
+  url: string;
+  type: PortfolioItemType;
+}
+
 export interface Job {
   id: string;
   title: string;

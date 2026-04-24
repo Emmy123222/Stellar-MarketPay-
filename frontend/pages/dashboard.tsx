@@ -6,14 +6,10 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
-import {
-  fetchMyJobs, fetchMyApplications, fetchUnreadCount,
-  fetchJobs, fetchProposalTemplates, createProposalTemplate, updateProposalTemplate, deleteProposalTemplate,
-  fetchPriceAlertPreference, upsertPriceAlertPreference,
-  extendJobExpiry,
-} from "@/lib/api";
+import { fetchMyJobs, fetchMyApplications } from "@/lib/api";
+import { fetchJobs } from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
-import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV, calculateJobProgress } from "@/utils/format";
+import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV, CATEGORY_ICONS } from "@/utils/format";
 import type { Job, Application } from "@/utils/types";
 import EditProfileForm from "@/components/EditProfileForm";
 import SendPaymentForm from "@/components/SendPaymentForm";
@@ -34,125 +30,6 @@ import Tooltips, { TooltipConfig } from "@/components/Onboarding/Tooltips";
 import { useOnboarding } from "@/hooks/useOnboarding";
 
 const LOW_BALANCE_THRESHOLD_XLM = 5;
-
-// ─── EarningsTab ──────────────────────────────────────────────────────────────
-
-function MonthlyBarChart({ monthly }: { monthly: { month: string; totalXlm: number }[] }) {
-  if (!monthly.length) return null;
-  const max = Math.max(...monthly.map((m) => m.totalXlm), 0.001);
-  return (
-    <div className="flex items-end gap-2 h-28" role="img" aria-label="Monthly earnings bar chart">
-      {monthly.map((m) => {
-        const pct = (m.totalXlm / max) * 100;
-        const [year, mon] = m.month.split("-");
-        const label = new Date(Number(year), Number(mon) - 1).toLocaleString("default", { month: "short" });
-        return (
-          <div key={m.month} className="flex flex-col items-center gap-1 flex-1">
-            <span className="text-[10px] text-market-400 font-mono">{m.totalXlm.toFixed(2)}</span>
-            <div
-              className="w-full rounded-t-md bg-market-500/60 border border-market-400/30 transition-all"
-              style={{ height: `${Math.max(pct, 4)}%` }}
-              title={`${m.month}: ${m.totalXlm.toFixed(4)} XLM`}
-            />
-            <span className="text-[10px] text-amber-800">{label}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-interface EarningsTabProps {
-  publicKey: string;
-  earnings: EarningsData | null;
-  loading: boolean;
-  xlmPriceUsd: number | null;
-}
-
-function EarningsTab({ earnings, loading, xlmPriceUsd }: EarningsTabProps) {
-  if (loading) {
-    return (
-      <div className="space-y-3">
-        {[1, 2, 3].map((i) => <div key={i} className="card animate-pulse h-20" />)}
-      </div>
-    );
-  }
-
-  if (!earnings || earnings.payments.length === 0) {
-    return (
-      <div className="card text-center py-16">
-        <p className="font-display text-xl text-amber-100 mb-2">No earnings yet</p>
-        <p className="text-amber-800 text-sm">Complete your first job to see your XLM earnings here.</p>
-      </div>
-    );
-  }
-
-  const totalXlm = parseFloat(earnings.totalXlm);
-  const totalUsd = xlmPriceUsd ? (totalXlm * xlmPriceUsd).toFixed(2) : null;
-
-  return (
-    <div className="space-y-6">
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-        <div className="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18">
-          <p className="label mb-1">Total Earned</p>
-          <p className="font-display text-2xl font-bold text-market-400">
-            {totalXlm.toLocaleString("en-US", { maximumFractionDigits: 4 })}
-            <span className="text-lg ml-1.5">XLM</span>
-          </p>
-          {totalUsd && (
-            <p className="text-xs text-amber-800 mt-1">≈ ${totalUsd} USD</p>
-          )}
-        </div>
-        <div className="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18">
-          <p className="label mb-1">Completed Jobs</p>
-          <p className="font-display text-2xl font-bold text-amber-100">{earnings.payments.length}</p>
-        </div>
-        {xlmPriceUsd && (
-          <div className="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18">
-            <p className="label mb-1">XLM Price</p>
-            <p className="font-display text-2xl font-bold text-amber-100">
-              ${xlmPriceUsd.toFixed(4)}
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Monthly chart */}
-      {earnings.monthly.length > 0 && (
-        <div className="card space-y-4">
-          <p className="text-xs uppercase tracking-wider text-amber-800/70">Monthly earnings (last 6 months)</p>
-          <MonthlyBarChart monthly={earnings.monthly} />
-        </div>
-      )}
-
-      {/* Payment history */}
-      <div className="space-y-2">
-        <p className="text-xs uppercase tracking-wider text-amber-800/70">Payment history</p>
-        {earnings.payments.map((p) => {
-          const xlm = parseFloat(p.amountXlm);
-          const usd = xlmPriceUsd ? (xlm * xlmPriceUsd).toFixed(2) : null;
-          return (
-            <div key={p.id} className="card-hover flex items-center justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <p className="font-display font-semibold text-amber-100 truncate">{p.jobTitle}</p>
-                <p className="text-xs text-amber-800 mt-0.5">
-                  {p.releasedAt ? new Date(p.releasedAt).toLocaleDateString() : "—"}
-                </p>
-              </div>
-              <div className="text-right flex-shrink-0">
-                <p className="font-mono font-semibold text-market-400">
-                  +{xlm.toLocaleString("en-US", { maximumFractionDigits: 4 })} XLM
-                </p>
-                {usd && <p className="text-xs text-amber-800">≈ ${usd}</p>}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 // ── Job Alert localStorage helpers (mirrors jobs/index.tsx) ─────────────────
 const ALERT_KEY = "marketpay_job_alerts";
@@ -175,8 +52,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "earnings" | "security";
-const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
+type Tab = "posted" | "applied" | "send" | "edit_profile" | "job_alerts";
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const router = useRouter();
@@ -190,42 +66,10 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
 
-  // Onboarding state
-  const {
-    progress,
-    checklistItems,
-    shouldShowWelcome,
-    shouldShowChecklist,
-    markWelcomeSeen,
-    dismissChecklist,
-    dismissTooltip,
-    dismissAllTooltips,
-    onboardingState,
-  } = useOnboarding(publicKey);
-
-  const [processedTxs, setProcessedTxs] = useState<Set<string>>(new Set());
-  const [templates, setTemplates] = useState<{ id: string; name: string; content: string }[]>([]);
-  const [templateName, setTemplateName] = useState("");
-  const [templateContent, setTemplateContent] = useState("");
-  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
-  const [minPrice, setMinPrice] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
-  const [emailEnabled, setEmailEnabled] = useState(false);
-  const [alertEmail, setAlertEmail] = useState("");
-  const [showBuyXLM, setShowBuyXLM] = useState(false);
-  const [showWithdraw, setShowWithdraw] = useState(false);
-  const [withdrawHistory, setWithdrawHistory] = useState<WithdrawHistoryEntry[]>([]);
-  const [earnings, setEarnings] = useState<EarningsData | null>(null);
-  const [earningsLoading, setEarningsLoading] = useState(false);
+  // ── Job alert matches ──────────────────────────────────────────────────────
   const [alertSubscriptions, setAlertSubscriptions] = useState<string[]>([]);
   const [alertMatches, setAlertMatches] = useState<Job[]>([]);
   const [alertMatchesDismissed, setAlertMatchesDismissed] = useState(false);
-  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [extendingJob, setExtendingJob] = useState<string | null>(null);
-  const { info, success } = useToast();
-  const { xlmPriceUsd } = usePriceContext();
-
-  const isRepostable = (status: Job["status"]) => status === "expired" || status === "cancelled";
 
   // Tooltip configurations for new users
   const tooltipConfigs: TooltipConfig[] = [
@@ -368,6 +212,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   useEffect(() => {
     if (!publicKey) return;
 
+    // Initial fetch
     Promise.all([
       fetchMyJobs(publicKey),
       fetchMyApplications(publicKey),
@@ -610,32 +455,65 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         </div>
       )}
 
+      {/* Job alert matches banner */}
+      {!alertMatchesDismissed && alertMatches.length > 0 && (
+        <div className="mb-6 rounded-xl border border-market-500/30 bg-market-500/8 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <BellIcon className="w-4 h-4 text-market-400 flex-shrink-0" />
+              <p className="text-sm font-semibold text-market-300">
+                {alertMatches.length} new job{alertMatches.length !== 1 ? "s" : ""} matching your alerts
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link href="/jobs" className="text-xs text-market-400 hover:text-market-300 underline whitespace-nowrap">
+                Browse all →
+              </Link>
+              <button
+                onClick={() => setAlertMatchesDismissed(true)}
+                className="text-amber-800 hover:text-amber-500 transition-colors text-lg leading-none"
+                title="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+          <div className="mt-3 space-y-1.5">
+            {alertMatches.slice(0, 3).map((job) => (
+              <Link key={job.id} href={`/jobs/${job.id}`}
+                className="flex items-center justify-between rounded-lg px-3 py-2 bg-ink-900/50 hover:bg-market-500/10 transition-colors">
+                <div className="min-w-0">
+                  <p className="text-sm text-amber-100 truncate font-medium">{job.title}</p>
+                  <p className="text-xs text-amber-800">
+                    {CATEGORY_ICONS[job.category] ?? ""} {job.category} · {formatXLM(job.budget)}
+                  </p>
+                </div>
+                <span className="text-market-400 text-xs ml-2 flex-shrink-0">View →</span>
+              </Link>
+            ))}
+            {alertMatches.length > 3 && (
+              <p className="text-xs text-amber-800 px-3">+{alertMatches.length - 3} more — <Link href="/jobs" className="text-market-400 hover:underline">see all</Link></p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
       <div className="flex border-b border-market-500/10 mb-6 overflow-x-auto">
-        {(["posted", "applied", "earnings", "send", "edit_profile", "templates", "price_alerts", "withdrawals", "security"] as Tab[]).map((t) => (
+        {(["posted", "applied", "send", "job_alerts", "edit_profile"] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={clsx(
               "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap relative",
               tab === t ? "border-market-400 text-market-300" : "border-transparent text-amber-700 hover:text-amber-400"
             )}>
-            {t === "posted"       ? `Jobs Posted (${myJobs.length})` :
-             t === "applied"      ? (
-               <>
-                 <span>Applications</span>
-                 {unreadCount > 0 && (
-                   <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-red-500 text-white">
-                     {unreadCount > 99 ? "99+" : unreadCount}
-                   </span>
-                 )}
-               </>
-             ) :
-             t === "earnings"     ? "Earnings" :
-             t === "send"         ? "Send Payment" :
-             t === "edit_profile" ? "Edit Profile" :
-             t === "templates"    ? "Templates" :
-             t === "price_alerts" ? "Price Alerts" :
-             t === "withdrawals"  ? "Withdrawals" :
-             t === "security"     ? "Security" :
-             t}
+            {t === "posted"      ? `Jobs Posted (${myJobs.length})` :
+             t === "applied"     ? `Applications (${myApplications.length})` :
+             t === "send"        ? "Send Payment" :
+             t === "job_alerts"  ? "Job Alerts" :
+             "Edit Profile"}
+            {t === "job_alerts" && alertSubscriptions.length > 0 && (
+              <span className="absolute top-2 right-1 w-2 h-2 bg-market-400 rounded-full" />
+            )}
           </button>
         ))}
       </div>
@@ -947,38 +825,50 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             ))}
           </div>
         )
-      ) : tab === "earnings" ? (
-        <EarningsTab
-          publicKey={publicKey}
-          earnings={earnings}
-          loading={earningsLoading}
-          xlmPriceUsd={xlmPriceUsd}
-        />
-      ) : tab === "security" ? (
-        <div className="space-y-6">
-          <PasskeyManager publicKey={publicKey} />
-          
-          {/* Restart Onboarding Button */}
-          <div className="card">
-            <h3 className="font-display text-xl font-semibold text-amber-100 mb-3">
-              Onboarding
-            </h3>
-            <p className="text-sm text-amber-800 mb-4">
-              Restart the onboarding tour to see welcome messages and helpful tips again.
-            </p>
-            <button
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  localStorage.removeItem("marketpay_onboarding_completed");
-                  localStorage.removeItem("marketpay_tooltips_dismissed");
-                  window.location.reload();
-                }
-              }}
-              className="btn-secondary text-sm"
-            >
-              Restart Onboarding Tour
-            </button>
+      ) : tab === "send" ? (
+        <div className="max-w-lg">
+          <SendPaymentForm fromPublicKey={publicKey} />
+        </div>
+      ) : tab === "job_alerts" ? (
+        <div className="space-y-4 max-w-lg">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-lg font-semibold text-amber-100">Job Alert Subscriptions</h2>
+            <Link href="/jobs" className="btn-secondary text-xs px-3 py-1.5">Browse Jobs →</Link>
           </div>
+          {alertSubscriptions.length === 0 ? (
+            <div className="card text-center py-12">
+              <BellIcon className="w-8 h-8 text-amber-800 mx-auto mb-3" />
+              <p className="font-display text-lg text-amber-100 mb-1">No alerts set</p>
+              <p className="text-amber-800 text-sm mb-5">Visit Browse Jobs and click the 🔔 next to a category to get notified.</p>
+              <Link href="/jobs" className="btn-primary text-sm">Set Up Alerts →</Link>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {alertSubscriptions.map((cat) => (
+                <div key={cat} className="card-hover flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{CATEGORY_ICONS[cat] ?? "📦"}</span>
+                    <div>
+                      <p className="text-sm font-medium text-amber-100">{cat}</p>
+                      <p className="text-xs text-amber-800">Notifications enabled</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => clearAlertSubscription(cat)}
+                    className="text-xs text-red-400/70 hover:text-red-400 border border-red-500/20 hover:border-red-500/40 px-3 py-1 rounded-md transition-all"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => { localStorage.setItem(ALERT_KEY, "[]"); window.dispatchEvent(new Event("job-alerts-changed")); }}
+                className="w-full text-xs text-amber-900 hover:text-red-400 transition-colors py-2"
+              >
+                Clear all alerts
+              </button>
+            </div>
+          )}
         </div>
       ) : tab === "edit_profile" ? (
         <EditProfileForm publicKey={publicKey} />
@@ -1003,5 +893,13 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       )}
       </div>
     </>
+  );
+}
+
+function BellIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+    </svg>
   );
 }

@@ -98,8 +98,7 @@ export async function fetchJob(id: string, viewerAddress?: string) {
 }
 
 export async function createJob(payload: {
-  title: string; description: string; budget: string;
-  currency?: "XLM" | "USDC";
+  title: string; description: string; budget: string; currency: string;
   category: string; skills: string[]; deadline?: string;
   timezone?: string;
   clientAddress: string;

@@ -217,37 +217,14 @@ export interface ProgressData {
   colorClass: string;
 }
 
-/**
- * Calculates job progress for in-progress jobs with a deadline.
- * Returns null if the job is not in progress or has no deadline.
- */
-export function calculateJobProgress(job: Job): ProgressData | null {
-  if (job.status !== "in_progress" || !job.deadline) return null;
-
-  const start = new Date(job.updatedAt).getTime();
-  const end = new Date(job.deadline).getTime();
-  const now = Date.now();
-
-  const total = end - start;
-  if (total <= 0) {
-    return {
-      percentage: 100,
-      daysRemaining: 0,
-      colorClass: "bg-red-500",
-    };
+export function availabilitySummary(availability?: Availability | null): string {
+  if (!availability) return "";
+  const { status, availableFrom, availableUntil } = availability;
+  if (status === "available" && !availableFrom && !availableUntil) return "Available now";
+  if (availableFrom && availableUntil) {
+    return `${availabilityStatusLabel(status)} from ${formatDate(availableFrom)} to ${formatDate(availableUntil)}`;
   }
-
-  const elapsed = now - start;
-  const percentage = Math.min(100, Math.max(0, (elapsed / total) * 100));
-
-  const daysRemaining = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)));
-
-  let colorClass = "bg-emerald-500"; // green
-  if (percentage > 80) {
-    colorClass = "bg-red-500";
-  } else if (percentage >= 50) {
-    colorClass = "bg-amber-500";
-  }
-
-  return { percentage, daysRemaining, colorClass };
+  if (availableFrom) return `${availabilityStatusLabel(status)} from ${formatDate(availableFrom)}`;
+  if (availableUntil) return `${availabilityStatusLabel(status)} until ${formatDate(availableUntil)}`;
+  return availabilityStatusLabel(status);
 }

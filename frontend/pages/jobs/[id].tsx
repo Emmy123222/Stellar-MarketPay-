@@ -7,22 +7,23 @@ import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import Head from "next/head";
+import clsx from "clsx";
 import ApplicationForm from "@/components/ApplicationForm";
 import RatingForm from "@/components/RatingForm";
 import ProposalComparison from "@/components/ProposalComparison";
 import ShareJobModal from "@/components/ShareJobModal";
+import ProposalComparison from "@/components/ProposalComparison";
+import { fetchJob, fetchApplications, acceptApplication, releaseEscrow, fetchProfile } from "@/lib/api";
 import {
-  fetchJob,
-  fetchApplications,
-  acceptApplication,
-  releaseEscrow,
-  scoreProposals,
-  fetchProfile,
-  inviteFreelancer,
-  timeoutRefund,
-  incrementJobView,
-} from "@/lib/api";
-import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass, copyToClipboard } from "@/utils/format";
+  formatXLM,
+  timeAgo,
+  formatDate,
+  shortenAddress,
+  statusLabel,
+  statusClass,
+  availabilityStatusLabel,
+  availabilitySummary,
+} from "@/utils/format";
 import {
   accountUrl,
   buildReleaseEscrowTransaction,
@@ -79,10 +80,43 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     transaction: Transaction;
     fnName: "release_escrow" | "release_with_conversion";
   } | null>(null);
-  const [onChainEscrow, setOnChainEscrow] = useState<any>(null);
-  const [loadingEscrow, setLoadingEscrow] = useState(false);
-  const [releasingMilestoneIndex, setReleasingMilestoneIndex] = useState<number | null>(null);
-  const [releaseSyncedWithBackend, setReleaseSyncedWithBackend] = useState(true);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [prefillData, setPrefillData] = useState<any>(null);
+  const [showComparison, setShowComparison] = useState(false);
+  const [selectedApplications, setSelectedApplications] = useState<Set<string>>(new Set());
+
+  const [releaseCurrency, setReleaseCurrency] = useState<"XLM" | "USDC">("XLM");
+  const [estimatedOutput, setEstimatedOutput] = useState<string | null>(null);
+  const [fetchingPrice, setFetchingPrice] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [inviteAddress, setInviteAddress] = useState("");
+
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportCategory, setReportCategory] = useState("");
+  const [reportDescription, setReportDescription] = useState("");
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportSuccess, setReportSuccess] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [isLiveSubscriptionActive, setIsLiveSubscriptionActive] = useState(false);
+
+  const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
+  const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
+  const hasApplied = applications.some(
+    (application) => application.freelancerAddress === publicKey
+  );
+
+  const handleCopyJobLink = async () => {
+    const ok = await copyToClipboard(window.location.href);
+    if (!ok) return;
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+
+  const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
+  const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
+  const hasApplied = applications.some((application) => application.freelancerAddress === publicKey);
 
   useEffect(() => {
     if (!router.isReady || !jobId) return;
@@ -269,7 +303,9 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     try {
       setActionError(null);
       await acceptApplication(applicationId, publicKey);
-      await refreshJobState();
+      const [j, apps] = await Promise.all([fetchJob(id as string), fetchApplications(id as string)]);
+      setJob(j); setApplications(apps);
+      setSelectedApplications(new Set());
     } catch {
       setActionError("Failed to accept application.");
     }
@@ -557,43 +593,9 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           ← Back to Jobs
         </Link>
 
-        {/* Dispute Banner */}
-        {job.status === "disputed" && (
-          <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-4 mb-6 flex items-start gap-4">
-            <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center flex-shrink-0 text-indigo-400">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-            </div>
-            <div className="flex-1">
-              <h3 className="text-sm font-bold text-indigo-100 uppercase tracking-wider mb-1">Under Dispute</h3>
-              <p className="text-xs text-indigo-400/80 leading-relaxed">
-                This job has been flagged for admin review. Escrow release is currently blocked.
-                <br />
-                <span className="font-semibold mt-1 inline-block">Reason: {job.disputeReason}</span>
-              </p>
-              {publicKey === process.env.NEXT_PUBLIC_ADMIN_ADDRESS && (
-                <button 
-                  onClick={async () => {
-                    setResolvingDispute(true);
-                    try {
-                      await resolveDispute(job.id);
-                      setJob(await fetchJob(job.id));
-                    } catch (e) {
-                      setActionError("Failed to resolve dispute");
-                    } finally {
-                      setResolvingDispute(false);
-                    }
-                  }}
-                  disabled={resolvingDispute}
-                  className="mt-3 btn-secondary py-1.5 px-3 text-xs flex items-center gap-2"
-                >
-                  {resolvingDispute ? <Spinner /> : "Resolve Dispute (Admin)"}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Job header */}
+
+
         <div className="card mb-6">
           <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-5">
             <div className="flex-1">
@@ -730,216 +732,147 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             </button>
           </div>
         </div>
-
-        {isFreelancer && job.status === "in_progress" && (
-          <TimeTracker jobId={job.id} />
-        )}
-
-        {isClient && applications.length > 0 && (
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display text-xl font-bold text-amber-100">
-                Applications ({applications.length})
-              </h2>
-              <div className="space-y-4">
-                {applications.map((application) => (
-                  <article key={application.id} className="card">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      {/* Applications (client view) */}
+      {isClient && applications.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-display text-xl font-bold text-amber-100">
+              Applications ({applications.length})
+            </h2>
+            <div className="hidden sm:flex items-center gap-3 text-[10px] text-amber-800 font-medium uppercase tracking-wider">
+              <span className="flex items-center gap-1"><kbd className="bg-ink-900 px-1.5 py-0.5 rounded border border-market-500/20 text-market-400">↑↓</kbd> Navigate</span>
+              <span className="flex items-center gap-1"><kbd className="bg-ink-900 px-1.5 py-0.5 rounded border border-market-500/20 text-market-400">Enter</kbd> Accept</span>
+            </div>
+          </div>
+          <div className="space-y-4">
+            {applications.map((app) => {
+              const applicantProfile = applicantProfiles[app.freelancerAddress];
+              const availability = applicantProfile?.availability;
+              
+              return (
+                <div 
+                  key={app.id} 
+                  className="card focus-visible:ring-2 focus-visible:ring-market-400 focus:outline-none transition-all"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      (e.currentTarget.nextElementSibling as HTMLElement)?.focus();
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      (e.currentTarget.previousElementSibling as HTMLElement)?.focus();
+                    } else if (e.key === "Enter" && e.target === e.currentTarget) {
+                      if (app.status === "pending" && job.status === "open") {
+                        handleAcceptApplication(app.id);
+                      }
+                    }
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-4 mb-3">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedApplications.has(app.id)}
+                        onChange={() => handleToggleSelection(app.id)}
+                        disabled={
+                          !selectedApplications.has(app.id) && selectedApplications.size >= 3
+                        }
+                        className="w-4 h-4 rounded border-market-500/30 bg-market-500/10 text-market-400 focus:ring-market-500/50 cursor-pointer"
+                      />
                       <div>
-                        <a
-                          href={accountUrl(application.freelancerAddress)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="address-tag hover:border-market-500/40 transition-colors"
-                        >
-                          {shortenAddress(application.freelancerAddress)}
+                        <a href={accountUrl(app.freelancerAddress)} target="_blank" rel="noopener noreferrer"
+                          className="address-tag hover:border-market-500/40 transition-colors">
+                          {shortenAddress(app.freelancerAddress)} ↗
                         </a>
-                        <p className="text-xs text-amber-800 mt-2">
-                          Submitted {timeAgo(application.createdAt)}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-market-400 font-semibold text-sm">
-                          {formatBudget(application.bidAmount, application.currency)}
-                        </span>
-                        <span className="text-xs px-2.5 py-1 rounded-full border bg-market-500/10 text-market-400 border-market-500/20">
-                          {application.status}
-                        </span>
-                      </div>
-                    </div>
-
-                    <p className="text-amber-700/80 text-sm leading-relaxed mt-4 whitespace-pre-wrap">
-                      {application.proposal}
-                    </p>
-
-                    {application.screeningAnswers && Object.keys(application.screeningAnswers).length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-market-500/10">
-                        <h3 className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-3">
-                          Screening Answers
-                        </h3>
-                        <div className="space-y-3">
-                          {Object.entries(application.screeningAnswers).map(([question, answer]) => (
-                            <div key={question}>
-                              <p className="text-xs text-amber-300 font-medium mb-1">{question}</p>
-                              <p className="text-sm text-amber-700/80 bg-market-500/5 p-3 rounded-xl border border-market-500/10">
-                                {answer}
-                              </p>
-                            </div>
-                          ))}
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span className={clsx("text-[10px] px-2 py-0.5 rounded-full border", getAvailabilityBadgeClass(availability?.status))}>
+                            {availabilityStatusLabel(availability?.status)}
+                          </span>
+                          {availabilitySummary(availability) && (
+                            <span className="text-[10px] text-amber-800">{availabilitySummary(availability)}</span>
+                          )}
                         </div>
                       </div>
-                    )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono text-market-400 font-semibold text-sm">{formatXLM(app.bidAmount)}</span>
+                      <span className={clsx("text-xs px-2.5 py-1 rounded-full border",
+                        app.status === "accepted" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                        app.status === "rejected" ? "bg-red-500/10 text-red-400 border-red-500/20" :
+                        "bg-market-500/10 text-market-400 border-market-500/20"
+                      )}>{app.status}</span>
+                    </div>
                   </div>
-
-                  <p className="text-amber-700/80 text-sm leading-relaxed mb-4">
-                    {application.proposal}
-                  </p>
-
-                  {application.status === "pending" && job.status === "open" && (
-                    <button
-                      onClick={() => handleAcceptApplication(application.id)}
-                      className="btn-secondary text-sm py-2 px-4"
-                    >
+                  <p className="text-amber-700/80 text-sm leading-relaxed mb-4">{app.proposal}</p>
+                  
+                  {/* Screening Answers */}
+                  {app.screeningAnswers && Object.keys(app.screeningAnswers).length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-market-500/10">
+                      <h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-3">Screening Question Answers</h4>
+                      <div className="space-y-3">
+                        {Object.entries(app.screeningAnswers).map(([question, answer], index) => (
+                          <div key={index}>
+                            <p className="text-xs text-amber-300 font-medium mb-1">{question}</p>
+                            <p className="text-sm text-amber-700/80 bg-market-500/5 p-2 rounded border border-market-500/10">{answer}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {app.status === "pending" && job.status === "open" && (
+                    <button onClick={() => handleAcceptApplication(app.id)} className="btn-secondary text-sm py-2 px-4 mt-4">
                       Accept Proposal
                     </button>
                   )}
                 </div>
-              ))}
-            </div>
-          )}
-
-          {job.status === "completed" && publicKey && !ratingSubmitted && (
-            <div className="mt-6">
-              {isClient && job.freelancerAddress && (
-                <RatingForm
-                  jobId={job.id}
-                  ratedAddress={job.freelancerAddress}
-                  ratedLabel="the freelancer"
-                  onSuccess={() => setRatingSubmitted(true)}
-                />
-              )}
-              {isFreelancer && (
-                <RatingForm
-                  jobId={job.id}
-                  ratedAddress={job.clientAddress}
-                  ratedLabel="the client"
-                  onSuccess={() => setRatingSubmitted(true)}
-                />
-              )}
-            </div>
-          )}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="job-brief-print" aria-hidden="true">
-        <div className="brief-page">
-          <div className="brief-header">
-            <p className="brief-kicker">Stellar MarketPay</p>
-            <h1>{job.title}</h1>
-            <p className="brief-subtitle">Scope of Work Brief</p>
-          </div>
-        )}
+      {/* Proposal Comparison Modal */}
+      {showComparison && (
+        <ProposalComparison
+          applications={selectedApps}
+          job={job}
+          publicKey={publicKey}
+          onClose={() => setShowComparison(false)}
+          onAccept={handleAcceptApplication}
+        />
+      )}
 
-        {showComparison && (
-          <ProposalComparison
-            applications={selectedApps}
-            job={job}
-            publicKey={publicKey}
-            onClose={() => setShowComparison(false)}
-            onAccept={handleAcceptApplication}
-          />
-        )}
-
-        {!isClient && job.status === "open" && (
-          <div className="mb-6">
-            {!publicKey ? (
-              <div>
-                <p className="text-amber-800 text-sm mb-4 text-center">
-                  Connect your wallet to apply for this job
-                </p>
-                <WalletConnect onConnect={onConnect} />
-              </div>
-            ) : hasApplied ? (
-              <div className="card text-center py-8 border-market-500/20">
-                <p className="text-market-400 font-medium mb-1">Application submitted</p>
-                <p className="text-amber-800 text-sm">
-                  The client will review your proposal shortly.
-                </p>
-              </div>
-            ) : showApplyForm ? (
-              <ApplicationForm
-                job={job}
-                publicKey={publicKey}
-                prefillData={prefillData}
-                onSuccess={() => {
-                  setShowApplyForm(false);
-                  fetchApplications(job.id).then(setApplications);
-                }}
-              />
-            ) : (
-              <div className="text-center">
-                <button
-                  onClick={() => setShowApplyForm(true)}
-                  className="btn-primary text-base px-10 py-3.5"
-                >
-                  Apply for this Job
-                </button>
-              </div>
-            )}
-
-          <div className="brief-grid">
+      {/* Apply (freelancer view) */}
+      {!isClient && job.status === "open" && (
+        <div className="mb-6">
+          {!publicKey ? (
             <div>
-              <h2>Budget</h2>
-              <p>{printableBudget}</p>
+              <p className="text-amber-800 text-sm mb-4 text-center">Connect your wallet to apply for this job</p>
+              <WalletConnect onConnect={onConnect} />
             </div>
-            <div>
-              <h2>Category</h2>
-              <p>{printFallback(job.category)}</p>
+          ) : hasApplied ? (
+            <div className="card text-center py-8 border-market-500/20">
+              <p className="text-market-400 font-medium mb-1">✅ Application submitted</p>
+              <p className="text-amber-800 text-sm">The client will review your proposal shortly.</p>
             </div>
-            <div>
-              <h2>Deadline</h2>
-              <p>{job.deadline ? formatDate(job.deadline) : "Not specified"}</p>
+          ) : showApplyForm ? (
+            <ApplicationForm
+              job={job}
+              publicKey={publicKey}
+              prefillData={prefillData}
+              onSuccess={() => { setShowApplyForm(false); setApplications((prev) => [...prev, {} as Application]); }}
+            />
+          ) : (
+            <div className="text-center">
+              <button onClick={() => setShowApplyForm(true)} className="btn-primary text-base px-10 py-3.5">
+                Apply for this Job
+              </button>
             </div>
-            <div>
-              <h2>Client Address</h2>
-              <p className="brief-address">{printFallback(job.clientAddress)}</p>
-            </div>
-          </div>
-
-      {/* Management section (job in progress) */}
-      {(job.status === "in_progress" || job.status === "disputed") && (isClient || isFreelancer) && (
-        <div className="mt-6 card border-market-500/20 bg-market-500/5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h3 className="font-display text-lg font-bold text-amber-100 mb-1">Job Management</h3>
-              <p className="text-sm text-amber-800">
-                {job.status === "disputed" 
-                  ? "This job is currently under dispute. Admin review is required." 
-                  : "Manage the project and escrow payments."}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              {isClient && job.status === "in_progress" && (
-                <button
-                  onClick={handleReleaseEscrow}
-                  disabled={releasingEscrow}
-                  className="btn-primary py-2 px-5 text-sm flex items-center gap-2"
-                >
-                  {releasingEscrow ? <Spinner /> : "Release Escrow"}
-                </button>
-              )}
-              {job.status === "in_progress" && (
-                <button
-                  onClick={() => setShowDisputeModal(true)}
-                  className="btn-secondary py-2 px-5 text-sm"
-                >
-                  Raise Dispute
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+          )}
+          {actionError && <p className="mt-3 text-red-400 text-sm">{actionError}</p>}
+        </div>
+      )}
 
         {/* Issue #175 — Escrow timeout countdown + refund UI */}
         {job.escrowContractId && timeoutLedger && job.status !== "completed" && job.status !== "cancelled" && (
