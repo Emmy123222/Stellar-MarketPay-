@@ -11,6 +11,7 @@ import { JOB_CATEGORIES, SKILL_SUGGESTIONS, formatUSDEquivalent, getMonthlyEstim
 import { useRouter } from "next/router";
 import clsx from "clsx";
 import { useToast } from "@/components/Toast";
+import { usePriceContext } from "@/contexts/PriceContext";
 import type { Currency } from "@/utils/types";
 
 interface PostJobFormProps { publicKey: string; }
@@ -23,6 +24,8 @@ type FormState = {
   category: string;
   skillInput: string;
   deadline: string;
+  currency: Currency;
+  timezone: string;
 };
 
 type JobTemplate = {
@@ -43,15 +46,15 @@ const emptyForm: FormState = {
   category: "",
   skillInput: "",
   deadline: "",
+  currency: "XLM",
+  timezone: "",
 };
 
 export default function PostJobForm({ publicKey }: PostJobFormProps) {
   const router = useRouter();
   const toast = useToast();
   const { xlmPriceUsd } = usePriceContext();
-  const [form, setForm] = useState({
-    title: "", description: "", budget: "", category: "", skillInput: "", deadline: "", currency: "XLM" as Currency,
-  });
+  const [form, setForm] = useState<FormState>(emptyForm);
   const [skills, setSkills] = useState<string[]>([]);
   const [screeningQuestions, setScreeningQuestions] = useState<string[]>([""]);
   const [loading, setLoading] = useState(false);
@@ -59,11 +62,22 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  const [templates, setTemplates] = useState<JobTemplate[]>([]);
+  const [selectedTemplateName, setSelectedTemplateName] = useState("");
+  const [templateNameInput, setTemplateNameInput] = useState("");
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [pendingOverwriteTemplate, setPendingOverwriteTemplate] = useState<JobTemplate | null>(null);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
 
   const usdPreview = formatUSDEquivalent(form.budget, xlmPriceUsd);
   const monthlyEst = getMonthlyEstimate(form.budget, xlmPriceUsd);
 
-  const set = (key: string, val: string) => setForm((f) => ({ ...f, [key]: val }));
+  const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
+    setForm((current) => ({ ...current, [key]: val }));
+
+  useEffect(() => {
+    setTemplates(readTemplates());
+  }, []);
 
   // Filter suggestions based on input
   const filteredSuggestions = form.skillInput.trim().length > 0
@@ -83,6 +97,110 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
   };
 
   const removeSkill = (s: string) => setSkills(skills.filter((x) => x !== s));
+
+  const buildTemplateFromCurrentForm = (name: string): JobTemplate => ({
+    name: name.trim(),
+    title: form.title,
+    description: form.description,
+    budget: form.budget,
+    category: form.category,
+    skills,
+    deadline: form.deadline,
+  });
+
+  const applyTemplate = (template: JobTemplate) => {
+    setForm((current) => ({
+      ...current,
+      title: template.title,
+      description: template.description,
+      budget: template.budget,
+      category: template.category,
+      deadline: template.deadline,
+      skillInput: "",
+    }));
+    setSkills(template.skills);
+    setSelectedTemplateName(template.name);
+  };
+
+  const persistTemplates = (nextTemplates: JobTemplate[]) => {
+    setTemplates(nextTemplates);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(JOB_TEMPLATES_STORAGE_KEY, JSON.stringify(nextTemplates));
+    }
+  };
+
+  const handleLoadTemplate = (name: string) => {
+    setSelectedTemplateName(name);
+    if (!name) return;
+
+    const selectedTemplate = templates.find((template) => template.name === name);
+    if (selectedTemplate) {
+      applyTemplate(selectedTemplate);
+      setTemplateNameInput(selectedTemplate.name);
+      setTemplateError(null);
+      setPendingOverwriteTemplate(null);
+    }
+  };
+
+  const handleSaveTemplate = () => {
+    const normalizedName = templateNameInput.trim();
+    if (!normalizedName) {
+      setTemplateError("Template name is required.");
+      return;
+    }
+
+    const template = buildTemplateFromCurrentForm(normalizedName);
+    const existingTemplate = templates.find((item) => item.name === normalizedName);
+
+    if (existingTemplate) {
+      setPendingOverwriteTemplate(template);
+      setTemplateError(null);
+      return;
+    }
+
+    persistTemplates([...templates, template]);
+    setSelectedTemplateName(template.name);
+    setPendingOverwriteTemplate(null);
+    setTemplateError(null);
+    toast.success(`Saved template: ${template.name}`);
+  };
+
+  const handleConfirmOverwrite = () => {
+    if (!pendingOverwriteTemplate) return;
+
+    const nextTemplates = templates.map((template) =>
+      template.name === pendingOverwriteTemplate.name ? pendingOverwriteTemplate : template
+    );
+    persistTemplates(nextTemplates);
+    setSelectedTemplateName(pendingOverwriteTemplate.name);
+    setPendingOverwriteTemplate(null);
+    setTemplateError(null);
+    toast.success(`Updated template: ${templateNameInput.trim()}`);
+  };
+
+  const handleCancelOverwrite = () => {
+    setPendingOverwriteTemplate(null);
+  };
+
+  const handleDeleteTemplate = () => {
+    if (!selectedTemplateName) return;
+    setShowDeleteConfirmation(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!selectedTemplateName) return;
+
+    const nextTemplates = templates.filter((template) => template.name !== selectedTemplateName);
+    persistTemplates(nextTemplates);
+    setSelectedTemplateName("");
+    setTemplateNameInput("");
+    setShowDeleteConfirmation(false);
+    toast.success("Template deleted.");
+  };
+
+  const handleCancelDelete = () => {
+    setShowDeleteConfirmation(false);
+  };
 
   const addScreeningQuestion = () => {
     if (screeningQuestions.length < 5) {

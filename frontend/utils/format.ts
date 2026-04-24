@@ -104,6 +104,25 @@ export function shortenAddress(address: string, chars = 6): string {
   return `${address.slice(0, chars)}...${address.slice(-chars)}`;
 }
 
+export function availabilityStatusLabel(status?: Availability["status"] | null): string {
+  if (status === "available") return "Available";
+  if (status === "busy") return "Busy";
+  if (status === "unavailable") return "Unavailable";
+  return "Unknown";
+}
+
+export function availabilitySummary(availability?: Availability | null): string {
+  if (!availability) return "";
+
+  const from = availability.availableFrom ? formatDate(availability.availableFrom) : "";
+  const until = availability.availableUntil ? formatDate(availability.availableUntil) : "";
+
+  if (from && until) return `${availabilityStatusLabel(availability.status)} from ${from} to ${until}`;
+  if (from) return `${availabilityStatusLabel(availability.status)} from ${from}`;
+  if (until) return `${availabilityStatusLabel(availability.status)} until ${until}`;
+  return availabilityStatusLabel(availability.status);
+}
+
 export async function copyToClipboard(text: string): Promise<boolean> {
   try { await navigator.clipboard.writeText(text); return true; }
   catch { return false; }
