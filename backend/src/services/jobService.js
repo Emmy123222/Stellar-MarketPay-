@@ -4,8 +4,8 @@
  */
 "use strict";
 
-import { query } from "../db/pool";
-import { getTimezoneOffset } from "date-fns-tz";
+const { query } = require("../db/pool");
+const { getTimezoneOffset } = require("date-fns-tz");
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -97,7 +97,7 @@ function rowToJob(row) {
  * Create a new job listing.
  * Note: client's profile row must already exist (FK constraint).
  */
-async function createJob({ title, description, budget, currency = 'XLM', category, skills, deadline, clientAddress }) {
+async function createJob({ title, description, budget, currency = 'XLM', category, skills, deadline, clientAddress, timezone, screeningQuestions }) {
   validatePublicKey(clientAddress);
 
   if (!title || title.length < 10) {
@@ -298,7 +298,7 @@ async function deleteJob(jobId) {
   }
 }
 
-async function boostJob(jobId, txHash) {
+async function boostJob(jobId) {
   // Verify job exists
   const { rows } = await query("SELECT * FROM jobs WHERE id = $1", [jobId]);
   if (!rows.length) {
@@ -333,7 +333,7 @@ async function incrementShareCount(jobId) {
   return rowToJob(rows[0]);
 }
 
-export default {
+module.exports = {
   createJob,
   getJob,
   listJobs,

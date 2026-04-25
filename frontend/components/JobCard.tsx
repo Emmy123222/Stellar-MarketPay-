@@ -7,6 +7,7 @@ import {
   formatDeadline,
   formatXLM,
   getDeadlineState,
+  getMonthlyEstimate,
   statusClass,
   statusLabel,
   timeAgo,

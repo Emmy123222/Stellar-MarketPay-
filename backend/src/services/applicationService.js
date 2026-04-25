@@ -41,7 +41,7 @@ function rowToApp(row) {
 
 // ─── service functions ───────────────────────────────────────────────────────
 
-async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, currency = 'XLM' }) {
+async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, currency = 'XLM', screeningAnswers }) {
   validatePublicKey(freelancerAddress);
 
   // Validate the job (throws 404 if missing)
@@ -75,7 +75,7 @@ async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount
   // Insert; the UNIQUE(job_id, freelancer_address) constraint handles duplicates.
   let appRow;
   try {
-    const { rows } = await query(
+    const { rows } = await pool.query(
       `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, currency, status, created_at)
        VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
        RETURNING *`,

@@ -21,10 +21,10 @@ const { getJob, updateJobStatus } = require("../services/jobService");
  * In v1.2 this will call the Soroban contract's release_escrow() function.
  * See ROADMAP.md v1.2 — Escrow Contract (Live).
  */
-router.post("/:jobId/release", (req, res, next) => {
+router.post("/:jobId/release", async (req, res, next) => {
   try {
     const { jobId } = req.params;
-    const { clientAddress, contractTxHash } = req.body;
+    const { clientAddress } = req.body;
 
     if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
       const e = new Error("Invalid client address"); e.status = 400; throw e;
