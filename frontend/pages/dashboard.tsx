@@ -6,20 +6,37 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import WalletConnect from "@/components/WalletConnect";
 import { fetchMyJobs, fetchMyApplications } from "@/lib/api";
+import { fetchJobs } from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
-import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV } from "@/utils/format";
+import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV, CATEGORY_ICONS } from "@/utils/format";
 import type { Job, Application } from "@/utils/types";
 import EditProfileForm from "@/components/EditProfileForm";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import { useToast } from "@/components/Toast";
 import clsx from "clsx";
 
+// ── Job Alert localStorage helpers (mirrors jobs/index.tsx) ─────────────────
+const ALERT_KEY = "marketpay_job_alerts";
+
+function getAlertSubscriptions(): string[] {
+  if (typeof window === "undefined") return [];
+  try { return JSON.parse(localStorage.getItem(ALERT_KEY) ?? "[]"); }
+  catch { return []; }
+}
+
+function clearAlertSubscription(cat: string): void {
+  const current = getAlertSubscriptions();
+  const updated = current.filter((c) => c !== cat);
+  localStorage.setItem(ALERT_KEY, JSON.stringify(updated));
+  window.dispatchEvent(new Event("job-alerts-changed"));
+}
+
 interface DashboardProps {
   publicKey: string | null;
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "send" | "edit_profile";
+type Tab = "posted" | "applied" | "send" | "edit_profile" | "job_alerts";
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [tab, setTab] = useState<Tab>("posted");
@@ -30,6 +47,11 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
+
+  // ── Job alert matches ──────────────────────────────────────────────────────
+  const [alertSubscriptions, setAlertSubscriptions] = useState<string[]>([]);
+  const [alertMatches, setAlertMatches] = useState<Job[]>([]);
+  const [alertMatchesDismissed, setAlertMatchesDismissed] = useState(false);
 
   const handleCopy = async () => {
     if (!publicKey) return;
@@ -47,9 +69,47 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [processedTxs, setProcessedTxs] = useState<Set<string>>(new Set());
   const { info, success } = useToast();
 
+  // Sync alert subscriptions from localStorage
+  useEffect(() => {
+    const sync = () => setAlertSubscriptions(getAlertSubscriptions());
+    sync();
+    window.addEventListener("job-alerts-changed", sync);
+    return () => window.removeEventListener("job-alerts-changed", sync);
+  }, []);
+
+  // Check for new matching jobs whenever subscriptions change
+  useEffect(() => {
+    if (alertSubscriptions.length === 0) {
+      setAlertMatches([]);
+      window.dispatchEvent(new CustomEvent("job-alert-matches", { detail: { count: 0 } }));
+      return;
+    }
+    // Fetch open jobs for each subscribed category and collect matches
+    Promise.all(
+      alertSubscriptions.map((cat) =>
+        fetchJobs({ category: cat, status: "open", limit: 5 }).then((r) => r.jobs)
+      )
+    )
+      .then((results) => {
+        const seen = new Set<string>();
+        const matches: Job[] = [];
+        for (const batch of results) {
+          for (const job of batch) {
+            if (!seen.has(job.id)) { seen.add(job.id); matches.push(job); }
+          }
+        }
+        setAlertMatches(matches);
+        setAlertMatchesDismissed(false);
+        if (matches.length > 0) {
+          window.dispatchEvent(new CustomEvent("job-alert-matches", { detail: { count: matches.length } }));
+        }
+      })
+      .catch(console.error);
+  }, [alertSubscriptions]);
+
   useEffect(() => {
     if (!publicKey) return;
-    
+
     // Initial fetch
     Promise.all([
       fetchMyJobs(publicKey),
@@ -199,18 +259,65 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         </div>
       )}
 
+      {/* Job alert matches banner */}
+      {!alertMatchesDismissed && alertMatches.length > 0 && (
+        <div className="mb-6 rounded-xl border border-market-500/30 bg-market-500/8 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <BellIcon className="w-4 h-4 text-market-400 flex-shrink-0" />
+              <p className="text-sm font-semibold text-market-300">
+                {alertMatches.length} new job{alertMatches.length !== 1 ? "s" : ""} matching your alerts
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link href="/jobs" className="text-xs text-market-400 hover:text-market-300 underline whitespace-nowrap">
+                Browse all →
+              </Link>
+              <button
+                onClick={() => setAlertMatchesDismissed(true)}
+                className="text-amber-800 hover:text-amber-500 transition-colors text-lg leading-none"
+                title="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+          <div className="mt-3 space-y-1.5">
+            {alertMatches.slice(0, 3).map((job) => (
+              <Link key={job.id} href={`/jobs/${job.id}`}
+                className="flex items-center justify-between rounded-lg px-3 py-2 bg-ink-900/50 hover:bg-market-500/10 transition-colors">
+                <div className="min-w-0">
+                  <p className="text-sm text-amber-100 truncate font-medium">{job.title}</p>
+                  <p className="text-xs text-amber-800">
+                    {CATEGORY_ICONS[job.category] ?? ""} {job.category} · {formatXLM(job.budget)}
+                  </p>
+                </div>
+                <span className="text-market-400 text-xs ml-2 flex-shrink-0">View →</span>
+              </Link>
+            ))}
+            {alertMatches.length > 3 && (
+              <p className="text-xs text-amber-800 px-3">+{alertMatches.length - 3} more — <Link href="/jobs" className="text-market-400 hover:underline">see all</Link></p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex border-b border-market-500/10 mb-6 overflow-x-auto">
-        {(["posted", "applied", "send", "edit_profile"] as Tab[]).map((t) => (
+        {(["posted", "applied", "send", "job_alerts", "edit_profile"] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={clsx(
-              "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap",
+              "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap relative",
               tab === t ? "border-market-400 text-market-300" : "border-transparent text-amber-700 hover:text-amber-400"
             )}>
             {t === "posted"      ? `Jobs Posted (${myJobs.length})` :
              t === "applied"     ? `Applications (${myApplications.length})` :
              t === "send"        ? "Send Payment" :
+             t === "job_alerts"  ? "Job Alerts" :
              "Edit Profile"}
+            {t === "job_alerts" && alertSubscriptions.length > 0 && (
+              <span className="absolute top-2 right-1 w-2 h-2 bg-market-400 rounded-full" />
+            )}
           </button>
         ))}
       </div>
@@ -301,9 +408,58 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         <div className="max-w-lg">
           <SendPaymentForm fromPublicKey={publicKey} />
         </div>
+      ) : tab === "job_alerts" ? (
+        <div className="space-y-4 max-w-lg">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-lg font-semibold text-amber-100">Job Alert Subscriptions</h2>
+            <Link href="/jobs" className="btn-secondary text-xs px-3 py-1.5">Browse Jobs →</Link>
+          </div>
+          {alertSubscriptions.length === 0 ? (
+            <div className="card text-center py-12">
+              <BellIcon className="w-8 h-8 text-amber-800 mx-auto mb-3" />
+              <p className="font-display text-lg text-amber-100 mb-1">No alerts set</p>
+              <p className="text-amber-800 text-sm mb-5">Visit Browse Jobs and click the 🔔 next to a category to get notified.</p>
+              <Link href="/jobs" className="btn-primary text-sm">Set Up Alerts →</Link>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {alertSubscriptions.map((cat) => (
+                <div key={cat} className="card-hover flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{CATEGORY_ICONS[cat] ?? "📦"}</span>
+                    <div>
+                      <p className="text-sm font-medium text-amber-100">{cat}</p>
+                      <p className="text-xs text-amber-800">Notifications enabled</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => clearAlertSubscription(cat)}
+                    className="text-xs text-red-400/70 hover:text-red-400 border border-red-500/20 hover:border-red-500/40 px-3 py-1 rounded-md transition-all"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => { localStorage.setItem(ALERT_KEY, "[]"); window.dispatchEvent(new Event("job-alerts-changed")); }}
+                className="w-full text-xs text-amber-900 hover:text-red-400 transition-colors py-2"
+              >
+                Clear all alerts
+              </button>
+            </div>
+          )}
+        </div>
       ) : tab === "edit_profile" ? (
         <EditProfileForm publicKey={publicKey} />
       ) : null}
     </div>
+  );
+}
+
+function BellIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+    </svg>
   );
 }

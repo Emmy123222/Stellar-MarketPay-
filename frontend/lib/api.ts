@@ -157,7 +157,7 @@ export async function fetchJob(id: string) {
  * @see backend/src/routes/jobs.js
  */
 export async function createJob(payload: {
-  title: string; description: string; budget: string;
+  title: string; description: string; budget: string; currency: string;
   category: string; skills: string[]; deadline?: string;
   timezone?: string;
   clientAddress: string;

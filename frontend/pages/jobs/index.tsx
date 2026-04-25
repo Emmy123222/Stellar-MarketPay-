@@ -10,7 +10,30 @@ import clsx from "clsx";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
-import { getTimezoneOffset, toZonedTime } from "date-fns-tz";
+import { getTimezoneOffset } from "date-fns-tz";
+
+// ── Job Alert localStorage helpers ──────────────────────────────────────────
+const ALERT_KEY = "marketpay_job_alerts";
+
+function getAlerts(): string[] {
+  if (typeof window === "undefined") return [];
+  try { return JSON.parse(localStorage.getItem(ALERT_KEY) ?? "[]"); }
+  catch { return []; }
+}
+
+function saveAlerts(cats: string[]): void {
+  localStorage.setItem(ALERT_KEY, JSON.stringify(cats));
+  window.dispatchEvent(new Event("job-alerts-changed"));
+}
+
+function addAlert(cat: string): void {
+  const current = getAlerts();
+  if (!current.includes(cat)) saveAlerts([...current, cat]);
+}
+
+function removeAlert(cat: string): void {
+  saveAlerts(getAlerts().filter((c) => c !== cat));
+}
 
 export default function JobsPage() {
   const router = useRouter();
@@ -26,6 +49,40 @@ export default function JobsPage() {
   const [useGeolocation, setUseGeolocation] = useState<boolean>(false);
   const [geoLoading, setGeoLoading] = useState<boolean>(false);
   const [geoError, setGeoError] = useState<string | null>(null);
+
+  // ── Job-alert state ────────────────────────────────────────────────────────
+  const [alertedCategories, setAlertedCategories] = useState<string[]>([]);
+  const [alertStatus, setAlertStatus] = useState<"idle" | "granted" | "denied">("idle");
+
+  // Sync alertedCategories from localStorage on mount
+  useEffect(() => {
+    setAlertedCategories(getAlerts());
+    const handler = () => setAlertedCategories(getAlerts());
+    window.addEventListener("job-alerts-changed", handler);
+    return () => window.removeEventListener("job-alerts-changed", handler);
+  }, []);
+
+  const handleSetAlert = async (cat: string) => {
+    if (alertedCategories.includes(cat)) {
+      // Toggle off
+      removeAlert(cat);
+      return;
+    }
+
+    // Request notification permission
+    if (typeof Notification === "undefined") return;
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      setAlertStatus("granted");
+      addAlert(cat);
+      new Notification("Job alert set!", {
+        body: `You'll be notified when new "${cat}" jobs are posted.`,
+        icon: "/favicon.ico",
+      });
+    } else {
+      setAlertStatus("denied");
+    }
+  };
 
   const category = (router.query.category as string) || "";
   const status = (router.query.status as string) || "open";
@@ -308,20 +365,67 @@ export default function JobsPage() {
               </button>
               {JOB_CATEGORIES.map((cat) => {
                 const count = jobs.filter((j) => j.category === cat).length;
+                const isAlerted = alertedCategories.includes(cat);
                 return (
-                  <button key={cat} onClick={() => setFilter("category", cat)}
-                    className={clsx(
-                      "w-full text-left px-3 py-2 rounded-lg text-sm font-body transition-all duration-200",
-                      category === cat
-                        ? "bg-market-500/20 text-market-300 font-medium ring-1 ring-market-500/30"
-                        : "text-amber-700 hover:text-amber-400 hover:bg-market-500/8 hover:translate-x-0.5"
-                    )}>
-                    {CATEGORY_ICONS[cat] ?? ""} {cat}
-                    <span className="ml-1 text-xs text-amber-800">({count})</span>
-                  </button>
+                  <div key={cat} className="flex items-center gap-1 group/catrow">
+                    <button onClick={() => setFilter("category", cat)}
+                      className={clsx(
+                        "flex-1 text-left px-3 py-2 rounded-lg text-sm font-body transition-all duration-200",
+                        category === cat
+                          ? "bg-market-500/20 text-market-300 font-medium ring-1 ring-market-500/30"
+                          : "text-amber-700 hover:text-amber-400 hover:bg-market-500/8 hover:translate-x-0.5"
+                      )}>
+                      {CATEGORY_ICONS[cat] ?? ""} {cat}
+                      <span className="ml-1 text-xs text-amber-800">({count})</span>
+                    </button>
+
+                    {/* Set job alert bell button */}
+                    <button
+                      id={`alert-btn-${cat.replace(/\s+/g, "-").toLowerCase()}`}
+                      onClick={() => handleSetAlert(cat)}
+                      title={isAlerted ? `Remove alert for "${cat}"` : `Set alert for "${cat}"`}
+                      className={clsx(
+                        "p-1.5 rounded-md transition-all duration-150 flex-shrink-0",
+                        isAlerted
+                          ? "text-market-300 bg-market-500/20 ring-1 ring-market-500/30"
+                          : "text-amber-900 hover:text-market-400 hover:bg-market-500/10 opacity-0 group-hover/catrow:opacity-100"
+                      )}
+                    >
+                      <BellIcon className="w-3.5 h-3.5" filled={isAlerted} />
+                    </button>
+                  </div>
                 );
               })}
             </div>
+
+          {/* Alert permission denied warning */}
+          {alertStatus === "denied" && (
+            <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+              Notifications blocked. Enable them in browser settings to use job alerts.
+            </div>
+          )}
+
+          {/* Active alerts summary */}
+          {alertedCategories.length > 0 && (
+            <div className="px-3 py-2 rounded-lg bg-market-500/8 border border-market-500/20 text-xs text-market-400 space-y-1">
+              <p className="font-semibold flex items-center gap-1">
+                <BellIcon className="w-3 h-3" filled />
+                Active alerts ({alertedCategories.length})
+              </p>
+              {alertedCategories.map((c) => (
+                <div key={c} className="flex items-center justify-between">
+                  <span className="text-amber-700 truncate">{CATEGORY_ICONS[c] ?? ""} {c}</span>
+                  <button
+                    onClick={() => removeAlert(c)}
+                    className="text-amber-900 hover:text-red-400 transition-colors ml-1 flex-shrink-0"
+                    title={`Remove "${c}" alert`}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           </div>
 
           {/* Timezone Filter */}
@@ -455,6 +559,14 @@ function SpinnerIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 3a9 9 0 109 9" />
+    </svg>
+  );
+}
+
+function BellIcon({ className, filled = false }: { className?: string; filled?: boolean }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
     </svg>
   );
 }
