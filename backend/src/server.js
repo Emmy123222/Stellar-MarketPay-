@@ -4,55 +4,82 @@
  */
 "use strict";
 
-const express     = require("express");
-const cors        = require("cors");
-const helmet      = require("helmet");
-const morgan      = require("morgan");
-const rateLimit   = require("express-rate-limit");
 require("dotenv").config();
 
-const jobRoutes         = require("./routes/jobs");
-const applicationRoutes = require("./routes/applications");
-const profileRoutes     = require("./routes/profiles");
-const escrowRoutes      = require("./routes/escrow");
-const healthRoutes      = require("./routes/health");
-const authRoutes        = require("./routes/auth");
-const ratingRoutes      = require("./routes/ratings");
-const progressRoutes    = require("./routes/progress");
+const express = require("express");
+const cors = require("cors");
+const helmet = require("helmet");
+const morgan = require("morgan");
+const rateLimit = require("express-rate-limit");
 
-const app  = express();
+const jobRoutes = require("./routes/jobs");
+const applicationRoutes = require("./routes/applications");
+const profileRoutes = require("./routes/profiles");
+const escrowRoutes = require("./routes/escrow");
+const healthRoutes = require("./routes/health");
+const authRoutes = require("./routes/auth");
+const ratingRoutes = require("./routes/ratings");
+const progressRoutes = require("./routes/progress");
+
+const app = express();
 const PORT = process.env.PORT || 4000;
 
-// ─── Middleware ───────────────────────────────────────────────────────────────
+// Middleware
 app.use(helmet());
 app.use(morgan("dev"));
 app.use(express.json({ limit: "20kb" }));
 
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").split(",").map(o => o.trim());
-app.use(cors({
-  origin: (origin, cb) => (!origin || allowedOrigins.includes(origin)) ? cb(null, true) : cb(new Error("CORS blocked")),
-  methods: ["GET", "POST", "PATCH", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true,
-}));
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000")
+  .split(",")
+  .map((origin) => origin.trim());
 
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 150, standardHeaders: true, legacyHeaders: false }));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
 
-// ─── Routes ───────────────────────────────────────────────────────────────────
-app.use("/health",            healthRoutes);
-app.use("/api/auth",          authRoutes);
-app.use("/api/jobs",          jobRoutes);
-app.use("/api/applications",  applicationRoutes);
-app.use("/api/profiles",      profileRoutes);
-app.use("/api/escrow",        escrowRoutes);
-app.use("/api/ratings",       ratingRoutes);
-app.use("/api/progress",      progressRoutes);
+      return callback(new Error("CORS blocked"));
+    },
+    methods: ["GET", "POST", "PATCH", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
 
-// ─── Error handling ───────────────────────────────────────────────────────────
-app.use((req, res) => res.status(404).json({ error: `${req.method} ${req.path} not found` }));
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 150,
+    standardHeaders: true,
+    legacyHeaders: false,
+  })
+);
+
+// Routes
+app.use("/health", healthRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/jobs", jobRoutes);
+app.use("/api/applications", applicationRoutes);
+app.use("/api/profiles", profileRoutes);
+app.use("/api/escrow", escrowRoutes);
+app.use("/api/ratings", ratingRoutes);
+app.use("/api/progress", progressRoutes);
+
+// Error handling
+app.use((req, res) => {
+  res.status(404).json({
+    error: `${req.method} ${req.path} not found`,
+  });
+});
+
 app.use((err, req, res, next) => {
   console.error("[Error]", err.message);
-  res.status(err.status || 500).json({ error: err.message || "Internal server error" });
+
+  res.status(err.status || 500).json({
+    error: err.message || "Internal server error",
+  });
 });
 
 app.listen(PORT, () => {
