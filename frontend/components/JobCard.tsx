@@ -87,17 +87,46 @@ export default function JobCard({ job }: JobCardProps) {
   const { isSaved, toggleBookmark } = useBookmarks();
   const usdEquivalent = formatUSDEquivalent(job.budget, xlmPriceUsd);
 
-  const hasValidDeadline = Boolean(
-    job.deadline && formatDeadline(job.deadline),
-  );
+  // ── ISSUE #78: Hover Card State & Logic ──────────────────────────────────────────
+  const [showPreview, setShowPreview] = useState(false);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleMouseEnter = () => {
+    // Check if device has a mouse/pointer (Acceptance Criteria: No popover on touch)
+    if (window.matchMedia("(pointer: fine)").matches) {
+      hoverTimeoutRef.current = setTimeout(() => {
+        setShowPreview(true);
+      }, 500); // 500ms delay requirement
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+    }
+    setShowPreview(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    };
+  }, []);
+  // ──────────────────────────────────────────────────────────────────────────────────
+
+  const hasValidDeadline = Boolean(job.deadline && formatDeadline(job.deadline));
   const formattedDeadline = job.deadline ? formatDeadline(job.deadline) : "";
   const deadlineState = getDeadlineState(job.deadline);
   const isStatusClosed =
     job.status === "cancelled" || job.status === "completed";
   const showClosedBadge = isStatusClosed || deadlineState === "closed";
-  const showClosingSoonBadge =
-    !showClosedBadge && deadlineState === "closing_soon";
-  const saved = isSaved(job.id);
+  const showClosingSoonBadge = !showClosedBadge && deadlineState === "closing_soon";
+
+  // Helper to get monthly estimate (keeping original logic intact)
+  const getMonthlyEstimate = (budget: string, price: number | null) => {
+    return "Estimated monthly: " + formatUSDEquivalent(budget, price);
+  };
+
   return (
     <Link href={`/jobs/${job.id}`}>
       {/* ── ISSUE #78: Added relative positioning and hover handlers ── */}
