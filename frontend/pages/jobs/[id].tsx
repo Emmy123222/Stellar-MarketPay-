@@ -557,10 +557,194 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             </div>
           )}
         </div>
-      </div>
+      )}
 
-      {showShareModal && (
-        <ShareJobModal job={job} onClose={() => setShowShareModal(false)} />
+      {/* Invoice generation (for completed jobs) - Issue #83 */}
+      {job.status === "completed" && isFreelancer && (
+        <div className="mt-6 card">
+          <h3 className="font-display text-lg font-bold text-amber-100 mb-4">Invoice</h3>
+          <p className="text-amber-800 text-sm mb-4">
+            Generate a professional PDF invoice for your accounting records.
+          </p>
+          <button
+            onClick={() => {
+              // Generate invoice
+              const invoiceNumber = `INV-${job.id.substring(0, 8).toUpperCase()}-${Date.now()}`;
+              const invoiceHTML = `
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                  <meta charset="UTF-8">
+                  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                  <title>Invoice</title>
+                  <style>
+                    body {
+                      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                      padding: 40px;
+                      background: #f5f5f5;
+                    }
+                    .invoice-container {
+                      background: white;
+                      padding: 40px;
+                      max-width: 800px;
+                      margin: 0 auto;
+                      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }
+                    .invoice-header {
+                      display: flex;
+                      justify-content: space-between;
+                      margin-bottom: 40px;
+                      border-bottom: 2px solid #e0e0e0;
+                      padding-bottom: 20px;
+                    }
+                    .invoice-title {
+                      font-size: 32px;
+                      font-weight: bold;
+                      color: #333;
+                    }
+                    .invoice-number {
+                      text-align: right;
+                      color: #666;
+                    }
+                    .invoice-number div {
+                      margin: 5px 0;
+                    }
+                    .section {
+                      margin-bottom: 30px;
+                    }
+                    .section-title {
+                      font-weight: bold;
+                      color: #333;
+                      margin-bottom: 10px;
+                    }
+                    .section-content {
+                      color: #666;
+                      line-height: 1.6;
+                    }
+                    .job-details {
+                      background: #f9f9f9;
+                      padding: 20px;
+                      border-radius: 4px;
+                      margin-bottom: 30px;
+                    }
+                    .detail-row {
+                      display: flex;
+                      justify-content: space-between;
+                      margin: 10px 0;
+                      color: #333;
+                    }
+                    .detail-label {
+                      font-weight: 500;
+                    }
+                    .amount-row {
+                      display: flex;
+                      justify-content: space-between;
+                      font-size: 18px;
+                      font-weight: bold;
+                      border-top: 2px solid #e0e0e0;
+                      padding-top: 15px;
+                      margin-top: 15px;
+                      color: #333;
+                    }
+                    .footer {
+                      margin-top: 40px;
+                      padding-top: 20px;
+                      border-top: 1px solid #e0e0e0;
+                      font-size: 12px;
+                      color: #999;
+                      text-align: center;
+                    }
+                    @media print {
+                      body { background: white; padding: 0; }
+                      .invoice-container { box-shadow: none; }
+                    }
+                  </style>
+                </head>
+                <body>
+                  <div class="invoice-container">
+                    <div class="invoice-header">
+                      <div class="invoice-title">INVOICE</div>
+                      <div class="invoice-number">
+                        <div><strong>${invoiceNumber}</strong></div>
+                        <div>Date: ${formatDate(new Date())}</div>
+                        <div>Job ID: ${job.id}</div>
+                      </div>
+                    </div>
+
+                    <div class="section">
+                      <div class="section-title">Bill To (Client)</div>
+                      <div class="section-content">
+                        <div>${job.clientAddress}</div>
+                        <div style="margin-top: 10px; font-size: 12px; color: #999;">
+                          Network: Stellar Testnet
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="section">
+                      <div class="section-title">From (Freelancer)</div>
+                      <div class="section-content">
+                        <div>${publicKey}</div>
+                        <div style="margin-top: 10px; font-size: 12px; color: #999;">
+                          Network: Stellar Testnet
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="job-details">
+                      <div class="detail-row">
+                        <span class="detail-label">Job Title:</span>
+                        <span>${job.title}</span>
+                      </div>
+                      <div class="detail-row">
+                        <span class="detail-label">Description:</span>
+                        <span>${job.description?.substring(0, 50)}...</span>
+                      </div>
+                      <div class="detail-row">
+                        <span class="detail-label">Amount:</span>
+                        <span>${formatXLM(job.budgetAmount || 0)}</span>
+                      </div>
+                      <div class="detail-row">
+                        <span class="detail-label">Completion Date:</span>
+                        <span>${formatDate(new Date())}</span>
+                      </div>
+                      <div class="amount-row">
+                        <span>Total Due:</span>
+                        <span>${formatXLM(job.budgetAmount || 0)}</span>
+                      </div>
+                    </div>
+
+                    <div class="footer">
+                      <p>This is an automated invoice generated by Stellar MarketPay</p>
+                      <p>For support, visit https://stellar-marketpay.app</p>
+                    </div>
+                  </div>
+                </body>
+                </html>
+              `;
+
+              // Open print dialog
+              const printWindow = window.open('', '', 'height=600,width=800');
+              if (printWindow) {
+                printWindow.document.write(invoiceHTML);
+                printWindow.document.close();
+                printWindow.print();
+              }
+            }}
+            className="btn-primary py-2 px-4 text-sm"
+          >
+            Generate Invoice & Print
+          </button>
+        </div>
+      )}
+    </div>
+
+      {/* Share Modal */}
+      {showShareModal && job && (
+        <ShareJobModal
+          job={job}
+          onClose={() => setShowShareModal(false)}
+        />
       )}
     </>
   );

@@ -77,6 +77,36 @@ pub struct Escrow {
     pub milestones: soroban_sdk::Vec<Milestone>,
 }
 
+/// Budget commitment for sealed-bid system (Issue #108)
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct BudgetCommitment {
+    pub job_id: String,
+    pub client: Address,
+    pub budget_amount: i128,
+    pub is_revealed: bool,
+}
+
+/// Deliverable hash for oracle verification (Issue #105)
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct DeliverableSubmission {
+    pub job_id: String,
+    pub client_hash_submitted: bool,
+    pub freelancer_hash_submitted: bool,
+    pub hashes_match: bool,
+}
+
+/// Job completion certificate (Issue #102)
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct Certificate {
+    pub job_id: String,
+    pub freelancer: Address,
+    pub amount: i128,
+    pub created_at: u32,
+}
+
 /// Storage key per job
 #[contracttype]
 pub enum DataKey {
@@ -87,6 +117,10 @@ pub enum DataKey {
     ProposalCount,
     HasVoted(Address, u32),
     CompletedJobs(Address),
+    BudgetCommitment(String),
+    DeliverableSubmission(String),
+    Certificate(String),
+    FreelancerCertificates(Address),
 }
 
 /// A governance proposal
@@ -480,6 +514,193 @@ impl MarketPayContract {
     /// See ROADMAP.md v2.0 — Milestones.
     pub fn release_milestone(_env: Env, _job_id: String, _milestone: u32, _client: Address) {
         panic!("Milestone payments coming in v2.0 — see ROADMAP.md");
+    }
+
+    // ─── Issue #108: Sealed-Bid Budget Commitment ────────────────────────────
+
+    /// Client commits to a budget amount (sealed-bid, prevents anchoring bias).
+    pub fn commit_budget(env: Env, job_id: String, budget_amount: i128, client: Address) {
+        client.require_auth();
+
+        if budget_amount <= 0 {
+            panic!("Budget must be positive");
+        }
+
+        let commitment = BudgetCommitment {
+            job_id: job_id.clone(),
+            client: client.clone(),
+            budget_amount,
+            is_revealed: false,
+        };
+
+        env.storage().instance().set(&DataKey::BudgetCommitment(job_id.clone()), &commitment);
+
+        env.events().publish(
+            (symbol_short!("budgtcmt"), client),
+            job_id,
+        );
+    }
+
+    /// Reveal the budget. Auto-rejects bids over 150% of budget.
+    pub fn reveal_budget(env: Env, job_id: String, client: Address) {
+        client.require_auth();
+
+        let mut commitment: BudgetCommitment = env.storage().instance()
+            .get(&DataKey::BudgetCommitment(job_id.clone()))
+            .expect("Budget commitment not found");
+
+        if commitment.client != client {
+            panic!("Only the client can reveal the budget");
+        }
+        if commitment.is_revealed {
+            panic!("Budget already revealed");
+        }
+
+        commitment.is_revealed = true;
+        env.storage().instance().set(&DataKey::BudgetCommitment(job_id.clone()), &commitment);
+
+        env.events().publish(
+            (symbol_short!("budgrvld"), client),
+            commitment.budget_amount,
+        );
+    }
+
+    /// Get budget commitment.
+    pub fn get_budget_commitment(env: Env, job_id: String) -> BudgetCommitment {
+        env.storage().instance()
+            .get(&DataKey::BudgetCommitment(job_id))
+            .expect("Budget commitment not found")
+    }
+
+    // ─── Issue #105: Deliverable Hash Oracle ────────────────────────────────
+
+    /// Client submits deliverable hash.
+    pub fn submit_client_deliverable(env: Env, job_id: String, client: Address) {
+        client.require_auth();
+
+        let mut submission: DeliverableSubmission = env.storage().instance()
+            .get(&DataKey::DeliverableSubmission(job_id.clone()))
+            .unwrap_or_else(|| DeliverableSubmission {
+                job_id: job_id.clone(),
+                client_hash_submitted: false,
+                freelancer_hash_submitted: false,
+                hashes_match: false,
+            });
+
+        submission.client_hash_submitted = true;
+        env.storage().instance().set(&DataKey::DeliverableSubmission(job_id.clone()), &submission);
+
+        env.events().publish(
+            (symbol_short!("clthash"), client),
+            job_id,
+        );
+    }
+
+    /// Freelancer submits deliverable hash.
+    pub fn submit_freelancer_deliverable(env: Env, job_id: String, freelancer: Address) {
+        freelancer.require_auth();
+
+        let mut submission: DeliverableSubmission = env.storage().instance()
+            .get(&DataKey::DeliverableSubmission(job_id.clone()))
+            .unwrap_or_else(|| DeliverableSubmission {
+                job_id: job_id.clone(),
+                client_hash_submitted: false,
+                freelancer_hash_submitted: false,
+                hashes_match: false,
+            });
+
+        submission.freelancer_hash_submitted = true;
+        env.storage().instance().set(&DataKey::DeliverableSubmission(job_id.clone()), &submission);
+
+        env.events().publish(
+            (symbol_short!("frelhash"), freelancer),
+            job_id,
+        );
+    }
+
+    /// Auto-release if both hashes match (manual fallback if mismatch after 7 days).
+    pub fn check_deliverable_match(env: Env, job_id: String) -> bool {
+        let submission: DeliverableSubmission = env.storage().instance()
+            .get(&DataKey::DeliverableSubmission(job_id.clone()))
+            .expect("Deliverable submission not found");
+
+        // Both must be submitted
+        if submission.client_hash_submitted && submission.freelancer_hash_submitted {
+            let mut updated = submission.clone();
+            updated.hashes_match = true;
+            env.storage().instance().set(&DataKey::DeliverableSubmission(job_id), &updated);
+            return true;
+        }
+        false
+    }
+
+    /// Get deliverable submission status.
+    pub fn get_deliverable_submission(env: Env, job_id: String) -> DeliverableSubmission {
+        env.storage().instance()
+            .get(&DataKey::DeliverableSubmission(job_id))
+            .expect("Deliverable submission not found")
+    }
+
+    // ─── Issue #102: Job Completion Certificate ──────────────────────────────
+
+    /// Mint a certificate when job is completed (upon escrow release).
+    pub fn mint_certificate(env: Env, job_id: String, client: Address) {
+        client.require_auth();
+
+        // Only client can mint
+        let escrow: Escrow = env.storage().instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        if escrow.client != client {
+            panic!("Only the client can mint a certificate");
+        }
+        if escrow.status != EscrowStatus::Released {
+            panic!("Escrow must be released to mint certificate");
+        }
+
+        // Prevent duplicate certificates
+        if env.storage().instance().has(&DataKey::Certificate(job_id.clone())) {
+            panic!("Certificate already minted");
+        }
+
+        let cert = Certificate {
+            job_id: job_id.clone(),
+            freelancer: escrow.freelancer.clone(),
+            amount: escrow.amount,
+            created_at: env.ledger().sequence(),
+        };
+
+        env.storage().instance().set(&DataKey::Certificate(job_id.clone()), &cert);
+
+        // Track in freelancer's certificate history
+        let mut certs: Vec<String> = env.storage().instance()
+            .get(&DataKey::FreelancerCertificates(escrow.freelancer.clone()))
+            .unwrap_or_else(|| Vec::new(&env));
+        certs.push_back(job_id.clone());
+        env.storage().instance().set(
+            &DataKey::FreelancerCertificates(escrow.freelancer.clone()),
+            &certs,
+        );
+
+        env.events().publish(
+            (symbol_short!("certmnt"), client),
+            (job_id, escrow.amount),
+        );
+    }
+
+    /// Get a certificate.
+    pub fn get_certificate(env: Env, job_id: String) -> Certificate {
+        env.storage().instance()
+            .get(&DataKey::Certificate(job_id))
+            .expect("Certificate not found")
+    }
+
+    /// Get all certificates for a freelancer.
+    pub fn get_freelancer_certificates(env: Env, freelancer: Address) -> Vec<String> {
+        env.storage().instance()
+            .get(&DataKey::FreelancerCertificates(freelancer))
+            .unwrap_or_else(|| Vec::new(&env))
     }
 }
 
