@@ -1,5 +1,6 @@
 /**
  * src/services/profileService.js
+ * Service responsibility: Manages user profiles for clients and freelancers, including retrieval, creation, and updating.
  * All data persisted in the `profiles` PostgreSQL table.
  */
 "use strict";
@@ -142,6 +143,13 @@ function rowToProfile(row) {
   };
 }
 
+/**
+ * Retrieve a user profile by their Stellar public key. Includes average rating and rating count.
+ *
+ * @param {string} publicKey - The Stellar public key of the user.
+ * @returns {Promise<Object>} The user profile object.
+ * @throws {Error} If the public key is invalid or the profile is not found.
+ */
 async function getProfile(publicKey) {
   validatePublicKey(publicKey);
 
@@ -176,17 +184,17 @@ async function getProfile(publicKey) {
   const profile = rowToProfile(rows[0]);
   profile.rating = rows[0].avg_rating !== null ? parseFloat(rows[0].avg_rating) : null;
   profile.ratingCount = rows[0].rating_count;
-  
+
   // Calculate reputation score (simple formula: higher weight on ratings, lower on time)
   // Max score 100.
   let repScore = 0;
   if (profile.rating) repScore += profile.rating * 15; // up to 75
-  
+
   // Bonus for fast acceptance (avg < 24h)
   const acceptHours = parseFloat(rows[0].avg_accept_hours || 0);
   if (acceptHours > 0 && acceptHours < 24) repScore += 15;
   else if (acceptHours > 0 && acceptHours < 72) repScore += 10;
-  
+
   // Bonus for fast release (avg < 48h)
   const releaseHours = parseFloat(rows[0].avg_release_hours || 0);
   if (releaseHours > 0 && releaseHours < 48) repScore += 10;
@@ -201,6 +209,43 @@ async function getProfile(publicKey) {
   return profile;
 }
 
+/**
+ * @typedef {Object} UpsertProfileInput
+ * @property {string} publicKey - The Stellar public key of the user.
+ * @property {string} [displayName] - The display name of the user.
+ * @property {string} [bio] - The user's biography.
+ * @property {string[]} [skills] - Array of skills (max 15).
+ * @property {Object[]} [portfolioItems] - Array of portfolio items (max 10).
+ * @property {Object} [availability] - Availability status and dates.
+ * @property {string} [role] - The role of the user (e.g., 'freelancer', 'client', 'both').
+ */
+
+/**
+ * Create or update a user profile. Only provided fields will be updated if the profile already exists.
+ *
+ * @param {UpsertProfileInput} params - The profile details to upsert.
+ * @returns {Promise<Object>} The created or updated profile object.
+ * @throws {Error} If the public key is invalid.
+ *
+ * @example
+ * const profile = await profileService.upsertProfile({
+ *   publicKey: 'GBX...',
+ *   displayName: 'Alice Developer',
+ *   bio: 'Full-stack developer specializing in Stellar network integrations.',
+ *   skills: ['React', 'Node.js', 'Stellar SDK'],
+ *   portfolioItems: [{
+ *     title: 'My Awesome Project',
+ *     type: 'live',
+ *     url: 'https://example.com',
+ *   }],
+ *   availability: {
+ *     status: 'available',
+ *     availableFrom: '2023-01-01',
+ *     availableUntil: '2023-12-31',
+ *   },
+ *   role: 'freelancer',
+ * });
+ */
 async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, availability, role }) {
   validatePublicKey(publicKey);
 

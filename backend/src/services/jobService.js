@@ -1,5 +1,6 @@
 /**
  * src/services/jobService.js
+ * Service responsibility: Manages job listings, including creation, retrieval, searching, status updates, freelancer assignment, escrow integration, and visibility boosting.
  * All data persisted in the `jobs` PostgreSQL table.
  */
 "use strict";
@@ -53,10 +54,10 @@ function isTimezoneCompatible(jobTimezone, userTimezone) {
     // Get UTC offset in milliseconds for both timezones
     const userOffset = getTimezoneOffset(userTimezone, now);
     const jobOffset = getTimezoneOffset(jobTimezone, now);
-    
+
     // Calculate the absolute difference in hours
     const diffHours = Math.abs(userOffset - jobOffset) / (1000 * 60 * 60);
-    
+
     // Return true if within ±3 hour range
     return diffHours <= 3;
   } catch (err) {
@@ -68,34 +69,61 @@ function isTimezoneCompatible(jobTimezone, userTimezone) {
 /** Convert snake_case DB row → camelCase API object */
 function rowToJob(row) {
   return {
-    id:                row.id,
-    title:             row.title,
-    description:       row.description,
-    budget:            row.budget,
-    currency:          row.currency || 'XLM',
-    category:          row.category,
-    skills:            row.skills,
-    status:            row.status,
-    clientAddress:     row.client_address,
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    budget: row.budget,
+    currency: row.currency || 'XLM',
+    category: row.category,
+    skills: row.skills,
+    status: row.status,
+    clientAddress: row.client_address,
     freelancerAddress: row.freelancer_address,
-    escrowContractId:  row.escrow_contract_id,
-    applicantCount:    row.applicant_count,
-    shareCount:        row.share_count || 0,
-    boosted:           row.boosted || false,
-    boostedUntil:      row.boosted_until,
-    deadline:          row.deadline,
-    timezone:          row.timezone,
+    escrowContractId: row.escrow_contract_id,
+    applicantCount: row.applicant_count,
+    shareCount: row.share_count || 0,
+    boosted: row.boosted || false,
+    boostedUntil: row.boosted_until,
+    deadline: row.deadline,
+    timezone: row.timezone,
     screeningQuestions: row.screening_questions || [],
-    createdAt:         row.created_at,
-    updatedAt:         row.updated_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
 // ─── service functions ───────────────────────────────────────────────────────
 
 /**
+ * @typedef {Object} CreateJobInput
+ * @property {string} title - The title of the job (min 10 characters).
+ * @property {string} description - The detailed description of the job (min 30 characters).
+ * @property {string|number} budget - The positive budget amount for the job.
+ * @property {string} [currency='XLM'] - The currency, either 'XLM' or 'USDC'.
+ * @property {string} category - The category of the job (must be a valid category).
+ * @property {string[]} [skills] - Array of relevant skills (max 8).
+ * @property {Date|string} [deadline] - The deadline for the job.
+ * @property {string} clientAddress - The Stellar public key of the client.
+ */
+
+/**
  * Create a new job listing.
  * Note: client's profile row must already exist (FK constraint).
+ *
+ * @param {CreateJobInput} params - The parameters to create a job.
+ * @returns {Promise<Object>} The created job object.
+ * @throws {Error} If validation fails or client profile doesn't exist.
+ *
+ * @example
+ * const newJob = await jobService.createJob({
+ *   title: 'Build a Smart Contract',
+ *   description: 'Need a developer to build a Soroban smart contract for an escrow service.',
+ *   budget: 500,
+ *   currency: 'USDC',
+ *   category: 'Smart Contracts',
+ *   skills: ['Soroban', 'Rust'],
+ *   clientAddress: 'GBX...',
+ * });
  */
 async function createJob({ title, description, budget, currency = 'XLM', category, skills, deadline, clientAddress }) {
   validatePublicKey(clientAddress);
@@ -143,6 +171,13 @@ async function createJob({ title, description, budget, currency = 'XLM', categor
   return rowToJob(rows[0]);
 }
 
+/**
+ * Retrieves a job by its ID.
+ *
+ * @param {number|string} id - The ID of the job to retrieve.
+ * @returns {Promise<Object>} The job object.
+ * @throws {Error} If the job is not found.
+ */
 async function getJob(id) {
   const { rows } = await query("SELECT * FROM jobs WHERE id = $1", [id]);
   if (!rows.length) {
@@ -170,9 +205,26 @@ function decodeCursor(cursor) {
   }
 }
 
+/**
+ * @typedef {Object} ListJobsOptions
+ * @property {string} [category] - Filter by job category.
+ * @property {string} [status='open'] - Filter by job status.
+ * @property {number} [limit=50] - Max number of results to return (max 100).
+ * @property {string} [search] - Search term for title, description, or skills.
+ * @property {string} [cursor] - Pagination cursor.
+ * @property {string} [timezone] - Filter by timezone.
+ */
+
+/**
+ * List jobs with optional filtering, searching, and pagination.
+ *
+ * @param {ListJobsOptions} [options={}] - Options for listing jobs.
+ * @returns {Promise<{jobs: Object[], nextCursor: string|null}>} An object containing the list of jobs and an optional next cursor for pagination.
+ * @throws {Error} If the provided cursor is invalid.
+ */
 async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone } = {}) {
   const conditions = [];
-  const params     = [];
+  const params = [];
 
   if (status && VALID_STATUSES.includes(status)) {
     params.push(status);
@@ -230,6 +282,13 @@ async function listJobs({ category, status = "open", limit = 50, search, cursor,
   };
 }
 
+/**
+ * Retrieve all jobs posted by a specific client.
+ *
+ * @param {string} clientAddress - The Stellar public key of the client.
+ * @returns {Promise<Object[]>} An array of job objects.
+ * @throws {Error} If the clientAddress is an invalid Stellar public key.
+ */
 async function listJobsByClient(clientAddress) {
   validatePublicKey(clientAddress);
   const { rows } = await query(
@@ -239,6 +298,14 @@ async function listJobsByClient(clientAddress) {
   return rows.map(rowToJob);
 }
 
+/**
+ * Update the status of a specific job.
+ *
+ * @param {number|string} id - The ID of the job.
+ * @param {string} status - The new status (must be one of VALID_STATUSES).
+ * @returns {Promise<Object>} The updated job object.
+ * @throws {Error} If the status is invalid or the job is not found.
+ */
 async function updateJobStatus(id, status) {
   if (!VALID_STATUSES.includes(status)) {
     const e = new Error("Invalid status"); e.status = 400; throw e;
@@ -256,6 +323,14 @@ async function updateJobStatus(id, status) {
   return rowToJob(rows[0]);
 }
 
+/**
+ * Assign a freelancer to a job and update its status to 'in_progress'.
+ *
+ * @param {number|string} jobId - The ID of the job.
+ * @param {string} freelancerAddress - The Stellar public key of the freelancer.
+ * @returns {Promise<Object>} The updated job object.
+ * @throws {Error} If the freelancerAddress is invalid or the job is not found.
+ */
 async function assignFreelancer(jobId, freelancerAddress) {
   validatePublicKey(freelancerAddress);
 
@@ -274,6 +349,14 @@ async function assignFreelancer(jobId, freelancerAddress) {
   return rowToJob(rows[0]);
 }
 
+/**
+ * Update the escrow contract ID associated with a job.
+ *
+ * @param {number|string} jobId - The ID of the job.
+ * @param {string} escrowContractId - The escrow contract ID.
+ * @returns {Promise<Object>} The updated job object.
+ * @throws {Error} If the escrowContractId is invalid or the job is not found.
+ */
 async function updateJobEscrowId(jobId, escrowContractId) {
   if (!escrowContractId || typeof escrowContractId !== "string") {
     const e = new Error("Invalid escrow contract ID"); e.status = 400; throw e;
@@ -291,6 +374,13 @@ async function updateJobEscrowId(jobId, escrowContractId) {
   return rowToJob(rows[0]);
 }
 
+/**
+ * Delete a job by its ID.
+ *
+ * @param {number|string} jobId - The ID of the job to delete.
+ * @returns {Promise<void>} Resolves when the job is deleted.
+ * @throws {Error} If the job is not found.
+ */
 async function deleteJob(jobId) {
   const { rowCount } = await query("DELETE FROM jobs WHERE id = $1", [jobId]);
   if (!rowCount) {
@@ -298,6 +388,14 @@ async function deleteJob(jobId) {
   }
 }
 
+/**
+ * Boost a job to increase its visibility for 7 days.
+ *
+ * @param {number|string} jobId - The ID of the job to boost.
+ * @param {string} txHash - The transaction hash of the payment for boosting.
+ * @returns {Promise<Object>} The updated job object.
+ * @throws {Error} If the job is not found.
+ */
 async function boostJob(jobId, txHash) {
   // Verify job exists
   const { rows } = await query("SELECT * FROM jobs WHERE id = $1", [jobId]);
@@ -320,12 +418,19 @@ async function boostJob(jobId, txHash) {
   return rowToJob(updateRows[0]);
 }
 
+/**
+ * Increment the share count for a specific job.
+ *
+ * @param {number|string} jobId - The ID of the job.
+ * @returns {Promise<Object>} The updated job object.
+ * @throws {Error} If the job is not found.
+ */
 async function incrementShareCount(jobId) {
   const { rows } = await query(
     "UPDATE jobs SET share_count = COALESCE(share_count, 0) + 1, updated_at = NOW() WHERE id = $1 RETURNING *",
     [jobId]
   );
-  
+
   if (!rows.length) {
     const e = new Error("Job not found"); e.status = 404; throw e;
   }
