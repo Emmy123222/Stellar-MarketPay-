@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
 import { fetchMyJobs, fetchMyApplications } from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
@@ -22,14 +23,19 @@ interface DashboardProps {
 type Tab = "posted" | "applied" | "send" | "edit_profile";
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
+  const router = useRouter();
+
   const [tab, setTab] = useState<Tab>("posted");
   const [myJobs, setMyJobs] = useState<Job[]>([]);
   const [myApplications, setMyApplications] = useState<Application[]>([]);
-  const [balance, setBalance]           = useState<string | null>(null);
-  const [usdcBalance, setUsdcBalance]   = useState<string | null>(null);
+  const [balance, setBalance] = useState<string | null>(null);
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
+
+  const [processedTxs, setProcessedTxs] = useState<Set<string>>(new Set());
+  const { info, success } = useToast();
 
   const handleCopy = async () => {
     if (!publicKey) return;
@@ -44,13 +50,19 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     }
   };
 
-  const [processedTxs, setProcessedTxs] = useState<Set<string>>(new Set());
-  const { info, success } = useToast();
+  const handleHireAgain = (job: Job) => {
+    router.push({
+      pathname: "/post-job",
+      query: {
+        category: job.category,
+        freelancer: job.freelancerAddress || "",
+      },
+    });
+  };
 
   useEffect(() => {
     if (!publicKey) return;
-    
-    // Initial fetch
+
     Promise.all([
       fetchMyJobs(publicKey),
       fetchMyApplications(publicKey),
@@ -66,32 +78,26 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       .catch(console.error)
       .finally(() => setLoading(false));
 
-    // Real-time stream
     const onTransaction = (tx: any) => {
       if (processedTxs.has(tx.hash)) return;
       setProcessedTxs((prev) => new Set(prev).add(tx.hash));
 
-      // Try to find a matching job in our current lists
-      // We assume the memo contains the job ID (common pattern in this app's context)
       const jobId = tx.memo;
       if (!jobId) return;
 
-      const job = myJobs.find(j => j.id === jobId);
+      const job = myJobs.find((j) => j.id === jobId);
       if (job) {
         success(`New application received for: ${job.title}`);
         window.dispatchEvent(new CustomEvent("stellar-activity", { detail: { type: "job", id: jobId } }));
-        // Refresh jobs to update applicant count
         fetchMyJobs(publicKey).then(setMyJobs);
         return;
       }
 
-      const app = myApplications.find(a => a.jobId === jobId);
+      const app = myApplications.find((a) => a.jobId === jobId);
       if (app) {
         info(`Application status updated for: ${jobId.slice(0, 8)}...`);
         window.dispatchEvent(new CustomEvent("stellar-activity", { detail: { type: "app", id: jobId } }));
-        // Refresh applications to update status
         fetchMyApplications(publicKey).then(setMyApplications);
-        return;
       }
     };
 
@@ -99,7 +105,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     return () => {
       closeStream();
     };
-  }, [publicKey, myJobs, myApplications, processedTxs]);
+  }, [publicKey, myJobs, myApplications, processedTxs, info, success]);
 
   if (!publicKey) {
     return (
@@ -115,8 +121,6 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">
-
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="font-display text-3xl font-bold text-amber-100 mb-1">Dashboard</h1>
@@ -127,9 +131,11 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
               onClick={handleCopy}
               className={clsx(
                 "p-1.5 rounded-md transition-all flex items-center justify-center h-7 min-w-[28px]",
-                copied ? "text-emerald-400 bg-emerald-400/10 border border-emerald-400/20" : 
-                copyError ? "text-red-400 bg-red-400/10 border border-red-400/20" : 
-                "text-amber-600 hover:text-amber-300 hover:bg-amber-400/10 border border-transparent"
+                copied
+                  ? "text-emerald-400 bg-emerald-400/10 border border-emerald-400/20"
+                  : copyError
+                  ? "text-red-400 bg-red-400/10 border border-red-400/20"
+                  : "text-amber-600 hover:text-amber-300 hover:bg-amber-400/10 border border-transparent"
               )}
               title="Copy public key"
             >
@@ -149,7 +155,6 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         <Link href="/post-job" className="btn-primary text-sm py-2.5 px-5 flex-shrink-0">+ Post a Job</Link>
       </div>
 
-      {/* Wallet card */}
       <div className="card mb-4 bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-40 h-40 bg-market-500/4 rounded-full blur-2xl pointer-events-none" />
         <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-6">
@@ -167,7 +172,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 text-center">
             {[
               { label: "Jobs Posted", value: myJobs.length },
-              { label: "Applied To",  value: myApplications.length },
+              { label: "Applied To", value: myApplications.length },
               { label: "Active Jobs", value: myJobs.filter((j) => j.status === "in_progress").length },
             ].map((stat) => (
               <div key={stat.label} className="bg-ink-900/50 rounded-xl p-3 border border-market-500/10">
@@ -177,15 +182,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             ))}
           </div>
         </div>
-        {process.env.NEXT_PUBLIC_STELLAR_NETWORK !== "mainnet" && (
-          <div className="mt-4 pt-4 border-t border-market-500/8 flex items-center gap-2 text-xs text-amber-600/70">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />
-            On <strong>Testnet</strong> — funds are not real. <a href="https://friendbot.stellar.org" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-400">Get test XLM →</a>
-          </div>
-        )}
       </div>
 
-      {/* USDC balance card */}
       {usdcBalance !== null && (
         <div className="card mb-8 bg-gradient-to-br from-ink-800 to-ink-900 border-blue-500/18 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/4 rounded-full blur-2xl pointer-events-none" />
@@ -199,7 +197,6 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         </div>
       )}
 
-      {/* Tabs */}
       <div className="flex border-b border-market-500/10 mb-6 overflow-x-auto">
         {(["posted", "applied", "send", "edit_profile"] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
@@ -207,18 +204,17 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
               "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap",
               tab === t ? "border-market-400 text-market-300" : "border-transparent text-amber-700 hover:text-amber-400"
             )}>
-            {t === "posted"      ? `Jobs Posted (${myJobs.length})` :
-             t === "applied"     ? `Applications (${myApplications.length})` :
-             t === "send"        ? "Send Payment" :
+            {t === "posted" ? `Jobs Posted (${myJobs.length})` :
+             t === "applied" ? `Applications (${myApplications.length})` :
+             t === "send" ? "Send Payment" :
              "Edit Profile"}
           </button>
         ))}
       </div>
 
-      {/* Tab content */}
       {loading ? (
         <div className="space-y-3">
-          {[1,2,3].map(i => <div key={i} className="card animate-pulse h-20" />)}
+          {[1, 2, 3].map((i) => <div key={i} className="card animate-pulse h-20" />)}
         </div>
       ) : tab === "posted" ? (
         myJobs.length === 0 ? (
@@ -230,30 +226,43 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         ) : (
           <div className="space-y-3">
             <div className="flex justify-end mb-2">
-              <button 
-                onClick={() => exportJobsToCSV(myJobs)} 
+              <button
+                onClick={() => exportJobsToCSV(myJobs)}
                 className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-2"
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                 Download CSV
               </button>
             </div>
+
             {myJobs.map((job) => (
-              <Link key={job.id} href={`/jobs/${job.id}`}>
-                <div className="card-hover flex items-center justify-between gap-4">
-                  <div className="flex-1 min-w-0">
+              <div key={job.id} className="card-hover flex items-center justify-between gap-4">
+                <Link href={`/jobs/${job.id}`} className="flex-1 min-w-0">
+                  <div>
                     <div className="flex items-center gap-2 mb-1">
                       <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
                       <span className="text-xs text-amber-800">{job.category}</span>
                     </div>
                     <p className="font-display font-semibold text-amber-100 truncate">{job.title}</p>
-                    <p className="text-xs text-amber-800 mt-1">{job.applicantCount} applicant{job.applicantCount !== 1 ? "s" : ""} · {timeAgo(job.createdAt)}</p>
+                    <p className="text-xs text-amber-800 mt-1">
+                      {job.applicantCount} applicant{job.applicantCount !== 1 ? "s" : ""} · {timeAgo(job.createdAt)}
+                    </p>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="font-mono font-semibold text-market-400">{formatXLM(job.budget)}</p>
-                  </div>
+                </Link>
+
+                <div className="text-right flex-shrink-0 flex flex-col items-end gap-2">
+                  <p className="font-mono font-semibold text-market-400">{formatXLM(job.budget)}</p>
+
+                  {job.status === "completed" && (
+                    <button
+                      type="button"
+                      onClick={() => handleHireAgain(job)}
+                      className="btn-secondary text-xs px-3 py-1.5"
+                    >
+                      Hire Again
+                    </button>
+                  )}
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         )
@@ -267,14 +276,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         ) : (
           <div className="space-y-3">
             <div className="flex justify-end mb-2">
-              <button 
-                onClick={() => exportApplicationsToCSV(myApplications)} 
+              <button
+                onClick={() => exportApplicationsToCSV(myApplications)}
                 className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-2"
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                 Download CSV
               </button>
             </div>
+
             {myApplications.map((app) => (
               <Link key={app.id} href={`/jobs/${app.jobId}`}>
                 <div className="card-hover flex items-center justify-between gap-4">
