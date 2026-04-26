@@ -1,21 +1,4 @@
-/**
- * components/PostJobForm.tsx
- * Form for clients to post a new job with XLM budget.
- * Issue #21: Integrates Soroban escrow contract into job creation flow.
- */
-import { useEffect, useState } from "react";
-import type { Transaction } from "@stellar/stellar-sdk";
-import { createJob, updateJobEscrowId, deleteJob, saveDraft, fetchDrafts } from "@/lib/api";
-import { buildCreateEscrowTransaction, submitSorobanTransaction } from "@/lib/stellar";
-import { fetchActualFee } from "@/lib/sorobanFees";
-import { signTransactionWithWallet } from "@/lib/wallet";
-import { JOB_CATEGORIES, SKILL_SUGGESTIONS, formatUSDEquivalent, getMonthlyEstimate } from "@/utils/format";
-import { useRouter } from "next/router";
-import clsx from "clsx";
-import { useToast } from "@/components/Toast";
-import { usePriceContext } from "@/contexts/PriceContext";
-import type { Currency } from "@/utils/types";
-import { usePriceContext } from "@/contexts/PriceContext";
+"use client";
 
 import { useState } from "react";
 import { getPublicKey } from "@stellar/freighter-api";
@@ -31,258 +14,37 @@ interface JobFormData {
   budgetXlm: number;
   skills: string;
   deadline: string;
-  currency: Currency;
-  timezone: string;
-};
+}
 
 type Step = "idle" | "posting" | "escrow" | "complete" | "error";
 
-const JOB_TEMPLATES_STORAGE_KEY = "stellar-marketpay-job-templates";
-const SCOPE_PREFILL_STORAGE_KEY = "marketpay_scope_prefill";
-const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
-const emptyForm: FormState = {
-  title: "",
-  description: "",
-  budget: "",
-  category: "",
-  skillInput: "",
-  deadline: "",
-  currency: "XLM",
-  timezone: "",
-};
+interface StepState {
+  current: Step;
+  txHash?: string;
+  jobId?: string;
+  errorMessage?: string;
+}
 
-export default function PostJobForm({ publicKey }: PostJobFormProps) {
-  const router = useRouter();
-  const toast = useToast();
-  const { xlmPriceUsd } = usePriceContext();
-  const [form, setForm] = useState<FormState>(emptyForm);
-  const [skills, setSkills] = useState<string[]>([]);
-  const [screeningQuestions, setScreeningQuestions] = useState<string[]>([""]);
-  const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<Step>("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
-  const [templates, setTemplates] = useState<JobTemplate[]>([]);
-  const [selectedTemplateName, setSelectedTemplateName] = useState("");
-  const [templateNameInput, setTemplateNameInput] = useState("");
-  const [templateError, setTemplateError] = useState<string | null>(null);
-  const [pendingOverwriteTemplate, setPendingOverwriteTemplate] = useState<JobTemplate | null>(null);
-  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+// ---------------------------------------------------------------------------
+// Step progress indicator
+// ---------------------------------------------------------------------------
 
-  const usdPreview = formatUSDEquivalent(form.budget, xlmPriceUsd);
-  const monthlyEst = getMonthlyEstimate(form.budget, xlmPriceUsd);
+const STEPS = [
+  { id: "posting", label: "Posting Job" },
+  { id: "escrow", label: "Locking Escrow" },
+  { id: "complete", label: "Complete" },
+] as const;
 
-  const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
-    setForm((current) => ({ ...current, [key]: val }));
+function StepIndex(step: Step): number {
+  if (step === "posting") return 0;
+  if (step === "escrow") return 1;
+  if (step === "complete") return 2;
+  return -1;
+}
 
-  useEffect(() => {
-    setTemplates(readTemplates());
-  }, []);
-
-  // Filter suggestions based on input
-  const filteredSuggestions = form.skillInput.trim().length > 0
-    ? SKILL_SUGGESTIONS.filter(
-        (s) => s.toLowerCase().includes(form.skillInput.toLowerCase()) && !skills.includes(s)
-      ).slice(0, 5)
-    : [];
-
-  const addSkill = (skill?: string) => {
-    const s = (skill || form.skillInput).trim();
-    if (s && !skills.includes(s) && skills.length < 8) {
-      setSkills([...skills, s]);
-      set("skillInput", "");
-      setShowSuggestions(false);
-      setSelectedSuggestionIndex(0);
-    }
-  };
-
-  const removeSkill = (s: string) => setSkills(skills.filter((x) => x !== s));
-
-  const buildTemplateFromCurrentForm = (name: string): JobTemplate => ({
-    name: name.trim(),
-    title: form.title,
-    description: form.description,
-    budget: form.budget,
-    category: form.category,
-    skills,
-    deadline: form.deadline,
-  });
-
-  const applyTemplate = (template: JobTemplate) => {
-    setForm((current) => ({
-      ...current,
-      title: template.title,
-      description: template.description,
-      budget: template.budget,
-      category: template.category,
-      deadline: template.deadline,
-      skillInput: "",
-    }));
-    setSkills(template.skills);
-    setSelectedTemplateName(template.name);
-  };
-
-  const persistTemplates = (nextTemplates: JobTemplate[]) => {
-    setTemplates(nextTemplates);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(JOB_TEMPLATES_STORAGE_KEY, JSON.stringify(nextTemplates));
-    }
-  };
-
-  const handleLoadTemplate = (name: string) => {
-    setSelectedTemplateName(name);
-    if (!name) return;
-
-    const selectedTemplate = templates.find((template) => template.name === name);
-    if (selectedTemplate) {
-      applyTemplate(selectedTemplate);
-      setTemplateNameInput(selectedTemplate.name);
-      setTemplateError(null);
-      setPendingOverwriteTemplate(null);
-    }
-  };
-
-  const handleSaveTemplate = () => {
-    const normalizedName = templateNameInput.trim();
-    if (!normalizedName) {
-      setTemplateError("Template name is required.");
-      return;
-    }
-
-    const template = buildTemplateFromCurrentForm(normalizedName);
-    const existingTemplate = templates.find((item) => item.name === normalizedName);
-
-    if (existingTemplate) {
-      setPendingOverwriteTemplate(template);
-      setTemplateError(null);
-      return;
-    }
-
-    persistTemplates([...templates, template]);
-    setSelectedTemplateName(template.name);
-    setPendingOverwriteTemplate(null);
-    setTemplateError(null);
-    toast.success(`Saved template: ${template.name}`);
-  };
-
-  const handleConfirmOverwrite = () => {
-    if (!pendingOverwriteTemplate) return;
-
-    const nextTemplates = templates.map((template) =>
-      template.name === pendingOverwriteTemplate.name ? pendingOverwriteTemplate : template
-    );
-    persistTemplates(nextTemplates);
-    setSelectedTemplateName(pendingOverwriteTemplate.name);
-    setPendingOverwriteTemplate(null);
-    setTemplateError(null);
-    toast.success(`Updated template: ${templateNameInput.trim()}`);
-  };
-
-  const handleCancelOverwrite = () => {
-    setPendingOverwriteTemplate(null);
-  };
-
-  const handleDeleteTemplate = () => {
-    if (!selectedTemplateName) return;
-    setShowDeleteConfirmation(true);
-  };
-
-  const handleConfirmDelete = () => {
-    if (!selectedTemplateName) return;
-
-    const nextTemplates = templates.filter((template) => template.name !== selectedTemplateName);
-    persistTemplates(nextTemplates);
-    setSelectedTemplateName("");
-    setTemplateNameInput("");
-    setShowDeleteConfirmation(false);
-    toast.success("Template deleted.");
-  };
-
-  const handleCancelDelete = () => {
-    setShowDeleteConfirmation(false);
-  };
-
-  const addScreeningQuestion = () => {
-    if (screeningQuestions.length < 5) {
-      setScreeningQuestions([...screeningQuestions, ""]);
-    }
-  };
-
-  const removeScreeningQuestion = (index: number) => {
-    setScreeningQuestions(screeningQuestions.filter((_, i) => i !== index));
-  };
-
-  const updateScreeningQuestion = (index: number, value: string) => {
-    const updated = [...screeningQuestions];
-    updated[index] = value;
-    setScreeningQuestions(updated);
-  };
-
-  function getStepStatus(currentStep: Step, targetStep: Step): "idle" | "active" | "done" {
-    if (currentStep === targetStep) return "active";
-    if (targetStep === "done" && currentStep === "done") return "done";
-    if (targetStep === "locking" && (currentStep === "done" || currentStep === "error")) return "done";
-    if (targetStep === "posting" && (currentStep === "locking" || currentStep === "done" || currentStep === "error")) return "done";
-    return "idle";
-  }
-
-  function getStepTextColor(currentStep: Step, targetStep: Step): string {
-    if (currentStep === targetStep) return "text-amber-100";
-    if (targetStep === "done" && currentStep === "done") return "text-green-400";
-    if (targetStep === "locking" && (currentStep === "done" || currentStep === "error")) return "text-green-400";
-    if (targetStep === "posting" && (currentStep === "locking" || currentStep === "done" || currentStep === "error")) return "text-green-400";
-    return "text-amber-800/50";
-  }
-
-  const isValid =
-    form.title.trim().length >= 10 &&
-    form.description.trim().length >= 30 &&
-    parseFloat(form.budget) > 0 &&
-    form.category !== "";
-
-  const handleSubmit = async () => {
-    if (!isValid) return;
-    setLoading(true);
-    setError(null);
-    setStep("posting");
-
-    try {
-      const job = await createJob({
-        title: form.title.trim(),
-        description: form.description.trim(),
-        budget: parseFloat(form.budget).toFixed(7),
-        currency: form.currency,
-        category: form.category,
-        skills,
-        deadline: form.deadline || undefined,
-        timezone: form.timezone || undefined,
-        visibility: form.visibility,
-        clientAddress: publicKey,
-        screeningQuestions: screeningQuestions.filter(q => q.trim().length > 0),
-      });
-
-      setStep("locking");
-
-      const unsignedTx = await buildCreateEscrowTransaction({
-        clientPublicKey: publicKey,
-        jobId: job.id,
-        freelancerAddress: publicKey,
-        budget: parseFloat(form.budget).toFixed(7),
-        currency: form.currency,
-      });
-
-      // Pause here so the user can review the on-chain fee (Issue #222)
-      // before Freighter prompts them to sign.
-      setPendingEscrow({ transaction: unsignedTx, jobId: job.id });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      setError(msg);
-      setStep("error");
-      toast.error(`Failed: ${msg}`);
-      setLoading(false);
-    }
-  };
+function ProgressBar({ step }: { step: Step }) {
+  const active = StepIndex(step);
+  const isError = step === "error";
 
   const handleConfirmEscrowFee = async () => {
     if (!pendingEscrow) return;
@@ -468,6 +230,16 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
           );
         })}
       </div>
+
+      {pendingEscrow && (
+        <FeeEstimationModal
+          transaction={pendingEscrow.transaction}
+          functionName="create_escrow"
+          payerPublicKey={publicKey}
+          onConfirm={handleConfirmEscrowFee}
+          onCancel={handleCancelEscrowFee}
+        />
+      )}
     </div>
   );
 }
@@ -745,19 +517,6 @@ export default function PostJobForm() {
           <p className="mt-1 text-xs text-gray-400">
             This exact amount will be deducted from your wallet and held in escrow.
           </p>
-        </div>
-
-        <div>
-          <label className="label">Visibility</label>
-          <select
-            value={form.visibility}
-            onChange={(e) => set("visibility", e.target.value as "public" | "private" | "invite_only")}
-            className="input-field appearance-none cursor-pointer"
-          >
-            <option value="public">Public</option>
-            <option value="private">Private (only you)</option>
-            <option value="invite_only">Invite Only</option>
-          </select>
         </div>
 
         {/* Skills */}
