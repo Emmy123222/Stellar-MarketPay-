@@ -11,10 +11,10 @@ const generalJobRateLimiter = createRateLimiter(30, 1); // 100 requests per minu
 
 
 const jobService = require("../services/jobService");
-const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount } = jobService.default || jobService;
+const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount, getRecommendedJobs } = jobService.default || jobService;
 const { verifyJWT } = require("../middleware/auth");
 
-// ─── Feed Helpers ─────────────────────────────────────────────────────────────
+// Feed Helpers
 
 function escapeXml(str) {
   if (str === null || str === undefined) return "";
@@ -54,6 +54,14 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
 router.get("/client/:publicKey", generalJobRateLimiter, (req, res, next) => {
   try { res.json({ success: true, data: listJobsByClient(req.params.publicKey) }); }
   catch (e) { next(e); }
+});
+
+// GET /api/jobs/recommended/:publicKey — top 5 skill-matched open jobs for a freelancer
+router.get("/recommended/:publicKey", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const jobs = await getRecommendedJobs(req.params.publicKey);
+    res.json({ success: true, data: jobs });
+  } catch (e) { next(e); }
 });
 
 // GET /api/jobs/:id — get single job
