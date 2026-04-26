@@ -14,20 +14,10 @@ const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per min
 const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per minute
 
 const jobService = require("../services/jobService");
-const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount } = jobService.default || jobService;
-const { inviteFreelancerToJob } = require("../services/jobInvitationService");
-const { logContractInteraction } = require("../services/contractAuditService");
-const jobDraftService = require("../services/jobDraftService");
-const recommendationService = require("../services/recommendationService");
-
-const jobReports = new Map(); // In-memory report storage for now
+const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount, getRecommendedJobs } = jobService.default || jobService;
+const { verifyJWT } = require("../middleware/auth");
 
 // Feed Helpers
-
-// Rate limiters
-const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per minute
-const jobCreationRateLimiter = createRateLimiter(10, 15); // 10 requests per 15 minutes
-const reportJobRateLimiter = createRateLimiter(5, 15); // 5 reports per 15 minutes
 
 function escapeXml(str) {
   if (str === null || str === undefined) return "";

@@ -560,29 +560,38 @@ async function incrementShareCount(jobId) {
   return rowToJob(rows[0]);
 }
 
-/**
- * Track a referral click for a job.
- */
-async function trackReferral(jobId, referrerAddress, ipAddress) {
-  validatePublicKey(referrerAddress);
-  
-  // Optional: Check if job exists
-  await getJob(jobId);
+async function getRecommendedJobs(publicKey) {
+  validatePublicKey(publicKey);
 
-  await pool.query(
-    "INSERT INTO referrals (job_id, referrer_address, ip_address) VALUES ($1, $2, $3)",
-    [jobId, referrerAddress, ipAddress || null]
+  const { rows: profileRows } = await query(
+    "SELECT skills FROM profiles WHERE public_key = $1",
+    [publicKey]
   );
-  
-  // Increment referral count on profile
-  await pool.query(
-    "UPDATE profiles SET referral_count = referral_count + 1 WHERE public_key = $1",
-    [referrerAddress]
+
+  const freelancerSkills = (profileRows[0]?.skills || []).map(s => s.toLowerCase());
+
+  const { rows: jobRows } = await query(
+    "SELECT * FROM jobs WHERE status = 'open' ORDER BY created_at DESC",
+    []
   );
+
+  if (freelancerSkills.length === 0) {
+    return jobRows.slice(0, 5).map(row => ({ ...rowToJob(row), matchScore: 0 }));
+  }
+
+  const scored = jobRows.map(row => {
+    const job = rowToJob(row);
+    const required = (job.skills || []).map(s => s.toLowerCase());
+    if (required.length === 0) return { ...job, matchScore: 0 };
+    const matches = required.filter(s => freelancerSkills.includes(s)).length;
+    return { ...job, matchScore: Math.round((matches / required.length) * 100) };
+  });
+
+  scored.sort((a, b) => b.matchScore - a.matchScore);
+  return scored.slice(0, 5);
 }
 
-
-module.exports = {
+export default {
   createJob,
   getJob,
   listJobs,
@@ -593,5 +602,5 @@ module.exports = {
   deleteJob,
   boostJob,
   incrementShareCount,
-  trackReferral,
+  getRecommendedJobs,
 };
