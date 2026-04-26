@@ -148,8 +148,12 @@ function rowToJob(row) {
     deadline: row.deadline,
     timezone: row.timezone,
     screeningQuestions: row.screening_questions || [],
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    disputeReason:      row.dispute_reason,
+    disputeDescription: row.dispute_description,
+    disputedBy:         row.disputed_by,
+    disputedAt:         row.disputed_at,
+    createdAt:         row.created_at,
+    updatedAt:         row.updated_at,
   };
 }
 
@@ -560,35 +564,46 @@ async function incrementShareCount(jobId) {
   return rowToJob(rows[0]);
 }
 
-async function getRecommendedJobs(publicKey) {
-  validatePublicKey(publicKey);
-
-  const { rows: profileRows } = await query(
-    "SELECT skills FROM profiles WHERE public_key = $1",
-    [publicKey]
+async function raiseDispute(jobId, { reason, description, raisedBy }) {
+  const { rows } = await query(
+    `UPDATE jobs 
+     SET status = 'disputed', 
+         dispute_reason = $1, 
+         dispute_description = $2, 
+         disputed_by = $3, 
+         disputed_at = NOW(), 
+         updated_at = NOW() 
+     WHERE id = $4 AND status = 'in_progress'
+     RETURNING *`,
+    [reason, description, raisedBy, jobId]
   );
 
-  const freelancerSkills = (profileRows[0]?.skills || []).map(s => s.toLowerCase());
-
-  const { rows: jobRows } = await query(
-    "SELECT * FROM jobs WHERE status = 'open' ORDER BY created_at DESC",
-    []
-  );
-
-  if (freelancerSkills.length === 0) {
-    return jobRows.slice(0, 5).map(row => ({ ...rowToJob(row), matchScore: 0 }));
+  if (!rows.length) {
+    const e = new Error("Job not found or not in progress"); e.status = 404; throw e;
   }
 
-  const scored = jobRows.map(row => {
-    const job = rowToJob(row);
-    const required = (job.skills || []).map(s => s.toLowerCase());
-    if (required.length === 0) return { ...job, matchScore: 0 };
-    const matches = required.filter(s => freelancerSkills.includes(s)).length;
-    return { ...job, matchScore: Math.round((matches / required.length) * 100) };
-  });
+  return rowToJob(rows[0]);
+}
 
-  scored.sort((a, b) => b.matchScore - a.matchScore);
-  return scored.slice(0, 5);
+async function resolveDispute(jobId) {
+  const { rows } = await query(
+    `UPDATE jobs 
+     SET status = 'in_progress', 
+         dispute_reason = NULL, 
+         dispute_description = NULL, 
+         disputed_by = NULL, 
+         disputed_at = NULL, 
+         updated_at = NOW() 
+     WHERE id = $1 AND status = 'disputed'
+     RETURNING *`,
+    [jobId]
+  );
+
+  if (!rows.length) {
+    const e = new Error("Job not found or not disputed"); e.status = 404; throw e;
+  }
+
+  return rowToJob(rows[0]);
 }
 
 export default {
@@ -602,5 +617,6 @@ export default {
   deleteJob,
   boostJob,
   incrementShareCount,
-  getRecommendedJobs,
+  raiseDispute,
+  resolveDispute,
 };

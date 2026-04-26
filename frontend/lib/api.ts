@@ -411,13 +411,26 @@ export async function deleteJob(jobId: string) {
   await api.delete(`/api/jobs/${jobId}`);
 }
 
-export async function fetchJobAnalytics(jobId: string): Promise<import("@/utils/types").JobAnalytics> {
-  const { data } = await api.get<{ success: boolean; data: import("@/utils/types").JobAnalytics }>(`/api/jobs/${jobId}/analytics`);
+/**
+ * Raises a dispute for an in-progress job.
+ *
+ * @param jobId Job identifier.
+ * @param payload Dispute details (reason and description).
+ * @returns The updated job record.
+ */
+export async function raiseDispute(jobId: string, payload: { reason: string; description: string }) {
+  const { data } = await api.post<{ success: boolean; data: Job }>(`/api/jobs/${jobId}/dispute`, payload);
   return data.data;
 }
 
-export async function extendJobExpiry(jobId: string): Promise<Job> {
-  const { data } = await api.patch<{ success: boolean; data: Job }>(`/api/jobs/${jobId}/extend`);
+/**
+ * Resolves a dispute for a job (Admin only).
+ *
+ * @param jobId Job identifier.
+ * @returns The updated job record.
+ */
+export async function resolveDispute(jobId: string) {
+  const { data } = await api.post<{ success: boolean; data: Job }>(`/api/jobs/${jobId}/resolve`);
   return data.data;
 }
 

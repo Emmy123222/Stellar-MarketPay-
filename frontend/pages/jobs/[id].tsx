@@ -5,17 +5,8 @@ import { useRouter } from "next/router";
 import ApplicationForm from "@/components/ApplicationForm";
 import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
-import {
-  fetchJob,
-  fetchApplications,
-  acceptApplication,
-  releaseEscrow,
-  scoreProposals,
-  fetchProfile,
-  inviteFreelancer,
-  timeoutRefund,
-} from "@/lib/api";
-import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass, copyToClipboard } from "@/utils/format";
+import { fetchJob, fetchApplications, acceptApplication, releaseEscrow, raiseDispute, resolveDispute } from "@/lib/api";
+import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
 import {
   accountUrl,
   buildReleaseEscrowTransaction,
@@ -73,7 +64,12 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [selectedApplications, setSelectedApplications] = useState<Set<string>>(new Set());
   const [showComparison, setShowComparison] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [prefillData, setPrefillData] = useState<{ bidAmount?: string; message?: string } | null>(null);
+  const [prefillData, setPrefillData] = useState<any>(null);
+  const [showDisputeModal, setShowDisputeModal] = useState(false);
+  const [disputeReason, setDisputeReason] = useState("");
+  const [disputeDescription, setDisputeDescription] = useState("");
+  const [raisingDispute, setRaisingDispute] = useState(false);
+  const [resolvingDispute, setResolvingDispute] = useState(false);
 
   const [releaseCurrency, setReleaseCurrency] = useState<"XLM" | "USDC">("XLM");
   const [estimatedOutput, setEstimatedOutput] = useState<string | null>(null);
@@ -381,137 +377,26 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     }
   };
 
-  const handleConfirmReleaseFee = async () => {
-    if (!pendingRelease) return;
-    const { transaction } = pendingRelease;
-    setPendingRelease(null);
-
-    const { signedXDR, error: signError } = await signTransactionWithWallet(transaction.toXDR());
-    if (signError || !signedXDR) {
-      setActionError(signError || "Signing was cancelled.");
-      setReleasingEscrow(false);
-      return;
-    }
-    await completeReleaseEscrow(signedXDR);
-  };
-
-  const handleCancelReleaseFee = () => {
-    setPendingRelease(null);
-    setReleasingEscrow(false);
-    setActionError("Cancelled before signing.");
-  };
-
-  const handleSubmitReport = async () => {
-    if (!job) return;
-
-    if (!publicKey) {
-      setReportError("Please connect your wallet before reporting this job.");
+  const handleRaiseDispute = async () => {
+    if (!publicKey || !job) return;
+    if (!disputeReason || !disputeDescription) {
+      setActionError("Please provide both a reason and a description.");
       return;
     }
 
-    if (!reportCategory) {
-      setReportError("Please select a report category.");
-      return;
-    }
-
-    setReportLoading(true);
-    setReportError(null);
-
-    try {
-      const response = await fetch(`/api/jobs/${job.id}/report`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          reporterAddress: publicKey,
-          category: reportCategory,
-          description: reportDescription,
-        }),
-      });
-
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(data?.error || "Failed to submit report.");
-      }
-
-      setReportSuccess(true);
-      setReportCategory("");
-      setReportDescription("");
-    } catch (error: unknown) {
-      setReportError(
-        error instanceof Error ? error.message : "Failed to submit report."
-      );
-    } finally {
-      setReportLoading(false);
-    }
-  };
-
-  // Issue #175 — Timeout refund handlers
-  const handleTimeoutRefund = async () => {
-    if (!publicKey || !job || !id) return;
-    if (!job.escrowContractId) {
-      setActionError("This job has no escrow contract ID.");
-      return;
-    }
-
-    setTimeoutRefundLoading(true);
+    setRaisingDispute(true);
     setActionError(null);
 
     try {
-      const prepared = await buildTimeoutRefundTransaction(
-        job.escrowContractId,
-        job.id,
-        publicKey
-      );
-      setPendingTimeoutRefund(prepared);
-    } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : "Could not prepare timeout refund.");
-      setTimeoutRefundLoading(false);
-    }
-  };
-
-  const completeTimeoutRefund = async (signedXDR: string) => {
-    if (!publicKey || !job || !id) return;
-    try {
-      const { hash } = await submitSignedSorobanTransaction(signedXDR);
-
-      try {
-        await timeoutRefund(job.id, publicKey, hash);
-        const refreshedJob = await fetchJob(id as string);
-        setJob(refreshedJob);
-        setTimeoutRefundSuccess(true);
-      } catch {
-        setActionError("Refund was processed on-chain, but the app could not update your job status.");
-        setTimeoutRefundSuccess(true);
-      }
-    } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : "Could not complete the timeout refund.");
+      await raiseDispute(job.id, { reason: disputeReason, description: disputeDescription });
+      const refreshedJob = await fetchJob(job.id);
+      setJob(refreshedJob);
+      setShowDisputeModal(false);
+    } catch (e: any) {
+      setActionError(e.response?.data?.error || "Failed to raise dispute.");
     } finally {
-      setTimeoutRefundLoading(false);
-      setPendingTimeoutRefund(null);
+      setRaisingDispute(false);
     }
-  };
-
-  const handleConfirmTimeoutRefundFee = async () => {
-    if (!pendingTimeoutRefund) return;
-    const transaction = pendingTimeoutRefund;
-    setPendingTimeoutRefund(null);
-
-    const { signedXDR, error: signError } = await signTransactionWithWallet(transaction.toXDR());
-    if (signError || !signedXDR) {
-      setActionError(signError || "Signing was cancelled.");
-      setTimeoutRefundLoading(false);
-      return;
-    }
-    await completeTimeoutRefund(signedXDR);
-  };
-
-  const handleCancelTimeoutRefundFee = () => {
-    setPendingTimeoutRefund(null);
-    setTimeoutRefundLoading(false);
-    setActionError("Cancelled before signing.");
   };
 
   if (loading) {
@@ -554,13 +439,87 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             Back to Jobs
           </Link>
 
-          <section className="card mb-6">
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex-1">
-                <div className="flex flex-wrap items-center gap-2 mb-3">
-                  <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
-                  <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">
-                    {job.category}
+        {/* Back */}
+        <Link href="/jobs" className="inline-flex items-center gap-1.5 text-sm text-amber-800 hover:text-amber-400 transition-colors mb-6">
+          ← Back to Jobs
+        </Link>
+
+        {/* Dispute Banner */}
+        {job.status === "disputed" && (
+          <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-4 mb-6 flex items-start gap-4">
+            <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center flex-shrink-0 text-indigo-400">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-bold text-indigo-100 uppercase tracking-wider mb-1">Under Dispute</h3>
+              <p className="text-xs text-indigo-400/80 leading-relaxed">
+                This job has been flagged for admin review. Escrow release is currently blocked.
+                <br />
+                <span className="font-semibold mt-1 inline-block">Reason: {job.disputeReason}</span>
+              </p>
+              {publicKey === process.env.NEXT_PUBLIC_ADMIN_ADDRESS && (
+                <button 
+                  onClick={async () => {
+                    setResolvingDispute(true);
+                    try {
+                      await resolveDispute(job.id);
+                      setJob(await fetchJob(job.id));
+                    } catch (e) {
+                      setActionError("Failed to resolve dispute");
+                    } finally {
+                      setResolvingDispute(false);
+                    }
+                  }}
+                  disabled={resolvingDispute}
+                  className="mt-3 btn-secondary py-1.5 px-3 text-xs flex items-center gap-2"
+                >
+                  {resolvingDispute ? <Spinner /> : "Resolve Dispute (Admin)"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Job header */}
+        <div className="card mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-5">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
+                <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">{job.category}</span>
+                {job.boosted && new Date(job.boostedUntil || '') > new Date() && (
+                  <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">Featured</span>
+                )}
+              </div>
+              <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug">{job.title}</h1>
+            </div>
+            <div className="flex-shrink-0 text-right">
+              <p className="text-xs text-amber-800 mb-1">Budget</p>
+              <p className="font-mono font-bold text-2xl text-market-400">{formatXLM(job.budget)} {job.currency}</p>
+          {job.deadline && <span>Deadline: {formatDate(job.deadline)}</span>}
+          <a href={accountUrl(job.clientAddress)} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1 hover:text-market-400 transition-colors">
+            Client: {shortenAddress(job.clientAddress)} ↗
+          </a>
+        </div>
+
+        {/* Description */}
+        <div className="prose prose-sm max-w-none">
+          <h3 className="font-display text-base font-semibold text-amber-300 mb-3">Description</h3>
+          <p className="text-amber-700/90 leading-relaxed whitespace-pre-wrap font-body text-sm">{job.description}</p>
+        </div>
+
+        <div className="card mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-5">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
+                <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">
+                  {job.category}
+                </span>
+                {job.boosted && new Date(job.boostedUntil || "") > new Date() && (
+                  <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                    Featured
                   </span>
                   {job.boosted && new Date(job.boostedUntil || "") > new Date() && (
                     <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
@@ -886,7 +845,62 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           </div>
         )}
 
-        {actionError && <p className="mb-6 text-red-400 text-sm">{actionError}</p>}
+      {/* Management section (job in progress) */}
+      {(job.status === "in_progress" || job.status === "disputed") && (isClient || isFreelancer) && (
+        <div className="mt-6 card border-market-500/20 bg-market-500/5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="font-display text-lg font-bold text-amber-100 mb-1">Job Management</h3>
+              <p className="text-sm text-amber-800">
+                {job.status === "disputed" 
+                  ? "This job is currently under dispute. Admin review is required." 
+                  : "Manage the project and escrow payments."}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {isClient && job.status === "in_progress" && (
+                <button
+                  onClick={handleReleaseEscrow}
+                  disabled={releasingEscrow}
+                  className="btn-primary py-2 px-5 text-sm flex items-center gap-2"
+                >
+                  {releasingEscrow ? <Spinner /> : "Release Escrow"}
+                </button>
+              )}
+              {job.status === "in_progress" && (
+                <button
+                  onClick={() => setShowDisputeModal(true)}
+                  className="btn-secondary py-2 px-5 text-sm"
+                >
+                  Raise Dispute
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rating section (job completed) */}
+      {job.status === "completed" && publicKey && !ratingSubmitted && (
+        <div className="mt-6">
+          {isClient && job.freelancerAddress && (
+            <RatingForm
+              jobId={job.id}
+              ratedAddress={job.freelancerAddress}
+              ratedLabel="the freelancer"
+              onSuccess={() => setRatingSubmitted(true)}
+            />
+          )}
+          {isFreelancer && (
+            <RatingForm
+              jobId={job.id}
+              ratedAddress={job.clientAddress}
+              ratedLabel="the client"
+              onSuccess={() => setRatingSubmitted(true)}
+            />
+          )}
+        </div>
+      )}
 
         {job.status === "completed" && publicKey && !ratingSubmitted && (
           <div className="mt-6">
@@ -1049,6 +1063,63 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           onConfirm={handleConfirmTimeoutRefundFee}
           onCancel={handleCancelTimeoutRefundFee}
         />
+      )}
+
+      {/* Dispute Modal */}
+      {showDisputeModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6">
+          <div className="absolute inset-0 bg-ink-950/80 backdrop-blur-sm" onClick={() => setShowDisputeModal(false)} />
+          <div className="relative w-full max-w-md bg-ink-900 border border-market-500/20 rounded-2xl p-6 shadow-2xl animate-scale-in">
+            <h3 className="font-display text-xl font-bold text-amber-100 mb-2">Raise a Dispute</h3>
+            <p className="text-sm text-amber-800 mb-6">Flag this job for admin review. This will block escrow release until resolved.</p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="label">Reason</label>
+                <select 
+                  value={disputeReason} 
+                  onChange={(e) => setDisputeReason(e.target.value)}
+                  className="input-field"
+                >
+                  <option value="">Select a reason</option>
+                  <option value="Quality of work">Quality of work</option>
+                  <option value="Non-delivery">Non-delivery</option>
+                  <option value="Communication issues">Communication issues</option>
+                  <option value="Unfair terms">Unfair terms</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Description</label>
+                <textarea 
+                  value={disputeDescription}
+                  onChange={(e) => setDisputeDescription(e.target.value)}
+                  placeholder="Explain the issue in detail..."
+                  rows={4}
+                  className="textarea-field"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-8">
+              <button 
+                onClick={() => setShowDisputeModal(false)} 
+                className="flex-1 btn-secondary py-2.5"
+                disabled={raisingDispute}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleRaiseDispute} 
+                className="flex-1 btn-primary py-2.5 flex items-center justify-center gap-2"
+                disabled={raisingDispute || !disputeReason || !disputeDescription}
+              >
+                {raisingDispute ? <Spinner /> : "Raise Dispute"}
+              </button>
+            </div>
+            {actionError && <p className="mt-3 text-red-400 text-sm text-center">{actionError}</p>}
+          </div>
+        </div>
       )}
     </>
   );
