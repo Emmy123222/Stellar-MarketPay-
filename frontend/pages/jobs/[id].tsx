@@ -11,7 +11,7 @@ import FreelancerTierBadge from "@/components/FreelancerTierBadge";
 import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
-import { fetchJob, fetchApplications, acceptApplication, releaseEscrow } from "@/lib/api";
+import { fetchJob, fetchApplications, acceptApplication, releaseEscrow, scoreProposals } from "@/lib/api";
 import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
 import {
   accountUrl,
@@ -58,6 +58,8 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [prefillData, setPrefillData] = useState<any>(null);
+  const [aiScores, setAiScores] = useState<Record<string, { score: number; reasoning: string }>>({});
+  const [scoringProposals, setScoringProposals] = useState(false);
 
   const [releaseCurrency, setReleaseCurrency] = useState<"XLM" | "USDC">("XLM");
   const [estimatedOutput, setEstimatedOutput] = useState<string | null>(null);
@@ -186,6 +188,23 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   };
 
   const selectedApps = applications.filter((app) => selectedApplications.has(app.id));
+
+  const handleScoreProposals = async () => {
+    if (!id) return;
+    setScoringProposals(true);
+    try {
+      const scores = await scoreProposals(id as string);
+      const scoreMap = scores.reduce((accumulator, current) => {
+        accumulator[current.id] = { score: current.score, reasoning: current.reasoning };
+        return accumulator;
+      }, {} as Record<string, { score: number; reasoning: string }>);
+      setAiScores(scoreMap);
+    } catch (error) {
+      console.error("Scoring error:", error);
+    } finally {
+      setScoringProposals(false);
+    }
+  };
 
   const handleReleaseEscrow = async () => {
     if (!publicKey || !job) return;
@@ -390,9 +409,40 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             <h2 className="font-display text-xl font-bold text-amber-100">
               Applications ({applications.length})
             </h2>
-            <div className="hidden sm:flex items-center gap-3 text-[10px] text-amber-800 font-medium uppercase tracking-wider">
-              <span className="flex items-center gap-1"><kbd className="bg-ink-900 px-1.5 py-0.5 rounded border border-market-500/20 text-market-400">↑↓</kbd> Navigate</span>
-              <span className="flex items-center gap-1"><kbd className="bg-ink-900 px-1.5 py-0.5 rounded border border-market-500/20 text-market-400">Enter</kbd> Accept</span>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleScoreProposals}
+                disabled={scoringProposals || applications.length === 0}
+                className="btn-secondary text-[10px] py-1 px-3 flex items-center gap-1.5"
+              >
+                {scoringProposals ? (
+                  <Spinner />
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                    />
+                  </svg>
+                )}
+                Score proposals (AI)
+              </button>
+              <div className="hidden sm:flex items-center gap-3 text-[10px] text-amber-800 font-medium uppercase tracking-wider">
+                <span className="flex items-center gap-1">
+                  <kbd className="bg-ink-900 px-1.5 py-0.5 rounded border border-market-500/20 text-market-400">
+                    ↑↓
+                  </kbd>{" "}
+                  Navigate
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="bg-ink-900 px-1.5 py-0.5 rounded border border-market-500/20 text-market-400">
+                    Enter
+                  </kbd>{" "}
+                  Accept
+                </span>
+              </div>
             </div>
           </div>
           <div className="space-y-4">
@@ -440,6 +490,19 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                     )}>{app.status}</span>
                   </div>
                 </div>
+
+                {aiScores[app.id] && (
+                  <div className="mb-4 p-3 rounded bg-market-500/5 border border-market-500/15 animate-fade-in">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-market-400 bg-market-500/10 px-1.5 py-0.5 rounded">AI Score</span>
+                      <span className="text-lg font-display font-bold text-amber-100">{aiScores[app.id].score}/10</span>
+                    </div>
+                    <p className="text-xs text-amber-700/90 leading-relaxed italic">
+                      &quot;{aiScores[app.id].reasoning}&quot;
+                    </p>
+                  </div>
+                )}
+
                 <p className="text-amber-700/80 text-sm leading-relaxed mb-4">{app.proposal}</p>
                 
                 {/* Screening Answers */}

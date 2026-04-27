@@ -112,6 +112,27 @@ router.delete("/:id", verifyJWT, generalJobRateLimiter, async (req, res, next) =
   } catch (e) { next(e); }
 });
 
+// POST /api/jobs/:id/score-proposals — score all applications using AI
+router.post("/:id/score-proposals", verifyJWT, async (req, res, next) => {
+  try {
+    const { scoreProposals } = require("../services/aiService");
+    const { getApplicationsForJob } = require("../services/applicationService");
+    
+    const job = await getJob(req.params.id);
+    if (!job) return res.status(404).json({ success: false, error: "Job not found" });
+
+    // Verify ownership
+    if (job.clientAddress !== req.user.publicKey) {
+      return res.status(403).json({ success: false, error: "Only the job client can score proposals" });
+    }
+
+    const applications = await getApplicationsForJob(req.params.id);
+    const scores = await scoreProposals(job, applications);
+
+    res.json({ success: true, data: scores });
+  } catch (e) { next(e); }
+});
+
 // GET /api/jobs/feed.rss — RSS 2.0 feed
 router.get("/feed.rss", generalJobRateLimiter, async (req, res, next) => {
   try {
