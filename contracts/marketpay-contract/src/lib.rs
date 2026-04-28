@@ -107,6 +107,33 @@ pub struct Certificate {
     pub created_at: u32,
 }
 
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct Rating {
+    pub job_id: String,
+    pub rater: Address,
+    pub rated: Address,
+    pub score_out_of_5: u32,
+    pub submitted_at_ledger: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct FreelancerRatingStats {
+    pub total_score: u32,
+    pub count: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ArbitrationCase {
+    pub job_id: String,
+    pub arbitrators: Vec<Address>,
+    pub votes: Vec<u32>,
+    pub resolution: u32,
+    pub status: u32,
+}
+
 /// Storage key per job
 #[contracttype]
 pub enum DataKey {
@@ -121,6 +148,13 @@ pub enum DataKey {
     DeliverableSubmission(String),
     Certificate(String),
     FreelancerCertificates(Address),
+    ClientRating(String),
+    FreelancerRating(String),
+    FreelancerRatingStats(Address),
+    Arbitrator(Address),
+    ArbitratorPool,
+    ArbitrationCase(u32),
+    ArbitrationCaseCount,
 }
 
 /// A governance proposal
@@ -801,6 +835,166 @@ impl MarketPayContract {
         env.storage().instance()
             .get(&DataKey::FreelancerCertificates(freelancer))
             .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    pub fn submit_client_rating(env: Env, job_id: String, client: Address, score: u32) {
+        client.require_auth();
+        if score < 1 || score > 5 {
+            panic!("Score must be between 1 and 5");
+        }
+
+        let escrow: Escrow = env.storage().instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+        if escrow.status != EscrowStatus::Released {
+            panic!("Ratings are allowed only after escrow release");
+        }
+        if escrow.client != client {
+            panic!("Only job client can submit client rating");
+        }
+        if env.storage().instance().has(&DataKey::ClientRating(job_id.clone())) {
+            panic!("Client rating already submitted for this job");
+        }
+
+        let rating = Rating {
+            job_id: job_id.clone(),
+            rater: client.clone(),
+            rated: escrow.freelancer.clone(),
+            score_out_of_5: score,
+            submitted_at_ledger: env.ledger().sequence(),
+        };
+        env.storage().instance().set(&DataKey::ClientRating(job_id.clone()), &rating);
+
+        let mut stats: FreelancerRatingStats = env.storage().instance()
+            .get(&DataKey::FreelancerRatingStats(escrow.freelancer.clone()))
+            .unwrap_or(FreelancerRatingStats { total_score: 0, count: 0 });
+        stats.total_score = stats.total_score.checked_add(score).expect("Arithmetic overflow");
+        stats.count = stats.count.checked_add(1).expect("Arithmetic overflow");
+        env.storage().instance().set(&DataKey::FreelancerRatingStats(escrow.freelancer), &stats);
+    }
+
+    pub fn submit_freelancer_rating(env: Env, job_id: String, freelancer: Address, score: u32) {
+        freelancer.require_auth();
+        if score < 1 || score > 5 {
+            panic!("Score must be between 1 and 5");
+        }
+
+        let escrow: Escrow = env.storage().instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+        if escrow.status != EscrowStatus::Released {
+            panic!("Ratings are allowed only after escrow release");
+        }
+        if escrow.freelancer != freelancer {
+            panic!("Only job freelancer can submit freelancer rating");
+        }
+        if env.storage().instance().has(&DataKey::FreelancerRating(job_id.clone())) {
+            panic!("Freelancer rating already submitted for this job");
+        }
+
+        let rating = Rating {
+            job_id: job_id.clone(),
+            rater: freelancer,
+            rated: escrow.client,
+            score_out_of_5: score,
+            submitted_at_ledger: env.ledger().sequence(),
+        };
+        env.storage().instance().set(&DataKey::FreelancerRating(job_id), &rating);
+    }
+
+    pub fn get_freelancer_rating_avg(env: Env, freelancer: Address) -> u32 {
+        let stats: FreelancerRatingStats = env.storage().instance()
+            .get(&DataKey::FreelancerRatingStats(freelancer))
+            .unwrap_or(FreelancerRatingStats { total_score: 0, count: 0 });
+        if stats.count == 0 {
+            return 0;
+        }
+        stats.total_score / stats.count
+    }
+
+    pub fn register_arbitrator(env: Env, admin: Address, arbitrator: Address) {
+        admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can register arbitrators");
+        }
+        env.storage().instance().set(&DataKey::Arbitrator(arbitrator.clone()), &true);
+        let mut pool: Vec<Address> = env.storage().instance().get(&DataKey::ArbitratorPool).unwrap_or_else(|| Vec::new(&env));
+        pool.push_back(arbitrator);
+        env.storage().instance().set(&DataKey::ArbitratorPool, &pool);
+    }
+
+    pub fn open_arbitration(env: Env, job_id: String, admin: Address) -> u32 {
+        admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can open arbitration");
+        }
+
+        let pool: Vec<Address> = env.storage().instance().get(&DataKey::ArbitratorPool).unwrap_or_else(|| Vec::new(&env));
+        if pool.len() < 3 {
+            panic!("Need at least 3 registered arbitrators");
+        }
+
+        let count: u32 = env.storage().instance().get(&DataKey::ArbitrationCaseCount).unwrap_or(0);
+        let case_id = count.checked_add(1).expect("Counter overflow");
+        let seed = env.ledger().sequence() as usize;
+        let mut chosen = Vec::new(&env);
+        chosen.push_back(pool.get((seed % pool.len() as usize) as u32).unwrap());
+        chosen.push_back(pool.get(((seed + 1) % pool.len() as usize) as u32).unwrap());
+        chosen.push_back(pool.get(((seed + 2) % pool.len() as usize) as u32).unwrap());
+
+        let case = ArbitrationCase {
+            job_id,
+            arbitrators: chosen,
+            votes: Vec::new(&env),
+            resolution: 0,
+            status: 0,
+        };
+        env.storage().instance().set(&DataKey::ArbitrationCase(case_id), &case);
+        env.storage().instance().set(&DataKey::ArbitrationCaseCount, &case_id);
+        case_id
+    }
+
+    pub fn cast_arbitration_vote(env: Env, case_id: u32, arbitrator: Address, client_percent: u32) {
+        arbitrator.require_auth();
+        if client_percent > 100 {
+            panic!("Client percent must be 0-100");
+        }
+
+        let mut case: ArbitrationCase = env.storage().instance()
+            .get(&DataKey::ArbitrationCase(case_id))
+            .expect("Arbitration case not found");
+        if case.status != 0 {
+            panic!("Arbitration case is not open");
+        }
+        if !case.arbitrators.contains(&arbitrator) {
+            panic!("Only selected arbitrators can vote");
+        }
+        if case.votes.len() >= 3 {
+            panic!("All votes already submitted");
+        }
+        case.votes.push_back(client_percent);
+        env.storage().instance().set(&DataKey::ArbitrationCase(case_id), &case);
+    }
+
+    pub fn resolve_arbitration(env: Env, case_id: u32) {
+        let mut case: ArbitrationCase = env.storage().instance()
+            .get(&DataKey::ArbitrationCase(case_id))
+            .expect("Arbitration case not found");
+        if case.votes.len() != 3 {
+            panic!("Exactly 3 votes required");
+        }
+        let total = case.votes.get(0).unwrap() + case.votes.get(1).unwrap() + case.votes.get(2).unwrap();
+        case.resolution = total / 3;
+        case.status = 1;
+        env.storage().instance().set(&DataKey::ArbitrationCase(case_id), &case);
+    }
+
+    pub fn get_arbitration_case(env: Env, case_id: u32) -> ArbitrationCase {
+        env.storage().instance()
+            .get(&DataKey::ArbitrationCase(case_id))
+            .expect("Arbitration case not found")
     }
 }
 

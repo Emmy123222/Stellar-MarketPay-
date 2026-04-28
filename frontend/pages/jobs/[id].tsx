@@ -31,6 +31,7 @@ import {
   USDC_ISSUER,
   USDC_SAC_ADDRESS,
   XLM_SAC_ADDRESS,
+  subscribeToContractEvents,
 } from "@/lib/stellar";
 import { Asset, type Transaction } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
@@ -95,6 +96,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportSuccess, setReportSuccess] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [isLiveSubscriptionActive, setIsLiveSubscriptionActive] = useState(false);
 
   const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
   const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
@@ -256,6 +258,24 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
       cancelled = true;
     };
   }, [applications, isClient]);
+
+  useEffect(() => {
+    if (!job?.escrowContractId || !job?.id) return;
+
+    setIsLiveSubscriptionActive(true);
+    const unsubscribe = subscribeToContractEvents(job.escrowContractId, (event) => {
+      if (event.jobId && event.jobId !== job.id) return;
+
+      if (event.type === "released") {
+        setJob((prev) => (prev ? { ...prev, status: "completed" } : prev));
+      }
+    });
+
+    return () => {
+      setIsLiveSubscriptionActive(false);
+      unsubscribe();
+    };
+  }, [job?.escrowContractId, job?.id]);
 
   const handleAcceptApplication = async (applicationId: string) => {
     if (!publicKey || !id) return;
@@ -476,6 +496,11 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                 <span className={statusClass(job.status)}>
                   {statusLabel(job.status)}
                 </span>
+                {isLiveSubscriptionActive && (
+                  <span className="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-full">
+                    Live
+                  </span>
+                )}
 
                 <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">
                   {job.category}

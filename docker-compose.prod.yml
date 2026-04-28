@@ -1,0 +1,19 @@
+version: "3.9"
+services:
+  frontend:
+    image: ${IMAGE_TAG}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+
+  backend:
+    image: ${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}

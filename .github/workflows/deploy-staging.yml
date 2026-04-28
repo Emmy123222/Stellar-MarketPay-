@@ -1,0 +1,51 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push images
+        run: |
+          IMAGE_TAG=ghcr.io/${{ github.repository }}:${{ github.sha }}
+          docker build -t $IMAGE_TAG ./frontend
+          docker push $IMAGE_TAG
+
+      - name: Deploy on staging VPS via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -e
+            export IMAGE_TAG=ghcr.io/${{ github.repository }}:${{ github.sha }}
+            cd ${{ secrets.STAGING_APP_DIR }}
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d
+
+      - name: Notify Discord success
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" -d '{"content":"? Staging deploy succeeded for ${{ github.sha }}"}' ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+      - name: Notify Discord failure
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" -d '{"content":"? Staging deploy failed for ${{ github.sha }}"}' ${{ secrets.DISCORD_WEBHOOK_URL }}
