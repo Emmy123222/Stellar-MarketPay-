@@ -4,14 +4,17 @@
  * Issue #21: Integrates Soroban escrow contract into job creation flow.
  */
 import { useEffect, useState } from "react";
+import type { Transaction } from "@stellar/stellar-sdk";
 import { createJob, updateJobEscrowId, deleteJob, saveDraft, fetchDrafts } from "@/lib/api";
 import { buildCreateEscrowTransaction, submitSorobanTransaction } from "@/lib/stellar";
+import { fetchActualFee } from "@/lib/sorobanFees";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { JOB_CATEGORIES, SKILL_SUGGESTIONS, formatUSDEquivalent, getMonthlyEstimate } from "@/utils/format";
 import { useRouter } from "next/router";
 import clsx from "clsx";
 import { useToast } from "@/components/Toast";
 import { usePriceContext } from "@/contexts/PriceContext";
+import FeeEstimationModal from "@/components/FeeEstimationModal";
 import type { Currency, Job } from "@/utils/types";
 
 interface PostJobFormProps { publicKey: string; }
@@ -77,6 +80,10 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
   const [draftId, setDraftId] = useState<string | null>(null);
   const [showResumeDraft, setShowResumeDraft] = useState(false);
   const [availableDrafts, setAvailableDrafts] = useState<any[]>([]);
+  const [pendingEscrow, setPendingEscrow] = useState<{
+    transaction: Transaction;
+    jobId: string;
+  } | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -262,11 +269,8 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
     setError(null);
     setStep("posting");
 
-    let job: Awaited<ReturnType<typeof createJob>> | null = null;
-
     try {
-      // Step 1 — Post job to backend
-      job = await createJob({
+      const job = await createJob({
         title: form.title.trim(),
         description: form.description.trim(),
         budget: parseFloat(form.budget).toFixed(7),
@@ -280,38 +284,19 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
         screeningQuestions: screeningQuestions.filter(q => q.trim().length > 0),
       });
 
-      // Step 2 — Build & sign Soroban create_escrow() transaction
       setStep("locking");
 
       const unsignedTx = await buildCreateEscrowTransaction({
         clientPublicKey: publicKey,
         jobId: job.id,
-        // Use client as placeholder freelancer until one is hired
         freelancerAddress: publicKey,
         budget: parseFloat(form.budget).toFixed(7),
         currency: form.currency,
       });
 
-      const { signedXDR, error: signError } = await signTransactionWithWallet(unsignedTx.toXDR());
-      if (signError || !signedXDR) {
-        // Roll back: remove the orphaned job from the backend
-        await deleteJob(job.id).catch(() => {}); // best-effort
-        throw new Error(signError || "Freighter signing was cancelled");
-      }
-
-      // Step 3 — Submit to Soroban RPC and wait for confirmation
-      const txHash = await submitSorobanTransaction(signedXDR).catch(async (e) => {
-        // Roll back: remove the orphaned job from the backend
-        await deleteJob(job!.id).catch(() => {});
-        throw e;
-      });
-
-      // Step 4 — Persist escrow contract ID in the job record
-      await updateJobEscrowId(job.id, txHash);
-
-      setStep("done");
-      toast.success("Job posted and budget locked in escrow.");
-      router.push(`/jobs/${job.id}`);
+      // Pause here so the user can review the on-chain fee (Issue #222)
+      // before Freighter prompts them to sign.
+      setPendingEscrow({ transaction: unsignedTx, jobId: job.id });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       setError(msg);
@@ -319,6 +304,55 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
       toast.error(`Failed: ${msg}`);
       setLoading(false);
     }
+  };
+
+  const handleConfirmEscrowFee = async () => {
+    if (!pendingEscrow) return;
+    const { transaction, jobId } = pendingEscrow;
+    setPendingEscrow(null);
+
+    try {
+      const { signedXDR, error: signError } = await signTransactionWithWallet(transaction.toXDR());
+      if (signError || !signedXDR) {
+        await deleteJob(jobId).catch(() => {});
+        throw new Error(signError || "Freighter signing was cancelled");
+      }
+
+      const txHash = await submitSorobanTransaction(signedXDR).catch(async (e) => {
+        await deleteJob(jobId).catch(() => {});
+        throw e;
+      });
+
+      // Log the actual fee charged for the AC.
+      fetchActualFee(txHash).then((actual) => {
+        if (actual) {
+          // eslint-disable-next-line no-console
+          console.info(`[escrow] create_escrow ${jobId} actual fee ${actual.feeChargedXlm} XLM`);
+        }
+      }).catch(() => {});
+
+      await updateJobEscrowId(jobId, txHash);
+
+      setStep("done");
+      toast.success("Job posted and budget locked in escrow.");
+      router.push(`/jobs/${jobId}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setError(msg);
+      setStep("error");
+      toast.error(`Failed: ${msg}`);
+      setLoading(false);
+    }
+  };
+
+  const handleCancelEscrowFee = async () => {
+    if (!pendingEscrow) return;
+    const { jobId } = pendingEscrow;
+    setPendingEscrow(null);
+    await deleteJob(jobId).catch(() => {});
+    setStep("idle");
+    setLoading(false);
+    setError("Cancelled before signing — the orphaned job was removed.");
   };
 
   const handleLoadTemplate = (name: string) => {
@@ -814,6 +848,16 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
           By posting, budget ({form.budget ? `${form.budget} ${form.currency}` : "—"}) will be held in a Soroban escrow contract and released when you approve of completed work.
         </p>
       </div>
+
+      {pendingEscrow && (
+        <FeeEstimationModal
+          transaction={pendingEscrow.transaction}
+          functionName="create_escrow"
+          payerPublicKey={publicKey}
+          onConfirm={handleConfirmEscrowFee}
+          onCancel={handleCancelEscrowFee}
+        />
+      )}
     </div>
   );
 }

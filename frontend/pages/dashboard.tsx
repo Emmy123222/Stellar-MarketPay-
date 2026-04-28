@@ -21,15 +21,22 @@ import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToCli
 import type { Job, Application } from "@/utils/types";
 import EditProfileForm from "@/components/EditProfileForm";
 import SendPaymentForm from "@/components/SendPaymentForm";
+import BuyXLMModal from "@/components/BuyXLMModal";
+import WithdrawToBankModal, {
+  loadWithdrawHistory,
+  type WithdrawHistoryEntry,
+} from "@/components/WithdrawToBankModal";
 import { useToast } from "@/components/Toast";
 import clsx from "clsx";
+
+const LOW_BALANCE_THRESHOLD_XLM = 5;
 
 interface DashboardProps {
   publicKey: string | null;
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "send" | "edit_profile" | "templates" | "price_alerts";
+type Tab = "posted" | "applied" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
@@ -44,12 +51,25 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [copyError, setCopyError] = useState(false);
 
   const [processedTxs, setProcessedTxs] = useState<Set<string>>(new Set());
+  const [templates, setTemplates] = useState<{ id: string; name: string; content: string }[]>([]);
+  const [templateName, setTemplateName] = useState("");
+  const [templateContent, setTemplateContent] = useState("");
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [emailEnabled, setEmailEnabled] = useState(false);
+  const [alertEmail, setAlertEmail] = useState("");
+  const [showBuyXLM, setShowBuyXLM] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [withdrawHistory, setWithdrawHistory] = useState<WithdrawHistoryEntry[]>([]);
   const { info, success } = useToast();
+
+  const isRepostable = (status: Job["status"]) => status === "expired" || status === "cancelled";
 
   const handleCopy = async () => {
     if (!publicKey) return;
-    const success = await copyToClipboard(publicKey);
-    if (success) {
+    const ok = await copyToClipboard(publicKey);
+    if (ok) {
       setCopied(true);
       setCopyError(false);
       setTimeout(() => setCopied(false), 2000);
@@ -63,17 +83,11 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     router.push({
       pathname: "/post-job",
       query: {
-  const [processedTxs, setProcessedTxs] = useState<Set<string>>(new Set());
-  const [templates, setTemplates] = useState<{ id: string; name: string; content: string }[]>([]);
-  const [templateName, setTemplateName] = useState("");
-  const [templateContent, setTemplateContent] = useState("");
-  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
-  const [minPrice, setMinPrice] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
-  const [emailEnabled, setEmailEnabled] = useState(false);
-  const [alertEmail, setAlertEmail] = useState("");
-  const { info, success } = useToast();
-  const isRepostable = (status: Job["status"]) => status === "expired" || status === "cancelled";
+        category: job.category,
+        freelancer: job.freelancerAddress || "",
+      },
+    });
+  };
 
   const handleRepost = (job: Job) => {
     if (typeof window === "undefined") return;
@@ -85,8 +99,19 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         budget: job.budget,
         category: job.category,
         freelancer: job.freelancerAddress || "",
-      },
-    });
+      })
+    );
+    router.push("/post-job");
+  };
+
+  const refreshBalances = () => {
+    if (!publicKey) return;
+    Promise.all([getXLMBalance(publicKey), getUSDCBalance(publicKey)])
+      .then(([bal, usdc]) => {
+        setBalance(bal);
+        setUsdcBalance(usdc);
+      })
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -156,6 +181,10 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
     return () => ws.close();
   }, [publicKey, info, success]);
+
+  useEffect(() => {
+    setWithdrawHistory(loadWithdrawHistory());
+  }, [showWithdraw]);
 
   useEffect(() => {
     if (!publicKey) return;
@@ -230,6 +259,33 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             ) : (
               <div className="h-10 w-48 bg-market-500/8 rounded-xl animate-pulse" />
             )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {balance !== null && parseFloat(balance) < LOW_BALANCE_THRESHOLD_XLM && (
+                <button
+                  onClick={() => setShowBuyXLM(true)}
+                  className="btn-primary text-xs py-1.5 px-3"
+                  data-testid="buy-xlm-button"
+                >
+                  Buy XLM
+                </button>
+              )}
+              {balance !== null && parseFloat(balance) >= LOW_BALANCE_THRESHOLD_XLM && (
+                <button
+                  onClick={() => setShowBuyXLM(true)}
+                  className="btn-secondary text-xs py-1.5 px-3"
+                  data-testid="buy-xlm-button"
+                >
+                  Buy XLM
+                </button>
+              )}
+              <button
+                onClick={() => setShowWithdraw(true)}
+                className="btn-secondary text-xs py-1.5 px-3"
+                data-testid="withdraw-to-bank-button"
+              >
+                Withdraw to Bank
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 text-center">
             {[
@@ -260,20 +316,18 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       )}
 
       <div className="flex border-b border-market-500/10 mb-6 overflow-x-auto">
-        {(["posted", "applied", "send", "edit_profile", "templates", "price_alerts"] as Tab[]).map((t) => (
+        {(["posted", "applied", "send", "edit_profile", "templates", "price_alerts", "withdrawals"] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={clsx(
               "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap",
               tab === t ? "border-market-400 text-market-300" : "border-transparent text-amber-700 hover:text-amber-400"
             )}>
-            {t === "posted" ? `Jobs Posted (${myJobs.length})` :
-             t === "applied" ? `Applications (${myApplications.length})` :
-             t === "send" ? "Send Payment" :
-            {t === "posted"      ? `Jobs Posted (${myJobs.length})` :
-             t === "applied"     ? `Applications (${myApplications.length})` :
-             t === "send"        ? "Send Payment" :
-             t === "templates"   ? "Proposal Templates" :
-             t === "price_alerts"? "Price Alerts" :
+            {t === "posted"       ? `Jobs Posted (${myJobs.length})` :
+             t === "applied"      ? `Applications (${myApplications.length})` :
+             t === "send"         ? "Send Payment" :
+             t === "templates"    ? "Proposal Templates" :
+             t === "price_alerts" ? "Price Alerts" :
+             t === "withdrawals"  ? `Withdrawals (${withdrawHistory.length})` :
              "Edit Profile"}
           </button>
         ))}
@@ -495,9 +549,65 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             Save Alerts
           </button>
         </div>
+      ) : tab === "withdrawals" ? (
+        withdrawHistory.length === 0 ? (
+          <div className="card text-center py-16">
+            <p className="font-display text-xl text-amber-100 mb-2">No withdrawals yet</p>
+            <p className="text-amber-800 text-sm mb-6">
+              Convert your XLM or USDC to USD, EUR, or NGN — paid directly to your bank account.
+            </p>
+            <button
+              onClick={() => setShowWithdraw(true)}
+              className="btn-primary text-sm"
+              data-testid="empty-state-withdraw-button"
+            >
+              Withdraw to Bank →
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {withdrawHistory.map((entry) => (
+              <div key={entry.id} className="card flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs px-2.5 py-0.5 rounded-full border bg-market-500/10 text-market-400 border-market-500/20">
+                      {entry.flow}
+                    </span>
+                    <span className="text-xs text-amber-700">{entry.status}</span>
+                  </div>
+                  <p className="font-display font-semibold text-amber-100 truncate">
+                    {entry.amount} {entry.asset} → {entry.fiatCurrency}
+                  </p>
+                  <p className="text-xs text-amber-800 mt-1">
+                    {new Date(entry.startedAt).toLocaleString()}
+                    {entry.externalTxId && ` · Bank ref ${entry.externalTxId.slice(0, 12)}…`}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
       ) : tab === "edit_profile" ? (
         <EditProfileForm publicKey={publicKey} />
       ) : null}
+
+      {showBuyXLM && (
+        <BuyXLMModal
+          publicKey={publicKey}
+          onClose={() => setShowBuyXLM(false)}
+          onComplete={refreshBalances}
+        />
+      )}
+      {showWithdraw && (
+        <WithdrawToBankModal
+          publicKey={publicKey}
+          onClose={() => {
+            setShowWithdraw(false);
+            setWithdrawHistory(loadWithdrawHistory());
+            refreshBalances();
+          }}
+        />
+      )}
     </div>
   );
 }

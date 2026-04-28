@@ -32,8 +32,10 @@ import {
   USDC_SAC_ADDRESS,
   XLM_SAC_ADDRESS,
 } from "@/lib/stellar";
-import { Asset } from "@stellar/stellar-sdk";
+import { Asset, type Transaction } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
+import { fetchActualFee } from "@/lib/sorobanFees";
+import FeeEstimationModal from "@/components/FeeEstimationModal";
 import type { Application, Job } from "@/utils/types";
 
 interface JobDetailProps {
@@ -72,6 +74,10 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [releaseSuccess, setReleaseSuccess] = useState(false);
   const [releaseTxHash, setReleaseTxHash] = useState<string | null>(null);
   const [releaseSyncedWithBackend, setReleaseSyncedWithBackend] = useState(false);
+  const [pendingRelease, setPendingRelease] = useState<{
+    transaction: Transaction;
+    fnName: "release_escrow" | "release_with_conversion";
+  } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -282,6 +288,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
 
     try {
       let prepared;
+      let fnName: "release_escrow" | "release_with_conversion";
 
       if (releaseCurrency !== job.currency && estimatedOutput) {
         const targetTokenAddress =
@@ -302,23 +309,36 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           targetTokenAddress,
           minAmountOut
         );
+        fnName = "release_with_conversion";
       } else {
         prepared = await buildReleaseEscrowTransaction(
           job.escrowContractId,
           job.id,
           publicKey
         );
+        fnName = "release_escrow";
       }
 
-      const { signedXDR, error: signError } = await signTransactionWithWallet(prepared.toXDR());
+      // Pause for fee confirmation (Issue #222) before Freighter prompts.
+      setPendingRelease({ transaction: prepared, fnName });
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : "Could not complete the release.");
+      setReleasingEscrow(false);
+    }
+  };
 
-      if (signError || !signedXDR) {
-        setActionError(signError || "Signing was cancelled.");
-        return;
-      }
-
+  const completeReleaseEscrow = async (signedXDR: string) => {
+    if (!publicKey || !job || !id) return;
+    try {
       const { hash } = await submitSignedSorobanTransaction(signedXDR);
       setReleaseTxHash(hash);
+
+      fetchActualFee(hash).then((actual) => {
+        if (actual) {
+          // eslint-disable-next-line no-console
+          console.info(`[escrow] release_escrow ${job.id} actual fee ${actual.feeChargedXlm} XLM`);
+        }
+      }).catch(() => {});
 
       try {
         await releaseEscrow(job.id, publicKey, hash, releaseCurrency);
@@ -336,6 +356,26 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     } finally {
       setReleasingEscrow(false);
     }
+  };
+
+  const handleConfirmReleaseFee = async () => {
+    if (!pendingRelease) return;
+    const { transaction } = pendingRelease;
+    setPendingRelease(null);
+
+    const { signedXDR, error: signError } = await signTransactionWithWallet(transaction.toXDR());
+    if (signError || !signedXDR) {
+      setActionError(signError || "Signing was cancelled.");
+      setReleasingEscrow(false);
+      return;
+    }
+    await completeReleaseEscrow(signedXDR);
+  };
+
+  const handleCancelReleaseFee = () => {
+    setPendingRelease(null);
+    setReleasingEscrow(false);
+    setActionError("Cancelled before signing.");
   };
 
   const handleSubmitReport = async () => {
@@ -512,6 +552,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               </div>
             </div>
           )}
+        </div>
 
         {isClient && applications.length > 0 && (
           <div className="mb-6">
@@ -524,14 +565,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                 <span className="flex items-center gap-1"><kbd className="bg-ink-900 px-1.5 py-0.5 rounded border border-market-500/20 text-market-400">Enter</kbd> Accept</span>
               </div>
             </div>
-          </div>
-        )}
 
-        {isClient && applications.length > 0 && (
-          <div className="mb-6">
-            <h2 className="font-display text-xl font-bold text-amber-100 mb-4">
-              Applications ({applications.length})
-            </h2>
 
             <div className="space-y-4">
               {applications.map((app) => {
@@ -539,16 +573,16 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                 const availability = applicantProfile?.availability;
 
                 return (
-                  <div key={application.id} className="card">
+                  <div key={app.id} className="card">
                     <div className="flex items-start justify-between gap-4 mb-3">
                       <div>
                         <a
-                          href={accountUrl(application.freelancerAddress)}
+                          href={accountUrl(app.freelancerAddress)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="address-tag hover:border-market-500/40 transition-colors"
                         >
-                          {shortenAddress(application.freelancerAddress)} ↗
+                          {shortenAddress(app.freelancerAddress)} ↗
                         </a>
 
                         <div className="mt-3">
@@ -606,7 +640,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                     </div>
 
                     <p className="text-amber-700/80 text-sm leading-relaxed mb-4">
-                      {application.proposal}
+                      {app.proposal}
                     </p>
 
                     {app.status === "pending" && job.status === "open" && (
@@ -623,25 +657,8 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                       </div>
                     )}
                   </div>
-
-                  <p className="text-xs text-amber-800 mb-3">
-                    Applied {timeAgo(application.createdAt)}
-                  </p>
-
-                  <p className="text-amber-700/80 text-sm leading-relaxed">
-                    {application.proposal}
-                  </p>
-
-                  {application.status === "pending" && job.status === "open" && (
-                    <button
-                      onClick={() => handleAcceptApplication(application.id)}
-                      className="btn-secondary text-sm py-2 px-4 mt-4"
-                    >
-                      Accept Proposal
-                    </button>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -829,7 +846,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             </div>
           )}
         </div>
-      )}
+      </div>
 
       {showReportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
@@ -929,6 +946,16 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
 
       {showShareModal && job && (
         <ShareJobModal job={job} onClose={() => setShowShareModal(false)} />
+      )}
+
+      {pendingRelease && publicKey && (
+        <FeeEstimationModal
+          transaction={pendingRelease.transaction}
+          functionName={pendingRelease.fnName}
+          payerPublicKey={publicKey}
+          onConfirm={handleConfirmReleaseFee}
+          onCancel={handleCancelReleaseFee}
+        />
       )}
     </>
   );

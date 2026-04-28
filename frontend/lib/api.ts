@@ -322,7 +322,6 @@ export async function fetchRatings(publicKey: string) {
   );
   return data.data;
 }
-}
 
 // ─── Job Suggestions (Autocomplete) ─────────────────────────────────────
 
