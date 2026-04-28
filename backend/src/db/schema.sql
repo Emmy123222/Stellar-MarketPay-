@@ -33,7 +33,8 @@ ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS github_primary_languages TEXT[] NOT NULL DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS github_top_repos JSONB NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS github_token_encrypted TEXT,
-  ADD COLUMN IF NOT EXISTS github_connected_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS github_connected_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS portfolio_files JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- ─────────────────────────────────────────
 -- jobs

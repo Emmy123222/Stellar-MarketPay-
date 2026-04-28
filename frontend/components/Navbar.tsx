@@ -7,6 +7,7 @@ import { useRouter } from "next/router";
 import { shortenAddress } from "@/utils/format";
 import clsx from "clsx";
 import { useTranslation } from "@/lib/i18n";
+import FaucetButton from "@/components/FaucetButton";
 
 interface NavbarProps {
   publicKey: string | null;

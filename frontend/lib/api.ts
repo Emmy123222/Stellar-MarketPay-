@@ -7,6 +7,9 @@ import type {
   Rating,
   ProposalTemplate,
   PriceAlertPreference,
+  PortfolioFile,
+  TokenInfo,
+  TokenBalance,
 } from "@/utils/types";
 
 const api = axios.create({
@@ -397,5 +400,191 @@ export async function deleteDraft(draftId: string) {
 
 export async function fetchRecommendedJobs(limit = 10) {
   const { data } = await api.get<{ success: boolean; data: Job[] }>("/api/jobs/recommended", { params: { limit } });
+  return data.data;
+}
+
+// ─── IPFS File Upload (Issue #202) ──────────────────────────────────────────
+
+export async function uploadPortfolioFiles(publicKey: string, files: FileList) {
+  const formData = new FormData();
+  
+  // Append all files to FormData
+  Array.from(files).forEach((file) => {
+    formData.append("files", file);
+  });
+
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: { 
+      uploadedFiles: PortfolioFile[];
+      gatewayUrls: string[];
+    }
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/upload-files`, formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+    timeout: 60000, // 60 seconds for file uploads
+  });
+
+  return data.data;
+}
+
+// ─── Stellar Faucet (Issue #205) ───────────────────────────────────────────
+
+export async function fundTestnetWallet(publicKey: string) {
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: {
+      success: boolean;
+      message: string;
+      fundedAmount: string;
+      newBalance?: string;
+      transactionHash?: string;
+      ledger?: number;
+    }
+  }>("/api/faucet/fund", { publicKey });
+
+  return data.data;
+}
+
+export async function checkAccountNeedsFunding(publicKey: string) {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: {
+      needsFunding: boolean;
+      currentBalance: string;
+      exists: boolean;
+    }
+  }>(`/api/faucet/check/${encodeURIComponent(publicKey)}`);
+
+  return data.data;
+}
+
+export async function getFaucetStatus() {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: {
+      enabled: boolean;
+      network: string;
+      amount: string;
+      asset: string;
+    }
+  }>("/api/faucet/status");
+
+  return data.data;
+}
+
+// ─── Token Support (Issue #228) ─────────────────────────────────────────────
+
+export async function getPopularTokens() {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: TokenInfo[];
+  }>("/api/tokens/popular");
+
+  return data.data;
+}
+
+export async function searchTokens(query: string) {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: TokenInfo[];
+  }>("/api/tokens/search", { params: { q: query } });
+
+  return data.data;
+}
+
+export async function getTokenMetadata(contractId: string) {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: TokenInfo;
+  }>(`/api/tokens/${contractId}/metadata`);
+
+  return data.data;
+}
+
+export async function getTokenBalance(contractId: string, publicKey: string) {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: TokenBalance;
+  }>(`/api/tokens/${contractId}/balance/${publicKey}`);
+
+  return data.data;
+}
+
+export async function validateTokenContract(contractId: string) {
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: {
+      valid: boolean;
+      error?: string;
+    };
+  }>("/api/tokens/validate", { contractId });
+
+  return data.data;
+}
+
+// ─── Stellar Turrets (Issue #224) ───────────────────────────────────────────
+
+export async function submitViaTurrets(transactionXDR: string, useTurret?: boolean) {
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: {
+      success: boolean;
+      hash: string;
+      ledger: number;
+      feeCharged: string;
+      turretUsed: boolean;
+      message: string;
+    };
+  }>("/api/turrets/submit", { transactionXDR, useTurret });
+
+  return data.data;
+}
+
+export async function getTurretsStatus() {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: {
+      available: boolean;
+      url?: string;
+      network?: string;
+      version?: string;
+      feeSponsorship?: boolean;
+      message: string;
+      error?: string;
+    };
+  }>("/api/turrets/status");
+
+  return data.data;
+}
+
+export async function estimateTurretsFee(transactionXDR: string) {
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: {
+      success: boolean;
+      baseFee: string;
+      turretFee: string;
+      totalFee: string;
+      feeSponsored: boolean;
+      message?: string;
+    };
+  }>("/api/turrets/estimate", { transactionXDR });
+
+  return data.data;
+}
+
+export async function getTurretsConfig() {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: {
+      configured: boolean;
+      url: string | null;
+      hasApiKey: boolean;
+      shouldUseByDefault: boolean;
+    };
+  }>("/api/turrets/config");
+
   return data.data;
 }

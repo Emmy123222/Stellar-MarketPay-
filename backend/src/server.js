@@ -29,6 +29,9 @@ const contributorRoutes = require("./routes/contributors");
 const verificationRoutes = require("./routes/verification");
 const nftRoutes         = require("./routes/nft");
 const aiScorerRoutes    = require("./routes/aiScorer");
+const faucetRoutes      = require("./routes/faucet");
+const tokenRoutes       = require("./routes/tokens");
+const turretsRoutes     = require("./routes/turrets");
 
 const migrate           = require("./db/migrate");
 const IndexerService    = require("./services/indexerService");
@@ -155,6 +158,9 @@ app.use("/api/contributors",  contributorRoutes);
 app.use("/api/verification",  verificationRoutes);
 app.use("/api/nft",           nftRoutes);
 app.use("/api/ai-scorer",     aiScorerRoutes);
+app.use("/api/faucet",        faucetRoutes);
+app.use("/api/tokens",        tokenRoutes);
+app.use("/api/turrets",       turretsRoutes);
 
 app.get("/api/indexer/health", (req, res) => {
   res.json({

@@ -13,9 +13,10 @@
 "use strict";
 
 const pool = require("../db/pool");
+const { validatePortfolioFiles } = require("./ipfsService");
 
 const VALID_PROFILE_ROLES = ["client", "freelancer", "both"];
-const VALID_PORTFOLIO_TYPES = ["github", "live", "stellar_tx"];
+const VALID_PORTFOLIO_TYPES = ["github", "live", "stellar_tx", "file"];
 const VALID_AVAILABILITY_STATUSES = ["available", "busy", "unavailable"];
 const MAX_PORTFOLIO_ITEMS = 10;
 
@@ -28,6 +29,7 @@ const MAX_PORTFOLIO_ITEMS = 10;
  * @property {string|null} bio
  * @property {string[]}   skills
  * @property {PortfolioItem[]} portfolioItems
+ * @property {Object[]}   portfolioFiles     - IPFS uploaded files
  * @property {Availability|null} availability
  * @property {("client"|"freelancer"|"both")} role
  * @property {number}     completedJobs
@@ -65,6 +67,7 @@ const MAX_PORTFOLIO_ITEMS = 10;
  * @property {string}            [bio]
  * @property {string[]}          [skills]
  * @property {PortfolioItem[]}   [portfolioItems]
+ * @property {Object[]}          [portfolioFiles] - IPFS uploaded files
  * @property {Availability}      [availability]
  * @property {("client"|"freelancer"|"both")} [role]
  */
@@ -203,6 +206,7 @@ function rowToProfile(row) {
     bio: row.bio,
     skills: row.skills,
     portfolioItems: Array.isArray(row.portfolio_items) ? row.portfolio_items : [],
+    portfolioFiles: Array.isArray(row.portfolio_files) ? row.portfolio_files : [],
     availability: row.availability && typeof row.availability === "object" ? row.availability : null,
     role: row.role,
     completedJobs: row.completed_jobs,
@@ -332,23 +336,25 @@ async function getProfile(publicKey) {
  *   role: "freelancer",
  * });
  */
-async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, availability, role }) {
+async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, portfolioFiles, availability, role }) {
   validatePublicKey(publicKey);
 
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 15) : null;
   const safePortfolioItems = validatePortfolioItems(portfolioItems);
+  const safePortfolioFiles = validatePortfolioFiles(portfolioFiles);
   const safeAvailability = validateAvailability(availability);
   const safeRole = validateProfileRole(role);
 
   const { rows } = await pool.query(
     `
-    INSERT INTO profiles (public_key, display_name, bio, skills, portfolio_items, availability, role, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, NOW(), NOW())
+    INSERT INTO profiles (public_key, display_name, bio, skills, portfolio_items, portfolio_files, availability, role, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, NOW(), NOW())
     ON CONFLICT (public_key) DO UPDATE
       SET display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), profiles.display_name),
           bio = COALESCE(NULLIF(EXCLUDED.bio, ''), profiles.bio),
           skills = COALESCE(EXCLUDED.skills, profiles.skills),
           portfolio_items = COALESCE(EXCLUDED.portfolio_items, profiles.portfolio_items),
+          portfolio_files = COALESCE(EXCLUDED.portfolio_files, profiles.portfolio_files),
           availability = COALESCE(EXCLUDED.availability, profiles.availability),
           role = COALESCE(NULLIF(EXCLUDED.role, ''), profiles.role),
           updated_at = NOW()
@@ -360,6 +366,7 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
       bio?.trim() || null,
       safeSkills,
       JSON.stringify(safePortfolioItems),
+      JSON.stringify(safePortfolioFiles),
       safeAvailability ? JSON.stringify(safeAvailability) : null,
       safeRole,
     ]

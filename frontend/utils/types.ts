@@ -9,7 +9,30 @@ export type Currency  = "XLM" | "USDC";
 export type JobVisibility = "public" | "private" | "invite_only";
 export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent";
 export type AvailabilityStatus = "available" | "busy" | "unavailable";
-export type PortfolioItemType = "github" | "live" | "stellar_tx";
+export type PortfolioItemType = "github" | "live" | "stellar_tx" | "file";
+
+export interface PortfolioFile {
+  cid: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+}
+
+export interface TokenInfo {
+  contractId: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  icon?: string;
+  verified?: boolean;
+}
+
+export interface TokenBalance {
+  balance: string;
+  exists: boolean;
+  limit: string;
+}
 
 export interface ApplicationStatusCounts {
   pending?: number;
@@ -94,6 +117,7 @@ export interface UserProfile {
   bio?: string;
   skills?: string[];
   portfolioItems?: PortfolioItem[];
+  portfolioFiles?: PortfolioFile[];
   availability?: Availability | null;
   role: UserRole;
   completedJobs: number;

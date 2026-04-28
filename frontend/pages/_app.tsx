@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import Navbar from "@/components/Navbar";
+import FaucetButton from "@/components/FaucetButton";
 import { connectWallet, getConnectedPublicKey, signTransactionWithWallet } from "@/lib/wallet";
 import { fetchAuthChallenge, verifyAuthChallenge, setJwtToken } from "@/lib/api";
 import "@/styles/globals.css";
@@ -102,6 +103,7 @@ function App({ Component, pageProps }: AppProps) {
           <main>
             <Component {...pageProps} publicKey={publicKey} onConnect={handleConnect} />
           </main>
+          {publicKey && <FaucetButton publicKey={publicKey} />}
           <ShortcutsModal
             isOpen={shortcutsModalOpen}
             onClose={() => setShortcutsModalOpen(false)}
