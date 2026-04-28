@@ -53,6 +53,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [estimatedOutput, setEstimatedOutput] = useState<string | null>(null);
   const [fetchingPrice, setFetchingPrice] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [inviteAddress, setInviteAddress] = useState("");
 
   const handleCopyJobLink = async () => {
     const ok = await copyToClipboard(window.location.href);
@@ -388,6 +389,31 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {isClient && job.visibility === "invite_only" && (
+          <div className="card mb-6">
+            <h3 className="font-display text-lg font-semibold text-amber-100 mb-3">Invite Freelancer</h3>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input
+                value={inviteAddress}
+                onChange={(e) => setInviteAddress(e.target.value)}
+                className="input-field flex-1"
+                placeholder="Freelancer public key"
+              />
+              <button
+                className="btn-primary text-sm"
+                onClick={async () => {
+                  if (!inviteAddress.trim()) return;
+                  await inviteFreelancer(job.id, inviteAddress.trim());
+                  setInviteAddress("");
+                  setActionError("Invitation sent");
+                }}
+              >
+                Send Invite
+              </button>
             </div>
           </div>
         )}

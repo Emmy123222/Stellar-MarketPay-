@@ -19,7 +19,9 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.0",
+    "nodemailer": "^8.0.7",
     "rss": "^1.2.2",
+    "speakeasy": "^2.0.0",
     "uuid": "^10.0.0",
     "ws": "^8.20.0"
   },

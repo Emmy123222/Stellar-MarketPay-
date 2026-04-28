@@ -10,7 +10,7 @@
  */
 "use strict";
 
-const { query } = require("../db/pool");
+const pool = require("../db/pool");
 const { getTimezoneOffset } = require("date-fns-tz");
 
 /**
@@ -23,6 +23,7 @@ const { getTimezoneOffset } = require("date-fns-tz");
  * @property {string}   budget              Budget as a fixed-point string (e.g. "500.0000000").
  * @property {("XLM"|"USDC")} currency      Payment currency.
  * @property {string}   category            One of {@link VALID_CATEGORIES}.
+ * @property {("public"|"private"|"invite_only")} visibility
  * @property {string[]} skills              Up to 8 skill tags.
  * @property {("open"|"in_progress"|"completed"|"cancelled")} status
  * @property {string}   clientAddress       Stellar G-address of the client.
@@ -130,6 +131,7 @@ function rowToJob(row) {
     budget: row.budget,
     currency: row.currency || "XLM",
     category: row.category,
+    visibility: row.visibility || "public",
     skills: row.skills,
     status: row.status,
     clientAddress: row.client_address,
@@ -174,6 +176,7 @@ async function createJob({
   budget,
   currency = "XLM",
   category,
+  visibility = "public",
   skills,
   deadline,
   timezone,
@@ -207,6 +210,11 @@ async function createJob({
     e.status = 400;
     throw e;
   }
+  if (!["public", "private", "invite_only"].includes(visibility)) {
+    const e = new Error("Visibility must be public, private, or invite_only");
+    e.status = 400;
+    throw e;
+  }
 
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 8) : [];
   const safeScreeningQuestions = Array.isArray(screeningQuestions)
@@ -216,8 +224,8 @@ async function createJob({
   const { rows } = await pool.query(
     `
     INSERT INTO jobs
-      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, NOW(), NOW())
+      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, visibility, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, $11, NOW(), NOW())
     RETURNING *
     `,
     [
@@ -231,6 +239,7 @@ async function createJob({
       deadline || null,
       timezone || null,
       safeScreeningQuestions,
+      visibility,
     ]
   );
 
@@ -306,7 +315,7 @@ function decodeCursor(cursor) {
  * @returns {Promise<JobListPage>}
  * @throws {Error} 400 — when `cursor` is malformed.
  */
-async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone } = {}) {
+async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone, viewerAddress } = {}) {
   const conditions = [];
   const params = [];
 
@@ -328,6 +337,21 @@ async function listJobs({ category, status = "open", limit = 50, search, cursor,
          SELECT 1 FROM unnest(skills) s WHERE LOWER(s) LIKE $${idx}
        ))`
     );
+  }
+
+  if (viewerAddress && /^G[A-Z0-9]{55}$/.test(viewerAddress)) {
+    params.push(viewerAddress);
+    const viewerIdx = params.length;
+    conditions.push(
+      `(visibility = 'public'
+        OR client_address = $${viewerIdx}
+        OR (visibility = 'invite_only' AND EXISTS (
+          SELECT 1 FROM job_invitations ji
+          WHERE ji.job_id = jobs.id AND ji.freelancer_address = $${viewerIdx}
+        )))`
+    );
+  } else {
+    conditions.push("visibility = 'public'");
   }
 
   if (cursor) {
@@ -504,7 +528,7 @@ async function deleteJob(jobId) {
  */
 async function boostJob(jobId) {
   // Verify job exists
-  const { rows } = await query("SELECT * FROM jobs WHERE id = $1", [jobId]);
+  const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [jobId]);
   if (!rows.length) {
     const e = new Error("Job not found");
     e.status = 404;

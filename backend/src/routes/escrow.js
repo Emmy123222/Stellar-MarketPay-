@@ -13,6 +13,7 @@ const escrowActionRateLimiter = createRateLimiter(30, 1); // 10 escrow actions p
 const router  = express.Router();
 const pool = require("../db/pool");
 const { getJob, updateJobStatus } = require("../services/jobService");
+const { logContractInteraction } = require("../services/contractAuditService");
 
 /**
  * POST /api/escrow/:jobId/release
@@ -24,13 +25,13 @@ const { getJob, updateJobStatus } = require("../services/jobService");
 router.post("/:jobId/release", async (req, res, next) => {
   try {
     const { jobId } = req.params;
-    const { clientAddress } = req.body;
+    const { clientAddress, contractTxHash, releaseCurrency } = req.body;
 
     if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
       const e = new Error("Invalid client address"); e.status = 400; throw e;
     }
 
-    const job = getJob(jobId);
+    const job = await getJob(jobId);
     if (job.clientAddress !== clientAddress) {
       const e = new Error("Only the job client can release escrow"); e.status = 403; throw e;
     }
@@ -49,7 +50,46 @@ router.post("/:jobId/release", async (req, res, next) => {
     // Update job status
     await updateJobStatus(jobId, "completed");
 
+    await logContractInteraction({
+      functionName: releaseCurrency && releaseCurrency !== job.currency ? "release_with_conversion" : "release_escrow",
+      callerAddress: clientAddress,
+      jobId,
+      txHash: contractTxHash || `offchain-${Date.now()}`,
+    });
+
     res.json({ success: true, message: "Escrow released and job completed" });
+  } catch (e) { next(e); }
+});
+
+/**
+ * POST /api/escrow/:jobId/refund
+ * Client issues a refund to close escrow.
+ */
+router.post("/:jobId/refund", async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { clientAddress, contractTxHash } = req.body;
+    const job = await getJob(jobId);
+    if (job.clientAddress !== clientAddress) {
+      const e = new Error("Only the job client can refund escrow"); e.status = 403; throw e;
+    }
+
+    await pool.query(
+      `UPDATE escrows
+       SET status = 'refunded', updated_at = NOW()
+       WHERE job_id = $1`,
+      [jobId]
+    );
+    await updateJobStatus(jobId, "cancelled");
+
+    await logContractInteraction({
+      functionName: "refund_escrow",
+      callerAddress: clientAddress,
+      jobId,
+      txHash: contractTxHash || `offchain-${Date.now()}`,
+    });
+
+    res.json({ success: true, message: "Escrow refunded" });
   } catch (e) { next(e); }
 });
 

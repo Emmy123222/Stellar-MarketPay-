@@ -10,6 +10,10 @@ const profileUpdateRateLimiter = createRateLimiter(5, 1); // 5 profile updates p
 const generalProfileRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for getting profiles
 
 const { getProfile, upsertProfile, updateAvailability } = require("../services/profileService");
+const {
+  upsertPriceAlertPreference,
+  getPriceAlertPreference,
+} = require("../services/priceAlertService");
 
 router.get("/:publicKey", generalProfileRateLimiter ,async (req, res, next) => {
   try { res.json({ success: true, data: await getProfile(req.params.publicKey) }); }
@@ -40,6 +44,30 @@ router.post("/:publicKey/verify", profileUpdateRateLimiter, async (req, res, nex
     });
   }
   catch (e) { next(e); }
+});
+
+router.get("/:publicKey/price-alerts", generalProfileRateLimiter, async (req, res, next) => {
+  try {
+    const pref = await getPriceAlertPreference(req.params.publicKey);
+    res.json({ success: true, data: pref });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post("/:publicKey/price-alerts", profileUpdateRateLimiter, async (req, res, next) => {
+  try {
+    const pref = await upsertPriceAlertPreference({
+      freelancerAddress: req.params.publicKey,
+      minXlmPriceUsd: req.body.minXlmPriceUsd,
+      maxXlmPriceUsd: req.body.maxXlmPriceUsd,
+      emailNotificationsEnabled: req.body.emailNotificationsEnabled,
+      email: req.body.email,
+    });
+    res.json({ success: true, data: pref });
+  } catch (e) {
+    next(e);
+  }
 });
 
 module.exports = router;

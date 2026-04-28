@@ -1,19 +1,22 @@
 /**
-* pages/jobs/index.tsx
-* Browse all open jobs with category filtering.
-*/
+ * pages/jobs/index.tsx
+ * Browse all open jobs with category filtering and search autocomplete.
+ */
 import JobCard, { JobCardSkeleton } from "@/components/JobCard";
-import { fetchJobs } from "@/lib/api";
+import { fetchJobs, fetchJobSuggestions } from "@/lib/api";
 import { JOB_CATEGORIES, CATEGORY_ICONS, categoryToSlug } from "@/utils/format";
 import type { Job } from "@/utils/types";
 import clsx from "clsx";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { getTimezoneOffset, toZonedTime } from "date-fns-tz";
+
 
 export default function JobsPage() {
   const router = useRouter();
+  const { i18n } = useTranslation("common");
+  const t = (key: string): string => i18n.t(key) as string;
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -27,6 +30,7 @@ export default function JobsPage() {
   const [geoLoading, setGeoLoading] = useState<boolean>(false);
   const [geoError, setGeoError] = useState<string | null>(null);
 
+
   const category = (router.query.category as string) || "";
   const status = (router.query.status as string) || "open";
   const pageFromQuery = Math.max(1, Number(router.query.page) || 1);
@@ -37,6 +41,9 @@ export default function JobsPage() {
   useEffect(() => {
     const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     setUserTimezone(detectedTz);
+    getConnectedPublicKey().then((publicKey) => {
+      if (publicKey) setViewerAddress(publicKey);
+    }).catch(() => {});
   }, []);
 
   // Handle geolocation-based timezone detection
@@ -44,7 +51,6 @@ export default function JobsPage() {
     setGeoLoading(true);
     setGeoError(null);
 
-    // Use browser's detected timezone (no API key needed)
     const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     setUserTimezone(detectedTz);
     setUseGeolocation(true);
@@ -53,8 +59,8 @@ export default function JobsPage() {
 
   // Check if job timezone is within ±3 hours of user timezone
   const isTimezoneCompatible = (jobTimezone: string | undefined): boolean => {
-    if (!jobTimezone) return true; // Jobs without timezone appear for all users
-    if (!userTimezone) return true; // If no user timezone, show all jobs
+    if (!jobTimezone) return true;
+    if (!userTimezone) return true;
 
     try {
       const now = new Date();
@@ -63,7 +69,7 @@ export default function JobsPage() {
       const diffHours = Math.abs(userOffset - jobOffset) / (1000 * 60 * 60);
       return diffHours <= 3;
     } catch (err) {
-      return true; // If timezone parsing fails, show the job
+      return true;
     }
   };
 
@@ -82,7 +88,6 @@ export default function JobsPage() {
         let pagesLoaded = 0;
         let allJobs: Job[] = [];
 
-        // Determine active timezone for backend filtering
         const activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
 
         for (let page = 1; page <= pageFromQuery; page += 1) {
@@ -92,6 +97,7 @@ export default function JobsPage() {
             limit: 20,
             cursor,
             timezone: activeTimezone || undefined,
+            viewerAddress: viewerAddress || undefined,
           });
 
           const seenIds = new Set(allJobs.map((job) => job.id));
@@ -119,7 +125,85 @@ export default function JobsPage() {
     loadJobs();
 
     return () => { isCancelled = true; };
-  }, [category, status, pageFromQuery, router.isReady, manualTimezone, useGeolocation, userTimezone]);
+  }, [category, status, pageFromQuery, router.isReady, manualTimezone, useGeolocation, userTimezone, viewerAddress]);
+
+  // Fetch suggestions with debounce
+  const fetchSuggestions = useCallback(async (query: string) => {
+    if (query.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    setIsLoadingSuggestions(true);
+    try {
+      const data = await fetchJobSuggestions(query);
+      setSuggestions(data);
+      setShowSuggestions(data.length > 0);
+      setActiveSuggestion(0);
+    } catch (err) {
+      console.error("Suggestion fetch error:", err);
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  }, []);
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setSearch(value);
+
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+
+    debounceTimer.current = setTimeout(() => {
+      fetchSuggestions(value);
+    }, 300);
+  };
+
+  const handleSuggestionClick = (suggestion: Suggestion) => {
+    setSearch(suggestion.value);
+    setShowSuggestions(false);
+    if (suggestion.type === 'category') {
+      router.push(`/jobs/category/${categoryToSlug(suggestion.value)}`);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setActiveSuggestion(prev => Math.min(prev + 1, suggestions.length - 1));
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setActiveSuggestion(prev => Math.max(prev - 1, 0));
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (suggestions[activeSuggestion]) {
+          handleSuggestionClick(suggestions[activeSuggestion]);
+        }
+        break;
+      case 'Escape':
+        setShowSuggestions(false);
+        break;
+    }
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(e.target as Node) &&
+          searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const searchFiltered = search.trim()
     ? jobs.filter((j) =>
@@ -142,7 +226,6 @@ export default function JobsPage() {
         })
       : searchFiltered;
 
-  // Apply timezone filtering
   const activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
   const filtered = activeTimezone
     ? budgetFiltered.filter((j) => isTimezoneCompatible(j.timezone))
@@ -163,7 +246,6 @@ export default function JobsPage() {
     setError(null);
 
     try {
-      // Determine active timezone for backend filtering
       const activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
 
       const result = await fetchJobs({
@@ -172,6 +254,7 @@ export default function JobsPage() {
         limit: 20,
         cursor: nextCursor,
         timezone: activeTimezone || undefined,
+        viewerAddress: viewerAddress || undefined,
       });
 
       setJobs((prev) => {
@@ -202,26 +285,65 @@ export default function JobsPage() {
     }, undefined, { shallow: true });
   };
 
+  const groupedSuggestions = suggestions.reduce((acc, s) => {
+    if (!acc[s.type]) acc[s.type] = [];
+    acc[s.type].push(s);
+    return acc;
+  }, {} as Record<string, Suggestion[]>);
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="font-display text-3xl font-bold text-amber-100 mb-1">Browse Jobs</h1>
-          <p className="text-amber-800 text-sm">{loading ? "Loading..." : `${filtered.length} job${filtered.length !== 1 ? "s" : ""} found`}</p>
+          <h1 className="font-display text-3xl font-bold text-amber-100 mb-1">{t("jobs.title")}</h1>
+          <p className="text-amber-800 text-sm">{loading ? t("jobs.loading") : `${filtered.length} ${filtered.length !== 1 ? t("jobs.foundPlural") : t("jobs.found")}`}</p>
         </div>
-        <Link href="/post-job" className="btn-primary text-sm py-2.5 px-5 flex-shrink-0">+ Post a Job</Link>
+        <Link href="/post-job" locale={false} className="btn-primary text-sm py-2.5 px-5 flex-shrink-0">+ {t("nav.postJob")}</Link>
       </div>
 
-      {/* Search */}
+      {/* Search with Autocomplete */}
       <div className="relative mb-6">
         <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-800" />
         <input
-          type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by title, skill, or keyword..."
+          ref={searchRef}
+          type="text" value={search} onChange={handleSearchChange} onKeyDown={handleKeyDown}
+          placeholder={t("jobs.searchPlaceholder")}
           className="input-field pl-10"
+          onFocus={() => search.length >= 2 && setShowSuggestions(suggestions.length > 0)}
         />
+        {showSuggestions && (
+          <div ref={suggestionsRef} className="absolute z-10 w-full mt-1 bg-ink-800 border border-amber-900/30 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+            {isLoadingSuggestions ? (
+              <div className="px-4 py-3 text-sm text-amber-800">{t("jobs.loading")}</div>
+            ) : (
+              Object.entries(groupedSuggestions).map(([type, items]) => (
+                <div key={type}>
+                  <div className="px-4 py-1 text-xs font-semibold text-amber-700 uppercase bg-ink-900/50">
+                    {type === 'title' ? 'Job Titles' : type === 'skill' ? 'Skills' : 'Categories'}
+                  </div>
+                  {(items as Suggestion[]).map((s, idx) => {
+                    const globalIdx = suggestions.indexOf(s);
+                    return (
+                      <div
+                        key={`${s.type}-${s.value}`}
+                        onClick={() => handleSuggestionClick(s)}
+                        className={clsx(
+                          "px-4 py-2 text-sm cursor-pointer flex items-center gap-2",
+                          globalIdx === activeSuggestion ? "bg-market-500/20 text-market-300" : "text-amber-100 hover:bg-market-500/10"
+                        )}
+                      >
+                        {s.type === 'title' ? <BriefcaseMiniIcon /> : s.type === 'skill' ? <TagMiniIcon /> : <CategoryMiniIcon />}
+                        {s.value}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex gap-6">
@@ -229,7 +351,7 @@ export default function JobsPage() {
         <aside className="hidden lg:block w-52 flex-shrink-0 space-y-6">
           {/* Status */}
           <div>
-            <p className="label">Status</p>
+            <p className="label">{t("jobs.status.all")}</p>
             <div className="space-y-1">
               {["open", "in_progress", "completed", ""].map((s) => (
                 <button key={s}
@@ -238,7 +360,7 @@ export default function JobsPage() {
                     "w-full text-left px-3 py-2 rounded-lg text-sm transition-colors font-body",
                     status === s ? "bg-market-500/15 text-market-300 font-medium" : "text-amber-700 hover:text-amber-400 hover:bg-market-500/8"
                   )}>
-                  {s === "" ? "All" : s === "open" ? "Open" : s === "in_progress" ? "In Progress" : "Completed"}
+                  {s === "" ? t("jobs.status.all") : s === "open" ? t("jobs.status.open") : s === "in_progress" ? t("jobs.status.inProgress") : t("jobs.status.completed")}
                 </button>
               ))}
             </div>
@@ -246,7 +368,7 @@ export default function JobsPage() {
 
           {/* Budget Range */}
           <div className="pt-2">
-            <p className="label mb-2">Budget (XLM)</p>
+            <p className="label mb-2">{t("jobs.budget")}</p>
             <div className="flex gap-2 items-center mb-3">
               <input
                 type="number" placeholder="Min" value={minBudget}
@@ -294,22 +416,22 @@ export default function JobsPage() {
 
           {/* Category */}
           <div>
-            <p className="label">Category</p>
+            <p className="label">{t("jobs.category")}</p>
             <div className="space-y-1">
-              <Link href="/jobs"
+              <Link href="/jobs" locale={false}
                 className={clsx(
                   "w-full text-left px-3 py-2 rounded-lg text-sm font-body transition-all duration-200 block",
                   !category
                     ? "bg-market-500/20 text-market-300 font-medium ring-1 ring-market-500/30"
                     : "text-amber-700 hover:text-amber-400 hover:bg-market-500/8 hover:translate-x-0.5"
                 )}>
-                🗂️ All Categories
+                🗂️ {t("jobs.allCategories")}
                 <span className="ml-1 text-xs text-amber-800">({jobs.length})</span>
               </Link>
               {JOB_CATEGORIES.map((cat) => {
                 const count = jobs.filter((j) => j.category === cat).length;
                 return (
-                  <Link key={cat} href={`/jobs/category/${categoryToSlug(cat)}`}
+                  <Link key={cat} href={`/jobs/category/${categoryToSlug(cat)}`} locale={false}
                     className={clsx(
                       "w-full text-left px-3 py-2 rounded-lg text-sm font-body transition-all duration-200 block",
                       category === cat
@@ -326,9 +448,8 @@ export default function JobsPage() {
 
           {/* Timezone Filter */}
           <div>
-            <p className="label">Timezone</p>
+            <p className="label">{t("jobs.timezone")}</p>
             <div className="space-y-2">
-              {/* Geolocation button */}
               <button
                 onClick={handleGeolocation}
                 disabled={geoLoading}
@@ -346,14 +467,13 @@ export default function JobsPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                 )}
-                {geoLoading ? "Detecting..." : useGeolocation ? `My Location (${userTimezone})` : "Use My Location"}
+                {geoLoading ? t("jobs.detecting") : useGeolocation ? `${t("jobs.myLocation")} (${userTimezone})` : t("jobs.useMyLocation")}
               </button>
 
               {geoError && (
                 <p className="text-xs text-red-400 px-1">{geoError}</p>
               )}
 
-              {/* Manual timezone selection */}
               <select
                 value={manualTimezone}
                 onChange={(e) => {
@@ -362,7 +482,7 @@ export default function JobsPage() {
                 }}
                 className="w-full bg-market-900/40 border border-amber-900/30 rounded px-2 py-1.5 text-xs text-amber-100 appearance-none cursor-pointer"
               >
-                <option value="">All Timezones</option>
+                <option value="">{t("jobs.allTimezones")}</option>
                 <option value="UTC">UTC (Universal)</option>
                 <option value="America/New_York">America/New York</option>
                 <option value="America/Los_Angeles">America/Los Angeles</option>
@@ -391,7 +511,7 @@ export default function JobsPage() {
               )}
 
               <p className="text-[10px] text-amber-800/60 px-1">
-                Shows jobs within ±3 hours of selected timezone
+                {t("jobs.withinTimezone")}
               </p>
             </div>
           </div>
@@ -412,9 +532,9 @@ export default function JobsPage() {
             </div>
           ) : filtered.length === 0 ? (
             <div className="card text-center py-16">
-              <p className="font-display text-xl text-amber-100 mb-2">No jobs found</p>
-              <p className="text-amber-800 text-sm mb-6">Try adjusting your filters or search term</p>
-              <Link href="/post-job" className="btn-primary text-sm">Post the first job →</Link>
+              <p className="font-display text-xl text-amber-100 mb-2">{t("jobs.noJobsFound")}</p>
+              <p className="text-amber-800 text-sm mb-6">{t("jobs.tryAdjusting")}</p>
+              <Link href="/post-job" locale={false} className="btn-primary text-sm">{t("jobs.postFirstJob")} →</Link>
             </div>
           ) : (
             <>
@@ -431,7 +551,7 @@ export default function JobsPage() {
                     className="btn-secondary text-sm min-w-40 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                   >
                     {loadingMore && <SpinnerIcon className="w-4 h-4 animate-spin" />}
-                    {loadingMore ? "Loading..." : "Load more jobs"}
+                    {loadingMore ? t("jobs.loading") : t("jobs.loadMore")}
                   </button>
                 </div>
               )}
@@ -455,6 +575,31 @@ function SpinnerIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 3a9 9 0 109 9" />
+    </svg>
+  );
+}
+
+function BriefcaseMiniIcon() {
+  return (
+    <svg className="w-3 h-3 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0M12 12.75h.008v.008H12v-.008z" />
+    </svg>
+  );
+}
+
+function TagMiniIcon() {
+  return (
+    <svg className="w-3 h-3 text-market-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
+    </svg>
+  );
+}
+
+function CategoryMiniIcon() {
+  return (
+    <svg className="w-3 h-3 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
     </svg>
   );
 }

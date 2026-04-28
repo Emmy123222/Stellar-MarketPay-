@@ -11,6 +11,7 @@ const morgan      = require("morgan");
 const rateLimit   = require("express-rate-limit");
 const http        = require("http");
 const { WebSocketServer } = require("ws");
+const nodemailer  = require("nodemailer");
 require("dotenv").config();
 
 const jobRoutes         = require("./routes/jobs");
@@ -22,8 +23,11 @@ const authRoutes        = require("./routes/auth");
 const ratingRoutes      = require("./routes/ratings");
 const progressRoutes    = require("./routes/progress");
 const eventRoutes       = require("./routes/events");
+const statsRoutes       = require("./routes/stats");
+
 const migrate           = require("./db/migrate");
 const IndexerService    = require("./services/indexerService");
+const { PriceAlertService } = require("./services/priceAlertService");
 const pool              = require("./db/pool");
 
 const app  = express();
@@ -88,8 +92,33 @@ const indexerService = new IndexerService({
   horizonUrl: process.env.HORIZON_URL,
   broadcast: broadcastRealtime,
 });
+const smtpEnabled = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+const smtpTransport = smtpEnabled
+  ? nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    })
+  : null;
+const priceAlertService = new PriceAlertService({
+  broadcast: broadcastRealtime,
+  sendEmail: async ({ to, subject, text }) => {
+    if (!smtpTransport || !to) return;
+    await smtpTransport.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to,
+      subject,
+      text,
+    });
+  },
+});
 
 app.locals.indexerService = indexerService;
+app.locals.broadcastRealtime = broadcastRealtime;
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(helmet());
@@ -116,6 +145,8 @@ app.use("/api/escrow",        escrowRoutes);
 app.use("/api/ratings",       ratingRoutes);
 app.use("/api/progress",      progressRoutes);
 app.use("/api/events",        eventRoutes);
+app.use("/api/stats",         statsRoutes);
+
 app.get("/api/indexer/health", (req, res) => {
   res.json({
     status: "ok",
@@ -256,6 +287,7 @@ async function bootstrap() {
     await migrate();
     await cleanupExpiredScopeSessions();
     await indexerService.start();
+    priceAlertService.start();
     server.listen(PORT, () => {
       console.log(`
   🏪 Stellar MarketPay API

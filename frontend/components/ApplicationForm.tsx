@@ -3,7 +3,7 @@
  * Freelancer applies to a job with a proposal and bid amount.
  */
 import { useState, useEffect } from "react";
-import { submitApplication } from "@/lib/api";
+import { submitApplication, fetchProposalTemplates } from "@/lib/api";
 import type { Job } from "@/utils/types";
 import { formatXLM } from "@/utils/format";
 import { useToast } from "./Toast";
@@ -27,6 +27,8 @@ export default function ApplicationForm({ job, publicKey, prefillData, onSuccess
   const [error, setError] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [screeningAnswers, setScreeningAnswers] = useState<Record<string, string>>({});
+  const [templates, setTemplates] = useState<{ id: string; name: string; content: string }[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
   // Issue #152 — enforce 50-word minimum on the proposal.
   const wordCount = proposal.trim() === "" ? 0 : proposal.trim().split(/\s+/).length;
@@ -46,6 +48,10 @@ export default function ApplicationForm({ job, publicKey, prefillData, onSuccess
       setScreeningAnswers(initialAnswers);
     }
   }, [job.screeningQuestions]);
+
+  useEffect(() => {
+    fetchProposalTemplates().then(setTemplates).catch(() => {});
+  }, []);
 
   const allScreeningQuestionsAnswered = job.screeningQuestions && job.screeningQuestions.length > 0
     ? job.screeningQuestions.every(q => screeningAnswers[q] && screeningAnswers[q].trim().length > 0)
@@ -69,6 +75,7 @@ export default function ApplicationForm({ job, publicKey, prefillData, onSuccess
         proposal: proposal.trim(),
         bidAmount: parseFloat(bidAmount).toFixed(7),
         currency: job.currency,
+        screeningAnswers,
       });
       toast.success("Proposal submitted successfully!");
       onSuccess();
@@ -87,6 +94,27 @@ export default function ApplicationForm({ job, publicKey, prefillData, onSuccess
         </p>
 
         <div className="space-y-5">
+          <div>
+            <label className="label">Use Template</label>
+            <select
+              value={selectedTemplateId}
+              onChange={(e) => {
+                const templateId = e.target.value;
+                setSelectedTemplateId(templateId);
+                const template = templates.find((item) => item.id === templateId);
+                if (template) setProposal(template.content);
+              }}
+              className="input-field appearance-none cursor-pointer"
+            >
+              <option value="">Select a template...</option>
+              {templates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Cover letter */}
           <div>
             <label className="label">Cover Letter</label>

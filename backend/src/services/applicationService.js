@@ -130,6 +130,22 @@ async function submitApplication({
     e.status = 400;
     throw e;
   }
+  if (job.visibility === "private") {
+    const e = new Error("This job is private and cannot receive applications");
+    e.status = 403;
+    throw e;
+  }
+  if (job.visibility === "invite_only") {
+    const { rows: inviteRows } = await pool.query(
+      "SELECT 1 FROM job_invitations WHERE job_id = $1 AND freelancer_address = $2",
+      [jobId, freelancerAddress]
+    );
+    if (!inviteRows.length) {
+      const e = new Error("You are not invited to this job");
+      e.status = 403;
+      throw e;
+    }
+  }
   if (!proposal || proposal.length < 50) {
     const e = new Error("Proposal must be at least 50 characters");
     e.status = 400;
@@ -156,11 +172,14 @@ async function submitApplication({
     }
   }
 
+  const safeScreeningAnswers =
+    screeningAnswers && typeof screeningAnswers === "object" ? screeningAnswers : {};
+
   let appRow;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, currency, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
+      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, currency, screening_answers, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())
        RETURNING *`,
       [
         jobId,

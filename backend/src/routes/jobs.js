@@ -13,6 +13,10 @@ const generalJobRateLimiter = createRateLimiter(30, 1); // 100 requests per minu
 const jobService = require("../services/jobService");
 const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount } = jobService.default || jobService;
 const { verifyJWT } = require("../middleware/auth");
+const { inviteFreelancerToJob } = require("../services/jobInvitationService");
+const { logContractInteraction } = require("../services/contractAuditService");
+const jobDraftService = require("../services/jobDraftService");
+const recommendationService = require("../services/recommendationService");
 
 // ─── Feed Helpers ─────────────────────────────────────────────────────────────
 
@@ -43,9 +47,9 @@ function truncateDescription(description, maxLength = 200) {
 // GET /api/jobs — list jobs (with optional ?category=&status=&limit=&search=)
 router.get("/", generalJobRateLimiter, async (req, res, next) => {
   try {
-    const { category, status, limit, search, cursor, timezone } = req.query;
+    const { category, status, limit, search, cursor, timezone, viewerAddress } = req.query;
     const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
-    const result = await listJobs({ category, status, limit: safeLimit, search, cursor, timezone });
+    const result = await listJobs({ category, status, limit: safeLimit, search, cursor, timezone, viewerAddress });
     res.json({ success: true, data: result.jobs, nextCursor: result.nextCursor });
   } catch (e) { next(e); }
 });
@@ -58,7 +62,19 @@ router.get("/client/:publicKey", generalJobRateLimiter, async (req, res, next) =
 
 // GET /api/jobs/:id — get single job
 router.get("/:id", generalJobRateLimiter, async (req, res, next) => {
-  try { res.json({ success: true, data: await getJob(req.params.id) }); }
+  try {
+    const job = await getJob(req.params.id);
+    const viewerAddress = req.query.viewerAddress;
+    const canView =
+      job.visibility === "public" ||
+      (typeof viewerAddress === "string" &&
+        (viewerAddress === job.clientAddress || viewerAddress === job.freelancerAddress));
+
+    if (job.visibility === "private" && !canView) {
+      return res.status(403).json({ success: false, error: "Job is private" });
+    }
+    res.json({ success: true, data: job });
+  }
   catch (e) { next(e); }
 });
 
@@ -70,11 +86,38 @@ router.post("/", jobCreationRateLimiter, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// POST /api/jobs/:id/invite — invite freelancer to invite-only job
+router.post("/:id/invite", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const invitation = await inviteFreelancerToJob({
+      jobId: req.params.id,
+      clientAddress: req.user.publicKey,
+      freelancerAddress: req.body.freelancerAddress,
+    });
+
+    req.app.locals.broadcastRealtime?.("job:invited", {
+      jobId: req.params.id,
+      recipientAddress: invitation.freelancer_address,
+      invitedAt: invitation.created_at,
+    });
+
+    res.status(201).json({ success: true, data: invitation });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // PATCH /api/jobs/:id/escrow — store escrow contract ID after on-chain lock
 router.patch("/:id/escrow", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
   try {
     const { escrowContractId } = req.body;
     const job = await updateJobEscrowId(req.params.id, escrowContractId);
+    await logContractInteraction({
+      functionName: "create_escrow",
+      callerAddress: req.user.publicKey,
+      jobId: req.params.id,
+      txHash: escrowContractId,
+    });
     res.json({ success: true, data: job });
   } catch (e) { next(e); }
 });
@@ -130,6 +173,38 @@ router.post("/:id/score-proposals", verifyJWT, async (req, res, next) => {
     const scores = await scoreProposals(job, applications);
 
     res.json({ success: true, data: scores });
+  } catch (e) { next(e); }
+});
+
+// GET /api/jobs/suggestions — autocomplete suggestions for search
+router.get("/suggestions", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.length < 2) return res.json({ success: true, data: [] });
+
+    const result = await listJobs({ status: "open", limit: 100 });
+    const jobs = result.jobs;
+    const query = q.toLowerCase();
+
+    const titleSuggestions = jobs
+      .filter(j => j.title.toLowerCase().includes(query))
+      .slice(0, 5)
+      .map(j => ({ type: "title", value: j.title }));
+
+    const skillSuggestions = jobs
+      .flatMap(j => j.skills || [])
+      .filter((skill, index, self) => self.indexOf(skill) === index)
+      .filter(skill => skill.toLowerCase().includes(query))
+      .slice(0, 5)
+      .map(skill => ({ type: "skill", value: skill }));
+
+    const categorySuggestions = [...new Set(jobs.map(j => j.category))]
+      .filter(cat => cat.toLowerCase().includes(query))
+      .slice(0, 5)
+      .map(cat => ({ type: "category", value: cat }));
+
+    const suggestions = [...titleSuggestions, ...skillSuggestions, ...categorySuggestions];
+    res.json({ success: true, data: suggestions });
   } catch (e) { next(e); }
 });
 
@@ -223,6 +298,48 @@ router.get("/feed.atom", generalJobRateLimiter, async (req, res, next) => {
     
     res.set("Content-Type", "application/atom+xml; charset=utf-8");
     res.send(atom);
+  } catch (e) { next(e); }
+});
+
+// GET /api/jobs/drafts — list job drafts for authenticated user
+router.get("/drafts", verifyJWT, async (req, res, next) => {
+  try {
+    const drafts = await jobDraftService.getDrafts(req.user.publicKey, 5);
+    res.json({ success: true, data: drafts });
+  } catch (e) { next(e); }
+});
+
+// POST /api/jobs/drafts — save or update a job draft
+router.post("/drafts", verifyJWT, async (req, res, next) => {
+  try {
+    const draft = await jobDraftService.saveDraft(req.user.publicKey, req.body);
+    res.status(201).json({ success: true, data: draft });
+  } catch (e) { next(e); }
+});
+
+// GET /api/jobs/drafts/:id — get a specific draft
+router.get("/drafts/:id", verifyJWT, async (req, res, next) => {
+  try {
+    const draft = await jobDraftService.getDraft(req.params.id, req.user.publicKey);
+    if (!draft) return res.status(404).json({ success: false, error: "Draft not found" });
+    res.json({ success: true, data: draft });
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/jobs/drafts/:id — delete a draft
+router.delete("/drafts/:id", verifyJWT, async (req, res, next) => {
+  try {
+    await jobDraftService.deleteDraft(req.params.id, req.user.publicKey);
+    res.json({ success: true });
+  } catch (e) { next(e); }
+});
+
+// GET /api/jobs/recommended — get personalized job recommendations
+router.get("/recommended", verifyJWT, async (req, res, next) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 10, 50);
+    const recommendations = await recommendationService.getRecommendations(req.user.publicKey, limit);
+    res.json({ success: true, data: recommendations });
   } catch (e) { next(e); }
 });
 
