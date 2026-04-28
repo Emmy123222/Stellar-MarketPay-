@@ -146,6 +146,9 @@ function rowToJob(row) {
     screeningQuestions: row.screening_questions || [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    expiresAt: row.expires_at,
+    extendedCount: row.extended_count || 0,
+    extendedUntil: row.extended_until,
   };
 }
 
@@ -224,8 +227,8 @@ async function createJob({
   const { rows } = await pool.query(
     `
     INSERT INTO jobs
-      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, visibility, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, $11, NOW(), NOW())
+      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, visibility, created_at, updated_at, expires_at)
+    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, $11, NOW(), NOW(), NOW() + INTERVAL '30 days')
     RETURNING *
     `,
     [
@@ -572,6 +575,176 @@ async function incrementShareCount(jobId) {
   return rowToJob(rows[0]);
 }
 
+/**
+ * Update a job's expiry date (extend).
+ *
+ * @param {string} jobId  UUID of the job.
+ * @param {number} additionalDays  Number of days to add (e.g., 30).
+ * @param {number} maxExtensions   Maximum allowed extensions (default 3).
+ * @returns {Promise<Job>}
+ * @throws {Error} 404 — job not found.
+ * @throws {Error} 400 — job already completed/cancelled or max extensions reached.
+ */
+async function extendJobExpiry(jobId, additionalDays, maxExtensions = 3) {
+  const job = await getJob(jobId);
+
+  if (job.status === "completed" || job.status === "cancelled") {
+    const e = new Error("Cannot extend a completed or cancelled job");
+    e.status = 400;
+    throw e;
+  }
+
+  if (job.extendedCount >= maxExtensions) {
+    const e = new Error("Maximum number of extensions reached");
+    e.status = 400;
+    throw e;
+  }
+
+  const currentExpiry = job.expiresAt ? new Date(job.expiresAt) : new Date(job.createdAt);
+  if (isNaN(currentExpiry.getTime())) {
+    currentExpiry.setTime(Date.now());
+  }
+
+  const newExpiry = new Date(currentExpiry.getTime() + additionalDays * 24 * 60 * 60 * 1000);
+
+  const { rows } = await pool.query(
+    `UPDATE jobs
+     SET expires_at = $1,
+         extended_count = extended_count + 1,
+         extended_until = $1,
+         updated_at = NOW()
+     WHERE id = $2
+     RETURNING *`,
+    [newExpiry.toISOString(), jobId]
+  );
+
+  if (!rows.length) {
+    const e = new Error("Job not found");
+    e.status = 404;
+    throw e;
+  }
+
+  return rowToJob(rows[0]);
+}
+
+/**
+ * Auto-expire jobs that have passed their expiry date and are still open (not hired).
+ * Returns the count of expired jobs.
+ *
+ * @returns {Promise<number>}
+ */
+async function expireOldJobs() {
+  const { rowCount } = await pool.query(
+    `UPDATE jobs
+     SET status = 'cancelled',
+         updated_at = NOW()
+     WHERE status = 'open'
+       AND freelancer_address IS NULL
+       AND expires_at < NOW()`,
+  );
+  return rowCount;
+}
+
+/**
+ * Get jobs that are expiring within N days (for warnings).
+ *
+ * @param {number} withinDays  Days threshold (e.g., 3)
+ * @returns {Promise<Job[]>}
+ */
+async function getExpiringJobs(withinDays = 3) {
+  const withinDate = new Date();
+  withinDate.setDate(withinDate.getDate() + withinDays);
+
+  const { rows } = await pool.query(
+    `SELECT * FROM jobs
+     WHERE status = 'open'
+       AND freelancer_address IS NULL
+       AND expires_at IS NOT NULL
+       AND expires_at <= $1
+     ORDER BY expires_at ASC`,
+    [withinDate.toISOString()]
+  );
+  return rows.map(rowToJob);
+}
+
+/**
+ * Get analytics for a job (applications per day, avg bid, skill distribution, time to hire).
+ *
+ * @param {string} jobId  UUID of the job.
+ * @returns {Promise<Object>} Analytics object.
+ */
+async function getJobAnalytics(jobId) {
+  // Applications per day (time series)
+  const { rows: appsPerDayRows } = await pool.query(
+    `SELECT DATE(created_at) as day, COUNT(*) as count
+     FROM applications
+     WHERE job_id = $1
+     GROUP BY DATE(created_at)
+     ORDER BY day ASC`,
+    [jobId]
+  );
+
+  // Average bid amount and currency breakdown
+  const { rows: bidRows } = await pool.query(
+    `SELECT AVG(bid_amount::numeric) as avg_bid, currency, COUNT(*) as count
+     FROM applications
+     WHERE job_id = $1
+     GROUP BY currency`,
+    [jobId]
+  );
+
+  // Skill distribution - need to infer from freelancer profiles
+  const { rows: skillRows } = await pool.query(
+    `SELECT p.skills, COUNT(*) as count
+     FROM applications a
+     LEFT JOIN profiles p ON a.freelancer_address = p.public_key
+     WHERE a.job_id = $1
+     GROUP BY p.skills`,
+    [jobId]
+  );
+
+  // Time to hire - from job created_at to when a freelancer was assigned (status = 'in_progress')
+  const { rows: hireTimeRows } = await pool.query(
+    `SELECT EXTRACT(EPOCH FROM (MIN(updated_at) - j.created_at)) / 86400 as days_to_hire
+     FROM jobs j
+     WHERE j.id = $1 AND j.status IN ('in_progress', 'completed')`,
+    [jobId]
+  );
+
+  // Total applications and status breakdown
+  const { rows: statusRows } = await pool.query(
+    `SELECT status, COUNT(*) as count
+     FROM applications
+     WHERE job_id = $1
+     GROUP BY status`,
+    [jobId]
+  );
+
+  // Build aggregated skills count
+  const skillDistribution = {};
+  skillRows.forEach(row => {
+    const skills = row.skills || [];
+    skills.forEach(skill => {
+      skillDistribution[skill] = (skillDistribution[skill] || 0) + 1;
+    });
+  });
+
+  return {
+    applicationsPerDay: appsPerDayRows.map(r => ({ day: r.day, count: parseInt(r.count) || 0 })),
+    averageBidAmount: bidRows.map(r => ({
+      currency: r.currency,
+      avgBid: r.avg_bid ? parseFloat(r.avg_bid) : 0,
+      count: parseInt(r.count) || 0
+    })),
+    skillDistribution,
+    daysToHire: hireTimeRows[0] && hireTimeRows[0].days_to_hire ? parseFloat(hireTimeRows[0].days_to_hire) : null,
+    applicationStatusCounts: statusRows.reduce((acc, r) => {
+      acc[r.status] = parseInt(r.count) || 0;
+      return acc;
+    }, {})
+  };
+}
+
 module.exports = {
   createJob,
   getJob,
@@ -583,4 +756,8 @@ module.exports = {
   deleteJob,
   boostJob,
   incrementShareCount,
+  extendJobExpiry,
+  expireOldJobs,
+  getExpiringJobs,
+  getJobAnalytics,
 };

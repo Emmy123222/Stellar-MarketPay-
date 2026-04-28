@@ -47,7 +47,10 @@ CREATE TABLE IF NOT EXISTS jobs (
   timezone            TEXT,
   screening_questions TEXT[]      NOT NULL DEFAULT '{}',
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at          TIMESTAMPTZ,
+  extended_count      INTEGER     NOT NULL DEFAULT 0,
+  extended_until      TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS jobs_status_idx          ON jobs(status);
@@ -62,7 +65,10 @@ ALTER TABLE jobs
   ADD COLUMN IF NOT EXISTS boosted BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS boosted_until TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS timezone TEXT,
-  ADD COLUMN IF NOT EXISTS screening_questions TEXT[] NOT NULL DEFAULT '{}';
+  ADD COLUMN IF NOT EXISTS screening_questions TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS extended_count INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS extended_until TIMESTAMPTZ;
 
 -- enforce valid visibility values for all rows
 DO $$

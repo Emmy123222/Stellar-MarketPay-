@@ -153,6 +153,42 @@ router.delete("/:id", verifyJWT, generalJobRateLimiter, async (req, res, next) =
   } catch (e) { next(e); }
 });
 
+// GET /api/jobs/:id/analytics — job performance analytics
+router.get("/:id/analytics", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { getJobAnalytics } = require("../services/jobService");
+    const analytics = await getJobAnalytics(req.params.id);
+    res.json({ success: true, data: analytics });
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/jobs/:id/extend — extend job expiry by 30 days
+router.patch("/:id/extend", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { extendJobExpiry } = require("../services/jobService");
+    const job = await extendJobExpiry(req.params.id, 30, 3);
+    res.json({ success: true, data: job });
+  } catch (e) { next(e); }
+});
+
+// GET /api/jobs/expiring — get jobs expiring within 3 days (for warnings)
+router.get("/expiring", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { getExpiringJobs } = require("../services/jobService");
+    const jobs = await getExpiringJobs(3);
+    res.json({ success: true, data: jobs });
+  } catch (e) { next(e); }
+});
+
+// POST /api/jobs/expire-old — manually trigger expiry check (also runs as background job)
+router.post("/expire-old", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { expireOldJobs } = require("../services/jobService");
+    const count = await expireOldJobs();
+    res.json({ success: true, data: { expiredCount: count } });
+  } catch (e) { next(e); }
+});
+
 // POST /api/jobs/:id/score-proposals — score all applications using AI
 router.post("/:id/score-proposals", verifyJWT, async (req, res, next) => {
   try {

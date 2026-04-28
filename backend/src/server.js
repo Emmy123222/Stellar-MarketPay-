@@ -284,21 +284,66 @@ wsServer.on("connection", async (ws, request) => {
 
 async function bootstrap() {
   try {
-    await migrate();
-    await cleanupExpiredScopeSessions();
-    await indexerService.start();
-    priceAlertService.start();
-    server.listen(PORT, () => {
-      console.log(`
+  await migrate();
+  await cleanupExpiredScopeSessions();
+  await indexerService.start();
+  priceAlertService.start();
+
+  // Start job expiry checker - run every hour
+  startJobExpiryChecker();
+
+  server.listen(PORT, () => {
+    console.log(`
   🏪 Stellar MarketPay API
   🚀 Running at http://localhost:${PORT}
   🌐 Network: ${process.env.STELLAR_NETWORK || "testnet"}
   `);
-    });
-  } catch (error) {
-    console.error("[startup] failed:", error.message);
-    process.exit(1);
+  });
+}
+
+/**
+ * Periodically check for and expire old jobs (runs every hour).
+ * Also sends warning notifications for jobs expiring within 3 days.
+ */
+async function startJobExpiryChecker() {
+  const { expireOldJobs, getExpiringJobs } = require("./services/jobService");
+
+  // Run immediately on startup
+  try {
+    const expiredCount = await expireOldJobs();
+    if (expiredCount > 0) {
+      console.log(`[job-expiry] Auto-expired ${expiredCount} old job(s)`);
+    }
+  } catch (err) {
+    console.error("[job-expiry] Error on initial expiry check:", err.message);
   }
+
+  // Schedule hourly checks
+  setInterval(async () => {
+    try {
+      const expiredCount = await expireOldJobs();
+      if (expiredCount > 0) {
+        console.log(`[job-expiry] Auto-expired ${expiredCount} old job(s)`);
+      }
+
+      // Check for expiring jobs within 3 days and broadcast warnings
+      const expiringJobs = await getExpiringJobs(3);
+      if (expiringJobs.length > 0) {
+        console.log(`[job-expiry] ${expiringJobs.length} job(s) expiring within 3 days`);
+        broadcastRealtime("job:expiry-warning", {
+          count: expiringJobs.length,
+          jobs: expiringJobs.map(j => ({
+            id: j.id,
+            title: j.title,
+            expiresAt: j.expiresAt
+          }))
+        });
+      }
+    } catch (err) {
+      console.error("[job-expiry] Error on scheduled check:", err.message);
+    }
+  }, 60 * 60 * 1000).unref();
+}
 }
 
 bootstrap();

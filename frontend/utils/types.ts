@@ -11,6 +11,31 @@ export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent
 export type AvailabilityStatus = "available" | "busy" | "unavailable";
 export type PortfolioItemType = "github" | "live" | "stellar_tx";
 
+export interface ApplicationStatusCounts {
+  pending?: number;
+  accepted?: number;
+  rejected?: number;
+}
+
+export interface ApplicationPerDay {
+  day: string;
+  count: number;
+}
+
+export interface AverageBid {
+  currency: Currency;
+  avgBid: number;
+  count: number;
+}
+
+export interface JobAnalytics {
+  applicationsPerDay: ApplicationPerDay[];
+  averageBidAmount: AverageBid[];
+  skillDistribution: Record<string, number>;
+  daysToHire: number | null;
+  applicationStatusCounts: ApplicationStatusCounts;
+}
+
 export interface PortfolioItem {
   title: string;
   url: string;
@@ -45,6 +70,9 @@ export interface Job {
   deadline?: string;
   timezone?: string;     // IANA timezone string (e.g., "America/New_York")
   screeningQuestions?: string[];  // Up to 5 screening questions
+  expiresAt?: string;    // ISO date when job expires if not hired
+  extendedCount?: number; // Number of times expiry has been extended
+  extendedUntil?: string; // Final expiry after all extensions
 }
 
 export interface Application {
