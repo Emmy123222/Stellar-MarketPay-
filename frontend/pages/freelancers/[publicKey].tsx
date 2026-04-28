@@ -7,7 +7,12 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
-import { fetchPublicProfile, fetchProfileStats, fetchResponseTime } from "@/lib/api";
+import {
+  fetchPublicProfile,
+  verifyIdentity,
+  fetchSkillEndorsements,
+  endorseSkill,
+} from "@/lib/api";
 import {
   availabilityStatusLabel,
   availabilitySummary,
@@ -15,7 +20,12 @@ import {
   shortenAddress,
 } from "@/utils/format";
 import { accountUrl, isValidStellarAddress } from "@/lib/stellar";
-import type { AvailabilityStatus, PortfolioItem, UserProfile, ProfileStats, ResponseTimeStats } from "@/utils/types";
+import type {
+  AvailabilityStatus,
+  PortfolioItem,
+  SkillEndorsement,
+  UserProfile,
+} from "@/utils/types";
 
 type LoadState =
   | { status: "loading" }
@@ -60,10 +70,48 @@ export default function PublicFreelancerProfilePage({
   publicKey: string | null;
 }) {
   const router = useRouter();
-  const rawKey = typeof router.query.publicKey === "string" ? router.query.publicKey : "";
+  const rawKey =
+    typeof router.query.publicKey === "string" ? router.query.publicKey : "";
+
   const [state, setState] = useState<LoadState>({ status: "loading" });
-  const [stats, setStats] = useState<ProfileStats | null>(null);
-  const [responseTime, setResponseTime] = useState<ResponseTimeStats | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [endorsements, setEndorsements] = useState<SkillEndorsement[]>([]);
+  const [endorsingSkill, setEndorsingSkill] = useState<string | null>(null);
+
+  const isOwner = publicKey && rawKey === publicKey;
+
+  const handleVerifyIdentity = async () => {
+    if (!publicKey) return;
+    setVerifying(true);
+    try {
+      // Mocking DID verification flow (e.g. SpruceID/Rebase)
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      const mockDidHash = `did:pkh:stellar:${rawKey}#marketpay-kyc-${Date.now()}`;
+      const updatedProfile = await verifyIdentity(rawKey, mockDidHash);
+
+      setState({ status: "ok", profile: updatedProfile });
+    } catch (error) {
+      console.error("Verification error:", error);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleEndorse = async (skill: string) => {
+    if (!publicKey || isOwner) return;
+    setEndorsingSkill(skill);
+    try {
+      await endorseSkill(rawKey, skill);
+      const refreshed = await fetchSkillEndorsements(rawKey);
+      setEndorsements(refreshed);
+    } catch (error: unknown) {
+      console.error("Endorsement error:", error);
+      alert(error instanceof Error ? error.message : "Failed to endorse skill");
+    } finally {
+      setEndorsingSkill(null);
+    }
+  };
 
   const handleEndorse = async (skill: string) => {
     if (!publicKey || isOwner) return;
@@ -116,21 +164,14 @@ export default function PublicFreelancerProfilePage({
 
     (async () => {
       try {
-        const [profile, profileStats, profileResponseTime] = await Promise.all([
+        const [profile, endorsementsData] = await Promise.all([
           fetchPublicProfile(rawKey),
-          fetchProfileStats(rawKey),
-          fetchResponseTime(rawKey)
+          fetchSkillEndorsements(rawKey).catch(() => [] as SkillEndorsement[]),
         ]);
-
         if (cancelled) return;
-        
-        if (profile === null) {
-          setState({ status: "not_found" });
-        } else {
-          setState({ status: "ok", profile });
-          setStats(profileStats);
-          setResponseTime(profileResponseTime);
-        }
+        setEndorsements(endorsementsData);
+        if (profile === null) setState({ status: "not_found" });
+        else setState({ status: "ok", profile });
       } catch (error: unknown) {
         if (cancelled) return;
         const message =
@@ -227,11 +268,25 @@ export default function PublicFreelancerProfilePage({
                   {state.profile.displayName?.trim() ||
                     shortenAddress(state.profile.publicKey)}
                 </h1>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <FreelancerTierBadge tier={state.profile.tier} className="text-sm" />
-                  {responseTime?.averageDays !== null && responseTime.averageDays <= 3 && (
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-market-500/10 text-market-400 border border-market-500/20">
-                      ⚡ Fast Responder
+                <div className="flex items-center gap-2 mt-3">
+                  <FreelancerTierBadge
+                    tier={state.profile.tier}
+                    className="text-sm"
+                  />
+                  {state.profile.isKycVerified && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold uppercase tracking-wider">
+                      <svg
+                        className="w-3 h-3"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M2.166 4.9l7.19-3.17c.41-.18.88-.18 1.28 0l7.19 3.17c.43.19.71.63.71 1.1v3.47c0 4.35-2.52 8.35-6.39 10.15-.36.17-.77.17-1.13 0-3.87-1.8-6.39-5.8-6.39-10.15V6c0-.47.28-.91.71-1.1zM10 5a1 1 0 10-2 0v4H7a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V5z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      KYC Verified
                     </span>
                   )}
                 </div>
@@ -470,26 +525,6 @@ export default function PublicFreelancerProfilePage({
                 </p>
               )}
             </div>
-
-            {/* Verified skill badges */}
-            {badges.length > 0 && (
-              <div className="mb-6 sm:mb-8">
-                <h2 className="label mb-3">Verified Skills</h2>
-                <ul className="flex flex-wrap gap-2">
-                  {badges.map((b) => (
-                    <li key={b.skill} className="relative group">
-                      <span className="inline-flex items-center gap-1.5 text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-3 py-1.5 rounded-full cursor-default">
-                        ✓ {b.skill.charAt(0).toUpperCase() + b.skill.slice(1)}
-                      </span>
-                      {/* Score tooltip */}
-                      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg bg-ink-900 border border-market-500/20 px-2.5 py-1 text-xs text-amber-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10">
-                        Score: {b.score}% · {new Date(b.taken_at).toLocaleDateString()}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
 
             {/* Verified skill badges */}
             {badges.length > 0 && (

@@ -260,6 +260,7 @@ async function getProfile(publicKey) {
   const profile = rowToProfile(rows[0]);
   profile.rating = rows[0].avg_rating !== null ? parseFloat(rows[0].avg_rating) : null;
   profile.ratingCount = rows[0].rating_count;
+  profile.tier = calculateFreelancerTier(profile.completedJobs, profile.rating);
 
   // Calculate reputation score (simple formula: higher weight on ratings, lower on time)
   // Max score 100.
@@ -529,9 +530,10 @@ module.exports = {
   getProfile,
   upsertProfile,
   updateAvailability,
-  isBlocked,
-  blockFreelancer,
-  unblockFreelancer,
+  verifyIdentity,
+  getSkillEndorsements,
+  endorseSkill,
+  calculateFreelancerTier,
   VALID_PORTFOLIO_TYPES,
   VALID_AVAILABILITY_STATUSES,
   MAX_PORTFOLIO_ITEMS,

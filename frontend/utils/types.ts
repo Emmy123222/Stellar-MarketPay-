@@ -3,10 +3,20 @@
  * Shared TypeScript types for Stellar MarketPay.
  */
 
-export type JobStatus = "open" | "in_progress" | "completed" | "cancelled" | "expired";
-export type UserRole  = "client" | "freelancer" | "both";
-export type Currency  = "XLM" | "USDC";
-export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent";
+export type JobStatus =
+  | "open"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "expired";
+export type UserRole = "client" | "freelancer" | "both";
+export type Currency = "XLM" | "USDC";
+export type JobVisibility = "public" | "private" | "invite_only";
+export type FreelancerTier =
+  | "Newcomer"
+  | "Rising Star"
+  | "Expert"
+  | "Top Talent";
 export type AvailabilityStatus = "available" | "busy" | "unavailable";
 export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent";
 
@@ -58,8 +68,7 @@ export interface Application {
   bidAmount: string; // Amount as string
   currency: Currency; // XLM or USDC
   status: "pending" | "accepted" | "rejected";
-  screeningAnswers?: Record<string, string>;  // Question -> Answer mapping
-  referredBy?: string;
+  screeningAnswers?: Record<string, string>; // Question -> Answer mapping
   createdAt: string;
 }
 
@@ -110,30 +119,20 @@ export interface AssessmentQuestion {
   options: string[];
 }
 
-export interface AssessmentInfo {
+export interface SkillEndorsement {
   skill: string;
-  label: string;
-  questions: AssessmentQuestion[];
-  durationSeconds: number;
-  passScore: number;
-  canRetake: boolean;
-  retakeAvailableAt: string | null;
-  lastAttempt: { score: number; passed: boolean; taken_at: string } | null;
+  count: number;
+  endorsers: string[];
 }
 
-export interface AssessmentResult {
-  skill: string;
-  score: number;
-  passed: boolean;
-  correct: number;
-  total: number;
-}
-
-export interface SkillBadge {
-  skill: string;
-  score: number;
-  passed: boolean;
-  taken_at: string;
+export interface PriceAlertPreference {
+  freelancer_address: string;
+  min_xlm_price_usd?: string | null;
+  max_xlm_price_usd?: string | null;
+  email_notifications_enabled: boolean;
+  email?: string | null;
+  last_min_alert_at?: string | null;
+  last_max_alert_at?: string | null;
 }
 
 export interface EscrowState {

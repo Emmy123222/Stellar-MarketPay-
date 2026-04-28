@@ -1,5 +1,14 @@
 import axios from "axios";
-import type { Availability, Job, Application, UserProfile, Rating, Message } from "@/utils/types";
+import type {
+  Availability,
+  Job,
+  Application,
+  UserProfile,
+  Rating,
+  ProposalTemplate,
+  PriceAlertPreference,
+  SkillEndorsement,
+} from "@/utils/types";
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000",
@@ -121,15 +130,69 @@ export async function fetchMyJobs(publicKey: string) {
 }
 
 /**
- * Tracks a referral click for a job.
- * 
+ * Evaluates application quality using AI (Claude API).
+ *
  * @param jobId Job identifier.
- * @param referrer Referrer's Stellar public key.
+ * @returns Array of scores and reasonings for all applications.
  */
-export async function trackReferralClick(jobId: string, referrer: string) {
-  await api.post(`/api/jobs/${jobId}/referral`, { referrer });
+export async function scoreProposals(jobId: string) {
+  const { data } = await api.post<{
+    success: boolean;
+    data: { id: string; score: number; reasoning: string }[];
+  }>(`/api/jobs/${jobId}/score-proposals`);
+  return data.data;
 }
 
+/**
+ * Get analytics for a job (applications per day, avg bid, skill distribution, time to hire).
+ *
+ * @param jobId Job identifier.
+ * @returns Analytics data for the job.
+ */
+export async function fetchJobAnalytics(jobId: string) {
+  const { data } = await api.get<{ success: boolean; data: JobAnalytics }>(
+    `/api/jobs/${jobId}/analytics`,
+  );
+  return data.data;
+}
+
+/**
+ * Extend a job's expiry by 30 days.
+ *
+ * @param jobId Job identifier.
+ * @returns Updated job record.
+ */
+export async function extendJobExpiry(jobId: string) {
+  const { data } = await api.patch<{ success: boolean; data: Job }>(
+    `/api/jobs/${jobId}/extend`,
+  );
+  return data.data;
+}
+
+/**
+ * Get jobs expiring within 3 days.
+ *
+ * @returns Array of expiring jobs.
+ */
+export async function fetchExpiringJobs() {
+  const { data } = await api.get<{ success: boolean; data: Job[] }>(
+    "/api/jobs/expiring",
+  );
+  return data.data;
+}
+
+/**
+ * Manually trigger expiry check for old jobs.
+ *
+ * @returns Count of expired jobs.
+ */
+export async function expireOldJobs() {
+  const { data } = await api.post<{
+    success: boolean;
+    data: { expiredCount: number };
+  }>("/api/jobs/expire-old");
+  return data.data.expiredCount;
+}
 
 // ─── Applications ─────────────────────────────────────────────────────────────
 
@@ -218,27 +281,16 @@ export async function updateProfileAvailability(
 }
 
 /**
- * Fetches application statistics for a freelancer profile.
+ * Verifies a user's identity via a DID provider and stores the resulting credential hash.
  *
- * @param publicKey Freelancer Stellar public key.
- * @returns Statistics including total applications, accepted count, and success rate.
+ * @param publicKey User Stellar public key.
+ * @param didHash The credential hash/DID URI returned by the provider.
+ * @returns The updated profile.
  */
-export async function fetchProfileStats(publicKey: string) {
-  const { data } = await api.get<{ success: boolean; data: ProfileStats }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/stats`
-  );
-  return data.data;
-}
-
-/**
- * Fetches the average response time (acceptance to completion) for a freelancer.
- *
- * @param publicKey Freelancer Stellar public key.
- * @returns Average response time in days.
- */
-export async function fetchResponseTime(publicKey: string) {
-  const { data } = await api.get<{ success: boolean; data: ResponseTimeStats }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/response-time`
+export async function verifyIdentity(publicKey: string, didHash: string) {
+  const { data } = await api.post<{ success: boolean; data: UserProfile }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/verify`,
+    { didHash },
   );
   return data.data;
 }
