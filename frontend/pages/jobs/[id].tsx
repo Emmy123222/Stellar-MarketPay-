@@ -3,12 +3,10 @@ import TimeTracker from "@/components/TimeTracker";
  * pages/jobs/[id].tsx
  * Single job detail page — view description, apply, manage as client, and see related jobs.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import Head from "next/head";
-import Link from "next/link";
-import { useRouter } from "next/router";
 import ApplicationForm from "@/components/ApplicationForm";
 import RatingForm from "@/components/RatingForm";
 import ProposalComparison from "@/components/ProposalComparison";
@@ -22,6 +20,7 @@ import {
   fetchProfile,
   inviteFreelancer,
   timeoutRefund,
+  incrementJobView,
 } from "@/lib/api";
 import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass, copyToClipboard } from "@/utils/format";
 import {
@@ -39,9 +38,6 @@ import {
   getEscrowState,
   buildPartialReleaseTransaction,
 } from "@/lib/stellar";
-import { Asset, type Transaction } from "@stellar/stellar-sdk";
-import { signTransactionWithWallet } from "@/lib/wallet";
-import { formatDate, shortenAddress, statusClass, statusLabel, timeAgo } from "@/utils/format";
 import type { Application, Job } from "@/utils/types";
 
 interface JobDetailProps {
@@ -104,19 +100,25 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
 
     setLoading(true);
 
-    Promise.all([fetchJob(id as string), fetchApplications(id as string)])
-      .then(([jobData, applicationData]) => {
-        setJob(jobData);
-        setApplications(applicationData);
-      })
     Promise.all([
-      fetchJob(id as string, publicKey || undefined),
-      fetchApplications(id as string),
+      fetchJob(jobId, publicKey || undefined),
+      fetchApplications(jobId),
     ])
-      .then(([j, apps]) => { setJob(j); setApplications(apps); })
+      .then(([j, apps]) => { 
+        setJob(j); 
+        setApplications(apps);
+        
+        // Track unique view
+        const viewedKey = `viewed_${jobId}`;
+        if (typeof window !== "undefined" && !sessionStorage.getItem(viewedKey)) {
+          incrementJobView(jobId)
+            .then(() => sessionStorage.setItem(viewedKey, "true"))
+            .catch(() => {});
+        }
+      })
       .catch(() => router.push("/jobs"))
       .finally(() => setLoading(false));
-  }, [id, router.isReady]);
+  }, [jobId, router.isReady, publicKey]);
 
   useEffect(() => {
     if (!job?.escrowContractId || !job?.id) return;
@@ -534,6 +536,10 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                   <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
                   <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">
                     {job.category}
+                  </span>
+                  <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10 flex items-center gap-1">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                    {job.viewCount} views
                   </span>
                   {job.boosted && new Date(job.boostedUntil || "") > new Date() && (
                     <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
