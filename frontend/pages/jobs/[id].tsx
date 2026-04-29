@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import TimeTracker from "@/components/TimeTracker";
+/**
+ * pages/jobs/[id].tsx
+ * Single job detail page — view description, apply, manage as client, and see related jobs.
+ */
+import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
+import Link from "next/link";
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
@@ -6,8 +13,8 @@ import ApplicationForm from "@/components/ApplicationForm";
 import RatingForm from "@/components/RatingForm";
 import ProposalComparison from "@/components/ProposalComparison";
 import ShareJobModal from "@/components/ShareJobModal";
-import WalletConnect from "@/components/WalletConnect";
-import { acceptApplication, fetchApplications, fetchJob, releaseEscrow } from "@/lib/api";
+import { fetchJob, fetchApplications, acceptApplication, releaseEscrow } from "@/lib/api";
+import { formatXLM, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
 import {
   accountUrl,
   buildReleaseEscrowTransaction,
@@ -50,7 +57,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [loading, setLoading] = useState(true);
   const [showApplyForm, setShowApplyForm] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [prefillData, setPrefillData] = useState<{ bidAmount?: string; message?: string } | null>(null);
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [releasingEscrow, setReleasingEscrow] = useState(false);
   const [releaseSuccess, setReleaseSuccess] = useState(false);
@@ -137,6 +144,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     setActionError(null);
 
     try {
+      setActionError(null);
       await acceptApplication(applicationId, publicKey);
       await refreshJobState();
     } catch {
@@ -154,7 +162,6 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
 
     setReleasingEscrow(true);
     setActionError(null);
-    setReleaseTxHash(null);
 
     try {
       const prepared = await buildReleaseEscrowTransaction(job.escrowContractId, job.id, publicKey);
@@ -178,6 +185,13 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     try {
       const { hash } = await submitSignedSorobanTransaction(signedXDR);
       await releaseEscrow(job.id, publicKey, hash);
+
+      fetchActualFee(hash).then((actual) => {
+        if (actual) {
+          // eslint-disable-next-line no-console
+          console.info(`[escrow] release_escrow ${job.id} actual fee ${actual.feeChargedXlm} XLM`);
+        }
+      }).catch(() => {});
 
       setReleaseTxHash(hash);
       setReleaseSuccess(true);
@@ -408,9 +422,24 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             </div>
           )}
 
-          {isClient && applications.length > 0 && (
-            <section className="mb-6">
-              <h2 className="font-display text-xl font-bold text-amber-100 mb-4">
+          <div className="mt-5">
+            <button
+              onClick={() => setShowShareModal(true)}
+              className="text-xs text-market-400 hover:text-market-300 underline"
+            >
+              Share job
+            </button>
+          </div>
+        </div>
+
+        {isFreelancer && job.status === "in_progress" && (
+          <TimeTracker jobId={job.id} />
+        )}
+
+        {isClient && applications.length > 0 && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display text-xl font-bold text-amber-100">
                 Applications ({applications.length})
               </h2>
               <div className="space-y-4">
@@ -462,50 +491,22 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                         </div>
                       </div>
                     )}
+                  </div>
 
-                    {application.status === "pending" && job.status === "open" && (
-                      <button
-                        onClick={() => handleAcceptApplication(application.id)}
-                        className="btn-secondary text-sm py-2 px-4 mt-4"
-                      >
-                        Accept Proposal
-                      </button>
-                    )}
-                  </article>
-                ))}
-              </div>
-            </section>
-          )}
+                  <p className="text-amber-700/80 text-sm leading-relaxed mb-4">
+                    {application.proposal}
+                  </p>
 
-          {!isClient && job.status === "open" && (
-            <div className="mb-6">
-              {!publicKey ? (
-                <div className="card text-center">
-                  <p className="text-amber-800 text-sm mb-4">Connect your wallet to apply for this job</p>
-                  <WalletConnect onConnect={onConnect} />
+                  {application.status === "pending" && job.status === "open" && (
+                    <button
+                      onClick={() => handleAcceptApplication(application.id)}
+                      className="btn-secondary text-sm py-2 px-4"
+                    >
+                      Accept Proposal
+                    </button>
+                  )}
                 </div>
-              ) : hasApplied ? (
-                <div className="card text-center py-8 border-market-500/20">
-                  <p className="text-market-400 font-medium mb-1">Application submitted</p>
-                  <p className="text-amber-800 text-sm">The client will review your proposal shortly.</p>
-                </div>
-              ) : showApplyForm ? (
-                <ApplicationForm
-                  job={job}
-                  publicKey={publicKey}
-                  prefillData={prefillData || undefined}
-                  onSuccess={() => {
-                    setShowApplyForm(false);
-                    refreshJobState().catch(() => undefined);
-                  }}
-                />
-              ) : (
-                <div className="text-center">
-                  <button onClick={() => setShowApplyForm(true)} className="btn-primary text-base px-10 py-3.5">
-                    Apply for this Job
-                  </button>
-                </div>
-              )}
+              ))}
             </div>
           )}
 
@@ -539,6 +540,54 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             <h1>{job.title}</h1>
             <p className="brief-subtitle">Scope of Work Brief</p>
           </div>
+        )}
+
+        {showComparison && (
+          <ProposalComparison
+            applications={selectedApps}
+            job={job}
+            publicKey={publicKey}
+            onClose={() => setShowComparison(false)}
+            onAccept={handleAcceptApplication}
+          />
+        )}
+
+        {!isClient && job.status === "open" && (
+          <div className="mb-6">
+            {!publicKey ? (
+              <div>
+                <p className="text-amber-800 text-sm mb-4 text-center">
+                  Connect your wallet to apply for this job
+                </p>
+                <WalletConnect onConnect={onConnect} />
+              </div>
+            ) : hasApplied ? (
+              <div className="card text-center py-8 border-market-500/20">
+                <p className="text-market-400 font-medium mb-1">Application submitted</p>
+                <p className="text-amber-800 text-sm">
+                  The client will review your proposal shortly.
+                </p>
+              </div>
+            ) : showApplyForm ? (
+              <ApplicationForm
+                job={job}
+                publicKey={publicKey}
+                prefillData={prefillData}
+                onSuccess={() => {
+                  setShowApplyForm(false);
+                  fetchApplications(job.id).then(setApplications);
+                }}
+              />
+            ) : (
+              <div className="text-center">
+                <button
+                  onClick={() => setShowApplyForm(true)}
+                  className="btn-primary text-base px-10 py-3.5"
+                >
+                  Apply for this Job
+                </button>
+              </div>
+            )}
 
           <div className="brief-grid">
             <div>
