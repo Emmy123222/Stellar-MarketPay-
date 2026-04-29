@@ -88,8 +88,10 @@ npm run dev
 ```env
 NEXT_PUBLIC_STELLAR_NETWORK=testnet
 NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
+NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
 NEXT_PUBLIC_API_URL=http://localhost:4000
 NEXT_PUBLIC_CONTRACT_ID=           # Set after deploying contract
+NEXT_PUBLIC_USE_CONTRACT_MOCK=false # Set to 'true' for offline development
 ```
 
 ### Backend (`backend/.env`)
@@ -99,6 +101,38 @@ STELLAR_NETWORK=testnet
 HORIZON_URL=https://horizon-testnet.stellar.org
 CONTRACT_ID=                        # Set after deploying contract
 ```
+
+---
+
+## 🧪 Offline Development with Contract Mock
+
+For frontend development without a deployed Soroban contract:
+
+1. **Enable mock mode** in `frontend/.env.local`:
+   ```env
+   NEXT_PUBLIC_USE_CONTRACT_MOCK=true
+   ```
+
+2. **Start the frontend**:
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+
+3. **What works offline**:
+   - ✅ Job creation with escrow locking
+   - ✅ Start work, release escrow, refund escrow
+   - ✅ Query escrow status and records
+   - ✅ All contract calls logged to browser console
+   - ✅ Realistic delays and error simulation
+   - ✅ No Freighter signing required
+   - ✅ No network calls to Stellar/Soroban
+
+4. **Check the console**:
+   All mock contract calls are logged with `[CONTRACT MOCK]` prefix for debugging.
+
+5. **Switch back to real contract**:
+   Set `NEXT_PUBLIC_USE_CONTRACT_MOCK=false` and provide a valid `NEXT_PUBLIC_CONTRACT_ID`.
 
 ---
 

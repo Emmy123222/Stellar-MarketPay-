@@ -101,8 +101,8 @@
     @apply badge bg-red-500/10 text-red-400 border-red-500/20;
   }
 
-  .badge-expired {
-    @apply badge bg-amber-500/10 text-amber-300 border-amber-500/20;
+  .badge-disputed {
+    @apply badge bg-indigo-500/10 text-indigo-400 border-indigo-500/20;
   }
 
   .address-tag {

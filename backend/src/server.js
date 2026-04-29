@@ -14,6 +14,8 @@ const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
 const { WebSocketServer } = require("ws");
 const nodemailer = require("nodemailer");
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpecs = require('./config/swagger');
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -126,6 +128,12 @@ app.locals.broadcastRealtime = broadcastRealtime;
 app.use(helmet());
 app.use(morgan("dev"));
 app.use(express.json({ limit: "20kb" }));
+
+// Swagger UI
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'Stellar MarketPay API Documentation'
+}));
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").split(",").map(o => o.trim());
 app.use(cors({

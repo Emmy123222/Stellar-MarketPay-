@@ -1,35 +1,32 @@
-/**
- * lib/stellar.ts
- * Stellar blockchain helpers for MarketPay.
- */
+import {
+  Horizon, Networks, Asset, Operation, TransactionBuilder, Transaction,
+  Contract, nativeToScVal, Address, scValToNative,
+} from "@stellar/stellar-sdk";
+import * as SorobanRpc from "@stellar/stellar-sdk/rpc";
 
 import {
   Horizon, Networks, Asset, Operation, TransactionBuilder, Transaction,
-  Contract, nativeToScVal, Address,
+  Contract, nativeToScVal, scValToNative, Address,
 } from "@stellar/stellar-sdk";
 import { SorobanRpc } from "@stellar/stellar-sdk";
+import {
+  mockCreateEscrow,
+  mockStartWork,
+  mockReleaseEscrow,
+  mockRefundEscrow,
+  mockGetEscrow,
+  mockGetStatus,
+  mockGetEscrowCount,
+} from "./contractMock";
 
 const NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as "testnet" | "mainnet";
 const HORIZON_URL = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
-
-/** Soroban RPC (Stellar RPC) — used for smart contract calls. */
-const SOROBAN_RPC_URL =
-  process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ||
-  (NETWORK === "mainnet"
-    ? "https://soroban-mainnet.stellar.org"
-    : "https://soroban-testnet.stellar.org");
+const SOROBAN_RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
+const USE_MOCK = process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
 
 export const NETWORK_PASSPHRASE = NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 export const server = new Horizon.Server(HORIZON_URL);
 export const sorobanServer = new SorobanRpc.Server(SOROBAN_RPC_URL);
-
-export type MarketPayContractEventType = "created" | "released" | "refunded";
-
-export interface MarketPayContractEvent {
-  type: MarketPayContractEventType;
-  jobId: string | null;
-  raw: SorobanRpc.Api.GetEventsResponse["events"][number];
-}
 
 // XLM SAC (Stellar Asset Contract) address on testnet
 export const XLM_SAC_ADDRESS =
@@ -37,218 +34,144 @@ export const XLM_SAC_ADDRESS =
     ? "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
     : "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 
-// USDC SAC (Stellar Asset Contract) address on testnet
-export const USDC_SAC_ADDRESS =
-  NETWORK === "mainnet"
-    ? "CCU2PSEUPFGB5O4QLNBVCPGSJ6YHYIMFZTQDJTQTJ6LQI3M3J66OQ5YN"
-    : "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+export type MarketPayContractEventType = "created" | "released" | "refunded" | "timeout_refunded";
 
-
-// USDC asset issued by Circle
-export const USDC_ISSUER =
-  NETWORK === "mainnet"
-    ? "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
-    : "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
-export const USDC = new Asset("USDC", USDC_ISSUER);
-
-// ─── Account ─────────────────────────────────────────────────────────────────
-
-export async function getXLMBalance(publicKey: string): Promise<string> {
-  try {
-    const account = await server.loadAccount(publicKey);
-    const xlm = account.balances.find((b) => b.asset_type === "native");
-    return xlm ? xlm.balance : "0";
-  } catch {
-    throw new Error("Account not found or not funded.");
-  }
+export interface MarketPayContractEvent {
+  type: MarketPayContractEventType;
+  jobId: string | null;
+  raw: SorobanRpc.Api.GetEventsResponse["events"][number];
 }
 
-export async function getUSDCBalance(publicKey: string): Promise<string | null> {
-  try {
-    const account = await server.loadAccount(publicKey);
-    const usdc = account.balances.find(
-      (b): b is Horizon.HorizonApi.BalanceLineAsset =>
-        b.asset_type !== "native" &&
-        (b as Horizon.HorizonApi.BalanceLineAsset).asset_code === "USDC" &&
-        (b as Horizon.HorizonApi.BalanceLineAsset).asset_issuer === USDC_ISSUER
+export interface EscrowResult {
+  /** The transaction hash returned after submission */
+  txHash: string;
+}
+
+// ---------------------------------------------------------------------------
+// Freighter helpers (browser-only)
+// ---------------------------------------------------------------------------
+
+async function getFreighter() {
+  if (typeof window === "undefined") {
+    throw new Error("Freighter is only available in the browser.");
+  }
+  // Freighter injects window.freighter; fall back to @stellar/freighter-api
+  // when the extension is installed it patches the global.
+  const { isConnected, getPublicKey, signTransaction } = await import(
+    "@stellar/freighter-api"
+  );
+
+  const connected = await isConnected();
+  if (!connected) {
+    throw new Error(
+      "Freighter wallet not found. Please install the Freighter extension."
     );
-    return usdc ? usdc.balance : null;
+  }
+  return { getPublicKey, signTransaction };
+}
+
+// ---------------------------------------------------------------------------
+// Core: build the Soroban create_escrow transaction
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds, simulates, and returns a base64-encoded XDR transaction that invokes
+ * `create_escrow(job_id: String, client: Address, amount: i128)` on the
+ * deployed Soroban contract.
+ *
+ * The returned XDR is ready to be signed by Freighter and submitted.
+ */
+export async function buildCreateEscrowTx(
+  params: EscrowParams
+): Promise<string> {
+  const { clientPublicKey, jobId, budgetXlm } = params;
+
+  if (!CONTRACT_ID) {
+    throw new Error(
+      "NEXT_PUBLIC_CONTRACT_ID is not set. Add it to your .env.local file."
+    );
+  }
+
+  const server = new SorobanRpc.Server(SOROBAN_RPC_URL, {
+    allowHttp: false,
+  });
+
+  // Fetch the source account
+  const account = await server.getAccount(clientPublicKey);
+
+  // Convert XLM to stroops (1 XLM = 10_000_000 stroops)
+  const amountStroops = BigInt(Math.round(budgetXlm * 10_000_000));
+
+  // Build the contract call arguments
+  const contract = new Contract(CONTRACT_ID);
+  const callArgs = [
+    nativeToScVal(jobId, { type: "string" }), // job_id: String
+    Address.fromString(clientPublicKey).toScVal(), // client: Address
+    nativeToScVal(amountStroops, { type: "i128" }), // amount: i128 (stroops)
+  ];
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(contract.call("create_escrow", ...callArgs))
+    .setTimeout(300)
+    .build();
+
+  // Simulate to populate the soroban data / auth entries
+  const simResponse = await server.simulateTransaction(tx);
+
+/**
+ * Issue #175 — Read the timeout_ledger for a job directly from the contract.
+ * Uses simulation (no transaction submission or fees).
+ * @returns timeout_ledger as a number, or null if the call fails.
+ */
+export async function getEscrowTimeoutLedger(contractId: string, jobId: string): Promise<number | null> {
+  if (!CONTRACT_ID_RE.test(contractId)) return null;
+  try {
+    // Use a dummy source account for simulation
+    const account = await sorobanServer.getAccount("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF");
+    const contract = new Contract(contractId);
+    const op = contract.call("get_timeout_ledger", nativeToScVal(jobId));
+    const tx = new TransactionBuilder(account, {
+      fee: "100",
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(op)
+      .setTimeout(30)
+      .build();
+
+    const sim = await sorobanServer.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationSuccess(sim) && sim.result?.retval) {
+      const raw = scValToNative(sim.result.retval);
+      if (typeof raw === "number") return raw;
+      if (typeof raw === "bigint") return Number(raw);
+      if (typeof raw === "string") return parseInt(raw, 10);
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
-export async function getBalances(publicKey: string): Promise<{ xlm: string; usdc: string | null }> {
+/**
+ * Fetch the latest closed ledger sequence from Soroban RPC.
+ * Used for timeout countdown calculations.
+ */
+export async function getCurrentLedgerSequence(): Promise<number> {
   try {
-    const account = await server.loadAccount(publicKey);
-    const xlm = account.balances.find((b) => b.asset_type === "native");
-    const usdc = account.balances.find(
-      (b): b is Horizon.HorizonApi.BalanceLineAsset =>
-        b.asset_type !== "native" &&
-        (b as Horizon.HorizonApi.BalanceLineAsset).asset_code === "USDC" &&
-        (b as Horizon.HorizonApi.BalanceLineAsset).asset_issuer === USDC_ISSUER
-    );
-    return {
-      xlm: xlm ? xlm.balance : "0",
-      usdc: usdc ? usdc.balance : null,
-    };
+    const latest = await sorobanServer.getLatestLedger();
+    return latest.sequence;
   } catch {
-    return { xlm: "0", usdc: null };
+    return 0;
   }
-}
-
-// ─── Payments ─────────────────────────────────────────────────────────────────
-
-/**
- * Build an unsigned payment transaction for XLM or USDC.
- */
-export async function buildPaymentTransaction({
-  fromPublicKey, toPublicKey, amount, memo, asset = "XLM",
-}: {
-  fromPublicKey: string;
-  toPublicKey: string;
-  amount: string;
-  memo?: string;
-  asset?: "XLM" | "USDC";
-}) {
-  const sourceAccount = await server.loadAccount(fromPublicKey);
-
-  // Check recipient trustline for USDC
-  if (asset === "USDC") {
-    const recipient = await server.loadAccount(toPublicKey).catch(() => null);
-    if (!recipient) throw new Error("Recipient account not found on Stellar network.");
-    const hasTrustline = recipient.balances.some(
-      (b): b is Horizon.HorizonApi.BalanceLineAsset =>
-        b.asset_type !== "native" &&
-        (b as Horizon.HorizonApi.BalanceLineAsset).asset_code === "USDC" &&
-        (b as Horizon.HorizonApi.BalanceLineAsset).asset_issuer === USDC_ISSUER
-    );
-    if (!hasTrustline) {
-      throw new Error("Recipient has no USDC trustline. They must add USDC to their wallet first.");
-    }
-  }
-
-  const builder = new TransactionBuilder(sourceAccount, {
-    fee: "100",
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(Operation.payment({
-      destination: toPublicKey,
-      asset: asset === "USDC" ? USDC : Asset.native(),
-      amount,
-    }))
-    .setTimeout(60);
-
-  if (memo) {
-    const { Memo } = await import("@stellar/stellar-sdk");
-    builder.addMemo(Memo.text(memo.slice(0, 28)));
-  }
-
-  return builder.build();
 }
 
 /**
- * Build a Strict Send Path Payment transaction.
- * This converts a source asset to a destination asset via the DEX.
+ * Builds a prepared Soroban transaction that invokes `timeout_refund(job_id, client)` on the escrow contract.
+ * Issue #175 — Client claims refund after freelancer inactivity timeout.
  */
-export async function buildPathPaymentTransaction({
-  fromPublicKey,
-  toPublicKey,
-  sendAsset,
-  sendAmount,
-  destAsset,
-  destMin,
-  path,
-}: {
-  fromPublicKey: string;
-  toPublicKey: string;
-  sendAsset: Asset;
-  sendAmount: string;
-  destAsset: Asset;
-  destMin: string;
-  path: Asset[];
-}) {
-  const sourceAccount = await server.loadAccount(fromPublicKey);
-
-  const builder = new TransactionBuilder(sourceAccount, {
-    fee: "1000",
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(Operation.pathPaymentStrictSend({
-      sendAsset,
-      sendAmount,
-      destination: toPublicKey,
-      destAsset,
-      destMin,
-      path,
-    }))
-    .setTimeout(60);
-
-  return builder.build();
-}
-
-/**
- * Get the best path and estimated exchange rate for a swap.
- */
-export async function getPathPaymentPrice(
-  sourceAsset: Asset,
-  sourceAmount: string,
-  destAsset: Asset
-): Promise<{ amount: string; path: Asset[] } | null> {
-  try {
-    const paths = await server.strictSendPaths(sourceAsset, sourceAmount, [destAsset]).call();
-    if (paths.records.length === 0) return null;
-    
-    // Pick the one with the highest destination amount
-    const bestPath = paths.records[0];
-    return {
-      amount: bestPath.destination_amount,
-      path: bestPath.path.map(p => new Asset(p.asset_code || "XLM", p.asset_issuer)),
-    };
-  } catch (err) {
-    console.error("Error fetching path payment price:", err);
-    return null;
-  }
-}
-
-export async function submitTransaction(signedXDR: string) {
-  const tx = new Transaction(signedXDR, NETWORK_PASSPHRASE);
-  try {
-    return await server.submitTransaction(tx);
-  } catch (err: unknown) {
-    const e = err as { response?: { data?: { extras?: { result_codes?: unknown } } } };
-    if (e?.response?.data?.extras?.result_codes) {
-      throw new Error(`Transaction failed: ${JSON.stringify(e.response.data.extras.result_codes)}`);
-    }
-    throw err;
-  }
-}
-
-// ─── Soroban escrow (release_escrow) ───────────────────────────────────────────
-
-const CONTRACT_ID_RE = /^C[A-Z0-9]{55}$/;
-
-function friendlySorobanError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  const lower = raw.toLowerCase();
-  if (lower.includes("insufficient") && (lower.includes("balance") || lower.includes("fund"))) {
-    return "Not enough XLM to pay the network fee. Add a small amount of test XLM to this account and try again.";
-  }
-  if (lower.includes("simulation") && lower.includes("failed")) {
-    return "The contract rejected this transaction (simulation failed). Check that the job ID matches the on-chain escrow and that you are the client.";
-  }
-  if (lower.includes("timeout") || lower.includes("timed out")) {
-    return "The network took too long to confirm. Check Stellar Expert for the transaction status.";
-  }
-  if (raw.length > 220) return `${raw.slice(0, 220)}…`;
-  return raw;
-}
-
-/**
- * Builds a prepared Soroban transaction that invokes `release_escrow(job_id, client)` on the escrow contract.
- * Sign the returned transaction with Freighter, then call {@link submitSignedSorobanTransaction}.
- */
-export async function buildReleaseEscrowTransaction(
+export async function buildTimeoutRefundTransaction(
   contractId: string,
   jobId: string,
   clientAddress: string
@@ -265,8 +188,77 @@ export async function buildReleaseEscrowTransaction(
     const account = await sorobanServer.getAccount(clientAddress);
     const contract = new Contract(contractId);
     const op = contract.call(
-      "release_escrow",
+      "timeout_refund",
       nativeToScVal(jobId),
+      Address.fromString(clientAddress).toScVal()
+    );
+
+    const built = new TransactionBuilder(account, {
+      fee: "1000000",
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(op)
+      .setTimeout(60)
+      .build();
+
+    return await sorobanServer.prepareTransaction(built);
+  } catch (err: unknown) {
+    throw new Error(friendlySorobanError(err));
+  }
+}
+export async function buildReleaseWithConversionTransaction(
+  contractId: string,
+  jobId: string,
+  clientAddress: string,
+  targetTokenAddress: string,
+  minAmountOut: bigint
+): Promise<Transaction> {
+  try {
+    const account = await sorobanServer.getAccount(clientAddress);
+    const contract = new Contract(contractId);
+    const op = contract.call(
+      "release_with_conversion",
+      nativeToScVal(jobId),
+      Address.fromString(clientAddress).toScVal(),
+      Address.fromString(targetTokenAddress).toScVal(),
+      nativeToScVal(minAmountOut, { type: "i128" })
+    );
+  }
+
+  // Assemble the transaction (adds footprint, resource fees, etc.)
+  const assembledTx = SorobanRpc.assembleTransaction(tx, simResponse).build();
+
+  return assembledTx.toXDR();
+}
+
+// ---------------------------------------------------------------------------
+// Core: sign with Freighter and submit
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds a prepared Soroban transaction that invokes `partial_release(job_id, milestone_index, client)` on the escrow contract.
+ */
+export async function buildPartialReleaseTransaction(
+  contractId: string,
+  jobId: string,
+  clientAddress: string,
+  milestoneIndex: number
+): Promise<Transaction> {
+  if (!CONTRACT_ID_RE.test(contractId)) {
+    throw new Error("Invalid escrow contract ID. Expected a Soroban contract address (C…).");
+  }
+  if (!jobId.trim()) throw new Error("Job ID is required.");
+  if (!/^G[A-Z0-9]{55}$/.test(clientAddress)) {
+    throw new Error("Invalid client account.");
+  }
+
+  try {
+    const account = await sorobanServer.getAccount(clientAddress);
+    const contract = new Contract(contractId);
+    const op = contract.call(
+      "partial_release",
+      nativeToScVal(jobId),
+      nativeToScVal(milestoneIndex, { type: "u32" }),
       Address.fromString(clientAddress).toScVal()
     );
 
@@ -285,37 +277,26 @@ export async function buildReleaseEscrowTransaction(
 }
 
 /**
- * Builds a prepared Soroban transaction that invokes `release_with_conversion(job_id, client, target_token, min_amount_out)` on the escrow contract.
+ * Reads the on-chain Escrow state for a job.
  */
-export async function buildReleaseWithConversionTransaction(
-  contractId: string,
-  jobId: string,
-  clientAddress: string,
-  targetTokenAddress: string,
-  minAmountOut: bigint
-): Promise<Transaction> {
+export async function getEscrowState(contractId: string, jobId: string, clientAddress: string): Promise<any> {
   try {
-    const account = await sorobanServer.getAccount(clientAddress);
+    const account = await sorobanServer.getAccount(clientAddress).catch(() => null);
+    if (!account) return null;
     const contract = new Contract(contractId);
-    const op = contract.call(
-      "release_with_conversion",
-      nativeToScVal(jobId),
-      Address.fromString(clientAddress).toScVal(),
-      Address.fromString(targetTokenAddress).toScVal(),
-      nativeToScVal(minAmountOut, { type: "i128" })
-    );
-
-    const built = new TransactionBuilder(account, {
-      fee: "1000000",
-      networkPassphrase: NETWORK_PASSPHRASE,
-    })
+    const op = contract.call("get_escrow", nativeToScVal(jobId));
+    const tx = new TransactionBuilder(account, { fee: "100000", networkPassphrase: NETWORK_PASSPHRASE })
       .addOperation(op)
-      .setTimeout(60)
-      .build();
-
-    return await sorobanServer.prepareTransaction(built);
-  } catch (err: unknown) {
-    throw new Error(friendlySorobanError(err));
+      .setTimeout(30).build();
+      
+    const simResult = await sorobanServer.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationSuccess(simResult) && simResult.result?.retval) {
+      return scValToNative(simResult.result.retval);
+    }
+    return null;
+  } catch (err) {
+    console.error("Failed to read escrow state", err);
+    return null;
   }
 }
 
@@ -323,105 +304,14 @@ export async function buildReleaseWithConversionTransaction(
  * Submits a signed Soroban transaction via RPC and polls until success or failure.
  * @returns Confirmed transaction hash (ledger close).
  */
-export async function submitSignedSorobanTransaction(signedXdr: string): Promise<{ hash: string }> {
-  let tx: Transaction;
-  try {
-    tx = new Transaction(signedXdr, NETWORK_PASSPHRASE);
-  } catch (err: unknown) {
-    throw new Error(friendlySorobanError(err));
-  }
+export async function signAndSubmitEscrowTx(
+  preparedXdr: string
+): Promise<EscrowResult> {
+  const { signTransaction } = await getFreighter();
 
-  let sent: SorobanRpc.Api.SendTransactionResponse;
-  try {
-    sent = await sorobanServer.sendTransaction(tx);
-  } catch (err: unknown) {
-    throw new Error(friendlySorobanError(err));
-  }
-
-  if (sent.status === "ERROR") {
-    const detail =
-      sent.errorResult != null
-        ? `Transaction rejected: ${String(sent.errorResult)}`
-        : "Transaction was rejected by the network.";
-    throw new Error(friendlySorobanError(new Error(detail)));
-  }
-  if (sent.status === "TRY_AGAIN_LATER") {
-    throw new Error("The network is busy. Wait a few seconds and try again.");
-  }
-
-  const hash = sent.hash;
-  const maxAttempts = 90;
-  for (let i = 0; i < maxAttempts; i += 1) {
-    const info = await sorobanServer.getTransaction(hash);
-    if (info.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
-      return { hash };
-    }
-    if (info.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
-      throw new Error(
-        "The on-chain transaction failed. Open the explorer link to see details, or verify the escrow state matches this job."
-      );
-    }
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-  throw new Error(
-    "Confirmation timed out waiting for the network. Your transaction may still succeed — check Stellar Expert using the hash from your wallet."
-  );
-}
-
-// ─── Utilities ────────────────────────────────────────────────────────────────
-
-export function isValidStellarAddress(address: string): boolean {
-  return /^G[A-Z0-9]{55}$/.test(address);
-}
-
-export function explorerUrl(hash: string): string {
-  const net = NETWORK === "mainnet" ? "public" : "testnet";
-  return `https://stellar.expert/explorer/${net}/tx/${hash}`;
-}
-
-// ─── Soroban / Escrow ─────────────────────────────────────────────────────────
-
-/**
- * Build an unsigned Soroban transaction that calls create_escrow() on the
- * MarketPay contract.  The caller must sign it with Freighter and submit via
- * submitSorobanTransaction().
- *
- * @param clientPublicKey  Stellar address of the client (signer + payer)
- * @param jobId            Backend job UUID
- * @param freelancerAddress Stellar address of the freelancer (placeholder — use a dummy if not yet known)
- * @param budget           Budget amount (e.g. "100.0000000")
- * @param currency         Currency type ("XLM" or "USDC")
- */
-export async function buildCreateEscrowTransaction({
-  clientPublicKey,
-  jobId,
-  freelancerAddress,
-  budget,
-  currency = "XLM",
-}: {
-  clientPublicKey: string;
-  jobId: string;
-  freelancerAddress: string;
-  budget: string;
-  currency?: "XLM" | "USDC";
-}) {
-  const contractId = process.env.NEXT_PUBLIC_CONTRACT_ID;
-  if (!contractId) throw new Error("NEXT_PUBLIC_CONTRACT_ID is not set");
-
-  // Convert budget to smallest unit based on currency
-  // XLM: 1 XLM = 10_000_000 stroops
-  // USDC: 1 USDC = 1_000_000 units (6 decimals)
-  const amountUnits = currency === "XLM" 
-    ? BigInt(Math.round(parseFloat(budget) * 10_000_000))
-    : BigInt(Math.round(parseFloat(budget) * 1_000_000));
-
-  const tokenAddress = currency === "XLM" ? XLM_SAC_ADDRESS : USDC_SAC_ADDRESS;
-
-  const contract = new Contract(contractId);
-  const sourceAccount = await sorobanServer.getAccount(clientPublicKey);
-
-  const tx = new TransactionBuilder(sourceAccount, {
-    fee: "1000000", // generous fee for Soroban ops
+  // Ask the user to sign
+  const { signedTransaction } = await signTransaction(preparedXdr, {
+    network: "TESTNET",
     networkPassphrase: NETWORK_PASSPHRASE,
   })
     .addOperation(
@@ -432,77 +322,46 @@ export async function buildCreateEscrowTransaction({
         new Address(freelancerAddress).toScVal(),
         new Address(tokenAddress).toScVal(),
         nativeToScVal(amountUnits, { type: "i128" }),
+        nativeToScVal(null), // milestones: None
+        nativeToScVal(null), // timeout_ledgers: None (use contract default)
       )
     )
     .setTimeout(60)
     .build();
 
-  // Simulate to get the correct resource footprint
-  const simResult = await sorobanServer.simulateTransaction(tx);
-  if (SorobanRpc.Api.isSimulationError(simResult)) {
-    throw new Error(`Soroban simulation failed: ${simResult.error}`);
+  if (sendResponse.status === "ERROR") {
+    const resultXdr = sendResponse.errorResult?.toXDR("base64") ?? "unknown";
+    throw new Error(`Transaction submission failed. Result XDR: ${resultXdr}`);
   }
 
-  return SorobanRpc.assembleTransaction(tx, simResult).build();
-}
+  const txHash = sendResponse.hash;
 
-/**
- * Submit a signed Soroban transaction and poll until it's confirmed.
- */
-export async function submitSorobanTransaction(signedXDR: string): Promise<string> {
-  const sendResult = await sorobanServer.sendTransaction(
-    new Transaction(signedXDR, NETWORK_PASSPHRASE)
-  );
+  // Poll for confirmation
+  let getResponse = await server.getTransaction(txHash);
+  const MAX_POLLS = 20;
+  let polls = 0;
 
-  if (sendResult.status === "ERROR") {
-    throw new Error(`Soroban submission failed: ${JSON.stringify(sendResult.errorResult)}`);
+  while (
+    getResponse.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND &&
+    polls < MAX_POLLS
+  ) {
+    await new Promise((r) => setTimeout(r, 1500));
+    getResponse = await server.getTransaction(txHash);
+    polls++;
   }
 
-  const hash = sendResult.hash;
-
-  // Poll for confirmation (up to 30s)
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
-    const status = await sorobanServer.getTransaction(hash);
-    if (status.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) return hash;
-    if (status.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
-      throw new Error(`Soroban transaction failed: ${hash}`);
-    }
+  if (getResponse.status !== SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+    throw new Error(
+      `Transaction did not succeed. Status: ${getResponse.status}`
+    );
   }
 
-  throw new Error(`Soroban transaction timed out: ${hash}`);
+  return { txHash };
 }
 
-export function accountUrl(address: string): string {
-  const net = NETWORK === "mainnet" ? "public" : "testnet";
-  return `https://stellar.expert/explorer/${net}/account/${address}`;
-}
-
-/**
- * Streams transactions for a given account using Horizon SSE.
- * @param publicKey The account to watch.
- * @param onTransaction Callback triggered when a new transaction is detected.
- * @returns A function to close the stream.
- */
-export function streamAccountTransactions(
-  publicKey: string,
-  onTransaction: (tx: Horizon.ServerApi.TransactionRecord) => void
-): () => void {
-  const closeStream = server
-    .transactions()
-    .forAccount(publicKey)
-    .cursor("now")
-    .stream({
-      onmessage: (tx) => {
-        onTransaction(tx as unknown as Horizon.ServerApi.TransactionRecord);
-      },
-      onerror: (error) => {
-        console.error("Horizon stream error:", error);
-      },
-    });
-
-  return closeStream;
-}
+// ---------------------------------------------------------------------------
+// Convenience: build → sign → submit in one call
+// ---------------------------------------------------------------------------
 
 export function subscribeToContractEvents(
   contractId: string,
@@ -513,7 +372,7 @@ export function subscribeToContractEvents(
   let attempts = 0;
   let cursor: string | undefined;
   const maxAttempts = 3;
-  const supported = new Set<MarketPayContractEventType>(["created", "released", "refunded"]);
+  const supported = new Set<MarketPayContractEventType>(["created", "released", "refunded", "timeout_refunded"]);
 
   const parseEvent = (
     event: SorobanRpc.Api.GetEventsResponse["events"][number]
@@ -522,7 +381,17 @@ export function subscribeToContractEvents(
     const attrs = value?._attributes || {};
     const topics = Array.isArray(attrs.topic) ? attrs.topic : [];
     const first = topics[0] as unknown as { _value?: string } | undefined;
-    const eventType = first?._value as MarketPayContractEventType | undefined;
+    const rawType = first?._value;
+    if (!rawType) return null;
+
+    // Map contract symbols to frontend event types
+    const typeMap: Record<string, MarketPayContractEventType> = {
+      "created": "created",
+      "released": "released",
+      "refunded": "refunded",
+      "torefnd": "timeout_refunded",
+    };
+    const eventType = typeMap[rawType];
     if (!eventType || !supported.has(eventType)) return null;
 
     let jobId: string | null = null;
@@ -573,4 +442,348 @@ export function subscribeToContractEvents(
     isClosed = true;
     if (timeoutRef) clearTimeout(timeoutRef);
   };
+}
+
+// ─── Soroban / Escrow ─────────────────────────────────────────────────────────
+
+/**
+ * Build an unsigned Soroban transaction that calls create_escrow() on the
+ * MarketPay contract. The caller must sign it with Freighter and submit via
+ * submitSorobanTransaction().
+ *
+ * When NEXT_PUBLIC_USE_CONTRACT_MOCK=true, returns a mock transaction that
+ * bypasses the network entirely.
+ *
+ * @param clientPublicKey  Stellar address of the client (signer + payer)
+ * @param jobId            Backend job UUID
+ * @param freelancerAddress Stellar address of the freelancer
+ * @param budgetXLM        Budget in XLM (e.g. "100.0000000")
+ */
+export async function buildCreateEscrowTransaction({
+  clientPublicKey,
+  jobId,
+  freelancerAddress,
+  budgetXLM,
+}: {
+  clientPublicKey: string;
+  jobId: string;
+  freelancerAddress: string;
+  budgetXLM: string;
+}) {
+  // Mock mode: return a fake transaction object
+  if (USE_MOCK) {
+    console.log("[STELLAR] Using contract mock mode");
+    return {
+      toXDR: () => "MOCK_UNSIGNED_XDR",
+      _mockParams: {
+        jobId,
+        client: clientPublicKey,
+        freelancer: freelancerAddress,
+        token: XLM_SAC_ADDRESS,
+        amount: String(BigInt(Math.round(parseFloat(budgetXLM) * 10_000_000))),
+      },
+    } as any;
+  }
+
+  const contractId = process.env.NEXT_PUBLIC_CONTRACT_ID;
+  if (!contractId) throw new Error("NEXT_PUBLIC_CONTRACT_ID is not set");
+
+  // Convert XLM to stroops (1 XLM = 10_000_000 stroops)
+  const amountStroops = BigInt(Math.round(parseFloat(budgetXLM) * 10_000_000));
+
+  const contract = new Contract(contractId);
+  const sourceAccount = await sorobanServer.getAccount(clientPublicKey);
+
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: "1000000", // generous fee for Soroban ops
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call(
+        "create_escrow",
+        nativeToScVal(jobId, { type: "string" }),
+        new Address(clientPublicKey).toScVal(),
+        new Address(freelancerAddress).toScVal(),
+        new Address(XLM_SAC_ADDRESS).toScVal(),
+        nativeToScVal(amountStroops, { type: "i128" }),
+      )
+    )
+    .setTimeout(60)
+    .build();
+
+  // Simulate to get the correct resource footprint
+  const simResult = await sorobanServer.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(simResult)) {
+    throw new Error(`Soroban simulation failed: ${simResult.error}`);
+  }
+
+  return SorobanRpc.assembleTransaction(tx, simResult).build();
+}
+
+/**
+ * Submit a signed Soroban transaction and poll until it's confirmed.
+ * 
+ * When NEXT_PUBLIC_USE_CONTRACT_MOCK=true, calls the mock contract instead.
+ */
+export async function submitSorobanTransaction(signedXDR: string, mockParams?: any): Promise<string> {
+  // Mock mode: call mock contract
+  if (USE_MOCK && signedXDR === "MOCK_SIGNED_XDR" && mockParams) {
+    console.log("[STELLAR] Submitting to mock contract");
+    return await mockCreateEscrow(mockParams);
+  }
+
+  const sendResult = await sorobanServer.sendTransaction(
+    new Transaction(signedXDR, NETWORK_PASSPHRASE)
+  );
+
+  if (sendResult.status === "ERROR") {
+    throw new Error(`Soroban submission failed: ${JSON.stringify(sendResult.errorResult)}`);
+  }
+
+  const hash = sendResult.hash;
+
+  // Poll for confirmation (up to 30s)
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    const status = await sorobanServer.getTransaction(hash);
+    if (status.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) return hash;
+    if (status.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
+      throw new Error(`Soroban transaction failed: ${hash}`);
+    }
+  }
+
+  throw new Error(`Soroban transaction timed out: ${hash}`);
+}
+
+/**
+ * Build and submit start_work transaction.
+ * Marks escrow as in-progress when client accepts a freelancer.
+ */
+export async function startWork(jobId: string, clientPublicKey: string): Promise<string> {
+  if (USE_MOCK) {
+    console.log("[STELLAR] Using contract mock mode for start_work");
+    return await mockStartWork({ jobId, client: clientPublicKey });
+  }
+
+  // Real implementation would build + sign + submit transaction
+  throw new Error("start_work not yet implemented for real contract");
+}
+
+/**
+ * Build and submit release_escrow transaction.
+ * Releases funds to freelancer when work is approved.
+ */
+export async function releaseEscrow(jobId: string, clientPublicKey: string): Promise<string> {
+  if (USE_MOCK) {
+    console.log("[STELLAR] Using contract mock mode for release_escrow");
+    return await mockReleaseEscrow({ jobId, client: clientPublicKey });
+  }
+
+  // Real implementation would build + sign + submit transaction
+  throw new Error("release_escrow not yet implemented for real contract");
+}
+
+/**
+ * Build and submit refund_escrow transaction.
+ * Returns funds to client before work starts.
+ */
+export async function refundEscrow(jobId: string, clientPublicKey: string): Promise<string> {
+  if (USE_MOCK) {
+    console.log("[STELLAR] Using contract mock mode for refund_escrow");
+    return await mockRefundEscrow({ jobId, client: clientPublicKey });
+  }
+
+  // Real implementation would build + sign + submit transaction
+  throw new Error("refund_escrow not yet implemented for real contract");
+}
+
+/**
+ * Query escrow status for a job.
+ */
+export async function getEscrowStatus(jobId: string): Promise<string> {
+  if (USE_MOCK) {
+    console.log("[STELLAR] Using contract mock mode for get_status");
+    return await mockGetStatus(jobId);
+  }
+
+  // Real implementation would query contract
+  throw new Error("get_status not yet implemented for real contract");
+}
+
+/**
+ * Query full escrow record for a job.
+ */
+export async function getEscrow(jobId: string): Promise<any> {
+  if (USE_MOCK) {
+    console.log("[STELLAR] Using contract mock mode for get_escrow");
+    return await mockGetEscrow(jobId);
+  }
+
+  // Real implementation would query contract
+  throw new Error("get_escrow not yet implemented for real contract");
+}
+
+/**
+ * Query total escrow count.
+ */
+export async function getEscrowCount(): Promise<number> {
+  if (USE_MOCK) {
+    console.log("[STELLAR] Using contract mock mode for get_escrow_count");
+    return await mockGetEscrowCount();
+  }
+
+  // Real implementation would query contract
+  throw new Error("get_escrow_count not yet implemented for real contract");
+}
+
+// Enhanced transaction fetching for MarketPay
+export interface MarketPayTransaction {
+  id: string;
+  hash: string;
+  ledger: number;
+  created_at: string;
+  source_account: string;
+  type: string;
+  type_i: number;
+  amount?: string;
+  asset?: string;
+  to?: string;
+  from?: string;
+  memo?: string;
+  memo_type?: string;
+  fee_paid: string;
+  successful: boolean;
+  operations: any[];
+  marketPayType: "payment" | "escrow" | "other";
+}
+
+/**
+ * Fetch transactions with enhanced MarketPay filtering
+ */
+export async function fetchMarketPayTransactions(
+  publicKey: string,
+  limit: number = 20,
+  cursor?: string
+): Promise<{ transactions: MarketPayTransaction[]; hasMore: boolean; nextCursor?: string }> {
+  try {
+    const builder = server
+      .transactions()
+      .forAccount(publicKey)
+      .limit(limit)
+      .order("desc");
+
+    if (cursor) {
+      builder.cursor(cursor);
+    }
+
+    const response = await builder.call();
+    const transactions: MarketPayTransaction[] = [];
+
+    for (const tx of response.records) {
+      const marketPayTx = await parseMarketPayTransaction(tx);
+      if (marketPayTx) {
+        transactions.push(marketPayTx);
+      }
+    }
+
+    return {
+      transactions,
+      hasMore: response.records.length === limit,
+      nextCursor: response.records.length > 0 ? response.records[response.records.length - 1].paging_token : undefined,
+    };
+  } catch (error) {
+    console.error("Error fetching MarketPay transactions:", error);
+    throw error;
+  }
+}
+
+/**
+ * Parse a transaction and determine if it's MarketPay-related
+ */
+async function parseMarketPayTransaction(tx: Horizon.ServerApi.TransactionRecord): Promise<MarketPayTransaction | null> {
+  try {
+    let amount: string | undefined;
+    let asset: string | undefined;
+    let to: string | undefined;
+    let from: string | undefined;
+    let marketPayType: "payment" | "escrow" | "other" = "other";
+    let isMarketPayRelated = false;
+
+    // Get operations for this transaction
+    const operations = await server
+      .operations()
+      .forTransaction(tx.hash)
+      .call();
+
+    // Analyze operations to determine MarketPay relevance
+    for (const op of operations.records) {
+      if (op.type === "payment") {
+        const payment = op as any;
+        amount = payment.amount;
+        asset = payment.asset_type === "native" ? "XLM" : payment.asset_code;
+        to = payment.to;
+        from = tx.source_account;
+        
+        // Check if payment has MarketPay memo
+        if (tx.memo && tx.memo_type !== "none") {
+          isMarketPayRelated = true;
+          marketPayType = "payment";
+        }
+        
+        // Check if payment amount matches typical job budgets (optional enhancement)
+        if (amount && parseFloat(amount) > 0.1) { // Threshold for MarketPay relevance
+          isMarketPayRelated = true;
+        }
+      } else if (op.type === "invoke_host_function") {
+        // Soroban contract calls - likely escrow operations
+        isMarketPayRelated = true;
+        marketPayType = "escrow";
+      } else if (op.type === "create_account") {
+        // Account creation - could be related to MarketPay onboarding
+        isMarketPayRelated = true;
+        marketPayType = "other";
+      }
+    }
+
+    // If not MarketPay related, return null
+    if (!isMarketPayRelated) {
+      return null;
+    }
+
+    return {
+      id: tx.id,
+      hash: tx.hash,
+      ledger: tx.ledger_attr || 0,
+      created_at: tx.created_at,
+      source_account: tx.source_account,
+      type: tx.type,
+      type_i: tx.type_i,
+      amount,
+      asset,
+      to,
+      from,
+      memo: tx.memo,
+      memo_type: tx.memo_type,
+      fee_paid: tx.fee_paid,
+      successful: tx.successful,
+      operations: operations.records,
+      marketPayType,
+    };
+  } catch (error) {
+    console.error("Error parsing transaction:", error);
+    return null;
+  }
+}
+
+/**
+ * Get transaction details with full operation information
+ */
+export async function getTransactionDetails(txHash: string): Promise<MarketPayTransaction | null> {
+  try {
+    const tx = await server.transactions().transaction(txHash);
+    return parseMarketPayTransaction(tx);
+  } catch (error) {
+    console.error("Error fetching transaction details:", error);
+    return null;
+  }
 }

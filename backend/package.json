@@ -7,7 +7,9 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "lint": "eslint src/**/*.js",
-    "test": "jest"
+    "test": "jest",
+    "generate-openapi": "node scripts/generate-openapi.js",
+    "build": "npm run generate-openapi && npm run lint"
   },
   "dependencies": {
     "@simplewebauthn/server": "^9.0.3",
@@ -27,6 +29,8 @@
     "pg": "^8.20.0",
     "rss": "^1.2.2",
     "speakeasy": "^2.0.0",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.0",
     "uuid": "^10.0.0",
     "ws": "^8.20.0"
   },

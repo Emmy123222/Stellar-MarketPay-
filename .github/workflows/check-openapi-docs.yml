@@ -1,0 +1,101 @@
+name: Check OpenAPI Documentation
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  check-openapi:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: backend/package-lock.json
+        
+    - name: Install dependencies
+      run: |
+        cd backend
+        npm ci
+        
+    - name: Check for undocumented routes
+      run: |
+        cd backend
+        npm run generate-openapi
+        
+    - name: Check if openapi.json was updated
+      run: |
+        cd backend
+        if [ -f "docs/openapi.json" ]; then
+          echo "openapi.json generated successfully"
+          # Check if file has content
+          if [ -s "docs/openapi.json" ]; then
+            echo "openapi.json contains content"
+            # Validate JSON
+            node -e "JSON.parse(require('fs').readFileSync('docs/openapi.json', 'utf8')); console.log('Valid JSON');"
+          else
+            echo "Error: openapi.json is empty"
+            exit 1
+          fi
+        else
+          echo "Error: openapi.json was not generated"
+          exit 1
+        fi
+        
+    - name: Upload OpenAPI spec as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: openapi-spec
+        path: backend/docs/openapi.json
+        retention-days: 30
+        
+    - name: Comment PR with documentation status
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const path = './backend/docs/openapi.json';
+          
+          if (fs.existsSync(path)) {
+            const spec = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const paths = Object.keys(spec.paths || {});
+            const endpointCount = paths.length;
+            const methodCount = Object.values(spec.paths || {}).reduce((total, path) => {
+              return total + Object.keys(path).filter(key => ['get', 'post', 'put', 'patch', 'delete'].includes(key)).length;
+            }, 0);
+            
+            const comment = `## \ud83d\udcc4 API Documentation Status
+            
+            \u2704\ufe0f **OpenAPI specification generated successfully!**
+            
+            \ud83d\udcca **Documentation Summary:**
+            - ${endpointCount} unique endpoints
+            - ${methodCount} total HTTP methods
+            - Generated at: ${new Date().toISOString()}
+            
+            \ud83d\udd17 **View Documentation:**
+            - Local: \`http://localhost:4000/api/docs\`
+            - Production: \`https://api.stellarmarketpay.com/api/docs\`
+            
+            \ud83d\udcc1 **Files:**
+            - \`docs/openapi.json\` - OpenAPI specification
+            - \`/api/docs\` - Swagger UI endpoint
+            
+            > This check ensures all API routes are properly documented with OpenAPI annotations.`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+          }

@@ -11,9 +11,13 @@ const { verifyJWT } = require("../middleware/auth");
 const profileUpdateRateLimiter = createRateLimiter(5, 1); // 5 profile updates per minute
 const generalProfileRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for getting profiles
 
-const { getProfile, upsertProfile, updateAvailability, blockFreelancer, unblockFreelancer } = require("../services/profileService");
+const { getProfile, upsertProfile, updateAvailability, getSkillEndorsements, endorseSkill } = require("../services/profileService");
+const {
+  upsertPriceAlertPreference,
+  getPriceAlertPreference,
+} = require("../services/priceAlertService");
 
-router.get("/:publicKey", generalProfileRateLimiter ,async (req, res, next) => {
+router.get("/:publicKey", generalProfileRateLimiter, async (req, res, next) => {
   try { res.json({ success: true, data: await getProfile(req.params.publicKey) }); }
   catch (e) { next(e); }
 });

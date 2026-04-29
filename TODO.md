@@ -1,21 +1,22 @@
-# Block Feature Implementation TODO
+# Bookmark Feature Implementation Plan
 
-## Backend
-- [ ] 1. `backend/src/db/schema.sql` — Add `blocked_addresses TEXT[]` column to profiles
-- [ ] 2. `backend/src/services/profileService.js` — Add `blockFreelancer`, `unblockFreelancer`, `isBlocked`, update `rowToProfile`
-- [ ] 3. `backend/src/routes/profiles.js` — Add POST `/block` and DELETE `/block/:address` endpoints with JWT auth
-- [ ] 4. `backend/src/services/applicationService.js` — Fix `query`→`pool.query` bug, reject blocked applicants, filter blocked from applicant lists
-- [ ] 5. `backend/src/services/jobService.js` — Fix `pool` import bug, add `blocked` flag to `getJob`
-- [ ] 6. `backend/src/routes/jobs.js` — Pass `viewer` query param to `getJob`
+## Status: ✅ Completed
 
-## Frontend
-- [ ] 7. `frontend/utils/types.ts` — Add `blockedAddresses?: string[]` to `UserProfile`
-- [ ] 8. `frontend/lib/api.ts` — Add `blockFreelancer` and `unblockFreelancer` API wrappers
-- [ ] 9. `frontend/pages/dashboard.tsx` — Add "Blocked Users" tab with management UI
-- [ ] 10. `frontend/pages/jobs/[id].tsx` — Show neutral unavailability message when blocked
+### Completed Steps:
 
-## Testing / Follow-up
-- [ ] Run backend tests
-- [ ] Verify database migration on startup
-- [ ] Manual test: block, unblock, apply, view job as blocked
+- [x] 1. Create `frontend/hooks/useBookmarks.ts` hook for localStorage management, isSaved/toggle/savedJobs/count
+- [x] 2. Update `frontend/components/JobCard.tsx`: Add bookmark button with heart icon (filled when saved), using useBookmarks hook
+- [x] 3. Update `frontend/pages/dashboard.tsx`:
+  - Add "saved" tab with dynamic badge (savedCount)
+  - Render saved jobs list in new tab content
+  - Add unbookmark buttons per job
+  - Handle empty state
 
+### Verification:
+
+- Bookmark button toggles on JobCard, persists across refresh
+- Dashboard "Saved Jobs" tab shows badge with accurate count
+- Saved jobs list displays correctly with unbookmark functionality
+- Empty state shown when no bookmarks
+
+**All acceptance criteria met. Ready for completion.**
