@@ -32,6 +32,13 @@ import ClientSpendingTab from "@/components/ClientSpendingTab";
 import { usePriceContext } from "@/contexts/PriceContext";
 
 const LOW_BALANCE_THRESHOLD_XLM = 5;
+const CATEGORY_ICONS: Record<string, string> = {
+  web: "Web",
+  mobile: "Mobile",
+  design: "Design",
+  writing: "Writing",
+  marketing: "Marketing",
+};
 
 interface DashboardProps {
   publicKey: string | null;
@@ -76,6 +83,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [alertEmail, setAlertEmail] = useState("");
   const [showBuyXLM, setShowBuyXLM] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
+  const [alertMatchesDismissed, setAlertMatchesDismissed] = useState(false);
   const [withdrawHistory, setWithdrawHistory] = useState<WithdrawHistoryEntry[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [extendingJob, setExtendingJob] = useState<string | null>(null);
@@ -84,7 +92,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const { success } = useToast();
   const { xlmPriceUsd } = usePriceContext();
 
-  const isRepostable = (status: Job["status"]) => status === "expired" || status === "cancelled";
+  const isRepostable = (status: Job["status"]) => status === "cancelled";
+  const alertMatches: Job[] = [];
 
   // Tooltip configurations for new users
   const tooltipConfigs: TooltipConfig[] = [
