@@ -28,6 +28,10 @@ import { usePriceContext } from "@/contexts/PriceContext";
 import clsx from "clsx";
 import JobAnalytics from "@/components/JobAnalytics";
 import { fetchFreelancerEarnings, EarningsData } from "@/lib/api";
+import WelcomeModal from "@/components/Onboarding/WelcomeModal";
+import ProfileChecklist from "@/components/Onboarding/ProfileChecklist";
+import Tooltips, { TooltipConfig } from "@/components/Onboarding/Tooltips";
+import { useOnboarding } from "@/hooks/useOnboarding";
 
 const LOW_BALANCE_THRESHOLD_XLM = 5;
 
@@ -186,6 +190,19 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
 
+  // Onboarding state
+  const {
+    progress,
+    checklistItems,
+    shouldShowWelcome,
+    shouldShowChecklist,
+    markWelcomeSeen,
+    dismissChecklist,
+    dismissTooltip,
+    dismissAllTooltips,
+    onboardingState,
+  } = useOnboarding(publicKey);
+
   const [processedTxs, setProcessedTxs] = useState<Set<string>>(new Set());
   const [templates, setTemplates] = useState<{ id: string; name: string; content: string }[]>([]);
   const [templateName, setTemplateName] = useState("");
@@ -209,6 +226,44 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const { xlmPriceUsd } = usePriceContext();
 
   const isRepostable = (status: Job["status"]) => status === "expired" || status === "cancelled";
+
+  // Tooltip configurations for new users
+  const tooltipConfigs: TooltipConfig[] = [
+    {
+      id: "post-job",
+      targetSelector: '[href="/post-job"]',
+      title: "Post Your First Job",
+      description: "Click here to create a job posting and start hiring talented freelancers on the Stellar network.",
+      position: "bottom",
+      action: {
+        label: "Post a Job",
+        onClick: () => router.push("/post-job"),
+      },
+    },
+    {
+      id: "connect-wallet",
+      targetSelector: '[data-testid="wallet-connect-button"]',
+      title: "Connect Your Wallet",
+      description: "Connect your Stellar wallet to send payments, receive funds, and interact with smart contracts.",
+      position: "bottom",
+    },
+    {
+      id: "browse-jobs",
+      targetSelector: '[href="/jobs"]',
+      title: "Browse Available Jobs",
+      description: "Explore open job postings and submit proposals to projects that match your skills.",
+      position: "bottom",
+      action: {
+        label: "Browse Jobs",
+        onClick: () => router.push("/jobs"),
+      },
+    },
+  ];
+
+  // Filter tooltips based on dismissed state
+  const activeTooltips = tooltipConfigs.filter(
+    (tooltip) => !onboardingState.dismissedTooltips.includes(tooltip.id)
+  );
 
   const handleCopy = async () => {
     if (!publicKey) return;
@@ -418,8 +473,28 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+    <>
+      {/* Welcome Modal */}
+      <WelcomeModal
+        isOpen={shouldShowWelcome}
+        onClose={markWelcomeSeen}
+        onGetStarted={() => {
+          markWelcomeSeen();
+          setTab("edit_profile");
+        }}
+      />
+
+      {/* Tooltips for new users */}
+      {!shouldShowWelcome && activeTooltips.length > 0 && (
+        <Tooltips
+          tooltips={activeTooltips}
+          onDismiss={dismissTooltip}
+          onDismissAll={dismissAllTooltips}
+        />
+      )}
+
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="font-display text-3xl font-bold text-amber-100 mb-1">Dashboard</h1>
           <div className="flex items-center gap-2">
@@ -452,6 +527,19 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         </div>
         <Link href="/post-job" className="btn-primary text-sm py-2.5 px-5 flex-shrink-0">+ Post a Job</Link>
       </div>
+
+      {/* Profile Completion Checklist */}
+      {shouldShowChecklist && (
+        <div className="mb-6">
+          <ProfileChecklist
+            items={checklistItems}
+            onItemClick={(route) => {
+              // Navigate handled by checklist component
+            }}
+            onDismiss={dismissChecklist}
+          />
+        </div>
+      )}
 
       <div className="card mb-4 bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-40 h-40 bg-market-500/4 rounded-full blur-2xl pointer-events-none" />
@@ -616,7 +704,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                       </button>
                     )}
                   </div>
-              </div>
+                </div>
+              </Link>
             ))}
           </div>
         )
@@ -866,7 +955,31 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           xlmPriceUsd={xlmPriceUsd}
         />
       ) : tab === "security" ? (
-        <PasskeyManager publicKey={publicKey} />
+        <div className="space-y-6">
+          <PasskeyManager publicKey={publicKey} />
+          
+          {/* Restart Onboarding Button */}
+          <div className="card">
+            <h3 className="font-display text-xl font-semibold text-amber-100 mb-3">
+              Onboarding
+            </h3>
+            <p className="text-sm text-amber-800 mb-4">
+              Restart the onboarding tour to see welcome messages and helpful tips again.
+            </p>
+            <button
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  localStorage.removeItem("marketpay_onboarding_completed");
+                  localStorage.removeItem("marketpay_tooltips_dismissed");
+                  window.location.reload();
+                }
+              }}
+              className="btn-secondary text-sm"
+            >
+              Restart Onboarding Tour
+            </button>
+          </div>
+        </div>
       ) : tab === "edit_profile" ? (
         <EditProfileForm publicKey={publicKey} />
       ) : null}
@@ -888,6 +1001,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           }}
         />
       )}
-    </div>
+      </div>
+    </>
   );
 }

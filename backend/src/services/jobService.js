@@ -269,10 +269,12 @@ async function getJob(id) {
 
 /**
  * Encode a (createdAt, id) pair into an opaque base64 cursor.
+ * Currently unused but kept for future pagination implementation.
  *
  * @param {Object} jobRow  Row containing `created_at` and `id`.
  * @returns {string}        Base64-encoded JSON cursor.
  */
+// eslint-disable-next-line no-unused-vars
 function encodeCursor(jobRow) {
   return Buffer.from(
     JSON.stringify({
@@ -537,7 +539,7 @@ async function boostJob(jobId, txHash) {
     [boostedUntil.toISOString(), jobId]
   );
 
-  return rowToJob(rows[0]);
+  return rowToJob(updateRows[0]);
 }
 
 /**

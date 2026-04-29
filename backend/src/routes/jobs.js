@@ -42,6 +42,11 @@ const jobReports = new Map(); // In-memory report storage for now
 
 // Feed Helpers
 
+// Rate limiters
+const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per minute
+const jobCreationRateLimiter = createRateLimiter(10, 15); // 10 requests per 15 minutes
+const reportJobRateLimiter = createRateLimiter(5, 15); // 5 reports per 15 minutes
+
 function escapeXml(str) {
   if (str === null || str === undefined) return "";
   return String(str)

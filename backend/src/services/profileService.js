@@ -30,6 +30,10 @@ const MAX_PORTFOLIO_ITEMS = 10;
  * @property {number|null} rating           Average rating (1..5), null until rated.
  * @property {string|null} didHash          Optional DID hash from identity verification.
  * @property {boolean|null} isKycVerified   True after a successful `verifyIdentity` call.
+ * @property {string|null} email            Email address for notifications.
+ * @property {boolean}    emailNotificationsEnabled  Whether email notifications are enabled.
+ * @property {string|null} webhookUrl       Webhook URL for programmatic notifications.
+ * @property {string|null} webhookSecret    Secret for webhook HMAC signatures.
  * @property {number}     [ratingCount]     Number of ratings (only on getProfile result).
  * @property {number}     [reputationScore] Derived score 0..100 (only on getProfile result).
  * @property {{ avgAcceptHours: number, avgReleaseHours: number }} [reputationMetrics]
@@ -63,6 +67,10 @@ const MAX_PORTFOLIO_ITEMS = 10;
  * @property {Object[]}          [portfolioFiles] - IPFS uploaded files
  * @property {Availability}      [availability]
  * @property {("client"|"freelancer"|"both")} [role]
+ * @property {string}            [email] - Email address for notifications
+ * @property {boolean}           [emailNotificationsEnabled] - Enable email notifications
+ * @property {string}            [webhookUrl] - Webhook URL for notifications
+ * @property {string}            [webhookSecret] - Secret for webhook HMAC
  */
 
 /**
@@ -205,7 +213,12 @@ function rowToProfile(row) {
     completedJobs: row.completed_jobs,
     totalEarnedXLM: row.total_earned_xlm,
     rating: row.rating !== null ? parseFloat(row.rating) : null,
-    blockedAddresses: Array.isArray(row.blocked_addresses) ? row.blocked_addresses : [],
+    didHash: row.did_hash,
+    isKycVerified: row.is_kyc_verified,
+    email: row.email,
+    emailNotificationsEnabled: row.email_notifications_enabled || false,
+    webhookUrl: row.webhook_url,
+    webhookSecret: row.webhook_secret,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -321,7 +334,7 @@ async function getProfile(publicKey) {
  *   role: 'freelancer',
  * });
  */
-async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, availability, role }) {
+async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, portfolioFiles, availability, role, email, emailNotificationsEnabled, webhookUrl, webhookSecret }) {
   validatePublicKey(publicKey);
 
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 15) : null;
@@ -332,8 +345,8 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
 
   const { rows } = await pool.query(
     `
-    INSERT INTO profiles (public_key, display_name, bio, skills, portfolio_items, portfolio_files, availability, role, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, NOW(), NOW())
+    INSERT INTO profiles (public_key, display_name, bio, skills, portfolio_items, portfolio_files, availability, role, email, email_notifications_enabled, webhook_url, webhook_secret, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, NOW(), NOW())
     ON CONFLICT (public_key) DO UPDATE
       SET display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), profiles.display_name),
           bio = COALESCE(NULLIF(EXCLUDED.bio, ''), profiles.bio),
@@ -342,6 +355,10 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
           portfolio_files = COALESCE(EXCLUDED.portfolio_files, profiles.portfolio_files),
           availability = COALESCE(EXCLUDED.availability, profiles.availability),
           role = COALESCE(NULLIF(EXCLUDED.role, ''), profiles.role),
+          email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
+          email_notifications_enabled = COALESCE(EXCLUDED.email_notifications_enabled, profiles.email_notifications_enabled),
+          webhook_url = COALESCE(NULLIF(EXCLUDED.webhook_url, ''), profiles.webhook_url),
+          webhook_secret = COALESCE(NULLIF(EXCLUDED.webhook_secret, ''), profiles.webhook_secret),
           updated_at = NOW()
     RETURNING *
     `,
@@ -354,6 +371,10 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
       JSON.stringify(safePortfolioFiles),
       safeAvailability ? JSON.stringify(safeAvailability) : null,
       safeRole,
+      email?.trim() || null,
+      emailNotificationsEnabled !== undefined ? emailNotificationsEnabled : null,
+      webhookUrl?.trim() || null,
+      webhookSecret?.trim() || null,
     ]
   );
 

@@ -23,6 +23,7 @@ const { calculateFreelancerTier, isBlocked } = require("./profileService");
  * @property {("pending"|"accepted"|"rejected")} status
  * @property {Object<string,string>} screeningAnswers  Map of question → answer.
  * @property {string} createdAt          ISO timestamp.
+ * @property {string|null} withdrawnAt   ISO timestamp when withdrawn, or null.
  */
 
 /**
@@ -69,14 +70,14 @@ function rowToApp(row) {
     id: row.id,
     jobId: row.job_id,
     freelancerAddress: row.freelancer_address,
-    freelancerTier:    calculateFreelancerTier(completedJobs, freelancerRating),
-    proposal:          row.proposal,
-    bidAmount:         row.bid_amount,
-    currency:          row.currency || 'XLM',
-    status:            row.status,
-    screeningAnswers:  row.screening_answers || {},
-    createdAt:         row.created_at,
-    referredBy:        row.referred_by,
+    freelancerTier: calculateFreelancerTier(completedJobs, freelancerRating),
+    proposal: row.proposal,
+    bidAmount: row.bid_amount,
+    currency: row.currency || "XLM",
+    status: row.status,
+    screeningAnswers: row.screening_answers || {},
+    createdAt: row.created_at,
+    withdrawnAt: row.withdrawn_at || null,
   };
 }
 
@@ -176,7 +177,9 @@ async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount
 }
 
 /**
- * Retrieves all applications for a specific job.
+ * List every application for a given job, oldest first. Joins in profile
+ * `completed_jobs` and the freelancer's average rating so the result row can
+ * compute a freelancer tier label. Excludes withdrawn applications.
  *
  * @param {number|string} jobId - The ID of the job.
  * @returns {Promise<Object[]>} An array of application objects ordered by creation date ascending.
@@ -189,12 +192,7 @@ async function getApplicationsForJob(jobId) {
      FROM applications a
      LEFT JOIN profiles p ON p.public_key = a.freelancer_address
      LEFT JOIN ratings r ON r.rated_address = a.freelancer_address
-     WHERE a.job_id = $1
-       AND NOT EXISTS (
-         SELECT 1 FROM profiles cp
-         WHERE cp.public_key = (SELECT client_address FROM jobs WHERE id = $1)
-           AND a.freelancer_address = ANY(cp.blocked_addresses)
-       )
+     WHERE a.job_id = $1 AND a.withdrawn_at IS NULL
      GROUP BY a.id, p.completed_jobs
      ORDER BY a.created_at ASC`,
     [jobId]
@@ -286,9 +284,66 @@ async function acceptApplication(applicationId, clientAddress) {
   }
 }
 
+/**
+ * Withdraw a freelancer's application. Marks the application as withdrawn
+ * by setting the `withdrawn_at` timestamp. Only the freelancer who submitted
+ * the application can withdraw it, and only if it hasn't been accepted yet.
+ *
+ * @param {string} applicationId  UUID of the application to withdraw.
+ * @param {string} freelancerAddress  Stellar G-address of the calling freelancer.
+ * @returns {Promise<Application>}  The withdrawn application.
+ * @throws {Error} 400 — invalid freelancer public key, or application already accepted.
+ * @throws {Error} 403 — caller is not the application's freelancer.
+ * @throws {Error} 404 — application not found.
+ * @throws {Error} 409 — application already withdrawn.
+ */
+async function withdrawApplication(applicationId, freelancerAddress) {
+  validatePublicKey(freelancerAddress);
+
+  const { rows: appRows } = await pool.query(
+    "SELECT * FROM applications WHERE id = $1",
+    [applicationId]
+  );
+  if (!appRows.length) {
+    const e = new Error("Application not found");
+    e.status = 404;
+    throw e;
+  }
+  const app = appRows[0];
+
+  if (app.freelancer_address !== freelancerAddress) {
+    const e = new Error("Only the freelancer who submitted can withdraw this application");
+    e.status = 403;
+    throw e;
+  }
+  if (app.status === "accepted") {
+    const e = new Error("Cannot withdraw an already-accepted application");
+    e.status = 400;
+    throw e;
+  }
+  if (app.withdrawn_at) {
+    const e = new Error("Application has already been withdrawn");
+    e.status = 409;
+    throw e;
+  }
+
+  const { rows: updated } = await pool.query(
+    "UPDATE applications SET withdrawn_at = NOW() WHERE id = $1 RETURNING *",
+    [applicationId]
+  );
+
+  await pool.query(
+    "UPDATE jobs SET applicant_count = GREATEST(applicant_count - 1, 0), updated_at = NOW() WHERE id = $1",
+    [app.job_id]
+  );
+
+  return rowToApp(updated[0]);
+}
+
 module.exports = {
   submitApplication,
   getApplicationsForJob,
   getApplicationsForFreelancer,
   acceptApplication,
+  withdrawApplication,
 };

@@ -12,6 +12,7 @@ const router = express.Router();
 const pool = require("../db/pool");
 const { getJob, updateJobStatus } = require("../services/jobService");
 const { logContractInteraction } = require("../services/contractAuditService");
+const { notifyEscrowEvent, EVENT_TYPES } = require("../services/notificationService");
 
 /**
  * POST /api/escrow/:jobId/release
@@ -97,7 +98,21 @@ router.post("/:jobId/partial_release", escrowActionRateLimiter, async (req, res,
       txHash: contractTxHash || `offchain-${Date.now()}`,
     });
 
-    res.json({ success: true, message: `Milestone ${milestoneIndex} released` });
+    // Notify users about escrow release
+    await notifyEscrowEvent({
+      eventType: EVENT_TYPES.ESCROW_RELEASED,
+      jobId,
+      clientAddress: job.clientAddress,
+      freelancerAddress: job.freelancerAddress,
+      data: {
+        jobTitle: job.title,
+        jobId,
+        amount: job.budget,
+        currency: job.currency,
+      },
+    });
+
+    res.json({ success: true, message: "Escrow released and job completed" });
   } catch (e) { next(e); }
 });
 
@@ -127,6 +142,20 @@ router.post("/:jobId/refund", async (req, res, next) => {
       callerAddress: clientAddress,
       jobId,
       txHash: contractTxHash || `offchain-${Date.now()}`,
+    });
+
+    // Notify users about refund
+    await notifyEscrowEvent({
+      eventType: EVENT_TYPES.REFUND_ISSUED,
+      jobId,
+      clientAddress: job.clientAddress,
+      freelancerAddress: job.freelancerAddress,
+      data: {
+        jobTitle: job.title,
+        jobId,
+        amount: job.budget,
+        currency: job.currency,
+      },
     });
 
     res.json({ success: true, message: "Escrow refunded" });

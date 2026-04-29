@@ -165,3 +165,51 @@ export interface JobAnalytics {
   applicationStatusCounts: Record<string, number>;
   daysToHire: number | null;
 }
+
+export interface Availability {
+  status: AvailabilityStatus;
+  availableFrom?: string;
+  availableUntil?: string;
+}
+
+export interface PortfolioItem {
+  title: string;
+  url: string;
+  type: PortfolioItemType;
+}
+
+export interface Message {
+  id: string;
+  jobId: string;
+  senderAddress: string;
+  content: string;
+  createdAt: string;
+  readAt?: string;
+}
+
+export interface AssessmentInfo {
+  skill: string;
+  questions: AssessmentQuestion[];
+  cooldownEndsAt?: string;
+}
+
+export interface AssessmentQuestion {
+  id: number;
+  question: string;
+  options: string[];
+}
+
+export interface AssessmentResult {
+  skill: string;
+  score: number;
+  passed: boolean;
+  totalQuestions: number;
+  correctAnswers: number;
+}
+
+export interface SkillBadge {
+  skill: string;
+  score: number;
+  passed: boolean;
+  earnedAt: string;
+}
