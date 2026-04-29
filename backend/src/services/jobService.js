@@ -267,10 +267,12 @@ async function getJob(id) {
 
 /**
  * Encode a (createdAt, id) pair into an opaque base64 cursor.
+ * Currently unused but kept for future pagination implementation.
  *
  * @param {Object} jobRow  Row containing `created_at` and `id`.
  * @returns {string}        Base64-encoded JSON cursor.
  */
+// eslint-disable-next-line no-unused-vars
 function encodeCursor(jobRow) {
   return Buffer.from(
     JSON.stringify({
@@ -378,9 +380,8 @@ async function listJobs({ category, status = "open", limit = 50, search, cursor,
 
   let jobs = rows.map(rowToJob);
 
-  let filteredJobs = currentRows.map(rowToJob);
   if (timezone) {
-    filteredJobs = filteredJobs.filter((job) => isTimezoneCompatible(job.timezone, timezone));
+    jobs = jobs.filter((job) => isTimezoneCompatible(job.timezone, timezone));
   }
 
   return { jobs };
@@ -532,7 +533,7 @@ async function boostJob(jobId, txHash) {
     [boostedUntil.toISOString(), jobId]
   );
 
-  return rowToJob(rows[0]);
+  return rowToJob(updateRows[0]);
 }
 
 /**
@@ -635,6 +636,8 @@ export default {
   getJob,
   listJobs,
   listJobsByClient,
+  updateJobStatus,
+  assignFreelancer,
   updateJobEscrowId,
   deleteJob,
   boostJob,

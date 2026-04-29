@@ -29,10 +29,10 @@
     "pg": "^8.20.0",
     "rss": "^1.2.2",
     "speakeasy": "^2.0.0",
-    "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.0",
-    "uuid": "^10.0.0",
-    "ws": "^8.20.0"
+    "uuid": "^14.0.0",
+    "validator": "^13.15.35",
+    "ws": "^8.20.0",
+    "xss": "^1.0.15"
   },
   "devDependencies": {
     "eslint": "^8.57.0",
@@ -41,5 +41,14 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "transformIgnorePatterns": [
+      "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus)/)"
+    ],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    }
   }
 }

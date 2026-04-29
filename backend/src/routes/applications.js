@@ -12,8 +12,11 @@ const generalApplicationRateLimiter = createRateLimiter(30, 1); // 100 requests 
 const {
   submitApplication, getApplicationsForJob,
   getApplicationsForFreelancer, acceptApplication,
+  withdrawApplication,
 } = require("../services/applicationService");
 const { logContractInteraction } = require("../services/contractAuditService");
+const { notifyEscrowEvent, EVENT_TYPES } = require("../services/notificationService");
+const { getJob } = require("../services/jobService");
 
 /**
  * @swagger
@@ -151,6 +154,30 @@ router.post("/:id/accept", applicationRateLimiter, async (req, res, next) => {
       jobId: app.jobId,
       txHash: req.body.contractTxHash || `offchain-${Date.now()}`,
     });
+
+    // Notify freelancer about accepted application
+    const job = await getJob(app.jobId);
+    await notifyEscrowEvent({
+      eventType: EVENT_TYPES.APPLICATION_ACCEPTED,
+      jobId: app.jobId,
+      clientAddress: job.clientAddress,
+      freelancerAddress: app.freelancerAddress,
+      data: {
+        jobTitle: job.title,
+        jobId: app.jobId,
+        amount: job.budget,
+        currency: job.currency,
+      },
+    });
+
+    res.json({ success: true, data: app });
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/applications/:id — freelancer withdraws their application
+router.delete("/:id", applicationRateLimiter, async (req, res, next) => {
+  try {
+    const app = await withdrawApplication(req.params.id, req.body.freelancerAddress);
     res.json({ success: true, data: app });
   } catch (e) { next(e); }
 });

@@ -22,6 +22,11 @@ const recommendationService = require("../services/recommendationService");
 
 // Feed Helpers
 
+// Rate limiters
+const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per minute
+const jobCreationRateLimiter = createRateLimiter(10, 15); // 10 requests per 15 minutes
+const reportJobRateLimiter = createRateLimiter(5, 15); // 5 reports per 15 minutes
+
 function escapeXml(str) {
   if (str === null || str === undefined) return "";
   return String(str)
@@ -283,6 +288,18 @@ router.patch("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, ne
     const job = await boostJob(req.params.id, txHash);
     res.json({ success: true, data: job });
   } catch (e) { next(e); }
+});
+
+// GET /api/jobs/client/:publicKey
+router.get("/client/:publicKey", generalJobRateLimiter, (req, res, next) => {
+  try {
+    res.json({
+      success: true,
+      data: listJobsByClient(req.params.publicKey),
+    });
+  } catch (e) {
+    next(e);
+  }
 });
 
 // GET /api/jobs/:id/analytics — job performance analytics
