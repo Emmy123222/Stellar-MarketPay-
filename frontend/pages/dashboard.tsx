@@ -51,7 +51,8 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "send" | "edit_profile" | "job_alerts";
+type Tab = "posted" | "applied" | "send" | "transactions" | "edit_profile" | "templates" | "price_alerts" | "withdrawals";
+const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const router = useRouter();
@@ -499,7 +500,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
       {/* Tabs */}
       <div className="flex border-b border-market-500/10 mb-6 overflow-x-auto">
-        {(["posted", "applied", "send", "job_alerts", "edit_profile"] as Tab[]).map((t) => (
+        {(["posted", "applied", "send", "transactions", "edit_profile", "templates", "price_alerts", "withdrawals"] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={clsx(
               "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap flex items-center gap-2",
@@ -517,6 +518,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                </>
              ) :
              t === "send"      ? "Send Payment" :
+             t === "transactions" ? "Transactions" :
              "Edit Profile"}
             {t === "job_alerts" && alertSubscriptions.length > 0 && (
               <span className="absolute top-2 right-1 w-2 h-2 bg-market-400 rounded-full" />
@@ -832,50 +834,13 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             ))}
           </div>
         )
-      ) : tab === "send" ? (
-        <div className="max-w-lg">
-          <SendPaymentForm fromPublicKey={publicKey} />
-        </div>
-      ) : tab === "job_alerts" ? (
-        <div className="space-y-4 max-w-lg">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-lg font-semibold text-amber-100">Job Alert Subscriptions</h2>
-            <Link href="/jobs" className="btn-secondary text-xs px-3 py-1.5">Browse Jobs →</Link>
-          </div>
-          {alertSubscriptions.length === 0 ? (
-            <div className="card text-center py-12">
-              <BellIcon className="w-8 h-8 text-amber-800 mx-auto mb-3" />
-              <p className="font-display text-lg text-amber-100 mb-1">No alerts set</p>
-              <p className="text-amber-800 text-sm mb-5">Visit Browse Jobs and click the 🔔 next to a category to get notified.</p>
-              <Link href="/jobs" className="btn-primary text-sm">Set Up Alerts →</Link>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {alertSubscriptions.map((cat) => (
-                <div key={cat} className="card-hover flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">{CATEGORY_ICONS[cat] ?? "📦"}</span>
-                    <div>
-                      <p className="text-sm font-medium text-amber-100">{cat}</p>
-                      <p className="text-xs text-amber-800">Notifications enabled</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => clearAlertSubscription(cat)}
-                    className="text-xs text-red-400/70 hover:text-red-400 border border-red-500/20 hover:border-red-500/40 px-3 py-1 rounded-md transition-all"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-              <button
-                onClick={() => { localStorage.setItem(ALERT_KEY, "[]"); window.dispatchEvent(new Event("job-alerts-changed")); }}
-                className="w-full text-xs text-amber-900 hover:text-red-400 transition-colors py-2"
-              >
-                Clear all alerts
-              </button>
-            </div>
-          )}
+      ) : tab === "transactions" ? (
+        <div className="card text-center py-16">
+          <p className="font-display text-xl text-amber-100 mb-2">Transaction History</p>
+          <p className="text-amber-800 text-sm mb-6">View your complete transaction history with deep links to Stellar explorer</p>
+          <Link href="/dashboard/transactions" className="btn-primary text-sm">
+            View Transactions
+          </Link>
         </div>
       ) : tab === "edit_profile" ? (
         <EditProfileForm publicKey={publicKey} />
