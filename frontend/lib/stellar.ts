@@ -635,3 +635,155 @@ export async function getEscrowCount(): Promise<number> {
   // Real implementation would query contract
   throw new Error("get_escrow_count not yet implemented for real contract");
 }
+
+// Enhanced transaction fetching for MarketPay
+export interface MarketPayTransaction {
+  id: string;
+  hash: string;
+  ledger: number;
+  created_at: string;
+  source_account: string;
+  type: string;
+  type_i: number;
+  amount?: string;
+  asset?: string;
+  to?: string;
+  from?: string;
+  memo?: string;
+  memo_type?: string;
+  fee_paid: string;
+  successful: boolean;
+  operations: any[];
+  marketPayType: "payment" | "escrow" | "other";
+}
+
+/**
+ * Fetch transactions with enhanced MarketPay filtering
+ */
+export async function fetchMarketPayTransactions(
+  publicKey: string,
+  limit: number = 20,
+  cursor?: string
+): Promise<{ transactions: MarketPayTransaction[]; hasMore: boolean; nextCursor?: string }> {
+  try {
+    const builder = server
+      .transactions()
+      .forAccount(publicKey)
+      .limit(limit)
+      .order("desc");
+
+    if (cursor) {
+      builder.cursor(cursor);
+    }
+
+    const response = await builder.call();
+    const transactions: MarketPayTransaction[] = [];
+
+    for (const tx of response.records) {
+      const marketPayTx = await parseMarketPayTransaction(tx);
+      if (marketPayTx) {
+        transactions.push(marketPayTx);
+      }
+    }
+
+    return {
+      transactions,
+      hasMore: response.records.length === limit,
+      nextCursor: response.records.length > 0 ? response.records[response.records.length - 1].paging_token : undefined,
+    };
+  } catch (error) {
+    console.error("Error fetching MarketPay transactions:", error);
+    throw error;
+  }
+}
+
+/**
+ * Parse a transaction and determine if it's MarketPay-related
+ */
+async function parseMarketPayTransaction(tx: Horizon.ServerApi.TransactionRecord): Promise<MarketPayTransaction | null> {
+  try {
+    let amount: string | undefined;
+    let asset: string | undefined;
+    let to: string | undefined;
+    let from: string | undefined;
+    let marketPayType: "payment" | "escrow" | "other" = "other";
+    let isMarketPayRelated = false;
+
+    // Get operations for this transaction
+    const operations = await server
+      .operations()
+      .forTransaction(tx.hash)
+      .call();
+
+    // Analyze operations to determine MarketPay relevance
+    for (const op of operations.records) {
+      if (op.type === "payment") {
+        const payment = op as any;
+        amount = payment.amount;
+        asset = payment.asset_type === "native" ? "XLM" : payment.asset_code;
+        to = payment.to;
+        from = tx.source_account;
+        
+        // Check if payment has MarketPay memo
+        if (tx.memo && tx.memo_type !== "none") {
+          isMarketPayRelated = true;
+          marketPayType = "payment";
+        }
+        
+        // Check if payment amount matches typical job budgets (optional enhancement)
+        if (amount && parseFloat(amount) > 0.1) { // Threshold for MarketPay relevance
+          isMarketPayRelated = true;
+        }
+      } else if (op.type === "invoke_host_function") {
+        // Soroban contract calls - likely escrow operations
+        isMarketPayRelated = true;
+        marketPayType = "escrow";
+      } else if (op.type === "create_account") {
+        // Account creation - could be related to MarketPay onboarding
+        isMarketPayRelated = true;
+        marketPayType = "other";
+      }
+    }
+
+    // If not MarketPay related, return null
+    if (!isMarketPayRelated) {
+      return null;
+    }
+
+    return {
+      id: tx.id,
+      hash: tx.hash,
+      ledger: tx.ledger_attr || 0,
+      created_at: tx.created_at,
+      source_account: tx.source_account,
+      type: tx.type,
+      type_i: tx.type_i,
+      amount,
+      asset,
+      to,
+      from,
+      memo: tx.memo,
+      memo_type: tx.memo_type,
+      fee_paid: tx.fee_paid,
+      successful: tx.successful,
+      operations: operations.records,
+      marketPayType,
+    };
+  } catch (error) {
+    console.error("Error parsing transaction:", error);
+    return null;
+  }
+}
+
+/**
+ * Get transaction details with full operation information
+ */
+export async function getTransactionDetails(txHash: string): Promise<MarketPayTransaction | null> {
+  try {
+    const tx = await server.transactions().transaction(txHash);
+    return parseMarketPayTransaction(tx);
+  } catch (error) {
+    console.error("Error fetching transaction details:", error);
+    return null;
+  }
+}

@@ -1,0 +1,643 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Stellar MarketPay API",
+    "version": "1.0.0",
+    "description": "Backend API for Stellar MarketPay - A decentralized freelance marketplace built on Stellar blockchain",
+    "contact": {
+      "name": "Stellar MarketPay Team",
+      "email": "support@stellarmarketpay.com"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:4000",
+      "description": "Development server"
+    },
+    {
+      "url": "https://api.stellarmarketpay.com",
+      "description": "Production server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "jwt"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error message"
+          }
+        }
+      },
+      "Success": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Success status"
+          },
+          "message": {
+            "type": "string",
+            "description": "Success message"
+          }
+        }
+      },
+      "StellarAccount": {
+        "type": "object",
+        "properties": {
+          "publicKey": {
+            "type": "string",
+            "description": "Stellar public key",
+            "example": "GD5JQHFZLLM7H45AEB5S7M2E7EYQ3M3K5Y6R7B8C9D0E1F2G3H4I5J6K7L8M9N0O"
+          }
+        }
+      },
+      "Job": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Job ID"
+          },
+          "title": {
+            "type": "string",
+            "description": "Job title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Job description"
+          },
+          "budget": {
+            "type": "number",
+            "description": "Job budget in XLM"
+          },
+          "clientId": {
+            "type": "string",
+            "description": "Client Stellar address"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["open", "in_progress", "completed", "cancelled"],
+            "description": "Job status"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Expiration timestamp"
+          }
+        }
+      },
+      "Application": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Application ID"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Job ID"
+          },
+          "freelancerId": {
+            "type": "string",
+            "description": "Freelancer Stellar address"
+          },
+          "proposal": {
+            "type": "string",
+            "description": "Application proposal"
+          },
+          "bidAmount": {
+            "type": "number",
+            "description": "Bid amount in XLM"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "accepted", "rejected"],
+            "description": "Application status"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check endpoint",
+        "description": "Returns the current health status of the API service",
+        "tags": ["Health"],
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ok",
+                      "description": "Health status"
+                    },
+                    "service": {
+                      "type": "string",
+                      "example": "stellar-marketpay-api",
+                      "description": "Service name"
+                    },
+                    "network": {
+                      "type": "string",
+                      "example": "testnet",
+                      "description": "Stellar network being used"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "Current timestamp"
+                    },
+                    "indexer": {
+                      "type": "object",
+                      "nullable": true,
+                      "description": "Indexer service health status"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth": {
+      "get": {
+        "summary": "Get authentication challenge transaction",
+        "description": "Returns a Stellar challenge transaction for web authentication",
+        "tags": ["Authentication"],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stellar account address to challenge"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Challenge transaction generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transaction": {
+                      "type": "string",
+                      "description": "Base64-encoded Stellar transaction"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing account or invalid format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Authenticate with signed challenge transaction",
+        "description": "Verifies a signed Stellar challenge transaction and issues a JWT token",
+        "tags": ["Authentication"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["transaction"],
+                "properties": {
+                  "transaction": {
+                    "type": "string",
+                    "description": "Base64-encoded signed Stellar transaction"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "token": {
+                      "type": "string",
+                      "description": "JWT authentication token"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing transaction or invalid format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid signature or expired challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs": {
+      "get": {
+        "summary": "List jobs",
+        "description": "Returns a paginated list of jobs with optional filtering",
+        "tags": ["Jobs"],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by job category"
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": ["open", "in_progress", "completed", "cancelled"]
+            },
+            "description": "Filter by job status"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "Maximum number of jobs to return"
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search term for job titles and descriptions"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Pagination cursor for next page"
+          },
+          {
+            "in": "query",
+            "name": "timezone",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Timezone for date formatting"
+          },
+          {
+            "in": "query",
+            "name": "viewerAddress",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Viewer's Stellar address for permission checks"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jobs retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Job"
+                      }
+                    },
+                    "nextCursor": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "Cursor for next page"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new job",
+        "description": "Creates a new job posting in the marketplace",
+        "tags": ["Jobs"],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title", "description", "budget", "clientId"],
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "description": "Job title"
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Detailed job description"
+                  },
+                  "budget": {
+                    "type": "number",
+                    "description": "Job budget in XLM"
+                  },
+                  "clientId": {
+                    "type": "string",
+                    "description": "Client's Stellar address"
+                  },
+                  "category": {
+                    "type": "string",
+                    "description": "Job category"
+                  },
+                  "skills": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Required skills"
+                  },
+                  "visibility": {
+                    "type": "string",
+                    "enum": ["public", "private"],
+                    "default": "public",
+                    "description": "Job visibility"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Job created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Job"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - invalid input data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/applications/job/{jobId}": {
+      "get": {
+        "summary": "Get applications for a job",
+        "description": "Returns all applications submitted for a specific job",
+        "tags": ["Applications"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Job ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Applications retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Application"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/applications": {
+      "post": {
+        "summary": "Submit a job application",
+        "description": "Submit a proposal/application for a job",
+        "tags": ["Applications"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["jobId", "freelancerId", "proposal", "bidAmount"],
+                "properties": {
+                  "jobId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Job ID"
+                  },
+                  "freelancerId": {
+                    "type": "string",
+                    "description": "Freelancer's Stellar address"
+                  },
+                  "proposal": {
+                    "type": "string",
+                    "description": "Application proposal"
+                  },
+                  "bidAmount": {
+                    "type": "number",
+                    "description": "Bid amount in XLM"
+                  },
+                  "estimatedDuration": {
+                    "type": "string",
+                    "description": "Estimated completion time"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Application submitted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Application"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - invalid input data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict - already applied to this job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

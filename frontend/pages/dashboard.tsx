@@ -45,7 +45,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "saved" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals";
+type Tab = "posted" | "applied" | "send" | "transactions" | "edit_profile" | "templates" | "price_alerts" | "withdrawals";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
@@ -382,7 +382,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       )}
 
       <div className="flex border-b border-market-500/10 mb-6 overflow-x-auto">
-        {(["posted", "applied", "send", "edit_profile", "templates", "price_alerts", "withdrawals"] as Tab[]).map((t) => (
+        {(["posted", "applied", "send", "transactions", "edit_profile", "templates", "price_alerts", "withdrawals"] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={clsx(
               "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap relative",
@@ -400,6 +400,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                </>
              ) :
              t === "send"      ? "Send Payment" :
+             t === "transactions" ? "Transactions" :
              "Edit Profile"}
             {t === "job_alerts" && alertSubscriptions.length > 0 && (
               <span className="absolute top-2 right-1 w-2 h-2 bg-market-400 rounded-full" />
@@ -714,6 +715,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             ))}
           </div>
         )
+      ) : tab === "transactions" ? (
+        <div className="card text-center py-16">
+          <p className="font-display text-xl text-amber-100 mb-2">Transaction History</p>
+          <p className="text-amber-800 text-sm mb-6">View your complete transaction history with deep links to Stellar explorer</p>
+          <Link href="/dashboard/transactions" className="btn-primary text-sm">
+            View Transactions
+          </Link>
+        </div>
       ) : tab === "edit_profile" ? (
         <EditProfileForm publicKey={publicKey} />
       ) : null}

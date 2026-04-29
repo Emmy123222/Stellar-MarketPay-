@@ -23,7 +23,38 @@ const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK === "mainnet"
   ? "Public Global Stellar Network ; September 2015" 
   : "Test SDF Network ; September 2015";
 
-// GET /api/auth?account=... -> Return a challenge transaction
+/**
+ * @swagger
+ * /api/auth:
+ *   get:
+ *     summary: Get authentication challenge transaction
+ *     description: Returns a Stellar challenge transaction for web authentication
+ *     tags: [Authentication]
+ *     parameters:
+ *       - in: query
+ *         name: account
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Stellar account address to challenge
+ *     responses:
+ *       200:
+ *         description: Challenge transaction generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 transaction:
+ *                   type: string
+ *                   description: Base64-encoded Stellar transaction
+ *       400:
+ *         description: Bad request - missing account or invalid format
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 router.get("/", (req, res) => {
   try {
     const accountId = req.query.account;
@@ -46,7 +77,52 @@ router.get("/", (req, res) => {
   }
 });
 
-// POST /api/auth -> Receive signed transaction and issue JWT
+/**
+ * @swagger
+ * /api/auth:
+ *   post:
+ *     summary: Authenticate with signed challenge transaction
+ *     description: Verifies a signed Stellar challenge transaction and issues a JWT token
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - transaction
+ *             properties:
+ *               transaction:
+ *                 type: string
+ *                 description: Base64-encoded signed Stellar transaction
+ *     responses:
+ *       200:
+ *         description: Authentication successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 token:
+ *                   type: string
+ *                   description: JWT authentication token
+ *       400:
+ *         description: Bad request - missing transaction or invalid format
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized - invalid signature or expired challenge
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 router.post("/", (req, res) => {
   try {
     const { transaction } = req.body;
