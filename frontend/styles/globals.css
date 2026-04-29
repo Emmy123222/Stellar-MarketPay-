@@ -101,6 +101,10 @@
     @apply badge bg-red-500/10 text-red-400 border-red-500/20;
   }
 
+  .badge-expired {
+    @apply badge bg-amber-500/10 text-amber-300 border-amber-500/20;
+  }
+
   .address-tag {
     @apply font-mono text-xs bg-ink-700 text-market-400/80 px-2.5 py-1 rounded-lg border border-market-500/15;
   }

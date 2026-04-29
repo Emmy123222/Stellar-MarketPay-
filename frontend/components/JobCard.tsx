@@ -15,8 +15,62 @@ import {
 } from "@/utils/format";
 import type { Job } from "@/utils/types";
 import { usePriceContext } from "@/contexts/PriceContext";
+import { useState, useEffect } from "react";
 
 interface JobCardProps { job: Job; }
+
+function CountdownTimer({ deadline }: { deadline: string }) {
+  const [timeLeft, setTimeLeft] = useState<{ hours: number; minutes: number; totalMinutes: number } | null>(null);
+
+  useEffect(() => {
+    const calculateTimeLeft = () => {
+      const now = new Date();
+      const end = new Date(deadline);
+      const diffMs = end.getTime() - now.getTime();
+      
+      if (diffMs <= 0) return null;
+      
+      const totalMinutes = Math.floor(diffMs / (1000 * 60));
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      
+      return { hours, minutes, totalMinutes };
+    };
+
+    const initial = calculateTimeLeft();
+    if (initial && initial.totalMinutes <= 2880) { // 48 hours
+      setTimeLeft(initial);
+      const timer = setInterval(() => {
+        const updated = calculateTimeLeft();
+        if (!updated || updated.totalMinutes > 2880) {
+          setTimeLeft(null);
+          clearInterval(timer);
+        } else {
+          setTimeLeft(updated);
+        }
+      }, 60000); // Update every minute
+      return () => clearInterval(timer);
+    }
+  }, [deadline]);
+
+  if (!timeLeft) return null;
+
+  const isCritical = timeLeft.totalMinutes < 1440; // 24 hours
+  const colorClass = isCritical 
+    ? "bg-red-500/20 text-red-300 border-red-400/40" 
+    : "bg-orange-500/20 text-orange-300 border-orange-400/40";
+
+  return (
+    <div 
+      className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide mb-1 ${colorClass} ${isCritical ? 'animate-pulse' : ''}`}
+      aria-live="polite"
+      role="timer"
+    >
+      {isCritical && <span className="mr-1">Closing Soon:</span>}
+      Closes in {timeLeft.hours}h {timeLeft.minutes}m
+    </div>
+  );
+}
 
 export default function JobCard({ job }: JobCardProps) {
   const { xlmPriceUsd } = usePriceContext();
@@ -85,7 +139,8 @@ export default function JobCard({ job }: JobCardProps) {
                 Closed
               </span>
             )}
-            {showClosingSoonBadge && (
+            {!showClosedBadge && job.deadline && <CountdownTimer deadline={job.deadline} />}
+            {showClosingSoonBadge && !showClosedBadge && !job.deadline && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide bg-red-500/20 text-red-300 border-red-400/40 mb-0.5">
                 Closing soon
               </span>

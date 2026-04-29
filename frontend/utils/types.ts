@@ -3,7 +3,7 @@
  * Shared TypeScript types for Stellar MarketPay.
  */
 
-export type JobStatus = "open" | "in_progress" | "completed" | "cancelled";
+export type JobStatus = "open" | "in_progress" | "completed" | "cancelled" | "expired";
 export type UserRole  = "client" | "freelancer" | "both";
 export type Currency  = "XLM" | "USDC";
 export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent";
@@ -29,6 +29,7 @@ export interface Job {
   budget: string;        // Amount as string
   currency: Currency;   // XLM or USDC
   category: string;
+  visibility?: JobVisibility;
   skills: string[];
   status: JobStatus;
   clientAddress: string;
@@ -43,6 +44,9 @@ export interface Job {
   deadline?: string;
   timezone?: string;     // IANA timezone string (e.g., "America/New_York")
   screeningQuestions?: string[];  // Up to 5 screening questions
+  expiresAt?: string;    // ISO date when job expires if not hired
+  extendedCount?: number; // Number of times expiry has been extended
+  extendedUntil?: string; // Final expiry after all extensions
 }
 
 export interface Application {
@@ -55,7 +59,18 @@ export interface Application {
   currency: Currency;    // XLM or USDC
   status: "pending" | "accepted" | "rejected";
   screeningAnswers?: Record<string, string>;  // Question -> Answer mapping
+  referredBy?: string;
   createdAt: string;
+}
+
+export interface ProfileStats {
+  totalApplications: number;
+  acceptedApplications: number;
+  successRate: number;
+}
+
+export interface ResponseTimeStats {
+  averageDays: number | null;
 }
 
 export interface UserProfile {
@@ -64,6 +79,7 @@ export interface UserProfile {
   bio?: string;
   skills?: string[];
   portfolioItems?: PortfolioItem[];
+  portfolioFiles?: PortfolioFile[];
   availability?: Availability | null;
   role: UserRole;
   completedJobs: number;
@@ -72,6 +88,8 @@ export interface UserProfile {
   tier?: FreelancerTier;
   /** Number of ratings received (when returned by profile API). */
   ratingCount?: number;
+  reputationPoints?: number;
+  referralCount?: number;
   createdAt: string;
   updatedAt?: string;
 }
@@ -86,6 +104,25 @@ export interface Rating {
   createdAt: string;
 }
 
+export interface ProposalTemplate {
+  id: string;
+  freelancerAddress: string;
+  name: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PriceAlertPreference {
+  freelancer_address: string;
+  min_xlm_price_usd?: string | null;
+  max_xlm_price_usd?: string | null;
+  email_notifications_enabled: boolean;
+  email?: string | null;
+  last_min_alert_at?: string | null;
+  last_max_alert_at?: string | null;
+}
+
 export interface EscrowState {
   contractId: string;
   jobId: string;
@@ -94,4 +131,14 @@ export interface EscrowState {
   amount: string;
   status: "locked" | "released" | "refunded" | "disputed";
   createdLedger: number;
+}
+
+export interface Message {
+  id: string;
+  jobId: string;
+  senderAddress: string;
+  receiverAddress: string;
+  content: string;
+  read: boolean;
+  createdAt: string;
 }

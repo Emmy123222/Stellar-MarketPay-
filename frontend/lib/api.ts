@@ -1,24 +1,5 @@
-/**
- * Frontend API client for MarketPay backend endpoints.
- *
- * This module centralizes HTTP calls used by pages and components, including
- * auth challenge verification, jobs, applications, profiles, escrow, and
- * ratings. Responses generally follow a `{ success, data }` envelope where this
- * client returns only `data` for convenience.
- *
- * JWT auth is managed in-memory via `setJwtToken`/`getJwtToken`, and attached
- * to outgoing requests through an Axios request interceptor.
- *
- * @see backend/src/routes/auth.js
- * @see backend/src/routes/jobs.js
- * @see backend/src/routes/applications.js
- * @see backend/src/routes/profiles.js
- * @see backend/src/routes/escrow.js
- * @see backend/src/routes/ratings.js
- */
-
 import axios from "axios";
-import type { Availability, Job, Application, UserProfile, Rating } from "@/utils/types";
+import type { Availability, Job, Application, UserProfile, Rating, ProfileStats, ResponseTimeStats } from "@/utils/types";
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000",
@@ -27,55 +8,14 @@ const api = axios.create({
   timeout: 10000,
 });
 
-// ─── Auth (SEP-0010) ──────────────────────────────────────────────────────────
 let jwtToken: string | null = null;
 
-/**
- * Sets or clears the in-memory JWT token used for authenticated API requests.
- *
- * @param token JWT string to attach as a Bearer token, or `null` to clear auth state.
- * @returns Nothing.
- * @throws {Error} Propagates unexpected runtime errors while mutating module state.
- * @see backend/src/routes/auth.js
- */
-export function setJwtToken(token: string | null) { jwtToken = token; }
-
-/**
- * Returns the currently stored in-memory JWT token.
- *
- * @returns The active JWT token string, or `null` when the user is not authenticated.
- * @throws {Error} Propagates unexpected runtime errors while reading module state.
- * @see backend/src/routes/auth.js
- */
-export function getJwtToken() { return jwtToken; }
-
-/**
- * Requests a SEP-0010 challenge transaction for a Stellar account.
- *
- * @param publicKey Stellar public key used to generate the challenge transaction.
- * @returns The challenge transaction string returned by the backend.
- * @throws {import("axios").AxiosError} If the challenge request fails or times out.
- * @see backend/src/routes/auth.js
- */
-export async function fetchAuthChallenge(publicKey: string) {
-  const { data } = await api.get<{ transaction: string }>(`/api/auth?account=${publicKey}`);
-  return data.transaction;
+export function setJwtToken(token: string | null) {
+  jwtToken = token;
 }
 
-/**
- * Verifies a signed SEP-0010 challenge transaction and receives a JWT.
- *
- * Request payload shape:
- * - `transaction` (string): signed challenge transaction envelope.
- *
- * @param transaction Signed SEP-0010 challenge transaction submitted for verification.
- * @returns A JWT token string that can be stored via `setJwtToken`.
- * @throws {import("axios").AxiosError} If verification fails, returns 4xx/5xx, or times out.
- * @see backend/src/routes/auth.js
- */
-export async function verifyAuthChallenge(transaction: string) {
-  const { data } = await api.post<{ success: boolean; token: string }>("/api/auth", { transaction });
-  return data.token;
+export function getJwtToken() {
+  return jwtToken;
 }
 
 api.interceptors.request.use((config: any) => {
@@ -85,23 +25,52 @@ api.interceptors.request.use((config: any) => {
   return config;
 });
 
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+export async function fetchAuthChallenge(publicKey: string) {
+  const { data } = await api.get<{ transaction: string }>(`/api/auth?account=${publicKey}`);
+  return data.transaction;
+}
+
+export async function verifyAuthChallenge(transaction: string) {
+  const { data } = await api.post<{ success: boolean; token: string }>("/api/auth", { transaction });
+  return data.token;
+}
 
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 
-export async function fetchJobs(params?: { category?: string; status?: string; limit?: number; search?: string; cursor?: string; timezone?: string }) {
-  const { data } = await api.get<{ success: boolean; data: Job[]; nextCursor: string | null }>("/api/jobs", { params });
+export async function fetchJobs(params?: {
+  category?: string;
+  status?: string;
+  limit?: number;
+  search?: string;
+  cursor?: string;
+  timezone?: string;
+}) {
+  const { data } = await api.get<{
+    success: boolean;
+    data: Job[];
+    nextCursor: string | null;
+  }>("/api/jobs", { params });
+
   return {
     jobs: data.data,
     nextCursor: data.nextCursor ?? null,
   };
 }
 
-/**
- * Fetches the most recently completed jobs for social proof on the home page.
- *
- * @param limit Number of completed jobs to fetch (default 3).
- * @returns Array of completed jobs, newest first.
- */
+export async function fetchRelatedJobs(category: string, currentJobId: string) {
+  const { jobs } = await fetchJobs({
+    category,
+    status: "open",
+    limit: 4,
+  });
+
+  return jobs
+    .filter((job) => job.id !== currentJobId)
+    .slice(0, 3);
+}
+
 export async function fetchRecentlyCompletedJobs(limit = 3): Promise<Job[]> {
   const { jobs } = await fetchJobs({ status: "completed", limit });
   return jobs;
@@ -115,47 +84,13 @@ export async function fetchRecentlyCompletedJobs(limit = 3): Promise<Job[]> {
  * @throws {import("axios").AxiosError} If the job is not found or the request fails.
  * @see backend/src/routes/jobs.js
  */
-export async function fetchJob(id: string) {
-  const { data } = await api.get<{ success: boolean; data: Job }>(`/api/jobs/${id}`);
+export async function fetchJob(id: string, viewerAddress?: string) {
+  const { data } = await api.get<{ success: boolean; data: Job }>(`/api/jobs/${id}`, {
+    params: viewerAddress ? { viewerAddress } : undefined,
+  });
   return data.data;
 }
 
-/**
- * Creates a new job posting.
- *
- * Request payload shape:
- * - `title` (string): job title.
- * - `description` (string): job details and scope.
- * - `budget` (string): proposed budget amount.
- * - `category` (string): backend-recognized category.
- * - `skills` (string[]): required skills.
- * - `deadline` (string, optional): deadline value accepted by backend.
- * - `clientAddress` (string): posting client's Stellar public key.
- *
- * @param payload Job creation payload.
- * @param payload.title Human-readable job title.
- * @param payload.description Detailed description of the work.
- * @param payload.budget Budget amount as a string.
- * @param payload.category Job category key.
- * @param payload.skills Required skill tags.
- * @param payload.deadline Optional job deadline.
- * @param payload.clientAddress Client Stellar public key.
- * @returns The created job.
- * @throws {import("axios").AxiosError} If validation fails or the request cannot be completed.
- * @example
- * ```ts
- * const created = await createJob({
- *   title: "Stellar Wallet Integration",
- *   description: "Integrate wallet auth and SEP-0010 flow into an existing app.",
- *   budget: "500",
- *   category: "development",
- *   skills: ["stellar", "typescript", "nextjs"],
- *   deadline: "2026-04-15",
- *   clientAddress: "GCFX...CLIENT",
- * });
- * ```
- * @see backend/src/routes/jobs.js
- */
 export async function createJob(payload: {
   title: string; description: string; budget: string;
   currency?: "XLM" | "USDC";
@@ -163,122 +98,76 @@ export async function createJob(payload: {
   timezone?: string;
   clientAddress: string;
   screeningQuestions?: string[];
+  visibility?: "public" | "private" | "invite_only";
 }) {
   const { data } = await api.post<{ success: boolean; data: Job }>("/api/jobs", payload);
   return data.data;
 }
 
-/**
- * Fetches jobs created by a specific client wallet address.
- *
- * @param publicKey Client Stellar public key.
- * @returns A list of jobs posted by the client.
- * @throws {import("axios").AxiosError} If the request fails or times out.
- * @see backend/src/routes/jobs.js
- */
 export async function fetchMyJobs(publicKey: string) {
   const { data } = await api.get<{ success: boolean; data: Job[] }>(`/api/jobs/client/${publicKey}`);
   return data.data;
 }
 
+/**
+ * Tracks a referral click for a job.
+ * 
+ * @param jobId Job identifier.
+ * @param referrer Referrer's Stellar public key.
+ */
+export async function trackReferralClick(jobId: string, referrer: string) {
+  await api.post(`/api/jobs/${jobId}/referral`, { referrer });
+}
+
+
 // ─── Applications ─────────────────────────────────────────────────────────────
 
-/**
- * Fetches all applications submitted for a given job.
- *
- * @param jobId Job identifier.
- * @returns Applications submitted against the specified job.
- * @throws {import("axios").AxiosError} If the request fails or times out.
- * @see backend/src/routes/applications.js
- */
 export async function fetchApplications(jobId: string) {
-  const { data } = await api.get<{ success: boolean; data: Application[] }>(`/api/applications/job/${jobId}`);
+  const { data } = await api.get<{ success: boolean; data: Application[] }>(
+    `/api/applications/job/${jobId}`
+  );
   return data.data;
 }
 
-/**
- * Submits a freelancer application for a job.
- *
- * Request payload shape:
- * - `jobId` (string): target job identifier.
- * - `freelancerAddress` (string): applicant Stellar public key.
- * - `proposal` (string): proposal message.
- * - `bidAmount` (string): quoted bid amount.
- *
- * @param payload Application submission payload.
- * @param payload.jobId Target job identifier.
- * @param payload.freelancerAddress Freelancer Stellar public key.
- * @param payload.proposal Proposal text submitted by freelancer.
- * @param payload.bidAmount Bid amount as a string.
- * @returns The created application record.
- * @throws {import("axios").AxiosError} If submission fails validation, authorization, or network checks.
- * @example
- * ```ts
- * const application = await submitApplication({
- *   jobId: "job_123",
- *   freelancerAddress: "GDQY...FREELANCER",
- *   proposal: "I can deliver this integration in 5 days with tests and docs.",
- *   bidAmount: "450",
- * });
- * ```
- * @see backend/src/routes/applications.js
- */
 export async function submitApplication(payload: {
-  jobId: string; freelancerAddress: string; proposal: string; bidAmount: string; currency: string;
+  jobId: string;
+  freelancerAddress: string;
+  proposal: string;
+  bidAmount: string;
+  currency: string;
+  screeningAnswers?: Record<string, string>;
+  referredBy?: string;
 }) {
-  const { data } = await api.post<{ success: boolean; data: Application }>("/api/applications", payload);
+  const { data } = await api.post<{ success: boolean; data: Application }>(
+    "/api/applications",
+    payload
+  );
   return data.data;
 }
 
-/**
- * Accepts an application on behalf of a client.
- *
- * Request payload shape:
- * - `clientAddress` (string): client Stellar public key.
- *
- * @param applicationId Application identifier.
- * @param clientAddress Client Stellar public key authorizing the accept action.
- * @returns Backend acceptance result payload.
- * @throws {import("axios").AxiosError} If authorization fails or the request cannot be processed.
- * @see backend/src/routes/applications.js
- */
 export async function acceptApplication(applicationId: string, clientAddress: string) {
-  const { data } = await api.post(`/api/applications/${applicationId}/accept`, { clientAddress });
+  const { data } = await api.post(`/api/applications/${applicationId}/accept`, {
+    clientAddress,
+  });
   return data.data;
 }
 
-/**
- * Fetches applications submitted by a freelancer wallet address.
- *
- * @param publicKey Freelancer Stellar public key.
- * @returns A list of applications created by the freelancer.
- * @throws {import("axios").AxiosError} If the request fails or times out.
- * @see backend/src/routes/applications.js
- */
 export async function fetchMyApplications(publicKey: string) {
-  const { data } = await api.get<{ success: boolean; data: Application[] }>(`/api/applications/freelancer/${publicKey}`);
+  const { data } = await api.get<{ success: boolean; data: Application[] }>(
+    `/api/applications/freelancer/${publicKey}`
+  );
   return data.data;
 }
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
 
-/**
- * Fetches a user's profile by Stellar public key.
- *
- * @param publicKey User Stellar public key.
- * @returns The user's profile data.
- * @throws {import("axios").AxiosError} If the profile request fails or times out.
- * @see backend/src/routes/profiles.js
- */
 export async function fetchProfile(publicKey: string) {
-  const { data } = await api.get<{ success: boolean; data: UserProfile }>(`/api/profiles/${publicKey}`);
+  const { data } = await api.get<{ success: boolean; data: UserProfile }>(
+    `/api/profiles/${publicKey}`
+  );
   return data.data;
 }
 
-/**
- * Fetches a public profile for display on shared profile pages.
- * Returns `null` when the backend responds with 404 (no profile yet).
- */
 export async function fetchPublicProfile(publicKey: string): Promise<UserProfile | null> {
   try {
     const { data } = await api.get<{ success: boolean; data: UserProfile }>(
@@ -291,35 +180,15 @@ export async function fetchPublicProfile(publicKey: string): Promise<UserProfile
   }
 }
 
-/**
- * Creates or updates a user profile.
- *
- * Request payload shape:
- * - `publicKey` (string): required profile owner key.
- * - Any optional `UserProfile` fields accepted by backend update logic.
- *
- * @param payload Profile upsert payload (`publicKey` plus optional profile fields).
- * @param payload.publicKey User Stellar public key.
- * @returns The saved user profile.
- * @throws {import("axios").AxiosError} If validation fails or the request fails.
- * @see backend/src/routes/profiles.js
- */
 export async function upsertProfile(payload: Partial<UserProfile> & { publicKey: string }) {
-  const { data } = await api.post<{ success: boolean; data: UserProfile }>("/api/profiles", payload);
+  const { data } = await api.post<{ success: boolean; data: UserProfile }>(
+    "/api/profiles",
+    payload
+  );
   return data.data;
 }
 
-/**
- * Updates a user's availability window and status.
- *
- * @param publicKey User Stellar public key.
- * @param payload Availability payload accepted by the backend.
- * @returns The saved profile.
- */
-export async function updateProfileAvailability(
-  publicKey: string,
-  payload: Availability
-) {
+export async function updateProfileAvailability(publicKey: string, payload: Availability) {
   const { data } = await api.post<{ success: boolean; data: UserProfile }>(
     `/api/profiles/${encodeURIComponent(publicKey)}/availability`,
     payload
@@ -327,29 +196,106 @@ export async function updateProfileAvailability(
   return data.data;
 }
 
-// ─── Escrow ───────────────────────────────────────────────────────────────────
+/**
+ * Verifies a user's identity via a DID provider and stores the resulting credential hash.
+ * 
+ * @param publicKey User Stellar public key.
+ * @param didHash The credential hash/DID URI returned by the provider.
+ * @returns The updated profile.
+ */
+export async function verifyIdentity(publicKey: string, didHash: string) {
+  const { data } = await api.post<{ success: boolean; data: UserProfile }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/verify`,
+    { didHash }
+  );
+  return data.data;
+}
 
 /**
- * Releases escrow for a completed job.
+ * Fetches application statistics for a freelancer profile.
  *
- * Request payload shape:
- * - `clientAddress` (string): client Stellar public key authorizing release.
- *
- * @param jobId Job identifier whose escrow should be released.
- * @param clientAddress Client Stellar public key.
- * @returns Backend escrow release result payload.
- * @throws {import("axios").AxiosError} If release validation fails or the request errors.
- * @see backend/src/routes/escrow.js
+ * @param publicKey Freelancer Stellar public key.
+ * @returns Statistics including total applications, accepted count, and success rate.
  */
+export async function fetchProfileStats(publicKey: string) {
+  const { data } = await api.get<{ success: boolean; data: ProfileStats }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/stats`
+  );
+  return data.data;
+}
+
+/**
+ * Fetches the average response time (acceptance to completion) for a freelancer.
+ *
+ * @param publicKey Freelancer Stellar public key.
+ * @returns Average response time in days.
+ */
+export async function fetchResponseTime(publicKey: string) {
+  const { data } = await api.get<{ success: boolean; data: ResponseTimeStats }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/response-time`
+  );
+  return data.data;
+}
+
+// ─── Escrow ───────────────────────────────────────────────────────────────────
+
 export async function releaseEscrow(
   jobId: string,
   clientAddress: string,
-  contractTxHash?: string
+  contractTxHash?: string,
+  releaseCurrency?: "XLM" | "USDC"
 ) {
   const { data } = await api.post(`/api/escrow/${jobId}/release`, {
     clientAddress,
     ...(contractTxHash ? { contractTxHash } : {}),
+    ...(releaseCurrency ? { releaseCurrency } : {}),
   });
+  return data.data;
+}
+
+export async function inviteFreelancer(jobId: string, freelancerAddress: string) {
+  const { data } = await api.post<{ success: boolean; data: any }>(`/api/jobs/${jobId}/invite`, {
+    freelancerAddress,
+  });
+  return data.data;
+}
+
+export async function fetchProposalTemplates() {
+  const { data } = await api.get<{ success: boolean; data: ProposalTemplate[] }>("/api/proposal-templates");
+  return data.data;
+}
+
+export async function createProposalTemplate(payload: { name: string; content: string }) {
+  const { data } = await api.post<{ success: boolean; data: ProposalTemplate }>("/api/proposal-templates", payload);
+  return data.data;
+}
+
+export async function updateProposalTemplate(id: string, payload: { name?: string; content?: string }) {
+  const { data } = await api.patch<{ success: boolean; data: ProposalTemplate }>(`/api/proposal-templates/${id}`, payload);
+  return data.data;
+}
+
+export async function deleteProposalTemplate(id: string) {
+  await api.delete(`/api/proposal-templates/${id}`);
+}
+
+export async function fetchPriceAlertPreference(publicKey: string) {
+  const { data } = await api.get<{ success: boolean; data: PriceAlertPreference | null }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/price-alerts`
+  );
+  return data.data;
+}
+
+export async function upsertPriceAlertPreference(publicKey: string, payload: {
+  minXlmPriceUsd?: number | null;
+  maxXlmPriceUsd?: number | null;
+  emailNotificationsEnabled?: boolean;
+  email?: string;
+}) {
+  const { data } = await api.post<{ success: boolean; data: PriceAlertPreference }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/price-alerts`,
+    payload
+  );
   return data.data;
 }
 
@@ -361,39 +307,19 @@ export async function releaseEscrow(
  * @returns The updated job record.
  */
 export async function updateJobEscrowId(jobId: string, escrowContractId: string) {
-  const { data } = await api.patch<{ success: boolean; data: Job }>(`/api/jobs/${jobId}/escrow`, { escrowContractId });
+  const { data } = await api.patch<{ success: boolean; data: Job }>(
+    `/api/jobs/${jobId}/escrow`,
+    { escrowContractId }
+  );
   return data.data;
 }
 
-/**
- * Deletes a job by ID. Used to roll back an orphaned job when escrow fails.
- *
- * @param jobId Job identifier to delete.
- */
 export async function deleteJob(jobId: string) {
   await api.delete(`/api/jobs/${jobId}`);
 }
 
 // ─── Ratings ──────────────────────────────────────────────────────────────────
 
-/**
- * Submits a rating for a completed job participant.
- *
- * Request payload shape:
- * - `jobId` (string): completed job identifier.
- * - `ratedAddress` (string): recipient Stellar public key.
- * - `stars` (number): rating value.
- * - `review` (string, optional): text review.
- *
- * @param payload Rating submission payload.
- * @param payload.jobId Job identifier.
- * @param payload.ratedAddress Rated user's Stellar public key.
- * @param payload.stars Star rating value.
- * @param payload.review Optional written review.
- * @returns The created rating record.
- * @throws {import("axios").AxiosError} If authorization or validation fails.
- * @see backend/src/routes/ratings.js
- */
 export async function submitRating(payload: {
   jobId: string;
   ratedAddress: string;
@@ -404,15 +330,276 @@ export async function submitRating(payload: {
   return data.data;
 }
 
-/**
- * Fetches ratings associated with a wallet address.
- *
- * @param publicKey Stellar public key to fetch ratings for.
- * @returns A list of ratings tied to the provided address.
- * @throws {import("axios").AxiosError} If the ratings request fails or times out.
- * @see backend/src/routes/ratings.js
- */
 export async function fetchRatings(publicKey: string) {
-  const { data } = await api.get<{ success: boolean; data: Rating[] }>(`/api/ratings/${publicKey}`);
+  const { data } = await api.get<{ success: boolean; data: Rating[] }>(
+    `/api/ratings/${publicKey}`
+  );
   return data.data;
 }
+
+// ─── Job Suggestions (Autocomplete) ─────────────────────────────────────
+
+export async function fetchJobSuggestions(query: string): Promise<{ type: 'title' | 'skill' | 'category'; value: string }[]> {
+  const { data } = await api.get<{ success: boolean; data: { type: string; value: string }[] }>("/api/jobs/suggestions", { params: { q: query } });
+  return data.data.map((item) => ({ type: item.type as 'title' | 'skill' | 'category', value: item.value }));
+}
+
+// ─── Job Drafts (Issue #219) ────────────────────────────────────────────
+
+export async function saveDraft(draftData: any) {
+  const { data } = await api.post<{ success: boolean; data: any }>("/api/jobs/drafts", draftData);
+  return data.data;
+}
+
+export async function fetchDrafts() {
+  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/jobs/drafts");
+  return data.data;
+}
+
+export async function fetchDraft(draftId: string) {
+  const { data } = await api.get<{ success: boolean; data: any }>(`/api/jobs/drafts/${draftId}`);
+  return data.data;
+}
+
+export async function deleteDraft(draftId: string) {
+  await api.delete(`/api/jobs/drafts/${draftId}`);
+}
+
+// ─── Job Recommendations (Issue #221) ───────────────────────────────────
+
+export async function fetchRecommendedJobs(limit = 10) {
+  const { data } = await api.get<{ success: boolean; data: Job[] }>("/api/jobs/recommended", { params: { limit } });
+  return data.data;
+}
+
+// ─── IPFS File Upload (Issue #202) ──────────────────────────────────────────
+
+export async function uploadPortfolioFiles(publicKey: string, files: FileList) {
+  const formData = new FormData();
+  
+  // Append all files to FormData
+  Array.from(files).forEach((file) => {
+    formData.append("files", file);
+  });
+
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: { 
+      uploadedFiles: PortfolioFile[];
+      gatewayUrls: string[];
+    }
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/upload-files`, formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+    timeout: 60000, // 60 seconds for file uploads
+  });
+
+  return data.data;
+}
+
+// ─── Stellar Faucet (Issue #205) ───────────────────────────────────────────
+
+export async function fundTestnetWallet(publicKey: string) {
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: {
+      success: boolean;
+      message: string;
+      fundedAmount: string;
+      newBalance?: string;
+      transactionHash?: string;
+      ledger?: number;
+    }
+  }>("/api/faucet/fund", { publicKey });
+
+  return data.data;
+}
+
+export async function checkAccountNeedsFunding(publicKey: string) {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: {
+      needsFunding: boolean;
+      currentBalance: string;
+      exists: boolean;
+    }
+  }>(`/api/faucet/check/${encodeURIComponent(publicKey)}`);
+
+  return data.data;
+}
+
+export async function getFaucetStatus() {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: {
+      enabled: boolean;
+      network: string;
+      amount: string;
+      asset: string;
+    }
+  }>("/api/faucet/status");
+
+  return data.data;
+}
+
+// ─── Token Support (Issue #228) ─────────────────────────────────────────────
+
+export async function getPopularTokens() {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: TokenInfo[];
+  }>("/api/tokens/popular");
+
+  return data.data;
+}
+
+export async function searchTokens(query: string) {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: TokenInfo[];
+  }>("/api/tokens/search", { params: { q: query } });
+
+  return data.data;
+}
+
+export async function getTokenMetadata(contractId: string) {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: TokenInfo;
+  }>(`/api/tokens/${contractId}/metadata`);
+
+  return data.data;
+}
+
+export async function getTokenBalance(contractId: string, publicKey: string) {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: TokenBalance;
+  }>(`/api/tokens/${contractId}/balance/${publicKey}`);
+
+  return data.data;
+}
+
+export async function validateTokenContract(contractId: string) {
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: {
+      valid: boolean;
+      error?: string;
+    };
+  }>("/api/tokens/validate", { contractId });
+
+  return data.data;
+}
+
+// ─── Stellar Turrets (Issue #224) ───────────────────────────────────────────
+
+export async function submitViaTurrets(transactionXDR: string, useTurret?: boolean) {
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: {
+      success: boolean;
+      hash: string;
+      ledger: number;
+      feeCharged: string;
+      turretUsed: boolean;
+      message: string;
+    };
+  }>("/api/turrets/submit", { transactionXDR, useTurret });
+
+  return data.data;
+}
+
+export async function getTurretsStatus() {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: {
+      available: boolean;
+      url?: string;
+      network?: string;
+      version?: string;
+      feeSponsorship?: boolean;
+      message: string;
+      error?: string;
+    };
+  }>("/api/turrets/status");
+
+  return data.data;
+}
+
+export async function estimateTurretsFee(transactionXDR: string) {
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: {
+      success: boolean;
+      baseFee: string;
+      turretFee: string;
+      totalFee: string;
+      feeSponsored: boolean;
+      message?: string;
+    };
+  }>("/api/turrets/estimate", { transactionXDR });
+
+  return data.data;
+}
+
+export async function getTurretsConfig() {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: {
+      configured: boolean;
+      url: string | null;
+      hasApiKey: boolean;
+      shouldUseByDefault: boolean;
+    };
+  }>("/api/turrets/config");
+
+  return data.data;
+}
+
+// ─── Messages ──────────────────────────────────────────────────────────────────
+
+/**
+ * Fetches all messages for a specific job.
+ * Automatically marks messages as read for the current user.
+ *
+ * @param jobId Job identifier.
+ * @returns Messages sorted chronologically (oldest first).
+ * @throws {import("axios").AxiosError} If unauthorized, job not found, or request fails.
+ * @see backend/src/routes/messageRoutes.js
+ */
+export async function fetchMessages(jobId: string): Promise<Message[]> {
+  const { data } = await api.get<{ success: boolean; data: Message[] }>(`/api/messages/job/${jobId}`);
+  return data.data;
+}
+
+/**
+ * Sends a message in a job thread.
+ *
+ * Request payload shape:
+ * - `content` (string): message text (1-2000 characters).
+ *
+ * @param jobId Job identifier.
+ * @param content Message content.
+ * @returns The created message object.
+ * @throws {import("axios").AxiosError} If unauthorized, validation fails, or request fails.
+ * @see backend/src/routes/messageRoutes.js
+ */
+export async function sendMessage(jobId: string, content: string): Promise<Message> {
+  const { data } = await api.post<{ success: boolean; data: Message }>(`/api/messages/job/${jobId}`, { content });
+  return data.data;
+}
+
+/**
+ * Fetches the total unread message count for the authenticated user.
+ *
+ * @returns Number of unread messages.
+ * @throws {import("axios").AxiosError} If not authenticated or request fails.
+ * @see backend/src/routes/messageRoutes.js
+ */
+export async function fetchUnreadCount(): Promise<number> {
+  const { data } = await api.get<{ success: boolean; data: { unreadCount: number } }>("/api/messages/unread-count");
+  return data.data.unreadCount;
+}
+

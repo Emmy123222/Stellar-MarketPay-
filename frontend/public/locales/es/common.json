@@ -1,0 +1,45 @@
+{
+  "nav": {
+    "home": "Inicio",
+    "browseJobs": "Explorar Trabajos",
+    "dashboard": "Panel",
+    "postJob": "Publicar Trabajo",
+    "connectWallet": "Conectar Billetera",
+    "disconnect": "Desconectar"
+  },
+  "jobs": {
+    "title": "Explorar Trabajos",
+    "found": "trabajo encontrado",
+    "foundPlural": "trabajos encontrados",
+    "searchPlaceholder": "Buscar por título, habilidad o palabra clave...",
+    "noJobsFound": "No se encontraron trabajos",
+    "tryAdjusting": "Intenta ajustar tus filtros o término de búsqueda",
+    "postFirstJob": "Publica el primer trabajo",
+    "loadMore": "Cargar más trabajos",
+    "loading": "Cargando...",
+    "status": {
+      "open": "Abierto",
+      "inProgress": "En Progreso",
+      "completed": "Completado",
+      "all": "Todos"
+    },
+    "budget": "Presupuesto (XLM)",
+    "category": "Categoría",
+    "allCategories": "Todas las Categorías",
+    "timezone": "Zona Horaria",
+    "useMyLocation": "Usar Mi Ubicación",
+    "myLocation": "Mi Ubicación",
+    "detecting": "Detectando...",
+    "allTimezones": "Todas las Zonas Horarias",
+    "withinTimezone": "Muestra trabajos dentro de ±3 horas de la zona horaria seleccionada"
+  },
+  "wallet": {
+    "balance": "Saldo",
+    "loading": "Cargando..."
+  },
+  "language": {
+    "switch": "Cambiar Idioma",
+    "english": "English",
+    "spanish": "Español"
+  }
+}

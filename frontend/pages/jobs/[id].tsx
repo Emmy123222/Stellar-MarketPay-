@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import ApplicationForm from "@/components/ApplicationForm";
 import RatingForm from "@/components/RatingForm";
+import ProposalComparison from "@/components/ProposalComparison";
 import ShareJobModal from "@/components/ShareJobModal";
 import WalletConnect from "@/components/WalletConnect";
 import { acceptApplication, fetchApplications, fetchJob, releaseEscrow } from "@/lib/api";
@@ -11,7 +12,12 @@ import {
   accountUrl,
   buildReleaseEscrowTransaction,
   submitSignedSorobanTransaction,
+  USDC_ISSUER,
+  USDC_SAC_ADDRESS,
+  XLM_SAC_ADDRESS,
+  subscribeToContractEvents,
 } from "@/lib/stellar";
+import { Asset, type Transaction } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { formatDate, shortenAddress, statusClass, statusLabel, timeAgo } from "@/utils/format";
 import type { Application, Job } from "@/utils/types";
@@ -107,6 +113,24 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     setApplications(nextApplications);
   };
 
+  useEffect(() => {
+    if (!job?.escrowContractId || !job?.id) return;
+
+    setIsLiveSubscriptionActive(true);
+    const unsubscribe = subscribeToContractEvents(job.escrowContractId, (event) => {
+      if (event.jobId && event.jobId !== job.id) return;
+
+      if (event.type === "released") {
+        setJob((prev) => (prev ? { ...prev, status: "completed" } : prev));
+      }
+    });
+
+    return () => {
+      setIsLiveSubscriptionActive(false);
+      unsubscribe();
+    };
+  }, [job?.escrowContractId, job?.id]);
+
   const handleAcceptApplication = async (applicationId: string) => {
     if (!publicKey || !jobId) return;
 
@@ -121,7 +145,8 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   };
 
   const handleReleaseEscrow = async () => {
-    if (!publicKey || !job) return;
+    if (!publicKey || !job || !id) return;
+
     if (!job.escrowContractId) {
       setActionError("This job does not have an escrow contract ID yet.");
       return;
@@ -140,6 +165,17 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
         return;
       }
 
+      // Pause for fee confirmation (Issue #222) before Freighter prompts.
+      setPendingRelease({ transaction: prepared, fnName });
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : "Could not complete the release.");
+      setReleasingEscrow(false);
+    }
+  };
+
+  const completeReleaseEscrow = async (signedXDR: string) => {
+    if (!publicKey || !job || !id) return;
+    try {
       const { hash } = await submitSignedSorobanTransaction(signedXDR);
       await releaseEscrow(job.id, publicKey, hash);
 
@@ -150,6 +186,73 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
       setActionError(error instanceof Error ? error.message : "Could not release escrow.");
     } finally {
       setReleasingEscrow(false);
+    }
+  };
+
+  const handleConfirmReleaseFee = async () => {
+    if (!pendingRelease) return;
+    const { transaction } = pendingRelease;
+    setPendingRelease(null);
+
+    const { signedXDR, error: signError } = await signTransactionWithWallet(transaction.toXDR());
+    if (signError || !signedXDR) {
+      setActionError(signError || "Signing was cancelled.");
+      setReleasingEscrow(false);
+      return;
+    }
+    await completeReleaseEscrow(signedXDR);
+  };
+
+  const handleCancelReleaseFee = () => {
+    setPendingRelease(null);
+    setReleasingEscrow(false);
+    setActionError("Cancelled before signing.");
+  };
+
+  const handleSubmitReport = async () => {
+    if (!job) return;
+
+    if (!publicKey) {
+      setReportError("Please connect your wallet before reporting this job.");
+      return;
+    }
+
+    if (!reportCategory) {
+      setReportError("Please select a report category.");
+      return;
+    }
+
+    setReportLoading(true);
+    setReportError(null);
+
+    try {
+      const response = await fetch(`/api/jobs/${job.id}/report`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reporterAddress: publicKey,
+          category: reportCategory,
+          description: reportDescription,
+        }),
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to submit report.");
+      }
+
+      setReportSuccess(true);
+      setReportCategory("");
+      setReportDescription("");
+    } catch (error: unknown) {
+      setReportError(
+        error instanceof Error ? error.message : "Failed to submit report."
+      );
+    } finally {
+      setReportLoading(false);
     }
   };
 
