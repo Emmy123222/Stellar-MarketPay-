@@ -5,7 +5,7 @@
 
 import {
   Horizon, Networks, Asset, Operation, TransactionBuilder, Transaction,
-  Contract, nativeToScVal, Address,
+  Contract, nativeToScVal, scValToNative, Address,
 } from "@stellar/stellar-sdk";
 import { SorobanRpc } from "@stellar/stellar-sdk";
 
@@ -316,6 +316,71 @@ export async function buildReleaseWithConversionTransaction(
     return await sorobanServer.prepareTransaction(built);
   } catch (err: unknown) {
     throw new Error(friendlySorobanError(err));
+  }
+}
+
+/**
+ * Builds a prepared Soroban transaction that invokes `partial_release(job_id, milestone_index, client)` on the escrow contract.
+ */
+export async function buildPartialReleaseTransaction(
+  contractId: string,
+  jobId: string,
+  clientAddress: string,
+  milestoneIndex: number
+): Promise<Transaction> {
+  if (!CONTRACT_ID_RE.test(contractId)) {
+    throw new Error("Invalid escrow contract ID. Expected a Soroban contract address (C…).");
+  }
+  if (!jobId.trim()) throw new Error("Job ID is required.");
+  if (!/^G[A-Z0-9]{55}$/.test(clientAddress)) {
+    throw new Error("Invalid client account.");
+  }
+
+  try {
+    const account = await sorobanServer.getAccount(clientAddress);
+    const contract = new Contract(contractId);
+    const op = contract.call(
+      "partial_release",
+      nativeToScVal(jobId),
+      nativeToScVal(milestoneIndex, { type: "u32" }),
+      Address.fromString(clientAddress).toScVal()
+    );
+
+    const built = new TransactionBuilder(account, {
+      fee: "1000000",
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(op)
+      .setTimeout(60)
+      .build();
+
+    return await sorobanServer.prepareTransaction(built);
+  } catch (err: unknown) {
+    throw new Error(friendlySorobanError(err));
+  }
+}
+
+/**
+ * Reads the on-chain Escrow state for a job.
+ */
+export async function getEscrowState(contractId: string, jobId: string, clientAddress: string): Promise<any> {
+  try {
+    const account = await sorobanServer.getAccount(clientAddress).catch(() => null);
+    if (!account) return null;
+    const contract = new Contract(contractId);
+    const op = contract.call("get_escrow", nativeToScVal(jobId));
+    const tx = new TransactionBuilder(account, { fee: "100000", networkPassphrase: NETWORK_PASSPHRASE })
+      .addOperation(op)
+      .setTimeout(30).build();
+      
+    const simResult = await sorobanServer.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationSuccess(simResult) && simResult.result?.retval) {
+      return scValToNative(simResult.result.retval);
+    }
+    return null;
+  } catch (err) {
+    console.error("Failed to read escrow state", err);
+    return null;
   }
 }
 

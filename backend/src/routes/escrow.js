@@ -64,6 +64,39 @@ router.post("/:jobId/release", escrowActionRateLimiter, async (req, res, next) =
 });
 
 /**
+ * POST /api/escrow/:jobId/partial_release
+ */
+router.post("/:jobId/partial_release", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { clientAddress, contractTxHash, milestoneIndex } = req.body;
+
+    if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
+      const e = new Error("Invalid client address");
+      e.status = 400;
+      throw e;
+    }
+
+    const job = await getJob(jobId);
+
+    if (job.clientAddress !== clientAddress) {
+      const e = new Error("Only the job client can release milestones");
+      e.status = 403;
+      throw e;
+    }
+
+    await logContractInteraction({
+      functionName: "partial_release",
+      callerAddress: clientAddress,
+      jobId,
+      txHash: contractTxHash || `offchain-${Date.now()}`,
+    });
+
+    res.json({ success: true, message: `Milestone ${milestoneIndex} released` });
+  } catch (e) { next(e); }
+});
+
+/**
  * POST /api/escrow/:jobId/refund
  * Client issues a refund to close escrow.
  */

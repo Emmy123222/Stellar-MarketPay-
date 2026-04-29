@@ -313,7 +313,7 @@ impl MarketPayContract {
         }
 
         // Check if there are incomplete milestones
-        let mut remaining_amount = 0;
+        let mut remaining_amount: i128 = 0;
         for ms in escrow.milestones.iter() {
             if !ms.is_completed {
                 remaining_amount = remaining_amount.checked_add(ms.amount).expect("Arithmetic overflow");
@@ -384,7 +384,7 @@ impl MarketPayContract {
         }
 
         // Calculate remaining amount
-        let mut remaining_amount = 0;
+        let mut remaining_amount: i128 = 0;
         for ms in escrow.milestones.iter() {
             if !ms.is_completed {
                 remaining_amount = remaining_amount.checked_add(ms.amount).expect("Arithmetic overflow");
@@ -644,10 +644,73 @@ impl MarketPayContract {
         );
     }
 
-    /// [PLACEHOLDER] Milestone-based partial release.
-    /// See ROADMAP.md v2.0 — Milestones.
-    pub fn release_milestone(_env: Env, _job_id: String, _milestone: u32, _client: Address) {
-        panic!("Milestone payments coming in v2.0 — see ROADMAP.md");
+    /// Milestone-based partial release.
+    /// Can be called even if the escrow is Disputed, to release completed work.
+    pub fn partial_release(env: Env, job_id: String, milestone_index: u32, client: Address) {
+        client.require_auth();
+
+        let mut escrow: Escrow = env.storage().instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        if escrow.client != client {
+            panic!("Only the client can release a milestone");
+        }
+        if escrow.status != EscrowStatus::InProgress
+            && escrow.status != EscrowStatus::Locked
+            && escrow.status != EscrowStatus::Disputed
+        {
+            panic!("Cannot release milestone in current status");
+        }
+
+        if milestone_index >= escrow.milestones.len() {
+            panic!("Invalid milestone index");
+        }
+
+        let mut milestone = escrow.milestones.get(milestone_index).unwrap();
+        if milestone.is_completed {
+            panic!("Milestone already completed");
+        }
+
+        milestone.is_completed = true;
+        escrow.milestones.set(milestone_index, milestone.clone());
+
+        // Transfer funds to freelancer
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &escrow.freelancer,
+            &milestone.amount,
+        );
+
+        // Check if all milestones are now completed
+        let mut all_completed = true;
+        for ms in escrow.milestones.iter() {
+            if !ms.is_completed {
+                all_completed = false;
+                break;
+            }
+        }
+
+        if all_completed {
+            escrow.status = EscrowStatus::Released;
+            
+            // Increment CompletedJobs for the freelancer and client
+            let freelancer_jobs: u32 = env.storage().instance().get(&DataKey::CompletedJobs(escrow.freelancer.clone())).unwrap_or(0);
+            let new_freelancer_jobs = freelancer_jobs.checked_add(1).expect("Counter overflow");
+            env.storage().instance().set(&DataKey::CompletedJobs(escrow.freelancer.clone()), &new_freelancer_jobs);
+            
+            let client_jobs: u32 = env.storage().instance().get(&DataKey::CompletedJobs(escrow.client.clone())).unwrap_or(0);
+            let new_client_jobs = client_jobs.checked_add(1).expect("Counter overflow");
+            env.storage().instance().set(&DataKey::CompletedJobs(escrow.client.clone()), &new_client_jobs);
+        }
+
+        env.storage().instance().set(&DataKey::Escrow(job_id.clone()), &escrow);
+
+        env.events().publish(
+            (symbol_short!("part_rel"), client),
+            (job_id, milestone_index, milestone.amount),
+        );
     }
 
     // ─── Issue #108: Sealed-Bid Budget Commitment ────────────────────────────
@@ -1214,10 +1277,55 @@ mod regression_tests {
         let escrow = contract_client.get_escrow(&job_id);
         assert_eq!(escrow.status, EscrowStatus::Released);
     }
+    #[test]
+    fn test_partial_release() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(MarketPayContract, ());
+        let contract_client = MarketPayContractClient::new(&env, &id);
+        
+        let admin = Address::generate(&env);
+        contract_client.initialize(&admin);
+
+        let client = Address::generate(&env);
+        let freelancer = Address::generate(&env);
+        
+        let token_id = env.register_stellar_asset_contract(admin.clone());
+        let token_client = token::Client::new(&env, &token_id);
+        let token_admin = token::StellarAssetClient::new(&env, &token_id);
+        token_admin.mint(&client, &1000);
+
+        let mut milestones = Vec::new(&env);
+        milestones.push_back(400);
+        milestones.push_back(600);
+
+        let job_id = String::from_str(&env, "job_partial");
+        contract_client.create_escrow(&job_id, &client.clone(), &freelancer, &token_id, &1000, &Some(milestones));
+        contract_client.start_work(&job_id, &client.clone());
+        
+        // Raise dispute to test that we can still partial release
+        contract_client.raise_dispute(&job_id, &client.clone());
+
+        contract_client.partial_release(&job_id, &0u32, &client.clone());
+        
+        let escrow = contract_client.get_escrow(&job_id);
+        assert_eq!(escrow.status, EscrowStatus::Disputed);
+        assert_eq!(token_client.balance(&freelancer), 400);
+        assert_eq!(escrow.milestones.get(0).unwrap().is_completed, true);
+        assert_eq!(escrow.milestones.get(1).unwrap().is_completed, false);
+
+        // Release final milestone
+        contract_client.partial_release(&job_id, &1u32, &client.clone());
+        let escrow2 = contract_client.get_escrow(&job_id);
+        assert_eq!(escrow2.status, EscrowStatus::Released);
+        assert_eq!(token_client.balance(&freelancer), 1000);
+    }
 }
 
 #[cfg(test)]
 mod fuzz_testing {
+    extern crate alloc;
+    use alloc::format;
     use super::*;
     use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
