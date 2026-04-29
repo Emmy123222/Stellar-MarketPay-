@@ -8,7 +8,7 @@ import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
 import { fetchMyJobs, fetchMyApplications, fetchUnreadCount } from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
-import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV, CATEGORY_ICONS } from "@/utils/format";
+import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV, calculateJobProgress } from "@/utils/format";
 import type { Job, Application } from "@/utils/types";
 import EditProfileForm from "@/components/EditProfileForm";
 import SendPaymentForm from "@/components/SendPaymentForm";
@@ -17,6 +17,7 @@ import WithdrawToBankModal, {
   loadWithdrawHistory,
   type WithdrawHistoryEntry,
 } from "@/components/WithdrawToBankModal";
+import { useBookmarks } from "@/hooks/useBookmarks";
 import { useToast } from "@/components/Toast";
 import clsx from "clsx";
 import JobAnalytics from "@/components/JobAnalytics";
@@ -44,7 +45,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals";
+type Tab = "posted" | "applied" | "saved" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
@@ -71,6 +72,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [showBuyXLM, setShowBuyXLM] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawHistory, setWithdrawHistory] = useState<WithdrawHistoryEntry[]>([]);
+  const [savedJobs, setSavedJobs] = useState<Job[]>([]);
+  const { savedCount, getSavedJobs } = useBookmarks();
   const { info, success } = useToast();
 
   const isRepostable = (status: Job["status"]) => status === "expired" || status === "cancelled";
@@ -428,16 +431,36 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             </div>
 
             {myJobs.map((job) => (
-              <div key={job.id} className="card-hover flex items-center justify-between gap-4">
-                  <Link href={`/jobs/${job.id}`} className="flex-1 min-w-0 block">
+              <Link key={job.id} href={`/jobs/${job.id}`}>
+                <div className="card-hover flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
                       <span className="text-xs text-amber-800">{job.category}</span>
                     </div>
                     <p className="font-display font-semibold text-amber-100 truncate">{job.title}</p>
                     <p className="text-xs text-amber-800 mt-1">{job.applicantCount} applicant{job.applicantCount !== 1 ? "s" : ""} · {timeAgo(job.createdAt)}</p>
-                  </Link>
-                  <div className="text-right flex-shrink-0 space-y-2">
+                    
+                    {/* Progress Indicator */}
+                    {(() => {
+                      const progress = calculateJobProgress(job);
+                      if (!progress) return null;
+                      return (
+                        <div className="mt-3 max-w-xs">
+                          <div className="w-full bg-ink-900 rounded-full h-1.5 mb-1.5 overflow-hidden border border-market-500/10">
+                            <div 
+                              className={clsx("h-full transition-all duration-500", progress.colorClass)} 
+                              style={{ width: `${progress.percentage}%` }} 
+                            />
+                          </div>
+                          <p className="text-[10px] uppercase tracking-wider font-semibold text-amber-800">
+                            {progress.daysRemaining} days remaining
+                          </p>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <div className="text-right flex-shrink-0">
                     <p className="font-mono font-semibold text-market-400">{formatXLM(job.budget)}</p>
                     {isRepostable(job.status) && (
                       <button

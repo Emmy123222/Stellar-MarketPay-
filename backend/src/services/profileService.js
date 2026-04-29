@@ -252,6 +252,7 @@ async function getProfile(publicKey) {
   const profile = rowToProfile(rows[0]);
   profile.rating = rows[0].avg_rating !== null ? parseFloat(rows[0].avg_rating) : null;
   profile.ratingCount = rows[0].rating_count;
+  profile.tier = calculateFreelancerTier(profile.completedJobs, profile.rating);
 
   // Calculate reputation score (simple formula: higher weight on ratings, lower on time)
   // Max score 100.
@@ -453,13 +454,70 @@ async function unblockFreelancer(clientPublicKey, freelancerAddress) {
   return rowToProfile(rows[0]);
 }
 
+/**
+ * Fetch skill endorsements for a user, grouped by skill with counts and endorsers.
+ *
+ * @param {string} publicKey  Recipient Stellar G-address.
+ * @returns {Promise<{ skill: string; count: number; endorsers: string[] }[]>}
+ */
+async function getSkillEndorsements(publicKey) {
+  validatePublicKey(publicKey);
+
+  const { rows } = await pool.query(
+    `SELECT
+       skill,
+       COUNT(*)::int AS count,
+       array_agg(endorser_address ORDER BY created_at DESC) AS endorsers
+     FROM skill_endorsements
+     WHERE recipient_address = $1
+     GROUP BY skill
+     ORDER BY count DESC, skill ASC`,
+    [publicKey]
+  );
+
+  return rows;
+}
+
+/**
+ * Create a skill endorsement.
+ *
+ * @param {Object} params
+ * @param {string} params.skill            Skill name.
+ * @param {string} params.endorserAddress  Endorser Stellar G-address.
+ * @param {string} params.recipientAddress Recipient Stellar G-address.
+ * @returns {Promise<void>}
+ * @throws {Error} 400 — invalid public key, self-endorsement, or missing skill.
+ */
+async function endorseSkill({ skill, endorserAddress, recipientAddress }) {
+  validatePublicKey(endorserAddress);
+  validatePublicKey(recipientAddress);
+
+  if (!skill || typeof skill !== "string" || !skill.trim()) {
+    throw createValidationError("skill is required");
+  }
+
+  if (endorserAddress === recipientAddress) {
+    const e = new Error("Cannot endorse your own skill");
+    e.status = 400;
+    throw e;
+  }
+
+  await pool.query(
+    `INSERT INTO skill_endorsements (skill, endorser_address, recipient_address)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (skill, endorser_address, recipient_address) DO NOTHING`,
+    [skill.trim(), endorserAddress, recipientAddress]
+  );
+}
+
 module.exports = {
   getProfile,
   upsertProfile,
   updateAvailability,
-  isBlocked,
-  blockFreelancer,
-  unblockFreelancer,
+  verifyIdentity,
+  getSkillEndorsements,
+  endorseSkill,
+  calculateFreelancerTier,
   VALID_PORTFOLIO_TYPES,
   VALID_AVAILABILITY_STATUSES,
   MAX_PORTFOLIO_ITEMS,

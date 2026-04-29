@@ -110,7 +110,13 @@ export async function performSEP0010Auth(
   }
 }
 
-export async function signTransactionWithWallet(transactionXDR: string): Promise<{ signedXDR: string | null; error: string | null }> {
+export async function signTransactionWithWallet(transactionXDR: string, mockParams?: any): Promise<{ signedXDR: string | null; error: string | null; mockParams?: any }> {
+  // Mock mode: bypass Freighter entirely
+  if (process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true" && transactionXDR === "MOCK_UNSIGNED_XDR") {
+    console.log("[WALLET] Mock mode: skipping Freighter signature");
+    return { signedXDR: "MOCK_SIGNED_XDR", error: null, mockParams };
+  }
+
   const freighter = getWindowFreighter();
   try {
     const network = process.env.NEXT_PUBLIC_STELLAR_NETWORK === "mainnet" ? "MAINNET" : "TESTNET";

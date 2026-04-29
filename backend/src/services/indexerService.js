@@ -197,6 +197,7 @@ class IndexerService {
       "released": "escrow_released",
       "conv_rel": "escrow_released",
       "refunded": "escrow_refunded",
+      "torefnd": "escrow_timeout_refunded",
       "disputed": "dispute_opened"
     };
 
