@@ -1,0 +1,45 @@
+{
+  "nav": {
+    "home": "Home",
+    "browseJobs": "Browse Jobs",
+    "dashboard": "Dashboard",
+    "postJob": "Post a Job",
+    "connectWallet": "Connect Wallet",
+    "disconnect": "Disconnect"
+  },
+  "jobs": {
+    "title": "Browse Jobs",
+    "found": "job found",
+    "foundPlural": "jobs found",
+    "searchPlaceholder": "Search by title, skill, or keyword...",
+    "noJobsFound": "No jobs found",
+    "tryAdjusting": "Try adjusting your filters or search term",
+    "postFirstJob": "Post the first job",
+    "loadMore": "Load more jobs",
+    "loading": "Loading...",
+    "status": {
+      "open": "Open",
+      "inProgress": "In Progress",
+      "completed": "Completed",
+      "all": "All"
+    },
+    "budget": "Budget (XLM)",
+    "category": "Category",
+    "allCategories": "All Categories",
+    "timezone": "Timezone",
+    "useMyLocation": "Use My Location",
+    "myLocation": "My Location",
+    "detecting": "Detecting...",
+    "allTimezones": "All Timezones",
+    "withinTimezone": "Shows jobs within ±3 hours of selected timezone"
+  },
+  "wallet": {
+    "balance": "Balance",
+    "loading": "Loading..."
+  },
+  "language": {
+    "switch": "Switch Language",
+    "english": "English",
+    "spanish": "Español"
+  }
+}

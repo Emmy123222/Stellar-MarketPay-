@@ -1,16 +1,77 @@
 /**
  * src/services/profileService.js
+ * Service responsibility: Manages user profiles for clients and freelancers, including retrieval, creation, and updating.
  * All data persisted in the `profiles` PostgreSQL table.
  */
 "use strict";
 
 const pool = require("../db/pool");
+const { validatePortfolioFiles } = require("./ipfsService");
 
 const VALID_PROFILE_ROLES = ["client", "freelancer", "both"];
-const VALID_PORTFOLIO_TYPES = ["github", "live", "stellar_tx"];
+const VALID_PORTFOLIO_TYPES = ["github", "live", "stellar_tx", "file"];
 const VALID_AVAILABILITY_STATUSES = ["available", "busy", "unavailable"];
 const MAX_PORTFOLIO_ITEMS = 10;
 
+/**
+ * Camel-cased profile record returned by this service.
+ *
+ * @typedef {Object} UserProfile
+ * @property {string}     publicKey         Stellar G-address (primary key).
+ * @property {string|null} displayName
+ * @property {string|null} bio
+ * @property {string[]}   skills
+ * @property {PortfolioItem[]} portfolioItems
+ * @property {Object[]}   portfolioFiles     - IPFS uploaded files
+ * @property {Availability|null} availability
+ * @property {("client"|"freelancer"|"both")} role
+ * @property {number}     completedJobs
+ * @property {string}     totalEarnedXLM    Fixed-point string.
+ * @property {number|null} rating           Average rating (1..5), null until rated.
+ * @property {string|null} didHash          Optional DID hash from identity verification.
+ * @property {boolean|null} isKycVerified   True after a successful `verifyIdentity` call.
+ * @property {number}     [ratingCount]     Number of ratings (only on getProfile result).
+ * @property {number}     [reputationScore] Derived score 0..100 (only on getProfile result).
+ * @property {{ avgAcceptHours: number, avgReleaseHours: number }} [reputationMetrics]
+ * @property {string}     createdAt
+ * @property {string}     updatedAt
+ */
+
+/**
+ * @typedef {Object} PortfolioItem
+ * @property {string} title
+ * @property {("github"|"live"|"stellar_tx")} type
+ * @property {string} url
+ */
+
+/**
+ * @typedef {Object} Availability
+ * @property {("available"|"busy"|"unavailable")} status
+ * @property {string} [availableFrom]   ISO timestamp.
+ * @property {string} [availableUntil]  ISO timestamp.
+ */
+
+/**
+ * Input shape accepted by {@link upsertProfile}.
+ *
+ * @typedef {Object} UpsertProfileInput
+ * @property {string}            publicKey
+ * @property {string}            [displayName]
+ * @property {string}            [bio]
+ * @property {string[]}          [skills]
+ * @property {PortfolioItem[]}   [portfolioItems]
+ * @property {Object[]}          [portfolioFiles] - IPFS uploaded files
+ * @property {Availability}      [availability]
+ * @property {("client"|"freelancer"|"both")} [role]
+ */
+
+/**
+ * Throws a 400 Error when `key` is not a valid Stellar G-address.
+ *
+ * @param {string} key
+ * @returns {void}
+ * @throws {Error} `status === 400` if the key fails the G-address regex.
+ */
 function validatePublicKey(key) {
   if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
     const e = new Error("Invalid Stellar public key");
@@ -125,6 +186,12 @@ function validateAvailability(availability) {
   };
 }
 
+/**
+ * Convert a snake_case `profiles` row into the camelCase API object.
+ *
+ * @param {Object} row
+ * @returns {UserProfile}
+ */
 function rowToProfile(row) {
   return {
     publicKey: row.public_key,
@@ -132,18 +199,25 @@ function rowToProfile(row) {
     bio: row.bio,
     skills: row.skills,
     portfolioItems: Array.isArray(row.portfolio_items) ? row.portfolio_items : [],
+    portfolioFiles: Array.isArray(row.portfolio_files) ? row.portfolio_files : [],
     availability: row.availability && typeof row.availability === "object" ? row.availability : null,
     role: row.role,
     completedJobs: row.completed_jobs,
     totalEarnedXLM: row.total_earned_xlm,
     rating: row.rating !== null ? parseFloat(row.rating) : null,
-    reputationPoints: row.reputation_points || 0,
-    referralCount: row.referral_count || 0,
+    blockedAddresses: Array.isArray(row.blocked_addresses) ? row.blocked_addresses : [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
+/**
+ * Retrieve a user profile by their Stellar public key. Includes average rating and rating count.
+ *
+ * @param {string} publicKey - The Stellar public key of the user.
+ * @returns {Promise<Object>} The user profile object.
+ * @throws {Error} If the public key is invalid or the profile is not found.
+ */
 async function getProfile(publicKey) {
   validatePublicKey(publicKey);
 
@@ -178,17 +252,17 @@ async function getProfile(publicKey) {
   const profile = rowToProfile(rows[0]);
   profile.rating = rows[0].avg_rating !== null ? parseFloat(rows[0].avg_rating) : null;
   profile.ratingCount = rows[0].rating_count;
-  
+
   // Calculate reputation score (simple formula: higher weight on ratings, lower on time)
   // Max score 100.
   let repScore = 0;
   if (profile.rating) repScore += profile.rating * 15; // up to 75
-  
+
   // Bonus for fast acceptance (avg < 24h)
   const acceptHours = parseFloat(rows[0].avg_accept_hours || 0);
   if (acceptHours > 0 && acceptHours < 24) repScore += 15;
   else if (acceptHours > 0 && acceptHours < 72) repScore += 10;
-  
+
   // Bonus for fast release (avg < 48h)
   const releaseHours = parseFloat(rows[0].avg_release_hours || 0);
   if (releaseHours > 0 && releaseHours < 48) repScore += 10;
@@ -209,23 +283,62 @@ async function getProfile(publicKey) {
   return profile;
 }
 
+/**
+ * @typedef {Object} UpsertProfileInput
+ * @property {string} publicKey - The Stellar public key of the user.
+ * @property {string} [displayName] - The display name of the user.
+ * @property {string} [bio] - The user's biography.
+ * @property {string[]} [skills] - Array of skills (max 15).
+ * @property {Object[]} [portfolioItems] - Array of portfolio items (max 10).
+ * @property {Object} [availability] - Availability status and dates.
+ * @property {string} [role] - The role of the user (e.g., 'freelancer', 'client', 'both').
+ */
+
+/**
+ * Create or update a user profile. Only provided fields will be updated if the profile already exists.
+ *
+ * @param {UpsertProfileInput} params - The profile details to upsert.
+ * @returns {Promise<Object>} The created or updated profile object.
+ * @throws {Error} If the public key is invalid.
+ *
+ * @example
+ * const profile = await profileService.upsertProfile({
+ *   publicKey: 'GBX...',
+ *   displayName: 'Alice Developer',
+ *   bio: 'Full-stack developer specializing in Stellar network integrations.',
+ *   skills: ['React', 'Node.js', 'Stellar SDK'],
+ *   portfolioItems: [{
+ *     title: 'My Awesome Project',
+ *     type: 'live',
+ *     url: 'https://example.com',
+ *   }],
+ *   availability: {
+ *     status: 'available',
+ *     availableFrom: '2023-01-01',
+ *     availableUntil: '2023-12-31',
+ *   },
+ *   role: 'freelancer',
+ * });
+ */
 async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, availability, role }) {
   validatePublicKey(publicKey);
 
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 15) : null;
   const safePortfolioItems = validatePortfolioItems(portfolioItems);
+  const safePortfolioFiles = validatePortfolioFiles(portfolioFiles);
   const safeAvailability = validateAvailability(availability);
   const safeRole = validateProfileRole(role);
 
   const { rows } = await pool.query(
     `
-    INSERT INTO profiles (public_key, display_name, bio, skills, portfolio_items, availability, role, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, NOW(), NOW())
+    INSERT INTO profiles (public_key, display_name, bio, skills, portfolio_items, portfolio_files, availability, role, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, NOW(), NOW())
     ON CONFLICT (public_key) DO UPDATE
       SET display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), profiles.display_name),
           bio = COALESCE(NULLIF(EXCLUDED.bio, ''), profiles.bio),
           skills = COALESCE(EXCLUDED.skills, profiles.skills),
           portfolio_items = COALESCE(EXCLUDED.portfolio_items, profiles.portfolio_items),
+          portfolio_files = COALESCE(EXCLUDED.portfolio_files, profiles.portfolio_files),
           availability = COALESCE(EXCLUDED.availability, profiles.availability),
           role = COALESCE(NULLIF(EXCLUDED.role, ''), profiles.role),
           updated_at = NOW()
@@ -237,6 +350,7 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
       bio?.trim() || null,
       safeSkills,
       JSON.stringify(safePortfolioItems),
+      JSON.stringify(safePortfolioFiles),
       safeAvailability ? JSON.stringify(safeAvailability) : null,
       safeRole,
     ]
@@ -245,6 +359,15 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
   return rowToProfile(rows[0]);
 }
 
+/**
+ * Update only the availability block on a profile, creating the profile row
+ * if it does not yet exist.
+ *
+ * @param {string}              publicKey     Stellar G-address.
+ * @param {Availability|null}   availability  New availability block, or null to clear.
+ * @returns {Promise<UserProfile>}
+ * @throws {Error} 400 — invalid public key or availability shape.
+ */
 async function updateAvailability(publicKey, availability) {
   validatePublicKey(publicKey);
   const safeAvailability = validateAvailability(availability);
@@ -264,59 +387,79 @@ async function updateAvailability(publicKey, availability) {
   return rowToProfile(rows[0]);
 }
 
-async function getProfileStats(publicKey) {
-  validatePublicKey(publicKey);
+async function isBlocked(clientPublicKey, freelancerAddress) {
+  validatePublicKey(clientPublicKey);
+  validatePublicKey(freelancerAddress);
 
   const { rows } = await pool.query(
-    `SELECT 
-       COUNT(*)::int AS total_applications,
-       COUNT(CASE WHEN status = 'accepted' THEN 1 END)::int AS accepted_applications
-     FROM applications
-     WHERE freelancer_address = $1`,
-    [publicKey]
+    `SELECT 1 FROM profiles WHERE public_key = $1 AND $2 = ANY(blocked_addresses)`,
+    [clientPublicKey, freelancerAddress]
   );
-
-  const stats = rows[0];
-  const total = stats.total_applications || 0;
-  const accepted = stats.accepted_applications || 0;
-  const successRate = total > 0 ? Math.round((accepted / total) * 100) : 0;
-
-  return {
-    totalApplications: total,
-    acceptedApplications: accepted,
-    successRate
-  };
+  return rows.length > 0;
 }
 
-async function getResponseTime(publicKey) {
-  validatePublicKey(publicKey);
+async function blockFreelancer(clientPublicKey, freelancerAddress) {
+  validatePublicKey(clientPublicKey);
+  validatePublicKey(freelancerAddress);
+
+  if (clientPublicKey === freelancerAddress) {
+    const e = new Error("You cannot block yourself");
+    e.status = 400;
+    throw e;
+  }
 
   const { rows } = await pool.query(
-    `SELECT 
-       AVG(EXTRACT(EPOCH FROM (e.released_at - a.accepted_at)) / 86400)::numeric AS avg_days
-     FROM applications a
-     JOIN escrows e ON a.job_id = e.job_id
-     WHERE a.freelancer_address = $1 
-       AND a.status = 'accepted' 
-       AND a.accepted_at IS NOT NULL 
-       AND e.status = 'released' 
-       AND e.released_at IS NOT NULL`,
-    [publicKey]
+    `UPDATE profiles
+     SET blocked_addresses = array_append(blocked_addresses, $2),
+         updated_at = NOW()
+     WHERE public_key = $1
+       AND NOT ($2 = ANY(blocked_addresses))
+     RETURNING *`,
+    [clientPublicKey, freelancerAddress]
   );
 
-  const avgDays = rows[0].avg_days ? parseFloat(rows[0].avg_days) : null;
+  if (!rows.length) {
+    // Already blocked or profile not found; check which
+    const profile = await getProfile(clientPublicKey);
+    if (profile.blockedAddresses.includes(freelancerAddress)) {
+      const e = new Error("Freelancer is already blocked");
+      e.status = 409;
+      throw e;
+    }
+  }
 
-  return {
-    averageDays: avgDays !== null ? parseFloat(avgDays.toFixed(1)) : null
-  };
+  return rowToProfile(rows[0]);
+}
+
+async function unblockFreelancer(clientPublicKey, freelancerAddress) {
+  validatePublicKey(clientPublicKey);
+  validatePublicKey(freelancerAddress);
+
+  const { rows } = await pool.query(
+    `UPDATE profiles
+     SET blocked_addresses = array_remove(blocked_addresses, $2),
+         updated_at = NOW()
+     WHERE public_key = $1
+     RETURNING *`,
+    [clientPublicKey, freelancerAddress]
+  );
+
+  if (!rows.length) {
+    const e = new Error("Profile not found");
+    e.status = 404;
+    throw e;
+  }
+
+  return rowToProfile(rows[0]);
 }
 
 module.exports = {
   getProfile,
   upsertProfile,
   updateAvailability,
-  getProfileStats,
-  getResponseTime,
+  isBlocked,
+  blockFreelancer,
+  unblockFreelancer,
   VALID_PORTFOLIO_TYPES,
   VALID_AVAILABILITY_STATUSES,
   MAX_PORTFOLIO_ITEMS,

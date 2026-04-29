@@ -1,0 +1,36 @@
+name: Rollback Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Previous stable image tag to redeploy
+        required: true
+      target_env:
+        description: staging or production
+        required: true
+        default: staging
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.target_env }}
+    steps:
+      - name: Rollback on VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ github.event.inputs.target_env == 'production' && secrets.PRODUCTION_SSH_HOST || secrets.STAGING_SSH_HOST }}
+          username: ${{ github.event.inputs.target_env == 'production' && secrets.PRODUCTION_SSH_USER || secrets.STAGING_SSH_USER }}
+          key: ${{ github.event.inputs.target_env == 'production' && secrets.PRODUCTION_SSH_KEY || secrets.STAGING_SSH_KEY }}
+          script: |
+            set -e
+            export IMAGE_TAG=${{ github.event.inputs.image_tag }}
+            cd ${{ github.event.inputs.target_env == 'production' && secrets.PRODUCTION_APP_DIR || secrets.STAGING_APP_DIR }}
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d
+
+      - name: Notify Discord result
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          curl -H "Content-Type: application/json" -d "{\"content\":\"Rollback to ${{ github.event.inputs.image_tag }} finished with status: ${STATUS}\"}" ${{ secrets.DISCORD_WEBHOOK_URL }}

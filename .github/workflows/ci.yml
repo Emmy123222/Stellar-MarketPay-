@@ -70,5 +70,7 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo check --target wasm32-unknown-unknown
+      - run: cargo clippy -- -D warnings
+      - run: cargo audit --ignore RUSTSEC-2020-0071
       - run: cargo test
       - run: cargo build --target wasm32-unknown-unknown --release

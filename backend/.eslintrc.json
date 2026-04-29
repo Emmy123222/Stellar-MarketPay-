@@ -12,8 +12,6 @@
   "overrides": [
     {
       "files": [
-        "src/services/jobService.js",
-        "src/services/applicationService.js",
         "src/services/store.js",
         "src/middleware/rateLimiter.js"
       ],
