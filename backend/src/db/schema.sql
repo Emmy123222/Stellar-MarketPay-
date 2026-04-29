@@ -26,6 +26,18 @@ ALTER TABLE profiles
 ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS availability JSONB;
 
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS did_hash TEXT,
+  ADD COLUMN IF NOT EXISTS is_kyc_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS github_username TEXT,
+  ADD COLUMN IF NOT EXISTS github_avatar_url TEXT,
+  ADD COLUMN IF NOT EXISTS github_profile_url TEXT,
+  ADD COLUMN IF NOT EXISTS github_primary_languages TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS github_top_repos JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS github_token_encrypted TEXT,
+  ADD COLUMN IF NOT EXISTS github_connected_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS portfolio_files JSONB NOT NULL DEFAULT '[]'::jsonb;
+
 -- ─────────────────────────────────────────
 -- jobs
 -- ─────────────────────────────────────────
@@ -46,13 +58,42 @@ CREATE TABLE IF NOT EXISTS jobs (
   timezone            TEXT,
   screening_questions TEXT[]      NOT NULL DEFAULT '{}',
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at          TIMESTAMPTZ,
+  extended_count      INTEGER     NOT NULL DEFAULT 0,
+  extended_until      TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS jobs_status_idx          ON jobs(status);
 CREATE INDEX IF NOT EXISTS jobs_category_idx        ON jobs(category);
 CREATE INDEX IF NOT EXISTS jobs_client_address_idx  ON jobs(client_address);
 CREATE INDEX IF NOT EXISTS jobs_created_at_idx      ON jobs(created_at DESC);
+
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'XLM',
+  ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public',
+  ADD COLUMN IF NOT EXISTS share_count INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS boosted BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS boosted_until TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS timezone TEXT,
+  ADD COLUMN IF NOT EXISTS screening_questions TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS extended_count INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS extended_until TIMESTAMPTZ;
+
+-- enforce valid visibility values for all rows
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'jobs_visibility_check'
+  ) THEN
+    ALTER TABLE jobs
+      ADD CONSTRAINT jobs_visibility_check
+      CHECK (visibility IN ('public', 'private', 'invite_only'));
+  END IF;
+END $$;
 
 -- ─────────────────────────────────────────
 -- applications
@@ -72,6 +113,40 @@ CREATE TABLE IF NOT EXISTS applications (
 
 CREATE INDEX IF NOT EXISTS applications_job_id_idx             ON applications(job_id);
 CREATE INDEX IF NOT EXISTS applications_freelancer_address_idx ON applications(freelancer_address);
+
+-- ─────────────────────────────────────────
+-- job analytics (Issue #212)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS job_views (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id          UUID        NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  ip_hash         TEXT        NOT NULL,
+  viewed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS job_views_job_id_idx ON job_views(job_id, viewed_at DESC);
+CREATE INDEX IF NOT EXISTS job_views_job_ip_idx ON job_views(job_id, ip_hash);
+
+-- ─────────────────────────────────────────
+-- encrypted private messages (Issue #213)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS private_messages (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sender_address        TEXT        NOT NULL REFERENCES profiles(public_key),
+  recipient_address     TEXT        NOT NULL REFERENCES profiles(public_key),
+  sender_public_key     TEXT        NOT NULL,
+  recipient_public_key  TEXT        NOT NULL,
+  nonce                 TEXT        NOT NULL,
+  cipher_text           TEXT        NOT NULL,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS private_messages_participants_idx
+  ON private_messages(sender_address, recipient_address, created_at DESC);
+
+ALTER TABLE applications
+  ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'XLM',
+  ADD COLUMN IF NOT EXISTS screening_answers JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 -- ─────────────────────────────────────────
 -- escrows  (schema only; populated by smart-contract layer)

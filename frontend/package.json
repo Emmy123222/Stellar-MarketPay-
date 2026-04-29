@@ -17,7 +17,10 @@
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "date-fns-tz": "^3.2.0",
+    "i18next": "^26.0.8",
+    "i18next-browser-languagedetector": "^8.2.1",
     "next": "14.2.3",
+    "qrcode.react": "^3.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

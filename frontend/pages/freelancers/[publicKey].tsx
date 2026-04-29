@@ -51,7 +51,7 @@ function getAvailabilityBadgeClass(status?: AvailabilityStatus | null) {
   return "bg-market-500/10 text-market-300 border-market-500/20";
 }
 
-export default function PublicFreelancerProfilePage() {
+export default function PublicFreelancerProfilePage({ publicKey }: { publicKey: string | null }) {
   const router = useRouter();
   const rawKey = typeof router.query.publicKey === "string" ? router.query.publicKey : "";
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -208,6 +208,37 @@ export default function PublicFreelancerProfilePage() {
                 >
                   View on Stellar Expert →
                 </a>
+                {isOwner && !state.profile.isKycVerified && (
+                  <button
+                    onClick={handleVerifyIdentity}
+                    disabled={verifying}
+                    className="btn-primary text-sm w-full sm:w-auto flex items-center justify-center gap-2"
+                  >
+                    {verifying ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                            fill="none"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
+                        </svg>
+                        Verifying...
+                      </>
+                    ) : (
+                      "Verify Identity (DID)"
+                    )}
+                  </button>
+                )}
               </div>
             </div>
 
