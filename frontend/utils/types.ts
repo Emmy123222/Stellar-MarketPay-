@@ -182,6 +182,8 @@ export interface EscrowState {
   client: string;
   freelancer: string;
   amount: string;
-  status: "locked" | "released" | "refunded" | "disputed";
+  status: "locked" | "released" | "refunded" | "disputed" | "timeout_refunded";
   createdLedger: number;
+  timeoutLedger?: number;
+  timeoutAt?: string;
 }

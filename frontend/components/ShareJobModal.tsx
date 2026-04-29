@@ -3,7 +3,6 @@
  * Modal for sharing job listings with pre-filled application forms
  */
 import { useState } from "react";
-import QRCode from "qrcode.react";
 import type { Job } from "@/utils/types";
 
 interface ShareJobModalProps {
@@ -28,7 +27,10 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
   
   // Generate invite link with pre-filled data
   const generateInviteLink = () => {
-    const encoded = Buffer.from(JSON.stringify(inviteData)).toString('base64');
+    const encoded =
+      typeof window === "undefined"
+        ? ""
+        : window.btoa(unescape(encodeURIComponent(JSON.stringify(inviteData))));
     return `${jobUrl}?prefill=${encodeURIComponent(encoded)}`;
   };
 
@@ -157,15 +159,11 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
           {/* QR Code */}
           {showQR && (
             <div className="flex flex-col items-center space-y-3 p-4 bg-ink-900 rounded-lg border border-market-500/10">
-              <div className="bg-white p-3 rounded-lg">
-                <QRCode
-                  value={generateInviteLink()}
-                  size={200}
-                  level="M"
-                  includeMargin={true}
-                />
+              <div className="w-full rounded-lg border border-dashed border-market-500/20 bg-ink-800/60 p-4 text-center">
+                <p className="text-sm text-amber-100 mb-2">QR preview unavailable in this build</p>
+                <p className="text-xs text-amber-800 break-all">{generateInviteLink()}</p>
               </div>
-              <p className="text-xs text-amber-800">Scan this QR code to open the job with pre-filled application</p>
+              <p className="text-xs text-amber-800">Copy the invite link above to share the pre-filled application.</p>
             </div>
           )}
         </div>

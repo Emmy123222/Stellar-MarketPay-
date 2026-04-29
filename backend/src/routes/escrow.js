@@ -16,7 +16,7 @@ const { logContractInteraction } = require("../services/contractAuditService");
 /**
  * POST /api/escrow/:jobId/release
  */
-router.post("/:jobId/release", escrowActionRateLimiter, async (req, res, next) => {
+router.post("/:jobId/release", async (req, res, next) => {
   try {
     const { jobId } = req.params;
     const { clientAddress, contractTxHash, releaseCurrency } = req.body;
@@ -28,7 +28,6 @@ router.post("/:jobId/release", escrowActionRateLimiter, async (req, res, next) =
     }
 
     const job = await getJob(jobId);
-
     if (job.clientAddress !== clientAddress) {
       const e = new Error("Only the job client can release escrow");
       e.status = 403;
@@ -52,12 +51,18 @@ router.post("/:jobId/release", escrowActionRateLimiter, async (req, res, next) =
     // Update job
     await updateJobStatus(jobId, "completed");
 
-    await logContractInteraction({
-      functionName: releaseCurrency && releaseCurrency !== job.currency ? "release_with_conversion" : "release_escrow",
-      callerAddress: clientAddress,
-      jobId,
-      txHash: contractTxHash || `offchain-${Date.now()}`,
-    });
+    // Credit referrer if applicable
+    const { rows: appRows } = await pool.query(
+      "SELECT referred_by FROM applications WHERE job_id = $1 AND status = 'accepted'",
+      [jobId]
+    );
+    if (appRows.length > 0 && appRows[0].referred_by) {
+      const referrer = appRows[0].referred_by;
+      await pool.query(
+        "UPDATE profiles SET reputation_points = reputation_points + 5 WHERE public_key = $1",
+        [referrer]
+      );
+    }
 
     res.json({ success: true, message: "Escrow released and job completed" });
   } catch (e) { next(e); }
@@ -92,6 +97,38 @@ router.post("/:jobId/refund", async (req, res, next) => {
     });
 
     res.json({ success: true, message: "Escrow refunded" });
+  } catch (e) { next(e); }
+});
+
+/**
+ * POST /api/escrow/:jobId/timeout-refund
+ * Issue #175 — Client claims refund after freelancer inactivity timeout.
+ */
+router.post("/:jobId/timeout-refund", async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { clientAddress, contractTxHash } = req.body;
+    const job = await getJob(jobId);
+    if (job.clientAddress !== clientAddress) {
+      const e = new Error("Only the job client can request a timeout refund"); e.status = 403; throw e;
+    }
+
+    await pool.query(
+      `UPDATE escrows
+       SET status = 'timeout_refunded', updated_at = NOW()
+       WHERE job_id = $1`,
+      [jobId]
+    );
+    await updateJobStatus(jobId, "cancelled");
+
+    await logContractInteraction({
+      functionName: "timeout_refund",
+      callerAddress: clientAddress,
+      jobId,
+      txHash: contractTxHash || `offchain-${Date.now()}`,
+    });
+
+    res.json({ success: true, message: "Escrow refunded due to inactivity timeout" });
   } catch (e) { next(e); }
 });
 

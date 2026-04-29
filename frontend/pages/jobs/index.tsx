@@ -3,8 +3,8 @@
  * Browse all open jobs with category filtering and search autocomplete.
  */
 import JobCard, { JobCardSkeleton } from "@/components/JobCard";
-import { fetchJobs, fetchJobSuggestions } from "@/lib/api";
-import { JOB_CATEGORIES, CATEGORY_ICONS, categoryToSlug } from "@/utils/format";
+import { fetchJobs, fetchRecommendedJobs } from "@/lib/api";
+import { JOB_CATEGORIES, CATEGORY_ICONS } from "@/utils/format";
 import type { Job } from "@/utils/types";
 import clsx from "clsx";
 import Link from "next/link";
@@ -12,12 +12,13 @@ import { useRouter } from "next/router";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { getTimezoneOffset, toZonedTime } from "date-fns-tz";
 
-
-export default function JobsPage() {
+export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   const router = useRouter();
   const { i18n } = useTranslation("common");
   const t = (key: string): string => i18n.t(key) as string;
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [recommended, setRecommended] = useState<(Job & { matchScore: number })[]>([]);
+  const [recLoading, setRecLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +46,16 @@ export default function JobsPage() {
       if (publicKey) setViewerAddress(publicKey);
     }).catch(() => {});
   }, []);
+
+  // Fetch recommended jobs when wallet is connected
+  useEffect(() => {
+    if (!publicKey) { setRecommended([]); return; }
+    setRecLoading(true);
+    fetchRecommendedJobs(publicKey)
+      .then(setRecommended)
+      .catch(() => setRecommended([]))
+      .finally(() => setRecLoading(false));
+  }, [publicKey]);
 
   // Handle geolocation-based timezone detection
   const handleGeolocation = () => {
@@ -294,6 +305,31 @@ export default function JobsPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">
 
+      {/* Recommended for you */}
+      {publicKey && (recLoading || recommended.length > 0) && (
+        <div className="mb-10">
+          <h2 className="font-display text-xl font-bold text-amber-100 mb-4">Recommended for you</h2>
+          {recLoading ? (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Array.from({ length: 3 }).map((_, i) => <JobCardSkeleton key={`rec-skeleton-${i}`} />)}
+            </div>
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {recommended.map((job) => (
+                <div key={job.id} className="relative">
+                  <JobCard job={job} />
+                  {job.matchScore > 0 && (
+                    <span className="absolute top-3 right-3 bg-market-500/20 text-market-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-market-500/30">
+                      {job.matchScore}% match
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
@@ -430,6 +466,7 @@ export default function JobsPage() {
               </Link>
               {JOB_CATEGORIES.map((cat) => {
                 const count = jobs.filter((j) => j.category === cat).length;
+                const isAlerted = alertedCategories.includes(cat);
                 return (
                   <Link key={cat} href={`/jobs/category/${categoryToSlug(cat)}`} locale={false}
                     className={clsx(
@@ -444,6 +481,35 @@ export default function JobsPage() {
                 );
               })}
             </div>
+
+          {/* Alert permission denied warning */}
+          {alertStatus === "denied" && (
+            <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+              Notifications blocked. Enable them in browser settings to use job alerts.
+            </div>
+          )}
+
+          {/* Active alerts summary */}
+          {alertedCategories.length > 0 && (
+            <div className="px-3 py-2 rounded-lg bg-market-500/8 border border-market-500/20 text-xs text-market-400 space-y-1">
+              <p className="font-semibold flex items-center gap-1">
+                <BellIcon className="w-3 h-3" filled />
+                Active alerts ({alertedCategories.length})
+              </p>
+              {alertedCategories.map((c) => (
+                <div key={c} className="flex items-center justify-between">
+                  <span className="text-amber-700 truncate">{CATEGORY_ICONS[c] ?? ""} {c}</span>
+                  <button
+                    onClick={() => removeAlert(c)}
+                    className="text-amber-900 hover:text-red-400 transition-colors ml-1 flex-shrink-0"
+                    title={`Remove "${c}" alert`}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           </div>
 
           {/* Timezone Filter */}

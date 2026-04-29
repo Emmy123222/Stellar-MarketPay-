@@ -165,6 +165,11 @@ export default function PublicFreelancerProfilePage({
       }
     })();
 
+    // Fetch badges separately (non-blocking)
+    fetchSkillBadges(rawKey)
+      .then((data) => { if (!cancelled) setBadges(data.filter((b) => b.passed)); })
+      .catch(() => {});
+
     return () => {
       cancelled = true;
     };
@@ -376,6 +381,36 @@ export default function PublicFreelancerProfilePage({
                   {state.profile.rating?.toFixed(2) ?? "New"}
                 </p>
               </div>
+              <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
+                <p className="label mb-1">Success rate</p>
+                <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
+                  {stats ? `${stats.successRate}%` : "—"}
+                </p>
+                <p className="text-[10px] uppercase tracking-wider text-amber-800 mt-1">
+                  {stats?.acceptedApplications || 0} / {stats?.totalApplications || 0} accepted
+                </p>
+              </div>
+              <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
+                <p className="label mb-1">Avg. completion</p>
+                <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
+                  {responseTime?.averageDays !== null ? `${responseTime?.averageDays}d` : "—"}
+                </p>
+                <p className="text-[10px] uppercase tracking-wider text-amber-800 mt-1">
+                  Acceptance to release
+                </p>
+              </div>
+              <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
+                <p className="label mb-1">Referrals</p>
+                <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
+                  {state.profile.referralCount ?? 0}
+                </p>
+              </div>
+              <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
+                <p className="label mb-1">Reputation Bonus</p>
+                <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
+                  +{state.profile.reputationPoints ?? 0}
+                </p>
+              </div>
             </div>
 
             <div className="mb-6 sm:mb-8">
@@ -475,6 +510,26 @@ export default function PublicFreelancerProfilePage({
                 </p>
               )}
             </div>
+
+            {/* Verified skill badges */}
+            {badges.length > 0 && (
+              <div className="mb-6 sm:mb-8">
+                <h2 className="label mb-3">Verified Skills</h2>
+                <ul className="flex flex-wrap gap-2">
+                  {badges.map((b) => (
+                    <li key={b.skill} className="relative group">
+                      <span className="inline-flex items-center gap-1.5 text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-3 py-1.5 rounded-full cursor-default">
+                        ✓ {b.skill.charAt(0).toUpperCase() + b.skill.slice(1)}
+                      </span>
+                      {/* Score tooltip */}
+                      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg bg-ink-900 border border-market-500/20 px-2.5 py-1 text-xs text-amber-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10">
+                        Score: {b.score}% · {new Date(b.taken_at).toLocaleDateString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div>
               <div className="flex items-center justify-between gap-3 mb-3">

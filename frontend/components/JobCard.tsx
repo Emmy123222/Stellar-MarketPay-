@@ -3,6 +3,7 @@
  * Displays a single job listing in the browse grid.
  */
 import Link from "next/link";
+import { useState, useRef, useEffect } from "react"; // Added for hover logic
 import {
   formatDeadline,
   formatXLM,
@@ -12,6 +13,7 @@ import {
   statusLabel,
   timeAgo,
   formatUSDEquivalent,
+  getMonthlyEstimate,
 } from "@/utils/format";
 import type { Job } from "@/utils/types";
 import { usePriceContext } from "@/contexts/PriceContext";
@@ -98,7 +100,12 @@ export default function JobCard({ job }: JobCardProps) {
   const saved = isSaved(job.id);
   return (
     <Link href={`/jobs/${job.id}`}>
-      <div className="card-hover group animate-fade-in">
+      {/* ── ISSUE #78: Added relative positioning and hover handlers ── */}
+      <div 
+        className="card-hover group animate-fade-in relative cursor-pointer" 
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
         {/* Header row */}
         <div className="flex items-start justify-between gap-3 mb-3">
           <h3 className="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2">
@@ -215,11 +222,42 @@ export default function JobCard({ job }: JobCardProps) {
             {job.category}
           </span>
         </div>
+
+        {/* ── ISSUE #78: Floating Hover Preview Card ── */}
+        {showPreview && (
+          <div className="absolute z-50 left-0 top-full mt-2 w-full md:left-full md:top-0 md:mt-0 md:ml-4 md:w-80 animate-in fade-in zoom-in duration-200">
+            <div className="bg-ink-900 border border-market-500/40 p-4 rounded-xl shadow-2xl backdrop-blur-lg">
+              <h4 className="text-market-300 font-semibold text-sm mb-2">Job Preview</h4>
+              <p className="text-amber-100/90 text-xs leading-relaxed mb-3">
+                {job.description.substring(0, 300)}
+                {job.description.length > 300 ? "..." : ""}
+              </p>
+              
+              <div className="mb-3">
+                <p className="text-[10px] text-amber-800 uppercase font-bold mb-1">Required Skills</p>
+                <div className="flex flex-wrap gap-1">
+                  {job.skills.map((s) => (
+                    <span key={s} className="text-[10px] bg-market-500/10 text-market-400 border border-market-500/20 px-1.5 py-0.5 rounded">
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-market-500/20">
+                <p className="text-[10px] text-amber-800 mb-0.5 font-bold uppercase">Client Address</p>
+                <p className="text-[10px] font-mono text-amber-100/70 truncate">{job.clientAddress || "Not specified"}</p>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* ───────────────────────────────────────────── */}
       </div>
     </Link>
   );
 }
 
+// ... JobCardSkeleton remains exactly as you shared it below ...
 export function JobCardSkeleton() {
   return (
     <div className="card">

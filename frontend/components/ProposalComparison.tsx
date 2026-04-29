@@ -1,319 +1,455 @@
-/**
- * components/ProposalComparison.tsx
- * Modal for side-by-side comparison of job applications/proposals.
- */
-import { useState, useEffect } from "react";
-import { formatXLM, shortenAddress } from "@/utils/format";
-import { accountUrl } from "@/lib/stellar";
-import { fetchProfile, fetchMyApplications } from "@/lib/api";
-import type { Application, Job, UserProfile } from "@/utils/types";
-import clsx from "clsx";
+"use client";
 
-interface ProposalComparisonProps {
-  applications: Application[];
-  job: Job | null;
-  publicKey: string | null;
-  onClose: () => void;
-  onAccept: (appId: string) => Promise<void>;
+import { useState } from "react";
+import { createEscrowOnChain } from "@/lib/stellar";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface JobFormData {
+  title: string;
+  description: string;
+  budgetXlm: number;
+  skills: string;
+  deadline: string;
 }
 
-interface ApplicationWithProfile extends Application {
-  profile?: UserProfile;
-  applicationCount?: number;
+type Step = "idle" | "posting" | "escrow" | "complete" | "error";
+
+interface StepState {
+  current: Step;
+  txHash?: string;
+  jobId?: string;
+  errorMessage?: string;
 }
 
-export default function ProposalComparison({
-  applications,
-  job,
-  publicKey,
-  onClose,
-  onAccept,
-}: ProposalComparisonProps) {
-  const [applicationsWithProfile, setApplicationsWithProfile] = useState<ApplicationWithProfile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+// ---------------------------------------------------------------------------
+// Step progress indicator
+// ---------------------------------------------------------------------------
 
-  useEffect(() => {
-    const loadProfiles = async () => {
-      if (applications.length === 0) {
-        setLoading(false);
-        return;
-      }
+const STEPS = [
+  { id: "posting", label: "Posting Job" },
+  { id: "escrow", label: "Locking Escrow" },
+  { id: "complete", label: "Complete" },
+] as const;
 
-      try {
-        const enrichedApps = await Promise.all(
-          applications.map(async (app) => {
-            try {
-              const [profile, userApplications] = await Promise.all([
-                fetchProfile(app.freelancerAddress),
-                fetchMyApplications(app.freelancerAddress),
-              ]);
-              return {
-                ...app,
-                profile,
-                applicationCount: userApplications.length,
-              };
-            } catch {
-              return {
-                ...app,
-                applicationCount: 0,
-              };
-            }
-          })
-        );
-        setApplicationsWithProfile(enrichedApps);
-      } catch (error) {
-        console.error("Failed to load profiles:", error);
-        setApplicationsWithProfile(
-          applications.map((app) => ({ ...app, applicationCount: 0 }))
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
+function StepIndex(step: Step): number {
+  if (step === "posting") return 0;
+  if (step === "escrow") return 1;
+  if (step === "complete") return 2;
+  return -1;
+}
 
-    loadProfiles();
-  }, [applications]);
+function ProgressBar({ step }: { step: Step }) {
+  const active = StepIndex(step);
+  const isError = step === "error";
 
-  const handleAccept = async (appId: string) => {
-    if (!publicKey) return;
-    setAcceptingId(appId);
+  return (
+    <div className="w-full my-6">
+      <div className="flex items-center justify-between relative">
+        {/* Connector line */}
+        <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-gray-200 z-0" />
+        <div
+          className="absolute left-0 top-1/2 -translate-y-1/2 h-0.5 bg-indigo-500 z-0 transition-all duration-700"
+          style={{
+            width:
+              active < 0
+                ? "0%"
+                : active === 0
+                ? "0%"
+                : active === 1
+                ? "50%"
+                : "100%",
+          }}
+        />
+
+        {STEPS.map((s, i) => {
+          const done = active > i;
+          const current = active === i;
+          const errored = isError && current;
+
+          return (
+            <div
+              key={s.id}
+              className="flex flex-col items-center gap-2 z-10"
+            >
+              <div
+                className={[
+                  "w-9 h-9 rounded-full flex items-center justify-center border-2 text-sm font-bold transition-all duration-500",
+                  done
+                    ? "bg-indigo-500 border-indigo-500 text-white"
+                    : current && !errored
+                    ? "bg-white border-indigo-500 text-indigo-600 animate-pulse"
+                    : errored
+                    ? "bg-red-500 border-red-500 text-white"
+                    : "bg-white border-gray-300 text-gray-400",
+                ].join(" ")}
+              >
+                {done ? (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : errored ? (
+                  "✕"
+                ) : (
+                  i + 1
+                )}
+              </div>
+              <span
+                className={[
+                  "text-xs font-medium whitespace-nowrap",
+                  done
+                    ? "text-indigo-600"
+                    : current && !errored
+                    ? "text-indigo-500"
+                    : errored
+                    ? "text-red-500"
+                    : "text-gray-400",
+                ].join(" ")}
+              >
+                {s.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export default function PostJobForm() {
+  const [form, setForm] = useState<JobFormData>({
+    title: "",
+    description: "",
+    budgetXlm: 50,
+    skills: "",
+    deadline: "",
+  });
+
+  const [stepState, setStepState] = useState<StepState>({ current: "idle" });
+  const [submitting, setSubmitting] = useState(false);
+
+  const isInProgress =
+    stepState.current === "posting" || stepState.current === "escrow";
+
+  // -------------------------------------------------------------------------
+  // Handlers
+  // -------------------------------------------------------------------------
+
+  function handleChange(
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) {
+    const { name, value } = e.target;
+    setForm((prev) => ({
+      ...prev,
+      [name]: name === "budgetXlm" ? Number(value) : value,
+    }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (submitting) return;
+
+    setSubmitting(true);
+    setStepState({ current: "posting" });
+
+    let jobId: string | undefined;
+
     try {
-      await onAccept(appId);
-      onClose();
-    } catch (error) {
-      console.error("Failed to accept application:", error);
+      // ── Step 1: POST to backend ──────────────────────────────────────────
+      const createRes = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: form.title,
+          description: form.description,
+          budgetXlm: form.budgetXlm,
+          skills: form.skills
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+          deadline: form.deadline,
+        }),
+      });
+
+      if (!createRes.ok) {
+        const err = await createRes.json().catch(() => ({}));
+        throw new Error(err?.message ?? "Failed to create job");
+      }
+
+      const { job } = await createRes.json();
+      jobId = job.id as string;
+
+      // ── Step 2: Lock escrow on-chain ─────────────────────────────────────
+      setStepState({ current: "escrow", jobId });
+
+      // Resolve the client's Freighter public key
+      const { getPublicKey } = await import("@stellar/freighter-api");
+      const clientPublicKey = await getPublicKey();
+
+      const { txHash } = await createEscrowOnChain({
+        clientPublicKey,
+        jobId,
+        budgetXlm: form.budgetXlm,
+      });
+
+      // ── Step 2b: Store the contract tx hash in the job record ────────────
+      await fetch(`/api/jobs/${jobId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contractTxHash: txHash }),
+      });
+
+      // ── Step 3: Done ─────────────────────────────────────────────────────
+      setStepState({ current: "complete", jobId, txHash });
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "An unexpected error occurred.";
+
+      // Roll back the job if it was created but escrow failed
+      if (jobId) {
+        try {
+          await fetch(`/api/jobs/${jobId}`, { method: "DELETE" });
+        } catch {
+          // Best-effort rollback; ignore secondary failures
+        }
+      }
+
+      setStepState({
+        current: "error",
+        jobId,
+        errorMessage: message,
+      });
     } finally {
-      setAcceptingId(null);
+      setSubmitting(false);
     }
-  };
+  }
 
-  const getFreelancerTier = (profile?: UserProfile): string => {
-    if (!profile) return "Unknown";
-    if (profile.completedJobs >= 10) return "Expert";
-    if (profile.completedJobs >= 5) return "Senior";
-    if (profile.completedJobs >= 1) return "Mid";
-    return "Junior";
-  };
+  function handleReset() {
+    setStepState({ current: "idle" });
+    setForm({
+      title: "",
+      description: "",
+      budgetXlm: 50,
+      skills: "",
+      deadline: "",
+    });
+  }
 
-  const renderStars = (rating?: number): string => {
-    if (!rating) return "N/A";
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 >= 0.5;
-    let stars = "★".repeat(fullStars);
-    if (hasHalfStar) stars += "½";
-    return stars;
-  };
+  // -------------------------------------------------------------------------
+  // Render: success state
+  // -------------------------------------------------------------------------
 
-  if (loading) {
+  if (stepState.current === "complete") {
     return (
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-        <div className="card max-w-6xl w-full max-h-[90vh] overflow-auto p-8 text-center">
-          <div className="animate-pulse space-y-4">
-            <div className="h-6 bg-market-500/8 rounded w-1/3 mx-auto" />
-            <div className="h-4 bg-market-500/8 rounded w-2/3 mx-auto" />
+      <div className="max-w-lg mx-auto bg-white rounded-2xl shadow-lg p-8 text-center space-y-4">
+        <ProgressBar step="complete" />
+
+        <div className="flex flex-col items-center gap-3 pt-2">
+          <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center">
+            <svg className="w-8 h-8 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
           </div>
+          <h2 className="text-2xl font-bold text-gray-900">Job Posted!</h2>
+          <p className="text-gray-500 text-sm">
+            Your budget of{" "}
+            <span className="font-semibold text-indigo-600">
+              {form.budgetXlm} XLM
+            </span>{" "}
+            has been locked in the escrow contract.
+          </p>
         </div>
+
+        {stepState.txHash && (
+          <div className="bg-gray-50 rounded-xl p-4 text-left space-y-1">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Contract Transaction Hash
+            </p>
+            <p className="text-xs font-mono text-gray-800 break-all">
+              {stepState.txHash}
+            </p>
+            <a
+              href={`https://stellar.expert/explorer/testnet/tx/${stepState.txHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-indigo-500 hover:underline inline-flex items-center gap-1"
+            >
+              View on Stellar Expert
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </div>
+        )}
+
+        <button
+          onClick={handleReset}
+          className="w-full py-2.5 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition-colors text-sm"
+        >
+          Post Another Job
+        </button>
       </div>
     );
   }
 
-  if (applicationsWithProfile.length === 0) {
-    return null;
-  }
+  // -------------------------------------------------------------------------
+  // Render: form + in-progress overlay
+  // -------------------------------------------------------------------------
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="card max-w-6xl w-full max-h-[90vh] overflow-auto">
-        {/* Header */}
-        <div className="sticky top-0 bg-[#0a0a0f] border-b border-market-500/10 p-6 z-10">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-xl font-bold text-amber-100">
-              Compare Proposals ({applicationsWithProfile.length})
-            </h2>
-            <button
-              onClick={onClose}
-              className="text-amber-800 hover:text-amber-400 transition-colors text-2xl font-light"
-            >
-              ×
-            </button>
-          </div>
+    <div className="max-w-lg mx-auto bg-white rounded-2xl shadow-lg p-8">
+      <h1 className="text-2xl font-bold text-gray-900 mb-1">Post a Job</h1>
+      <p className="text-gray-500 text-sm mb-6">
+        Your XLM budget will be locked in a Soroban escrow contract on-chain.
+      </p>
+
+      {/* 3-step progress (shown while submitting) */}
+      {isInProgress && <ProgressBar step={stepState.current} />}
+
+      {/* Error banner */}
+      {stepState.current === "error" && (
+        <div className="mb-5 rounded-xl bg-red-50 border border-red-200 p-4 space-y-1">
+          <ProgressBar step={stepState.current} />
+          <p className="text-sm font-semibold text-red-700">
+            Something went wrong
+          </p>
+          <p className="text-xs text-red-600">{stepState.errorMessage}</p>
+          {stepState.jobId && (
+            <p className="text-xs text-red-500">
+              The job record has been rolled back. Please try again.
+            </p>
+          )}
+          <button
+            onClick={() => setStepState({ current: "idle" })}
+            className="mt-2 text-xs text-red-600 underline"
+          >
+            Dismiss and retry
+          </button>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Title */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Job Title
+          </label>
+          <input
+            name="title"
+            value={form.title}
+            onChange={handleChange}
+            required
+            disabled={isInProgress}
+            placeholder="e.g. Build a Soroban DEX interface"
+            className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-60"
+          />
         </div>
 
-        {/* Comparison Table */}
-        <div className="p-6">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <tbody>
-                {/* Freelancer Address */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Freelancer
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4 min-w-[200px]">
-                      <a
-                        href={accountUrl(app.freelancerAddress)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="address-tag hover:border-market-500/40 transition-colors block"
-                      >
-                        {shortenAddress(app.freelancerAddress)} ↗
-                      </a>
-                    </td>
-                  ))}
-                </tr>
-
-                {/* Bid Amount */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Bid Amount
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <span className="font-mono text-market-400 font-semibold">
-                        {formatXLM(app.bidAmount)}
-                      </span>
-                    </td>
-                  ))}
-                </tr>
-
-                {/* Proposal Excerpt */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap align-top">
-                    Proposal
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <p className="text-amber-700/80 text-sm leading-relaxed max-h-32 overflow-y-auto">
-                        {app.proposal}
-                      </p>
-                    </td>
-                  ))}
-                </tr>
-
-                {/* Freelancer Tier */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Experience Level
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <span className="text-sm bg-market-500/10 text-market-400/80 border border-market-500/15 px-3 py-1 rounded-full">
-                        {getFreelancerTier(app.profile)}
-                      </span>
-                    </td>
-                  ))}
-                </tr>
-
-                {/* Freelancer Rating */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Rating
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-market-400 text-lg">
-                          {renderStars(app.profile?.rating)}
-                        </span>
-                        {app.profile?.ratingCount && app.profile.ratingCount > 0 && (
-                          <span className="text-xs text-amber-800">
-                            ({app.profile.ratingCount})
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                  ))}
-                </tr>
-
-                {/* Applications Count */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Total Applications
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <span className="text-amber-700/80 text-sm">
-                        {app.applicationCount ?? 0}
-                      </span>
-                    </td>
-                  ))}
-                </tr>
-
-                {/* Completed Jobs */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Completed Jobs
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <span className="text-amber-700/80 text-sm">
-                        {app.profile?.completedJobs ?? 0}
-                      </span>
-                    </td>
-                  ))}
-                </tr>
-
-                {/* Status */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Status
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <span
-                        className={clsx(
-                          "text-xs px-2.5 py-1 rounded-full border",
-                          app.status === "accepted"
-                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                            : app.status === "rejected"
-                            ? "bg-red-500/10 text-red-400 border-red-500/20"
-                            : "bg-market-500/10 text-market-400 border-market-500/20"
-                        )}
-                      >
-                        {app.status}
-                      </span>
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Accept Buttons */}
-          <div className="mt-8 pt-6 border-t border-market-500/10">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {applicationsWithProfile.map((app) => (
-                <div key={app.id} className="text-center">
-                  <button
-                    onClick={() => handleAccept(app.id)}
-                    disabled={
-                      app.status !== "pending" ||
-                      job?.status !== "open" ||
-                      acceptingId === app.id
-                    }
-                    className={clsx(
-                      "w-full py-3 px-4 rounded-lg font-medium transition-all",
-                      app.status === "pending" && job?.status === "open"
-                        ? "btn-primary"
-                        : "bg-market-500/10 text-amber-800 cursor-not-allowed"
-                    )}
-                  >
-                    {acceptingId === app.id
-                      ? "Accepting..."
-                      : app.status === "accepted"
-                      ? "Accepted"
-                      : app.status === "rejected"
-                      ? "Rejected"
-                      : "Accept Proposal"}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
+        {/* Description */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Description
+          </label>
+          <textarea
+            name="description"
+            value={form.description}
+            onChange={handleChange}
+            required
+            rows={4}
+            disabled={isInProgress}
+            placeholder="Describe the work, deliverables, and any context..."
+            className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-60 resize-none"
+          />
         </div>
-      </div>
+
+        {/* Budget */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Budget (XLM)
+          </label>
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-indigo-500">
+              XLM
+            </span>
+            <input
+              name="budgetXlm"
+              type="number"
+              min={1}
+              step={1}
+              value={form.budgetXlm}
+              onChange={handleChange}
+              required
+              disabled={isInProgress}
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 pl-14 pr-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-60"
+            />
+          </div>
+          <p className="mt-1 text-xs text-gray-400">
+            This exact amount will be deducted from your wallet and held in escrow.
+          </p>
+        </div>
+
+        {/* Skills */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Required Skills
+          </label>
+          <input
+            name="skills"
+            value={form.skills}
+            onChange={handleChange}
+            disabled={isInProgress}
+            placeholder="Rust, Soroban, TypeScript (comma-separated)"
+            className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-60"
+          />
+        </div>
+
+        {/* Deadline */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Deadline
+          </label>
+          <input
+            name="deadline"
+            type="date"
+            value={form.deadline}
+            onChange={handleChange}
+            disabled={isInProgress}
+            className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-60"
+          />
+        </div>
+
+        {/* Submit */}
+        <button
+          type="submit"
+          disabled={isInProgress}
+          className={[
+            "w-full py-3 rounded-xl font-semibold text-sm transition-all duration-200",
+            isInProgress
+              ? "bg-indigo-300 text-white cursor-not-allowed"
+              : "bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95",
+          ].join(" ")}
+        >
+          {stepState.current === "posting"
+            ? "Posting job…"
+            : stepState.current === "escrow"
+            ? "Waiting for Freighter signature…"
+            : `Post Job & Lock ${form.budgetXlm} XLM Escrow`}
+        </button>
+
+        {isInProgress && (
+          <p className="text-center text-xs text-gray-400">
+            {stepState.current === "escrow"
+              ? "Please approve the transaction in your Freighter wallet."
+              : "Submitting your job to the platform…"}
+          </p>
+        )}
+      </form>
     </div>
   );
 }

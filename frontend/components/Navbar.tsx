@@ -131,6 +131,9 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
               {l.href === "/dashboard" && hasNotification && (
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-emerald-400 rounded-full border border-ink-900" />
               )}
+              {l.href === "/jobs" && hasJobAlertBadge && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-market-400 rounded-full border border-ink-900" />
+              )}
             </Link>
           ))}
         </div>

@@ -107,12 +107,9 @@ export async function fetchJob(id: string, viewerAddress?: string) {
 }
 
 export async function createJob(payload: {
-  title: string;
-  description: string;
-  budget: string;
-  category: string;
-  skills: string[];
-  deadline?: string;
+  title: string; description: string; budget: string;
+  currency?: "XLM" | "USDC";
+  category: string; skills: string[]; deadline?: string;
   timezone?: string;
   clientAddress: string;
   screeningQuestions?: string[];
@@ -213,6 +210,7 @@ export async function submitApplication(payload: {
   bidAmount: string;
   currency: string;
   screeningAnswers?: Record<string, string>;
+  referredBy?: string;
 }) {
   const { data } = await api.post<{ success: boolean; data: Application }>(
     "/api/applications",
@@ -298,6 +296,11 @@ export async function verifyIdentity(publicKey: string, didHash: string) {
 }
 
 // ─── Escrow ───────────────────────────────────────────────────────────────────
+
+export async function fetchEscrow(jobId: string) {
+  const { data } = await api.get<{ success: boolean; data: any }>(`/api/escrow/${jobId}`);
+  return data.data;
+}
 
 export async function releaseEscrow(
   jobId: string,
@@ -404,6 +407,29 @@ export async function updateJobEscrowId(
 
 export async function deleteJob(jobId: string) {
   await api.delete(`/api/jobs/${jobId}`);
+}
+
+/**
+ * Raises a dispute for an in-progress job.
+ *
+ * @param jobId Job identifier.
+ * @param payload Dispute details (reason and description).
+ * @returns The updated job record.
+ */
+export async function raiseDispute(jobId: string, payload: { reason: string; description: string }) {
+  const { data } = await api.post<{ success: boolean; data: Job }>(`/api/jobs/${jobId}/dispute`, payload);
+  return data.data;
+}
+
+/**
+ * Resolves a dispute for a job (Admin only).
+ *
+ * @param jobId Job identifier.
+ * @returns The updated job record.
+ */
+export async function resolveDispute(jobId: string) {
+  const { data } = await api.post<{ success: boolean; data: Job }>(`/api/jobs/${jobId}/resolve`);
+  return data.data;
 }
 
 // ─── Ratings ──────────────────────────────────────────────────────────────────
