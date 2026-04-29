@@ -95,44 +95,6 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const isRepostable = (status: Job["status"]) => status === "cancelled";
   const alertMatches: Job[] = [];
 
-  // Tooltip configurations for new users
-  const tooltipConfigs: TooltipConfig[] = [
-    {
-      id: "post-job",
-      targetSelector: '[href="/post-job"]',
-      title: "Post Your First Job",
-      description: "Click here to create a job posting and start hiring talented freelancers on the Stellar network.",
-      position: "bottom",
-      action: {
-        label: "Post a Job",
-        onClick: () => router.push("/post-job"),
-      },
-    },
-    {
-      id: "connect-wallet",
-      targetSelector: '[data-testid="wallet-connect-button"]',
-      title: "Connect Your Wallet",
-      description: "Connect your Stellar wallet to send payments, receive funds, and interact with smart contracts.",
-      position: "bottom",
-    },
-    {
-      id: "browse-jobs",
-      targetSelector: '[href="/jobs"]',
-      title: "Browse Available Jobs",
-      description: "Explore open job postings and submit proposals to projects that match your skills.",
-      position: "bottom",
-      action: {
-        label: "Browse Jobs",
-        onClick: () => router.push("/jobs"),
-      },
-    },
-  ];
-
-  // Filter tooltips based on dismissed state
-  const activeTooltips = tooltipConfigs.filter(
-    (tooltip) => !onboardingState.dismissedTooltips.includes(tooltip.id)
-  );
-
   const handleCopy = async () => {
     if (!publicKey) return;
     const ok = await copyToClipboard(publicKey);
@@ -250,25 +212,6 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
   return (
     <>
-      {/* Welcome Modal */}
-      <WelcomeModal
-        isOpen={shouldShowWelcome}
-        onClose={markWelcomeSeen}
-        onGetStarted={() => {
-          markWelcomeSeen();
-          setTab("edit_profile");
-        }}
-      />
-
-      {/* Tooltips for new users */}
-      {!shouldShowWelcome && activeTooltips.length > 0 && (
-        <Tooltips
-          tooltips={activeTooltips}
-          onDismiss={dismissTooltip}
-          onDismissAll={dismissAllTooltips}
-        />
-      )}
-
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
