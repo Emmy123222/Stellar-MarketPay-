@@ -23,8 +23,9 @@ const escrowRoutes      = require("./routes/escrow");
 const healthRoutes      = require("./routes/health");
 const authRoutes        = require("./routes/auth");
 const ratingRoutes      = require("./routes/ratings");
-const progressRoutes    = require("./routes/progress");
-const messageRoutes     = require("./routes/messageRoutes");
+const progressRoutes      = require("./routes/progress");
+const assessmentRoutes    = require("./routes/assessments");
+const adminRoutes         = require("./routes/admin");
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
@@ -173,14 +174,8 @@ app.use("/api/profiles",      profileRoutes);
 app.use("/api/escrow",        escrowRoutes);
 app.use("/api/ratings",       ratingRoutes);
 app.use("/api/progress",      progressRoutes);
-app.use("/api/messages",      messageRoutes);
-
-app.get("/api/indexer/health", (req, res) => {
-  res.json({
-    status: "ok",
-    indexer: indexerService.getHealth(),
-  });
-});
+app.use("/api/assessments",   assessmentRoutes);
+app.use("/api/admin",         adminRoutes);
 
 app.use((err, req, res, next) => {
   console.error("[Error]", err.message);
