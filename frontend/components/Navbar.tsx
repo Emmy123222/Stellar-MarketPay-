@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { shortenAddress } from "@/utils/format";
 import clsx from "clsx";
+import { useTranslation } from "@/lib/i18n";
+import FaucetButton from "@/components/FaucetButton";
 
 interface NavbarProps {
   publicKey: string | null;
@@ -14,18 +16,22 @@ interface NavbarProps {
 }
 
 const links = [
-  { href: "/",            label: "Home" },
-  { href: "/jobs",        label: "Browse Jobs" },
-  { href: "/dashboard",   label: "Dashboard" },
-  { href: "/post-job",    label: "Post a Job" },
+  { href: "/",            labelKey: "nav.home" },
+  { href: "/jobs",        labelKey: "nav.browseJobs" },
+  { href: "/dashboard",   labelKey: "nav.dashboard" },
+  { href: "/post-job",    labelKey: "nav.postJob" },
 ];
 
 const STELLAR_NETWORK = process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet";
 
 export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarProps) {
   const router = useRouter();
-
+  const { i18n } = useTranslation("common");
   const [hasNotification, setHasNotification] = useState(false);
+  const [balance, setBalance] = useState<string | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+
+  const t = (key: string): string => i18n.t(key) as string;
 
   useEffect(() => {
     const handleActivity = () => {
@@ -44,12 +50,54 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
     }
   }, [router.pathname]);
 
+  useEffect(() => {
+    if (!publicKey) {
+      setBalance(null);
+      return;
+    }
+
+    let cancelled = false;
+    const fetchBalance = async () => {
+      setBalanceLoading(true);
+      try {
+        const horizonUrl = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
+        const res = await fetch(`${horizonUrl}/accounts/${publicKey}`);
+        if (!res.ok) throw new Error("Failed to fetch balance");
+        const data = await res.json();
+        const xlmBalance = data.balances?.find((b: any) => b.asset_type === "native");
+        if (!cancelled && xlmBalance) {
+          setBalance(parseFloat(xlmBalance.balance).toFixed(2));
+        }
+      } catch (err) {
+        console.error("Balance fetch error:", err);
+      } finally {
+        if (!cancelled) setBalanceLoading(false);
+      }
+    };
+
+    fetchBalance();
+    const interval = setInterval(fetchBalance, 30000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [publicKey]);
+
+  const switchLanguage = (locale: string) => {
+    router.push(router.pathname, router.asPath, { locale });
+    localStorage.setItem("preferredLocale", locale);
+  };
+
+  useEffect(() => {
+    const savedLocale = localStorage.getItem("preferredLocale");
+    if (savedLocale && savedLocale !== i18n.language) {
+      switchLanguage(savedLocale);
+    }
+  }, []);
+
   return (
     <nav className="sticky top-0 z-50 border-b border-[rgba(251,191,36,0.10)] bg-ink-900/85 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
 
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2.5 group flex-shrink-0">
+        <Link href="/" locale={false} className="flex items-center gap-2.5 group flex-shrink-0">
           <div className="w-8 h-8 rounded-lg bg-market-500/15 border border-market-500/25 flex items-center justify-center group-hover:border-market-500/50 transition-colors">
             <BriefcaseIcon className="w-4 h-4 text-market-400" />
           </div>
@@ -71,7 +119,7 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
         {/* Nav links */}
         <div className="hidden md:flex items-center gap-1">
           {links.map((l) => (
-            <Link key={l.href} href={l.href}
+            <Link key={l.href} href={l.href} locale={false}
               className={clsx(
                 "px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
                 router.pathname === l.href
@@ -79,29 +127,54 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
                   : "text-amber-700 hover:text-amber-300 hover:bg-market-500/8"
               )}
             >
-              {l.label}
+              {t(l.labelKey)}
               {l.href === "/dashboard" && hasNotification && (
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-emerald-400 rounded-full border border-ink-900" />
               )}
+              {l.href === "/jobs" && hasJobAlertBadge && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-market-400 rounded-full border border-ink-900" />
+              )}
             </Link>
           ))}
+        </div>
+
+        {/* Language Switcher */}
+        <div className="hidden md:flex items-center">
+          <select
+            value={i18n.language}
+            onChange={(e) => switchLanguage(e.target.value)}
+            className="bg-market-900/40 border border-amber-900/30 rounded px-2 py-1 text-xs text-amber-100 cursor-pointer"
+            aria-label={t("language.switch") as string}
+          >
+            <option value="en">{t("language.english")}</option>
+            <option value="es">{t("language.spanish")}</option>
+          </select>
         </div>
 
         {/* Wallet */}
         <div className="flex items-center gap-2 flex-shrink-0">
           {publicKey ? (
             <>
-              <div className="flex items-center gap-1.5 address-tag">
+              <button
+                onClick={() => router.push("/dashboard/transactions")}
+                className="flex items-center gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity"
+                title={t("wallet.balance") as string}
+              >
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 {shortenAddress(publicKey)}
-              </div>
+                {balanceLoading ? (
+                  <span className="text-xs text-amber-800">{t("wallet.loading")}</span>
+                ) : balance ? (
+                  <span className="text-xs font-medium text-market-400">{balance} XLM</span>
+                ) : null}
+              </button>
               <button onClick={onDisconnect} className="text-xs text-amber-800 hover:text-amber-500 transition-colors px-2 py-1">
-                Disconnect
+                {t("nav.disconnect")}
               </button>
             </>
           ) : (
             <button onClick={onConnect} className="btn-primary text-sm py-2 px-4">
-              Connect Wallet
+              {t("nav.connectWallet")}
             </button>
           )}
         </div>

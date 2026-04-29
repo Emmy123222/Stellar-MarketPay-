@@ -23,6 +23,14 @@ export const NETWORK_PASSPHRASE = NETWORK === "mainnet" ? Networks.PUBLIC : Netw
 export const server = new Horizon.Server(HORIZON_URL);
 export const sorobanServer = new SorobanRpc.Server(SOROBAN_RPC_URL);
 
+export type MarketPayContractEventType = "created" | "released" | "refunded";
+
+export interface MarketPayContractEvent {
+  type: MarketPayContractEventType;
+  jobId: string | null;
+  raw: SorobanRpc.Api.GetEventsResponse["events"][number];
+}
+
 // XLM SAC (Stellar Asset Contract) address on testnet
 export const XLM_SAC_ADDRESS =
   NETWORK === "mainnet"
@@ -139,6 +147,70 @@ export async function buildPaymentTransaction({
   return builder.build();
 }
 
+/**
+ * Build a Strict Send Path Payment transaction.
+ * This converts a source asset to a destination asset via the DEX.
+ */
+export async function buildPathPaymentTransaction({
+  fromPublicKey,
+  toPublicKey,
+  sendAsset,
+  sendAmount,
+  destAsset,
+  destMin,
+  path,
+}: {
+  fromPublicKey: string;
+  toPublicKey: string;
+  sendAsset: Asset;
+  sendAmount: string;
+  destAsset: Asset;
+  destMin: string;
+  path: Asset[];
+}) {
+  const sourceAccount = await server.loadAccount(fromPublicKey);
+
+  const builder = new TransactionBuilder(sourceAccount, {
+    fee: "1000",
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(Operation.pathPaymentStrictSend({
+      sendAsset,
+      sendAmount,
+      destination: toPublicKey,
+      destAsset,
+      destMin,
+      path,
+    }))
+    .setTimeout(60);
+
+  return builder.build();
+}
+
+/**
+ * Get the best path and estimated exchange rate for a swap.
+ */
+export async function getPathPaymentPrice(
+  sourceAsset: Asset,
+  sourceAmount: string,
+  destAsset: Asset
+): Promise<{ amount: string; path: Asset[] } | null> {
+  try {
+    const paths = await server.strictSendPaths(sourceAsset, sourceAmount, [destAsset]).call();
+    if (paths.records.length === 0) return null;
+    
+    // Pick the one with the highest destination amount
+    const bestPath = paths.records[0];
+    return {
+      amount: bestPath.destination_amount,
+      path: bestPath.path.map(p => new Asset(p.asset_code || "XLM", p.asset_issuer)),
+    };
+  } catch (err) {
+    console.error("Error fetching path payment price:", err);
+    return null;
+  }
+}
+
 export async function submitTransaction(signedXDR: string) {
   const tx = new Transaction(signedXDR, NETWORK_PASSPHRASE);
   try {
@@ -196,6 +268,41 @@ export async function buildReleaseEscrowTransaction(
       "release_escrow",
       nativeToScVal(jobId),
       Address.fromString(clientAddress).toScVal()
+    );
+
+    const built = new TransactionBuilder(account, {
+      fee: "1000000",
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(op)
+      .setTimeout(60)
+      .build();
+
+    return await sorobanServer.prepareTransaction(built);
+  } catch (err: unknown) {
+    throw new Error(friendlySorobanError(err));
+  }
+}
+
+/**
+ * Builds a prepared Soroban transaction that invokes `release_with_conversion(job_id, client, target_token, min_amount_out)` on the escrow contract.
+ */
+export async function buildReleaseWithConversionTransaction(
+  contractId: string,
+  jobId: string,
+  clientAddress: string,
+  targetTokenAddress: string,
+  minAmountOut: bigint
+): Promise<Transaction> {
+  try {
+    const account = await sorobanServer.getAccount(clientAddress);
+    const contract = new Contract(contractId);
+    const op = contract.call(
+      "release_with_conversion",
+      nativeToScVal(jobId),
+      Address.fromString(clientAddress).toScVal(),
+      Address.fromString(targetTokenAddress).toScVal(),
+      nativeToScVal(minAmountOut, { type: "i128" })
     );
 
     const built = new TransactionBuilder(account, {
@@ -387,7 +494,7 @@ export function streamAccountTransactions(
     .cursor("now")
     .stream({
       onmessage: (tx) => {
-        onTransaction(tx);
+        onTransaction(tx as unknown as Horizon.ServerApi.TransactionRecord);
       },
       onerror: (error) => {
         console.error("Horizon stream error:", error);
@@ -395,4 +502,75 @@ export function streamAccountTransactions(
     });
 
   return closeStream;
+}
+
+export function subscribeToContractEvents(
+  contractId: string,
+  onEvent: (event: MarketPayContractEvent) => void
+): () => void {
+  let isClosed = false;
+  let timeoutRef: ReturnType<typeof setTimeout> | null = null;
+  let attempts = 0;
+  let cursor: string | undefined;
+  const maxAttempts = 3;
+  const supported = new Set<MarketPayContractEventType>(["created", "released", "refunded"]);
+
+  const parseEvent = (
+    event: SorobanRpc.Api.GetEventsResponse["events"][number]
+  ): MarketPayContractEvent | null => {
+    const value = event.value as unknown as { _attributes?: Record<string, unknown>; _value?: unknown };
+    const attrs = value?._attributes || {};
+    const topics = Array.isArray(attrs.topic) ? attrs.topic : [];
+    const first = topics[0] as unknown as { _value?: string } | undefined;
+    const eventType = first?._value as MarketPayContractEventType | undefined;
+    if (!eventType || !supported.has(eventType)) return null;
+
+    let jobId: string | null = null;
+    const payload = value?._value;
+    if (Array.isArray(payload) && payload.length > 0 && payload[0]?._value) {
+      jobId = String(payload[0]._value);
+    }
+
+    return { type: eventType, jobId, raw: event };
+  };
+
+  const scheduleRetry = () => {
+    if (isClosed || attempts >= maxAttempts) return;
+    const delay = 1000 * (2 ** attempts);
+    attempts += 1;
+    timeoutRef = setTimeout(() => {
+      pollLoop();
+    }, delay);
+  };
+
+  const pollLoop = async () => {
+    while (!isClosed) {
+      try {
+        const response = await sorobanServer.getEvents({
+          startLedger: undefined,
+          filters: [{ contractIds: [contractId], type: "contract" }],
+          pagination: { cursor, limit: 50 },
+        });
+
+        attempts = 0;
+        for (const event of response.events) {
+          cursor = event.pagingToken;
+          const parsed = parseEvent(event);
+          if (parsed) onEvent(parsed);
+        }
+      } catch (error) {
+        console.error("Contract event subscription error:", error);
+        scheduleRetry();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  };
+
+  pollLoop();
+
+  return () => {
+    isClosed = true;
+    if (timeoutRef) clearTimeout(timeoutRef);
+  };
 }

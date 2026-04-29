@@ -4,13 +4,16 @@
  * Issue #21: Integrates Soroban escrow contract into job creation flow.
  */
 import { useEffect, useState } from "react";
-import { createJob, updateJobEscrowId, deleteJob } from "@/lib/api";
+import type { Transaction } from "@stellar/stellar-sdk";
+import { createJob, updateJobEscrowId, deleteJob, saveDraft, fetchDrafts } from "@/lib/api";
 import { buildCreateEscrowTransaction, submitSorobanTransaction } from "@/lib/stellar";
+import { fetchActualFee } from "@/lib/sorobanFees";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { JOB_CATEGORIES, SKILL_SUGGESTIONS, formatUSDEquivalent, getMonthlyEstimate } from "@/utils/format";
 import { useRouter } from "next/router";
 import clsx from "clsx";
 import { useToast } from "@/components/Toast";
+import { usePriceContext } from "@/contexts/PriceContext";
 import type { Currency } from "@/utils/types";
 
 interface PostJobFormProps { publicKey: string; }
@@ -23,6 +26,8 @@ type FormState = {
   category: string;
   skillInput: string;
   deadline: string;
+  currency: Currency;
+  timezone: string;
 };
 
 type JobTemplate = {
@@ -36,6 +41,8 @@ type JobTemplate = {
 };
 
 const JOB_TEMPLATES_STORAGE_KEY = "stellar-marketpay-job-templates";
+const SCOPE_PREFILL_STORAGE_KEY = "marketpay_scope_prefill";
+const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 const emptyForm: FormState = {
   title: "",
   description: "",
@@ -43,15 +50,15 @@ const emptyForm: FormState = {
   category: "",
   skillInput: "",
   deadline: "",
+  currency: "XLM",
+  timezone: "",
 };
 
 export default function PostJobForm({ publicKey }: PostJobFormProps) {
   const router = useRouter();
   const toast = useToast();
   const { xlmPriceUsd } = usePriceContext();
-  const [form, setForm] = useState({
-    title: "", description: "", budget: "", category: "", skillInput: "", deadline: "", currency: "XLM" as Currency,
-  });
+  const [form, setForm] = useState<FormState>(emptyForm);
   const [skills, setSkills] = useState<string[]>([]);
   const [screeningQuestions, setScreeningQuestions] = useState<string[]>([""]);
   const [loading, setLoading] = useState(false);
@@ -59,11 +66,109 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  const [templates, setTemplates] = useState<JobTemplate[]>([]);
+  const [selectedTemplateName, setSelectedTemplateName] = useState("");
+  const [templateNameInput, setTemplateNameInput] = useState("");
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [pendingOverwriteTemplate, setPendingOverwriteTemplate] = useState<JobTemplate | null>(null);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+
+  // Template feature states
+  const [templates, setTemplates] = useState<JobTemplate[]>([]);
+  const [selectedTemplateName, setSelectedTemplateName] = useState("");
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [templateNameInput, setTemplateNameInput] = useState("");
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [pendingOverwriteTemplate, setPendingOverwriteTemplate] = useState<JobTemplate | null>(null);
+
+  useEffect(() => {
+    setTemplates(readTemplates());
+  }, []);
+
+  const handleLoadTemplate = (name: string) => {
+    setSelectedTemplateName(name);
+    setShowDeleteConfirmation(false);
+    if (!name) {
+      setForm(emptyForm);
+      setSkills([]);
+      return;
+    }
+    const template = templates.find((t) => t.name === name);
+    if (template) {
+      setForm({
+        ...emptyForm,
+        title: template.title,
+        description: template.description,
+        budget: template.budget,
+        category: template.category,
+        deadline: template.deadline,
+      });
+      setSkills(template.skills);
+    }
+  };
+
+  const handleDeleteTemplate = () => setShowDeleteConfirmation(true);
+  const handleCancelDelete = () => setShowDeleteConfirmation(false);
+  const handleConfirmDelete = () => {
+    const updated = templates.filter((t) => t.name !== selectedTemplateName);
+    window.localStorage.setItem(JOB_TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
+    setTemplates(updated);
+    setSelectedTemplateName("");
+    setShowDeleteConfirmation(false);
+    toast.success("Template deleted.");
+  };
+
+  const handleSaveTemplate = () => {
+    const name = templateNameInput.trim();
+    if (!name) {
+      setTemplateError("Please enter a template name.");
+      return;
+    }
+    const newTemplate: JobTemplate = {
+      name,
+      title: form.title,
+      description: form.description,
+      budget: form.budget,
+      category: form.category,
+      skills,
+      deadline: form.deadline,
+    };
+    const existing = templates.find((t) => t.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      setPendingOverwriteTemplate(newTemplate);
+      return;
+    }
+    const updated = [...templates, newTemplate];
+    window.localStorage.setItem(JOB_TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
+    setTemplates(updated);
+    setTemplateNameInput("");
+    setTemplateError(null);
+    toast.success("Template saved.");
+  };
+
+  const handleConfirmOverwrite = () => {
+    if (!pendingOverwriteTemplate) return;
+    const updated = templates.map((t) => 
+      t.name.toLowerCase() === pendingOverwriteTemplate.name.toLowerCase() ? pendingOverwriteTemplate : t
+    );
+    window.localStorage.setItem(JOB_TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
+    setTemplates(updated);
+    setPendingOverwriteTemplate(null);
+    setTemplateNameInput("");
+    toast.success("Template updated.");
+  };
+
+  const handleCancelOverwrite = () => setPendingOverwriteTemplate(null);
 
   const usdPreview = formatUSDEquivalent(form.budget, xlmPriceUsd);
   const monthlyEst = getMonthlyEstimate(form.budget, xlmPriceUsd);
 
-  const set = (key: string, val: string) => setForm((f) => ({ ...f, [key]: val }));
+  const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
+    setForm((current) => ({ ...current, [key]: val }));
+
+  useEffect(() => {
+    setTemplates(readTemplates());
+  }, []);
 
   // Filter suggestions based on input
   const filteredSuggestions = form.skillInput.trim().length > 0
@@ -83,6 +188,110 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
   };
 
   const removeSkill = (s: string) => setSkills(skills.filter((x) => x !== s));
+
+  const buildTemplateFromCurrentForm = (name: string): JobTemplate => ({
+    name: name.trim(),
+    title: form.title,
+    description: form.description,
+    budget: form.budget,
+    category: form.category,
+    skills,
+    deadline: form.deadline,
+  });
+
+  const applyTemplate = (template: JobTemplate) => {
+    setForm((current) => ({
+      ...current,
+      title: template.title,
+      description: template.description,
+      budget: template.budget,
+      category: template.category,
+      deadline: template.deadline,
+      skillInput: "",
+    }));
+    setSkills(template.skills);
+    setSelectedTemplateName(template.name);
+  };
+
+  const persistTemplates = (nextTemplates: JobTemplate[]) => {
+    setTemplates(nextTemplates);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(JOB_TEMPLATES_STORAGE_KEY, JSON.stringify(nextTemplates));
+    }
+  };
+
+  const handleLoadTemplate = (name: string) => {
+    setSelectedTemplateName(name);
+    if (!name) return;
+
+    const selectedTemplate = templates.find((template) => template.name === name);
+    if (selectedTemplate) {
+      applyTemplate(selectedTemplate);
+      setTemplateNameInput(selectedTemplate.name);
+      setTemplateError(null);
+      setPendingOverwriteTemplate(null);
+    }
+  };
+
+  const handleSaveTemplate = () => {
+    const normalizedName = templateNameInput.trim();
+    if (!normalizedName) {
+      setTemplateError("Template name is required.");
+      return;
+    }
+
+    const template = buildTemplateFromCurrentForm(normalizedName);
+    const existingTemplate = templates.find((item) => item.name === normalizedName);
+
+    if (existingTemplate) {
+      setPendingOverwriteTemplate(template);
+      setTemplateError(null);
+      return;
+    }
+
+    persistTemplates([...templates, template]);
+    setSelectedTemplateName(template.name);
+    setPendingOverwriteTemplate(null);
+    setTemplateError(null);
+    toast.success(`Saved template: ${template.name}`);
+  };
+
+  const handleConfirmOverwrite = () => {
+    if (!pendingOverwriteTemplate) return;
+
+    const nextTemplates = templates.map((template) =>
+      template.name === pendingOverwriteTemplate.name ? pendingOverwriteTemplate : template
+    );
+    persistTemplates(nextTemplates);
+    setSelectedTemplateName(pendingOverwriteTemplate.name);
+    setPendingOverwriteTemplate(null);
+    setTemplateError(null);
+    toast.success(`Updated template: ${templateNameInput.trim()}`);
+  };
+
+  const handleCancelOverwrite = () => {
+    setPendingOverwriteTemplate(null);
+  };
+
+  const handleDeleteTemplate = () => {
+    if (!selectedTemplateName) return;
+    setShowDeleteConfirmation(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!selectedTemplateName) return;
+
+    const nextTemplates = templates.filter((template) => template.name !== selectedTemplateName);
+    persistTemplates(nextTemplates);
+    setSelectedTemplateName("");
+    setTemplateNameInput("");
+    setShowDeleteConfirmation(false);
+    toast.success("Template deleted.");
+  };
+
+  const handleCancelDelete = () => {
+    setShowDeleteConfirmation(false);
+  };
 
   const addScreeningQuestion = () => {
     if (screeningQuestions.length < 5) {
@@ -128,11 +337,8 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
     setError(null);
     setStep("posting");
 
-    let job: Awaited<ReturnType<typeof createJob>> | null = null;
-
     try {
-      // Step 1 — Post job to backend
-      job = await createJob({
+      const job = await createJob({
         title: form.title.trim(),
         description: form.description.trim(),
         budget: parseFloat(form.budget).toFixed(7),
@@ -141,42 +347,24 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
         skills,
         deadline: form.deadline || undefined,
         timezone: form.timezone || undefined,
+        visibility: form.visibility,
         clientAddress: publicKey,
         screeningQuestions: screeningQuestions.filter(q => q.trim().length > 0),
       });
 
-      // Step 2 — Build & sign Soroban create_escrow() transaction
       setStep("locking");
 
       const unsignedTx = await buildCreateEscrowTransaction({
         clientPublicKey: publicKey,
         jobId: job.id,
-        // Use client as placeholder freelancer until one is hired
         freelancerAddress: publicKey,
         budget: parseFloat(form.budget).toFixed(7),
         currency: form.currency,
       });
 
-      const { signedXDR, error: signError } = await signTransactionWithWallet(unsignedTx.toXDR());
-      if (signError || !signedXDR) {
-        // Roll back: remove the orphaned job from the backend
-        await deleteJob(job.id).catch(() => {}); // best-effort
-        throw new Error(signError || "Freighter signing was cancelled");
-      }
-
-      // Step 3 — Submit to Soroban RPC and wait for confirmation
-      const txHash = await submitSorobanTransaction(signedXDR).catch(async (e) => {
-        // Roll back: remove the orphaned job from the backend
-        await deleteJob(job!.id).catch(() => {});
-        throw e;
-      });
-
-      // Step 4 — Persist escrow contract ID in the job record
-      await updateJobEscrowId(job.id, txHash);
-
-      setStep("done");
-      toast.success("Job posted and budget locked in escrow.");
-      router.push(`/jobs/${job.id}`);
+      // Pause here so the user can review the on-chain fee (Issue #222)
+      // before Freighter prompts them to sign.
+      setPendingEscrow({ transaction: unsignedTx, jobId: job.id });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       setError(msg);
@@ -185,6 +373,121 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
       setLoading(false);
     }
   };
+
+  const handleConfirmEscrowFee = async () => {
+    if (!pendingEscrow) return;
+    const { transaction, jobId } = pendingEscrow;
+    setPendingEscrow(null);
+
+    try {
+      const { signedXDR, error: signError } = await signTransactionWithWallet(transaction.toXDR());
+      if (signError || !signedXDR) {
+        await deleteJob(jobId).catch(() => {});
+        throw new Error(signError || "Freighter signing was cancelled");
+      }
+
+      const txHash = await submitSorobanTransaction(signedXDR).catch(async (e) => {
+        await deleteJob(jobId).catch(() => {});
+        throw e;
+      });
+
+      // Log the actual fee charged for the AC.
+      fetchActualFee(txHash).then((actual) => {
+        if (actual) {
+          // eslint-disable-next-line no-console
+          console.info(`[escrow] create_escrow ${jobId} actual fee ${actual.feeChargedXlm} XLM`);
+        }
+      }).catch(() => {});
+
+      await updateJobEscrowId(jobId, txHash);
+
+      setStep("done");
+      toast.success("Job posted and budget locked in escrow.");
+      router.push(`/jobs/${jobId}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setError(msg);
+      setStep("error");
+      toast.error(`Failed: ${msg}`);
+      setLoading(false);
+    }
+  };
+
+  const handleCancelEscrowFee = async () => {
+    if (!pendingEscrow) return;
+    const { jobId } = pendingEscrow;
+    setPendingEscrow(null);
+    await deleteJob(jobId).catch(() => {});
+    setStep("idle");
+    setLoading(false);
+    setError("Cancelled before signing — the orphaned job was removed.");
+  };
+
+  const handleLoadTemplate = (name: string) => {
+    const template = templates.find((t) => t.name === name);
+    if (template) {
+      setForm((f) => ({
+        ...f,
+        title: template.title,
+        description: template.description,
+        budget: template.budget,
+        category: template.category,
+        deadline: template.deadline,
+      }));
+      setSkills(template.skills);
+      setSelectedTemplateName(name);
+    }
+  };
+
+  const handleSaveTemplate = () => {
+    if (!templateNameInput.trim()) {
+      setTemplateError("Template name is required");
+      return;
+    }
+    const existing = templates.find((t) => t.name === templateNameInput);
+    if (existing) {
+      setPendingOverwriteTemplate(existing);
+      return;
+    }
+    const newTemplate: JobTemplate = {
+      name: templateNameInput, title: form.title, description: form.description,
+      budget: form.budget, category: form.category, skills, deadline: form.deadline,
+    };
+    const updated = [...templates, newTemplate];
+    setTemplates(updated);
+    localStorage.setItem(JOB_TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
+    setTemplateNameInput("");
+    setTemplateError(null);
+    toast.success(`Template "${templateNameInput}" saved`);
+  };
+
+  const handleConfirmOverwrite = () => {
+    const updated = templates.map((t) =>
+      t.name === templateNameInput
+        ? { ...t, title: form.title, description: form.description, budget: form.budget, category: form.category, skills, deadline: form.deadline }
+        : t
+    );
+    setTemplates(updated);
+    localStorage.setItem(JOB_TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
+    setTemplateNameInput("");
+    setPendingOverwriteTemplate(null);
+    toast.success("Template updated");
+  };
+
+  const handleCancelOverwrite = () => setPendingOverwriteTemplate(null);
+
+  const handleDeleteTemplate = () => setShowDeleteConfirmation(true);
+
+  const handleConfirmDelete = () => {
+    const updated = templates.filter((t) => t.name !== selectedTemplateName);
+    setTemplates(updated);
+    localStorage.setItem(JOB_TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
+    setSelectedTemplateName("");
+    setShowDeleteConfirmation(false);
+    toast.success("Template deleted");
+  };
+
+  const handleCancelDelete = () => setShowDeleteConfirmation(false);
 
   return (
     <div className="card max-w-2xl mx-auto animate-slide-up">
@@ -283,21 +586,54 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
             }}
           />
         
-          {/* Character Counter */}
-          <p
-            id="description-counter"
-            className={clsx(
-              "mt-1 text-xs font-medium",
-              form.description.trim().length < 30 && "text-red-400",
-              form.description.trim().length >= 30 &&
-                form.description.trim().length <= 100 &&
-                "text-amber-400",
-              form.description.trim().length > 100 && "text-green-400"
-            )}
-          >
-            {form.description.length} / 2000
-          </p>
-        
+          {/* Character Counter + Word Count Quality Indicator (Issue #148) */}
+          {(() => {
+            const wordCount = form.description.trim() === ""
+              ? 0
+              : form.description.trim().split(/\s+/).length;
+            const quality: "too_short" | "good" | "detailed" =
+              wordCount < 30 ? "too_short" : wordCount <= 80 ? "good" : "detailed";
+            const qualityLabel =
+              quality === "too_short" ? "Too short"
+              : quality === "good" ? "Good"
+              : "Detailed";
+            const qualityClass =
+              quality === "too_short"
+                ? "bg-red-500/10 text-red-400 border-red-500/20"
+                : quality === "good"
+                  ? "bg-amber-500/10 text-amber-300 border-amber-500/20"
+                  : "bg-green-500/10 text-green-400 border-green-500/20";
+
+            return (
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <p
+                  id="description-counter"
+                  className={clsx(
+                    "text-xs font-medium",
+                    form.description.trim().length < 30 && "text-red-400",
+                    form.description.trim().length >= 30 &&
+                      form.description.trim().length <= 100 &&
+                      "text-amber-400",
+                    form.description.trim().length > 100 && "text-green-400"
+                  )}
+                >
+                  {form.description.length} / 2000
+                </p>
+                <p className="text-xs font-medium text-amber-800/80">
+                  {wordCount} {wordCount === 1 ? "word" : "words"}
+                </p>
+                <span
+                  className={clsx(
+                    "text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border font-semibold",
+                    qualityClass
+                  )}
+                >
+                  {qualityLabel}
+                </span>
+              </div>
+            );
+          })()}
+
           {/* Inline Error */}
           {form.description.length > 0 && form.description.trim().length < 30 && (
             <p
@@ -334,6 +670,19 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
             </select>
             <p className="mt-1 text-xs text-amber-800/50">Payment currency for this job</p>
           </div>
+        </div>
+
+        <div>
+          <label className="label">Visibility</label>
+          <select
+            value={form.visibility}
+            onChange={(e) => set("visibility", e.target.value as "public" | "private" | "invite_only")}
+            className="input-field appearance-none cursor-pointer"
+          >
+            <option value="public">Public</option>
+            <option value="private">Private (only you)</option>
+            <option value="invite_only">Invite Only</option>
+          </select>
         </div>
 
         {/* Skills */}
@@ -567,6 +916,16 @@ export default function PostJobForm({ publicKey }: PostJobFormProps) {
           By posting, budget ({form.budget ? `${form.budget} ${form.currency}` : "—"}) will be held in a Soroban escrow contract and released when you approve of completed work.
         </p>
       </div>
+
+      {pendingEscrow && (
+        <FeeEstimationModal
+          transaction={pendingEscrow.transaction}
+          functionName="create_escrow"
+          payerPublicKey={publicKey}
+          onConfirm={handleConfirmEscrowFee}
+          onCancel={handleCancelEscrowFee}
+        />
+      )}
     </div>
   );
 }

@@ -1,0 +1,43 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Image tag to deploy
+        required: true
+
+jobs:
+  deploy-production:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://marketpay.example.com
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy on production VPS via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PRODUCTION_SSH_HOST }}
+          username: ${{ secrets.PRODUCTION_SSH_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            set -e
+            export IMAGE_TAG=${{ github.event.inputs.image_tag }}
+            cd ${{ secrets.PRODUCTION_APP_DIR }}
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d
+
+      - name: Notify Discord success
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" -d '{"content":"? Production deploy succeeded for ${{ github.event.inputs.image_tag }}"}' ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+      - name: Notify Discord failure
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" -d '{"content":"? Production deploy failed for ${{ github.event.inputs.image_tag }}"}' ${{ secrets.DISCORD_WEBHOOK_URL }}

@@ -15,7 +15,9 @@ CREATE TABLE IF NOT EXISTS profiles (
   total_earned_xlm  NUMERIC(20,7) NOT NULL DEFAULT 0,
   rating            NUMERIC(3,2),                -- NULL until first rating
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reputation_points INTEGER     NOT NULL DEFAULT 0,
+  referral_count    INTEGER     NOT NULL DEFAULT 0
 );
 
 ALTER TABLE profiles
@@ -23,6 +25,9 @@ ALTER TABLE profiles
 
 ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS availability JSONB;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS blocked_addresses TEXT[] NOT NULL DEFAULT '{}';
 
 -- ─────────────────────────────────────────
 -- jobs
@@ -32,6 +37,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   title               TEXT        NOT NULL,
   description         TEXT        NOT NULL,
   budget              NUMERIC(20,7) NOT NULL,
+  currency            TEXT        NOT NULL DEFAULT 'XLM',
   category            TEXT        NOT NULL,
   skills              TEXT[]      NOT NULL DEFAULT '{}',
   status              TEXT        NOT NULL DEFAULT 'open',
@@ -42,14 +48,51 @@ CREATE TABLE IF NOT EXISTS jobs (
   deadline            TIMESTAMPTZ,
   timezone            TEXT,
   screening_questions TEXT[]      NOT NULL DEFAULT '{}',
+  dispute_reason      TEXT,
+  dispute_description TEXT,
+  disputed_by         TEXT        REFERENCES profiles(public_key),
+  disputed_at         TIMESTAMPTZ,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at          TIMESTAMPTZ,
+  extended_count      INTEGER     NOT NULL DEFAULT 0,
+  extended_until      TIMESTAMPTZ
 );
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS share_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS boosted BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS boosted_until TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS jobs_status_idx          ON jobs(status);
 CREATE INDEX IF NOT EXISTS jobs_category_idx        ON jobs(category);
 CREATE INDEX IF NOT EXISTS jobs_client_address_idx  ON jobs(client_address);
 CREATE INDEX IF NOT EXISTS jobs_created_at_idx      ON jobs(created_at DESC);
+
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'XLM',
+  ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public',
+  ADD COLUMN IF NOT EXISTS share_count INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS boosted BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS boosted_until TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS timezone TEXT,
+  ADD COLUMN IF NOT EXISTS screening_questions TEXT[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS extended_count INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS extended_until TIMESTAMPTZ;
+
+-- enforce valid visibility values for all rows
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'jobs_visibility_check'
+  ) THEN
+    ALTER TABLE jobs
+      ADD CONSTRAINT jobs_visibility_check
+      CHECK (visibility IN ('public', 'private', 'invite_only'));
+  END IF;
+END $$;
 
 -- ─────────────────────────────────────────
 -- applications
@@ -63,11 +106,46 @@ CREATE TABLE IF NOT EXISTS applications (
   status              TEXT        NOT NULL DEFAULT 'pending',
   accepted_at         TIMESTAMPTZ,                 -- When the client accepted this application
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  referred_by         TEXT        REFERENCES profiles(public_key),
   UNIQUE (job_id, freelancer_address)              -- prevent duplicate applications
 );
 
 CREATE INDEX IF NOT EXISTS applications_job_id_idx             ON applications(job_id);
 CREATE INDEX IF NOT EXISTS applications_freelancer_address_idx ON applications(freelancer_address);
+
+-- ─────────────────────────────────────────
+-- job analytics (Issue #212)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS job_views (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id          UUID        NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  ip_hash         TEXT        NOT NULL,
+  viewed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS job_views_job_id_idx ON job_views(job_id, viewed_at DESC);
+CREATE INDEX IF NOT EXISTS job_views_job_ip_idx ON job_views(job_id, ip_hash);
+
+-- ─────────────────────────────────────────
+-- encrypted private messages (Issue #213)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS private_messages (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sender_address        TEXT        NOT NULL REFERENCES profiles(public_key),
+  recipient_address     TEXT        NOT NULL REFERENCES profiles(public_key),
+  sender_public_key     TEXT        NOT NULL,
+  recipient_public_key  TEXT        NOT NULL,
+  nonce                 TEXT        NOT NULL,
+  cipher_text           TEXT        NOT NULL,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS private_messages_participants_idx
+  ON private_messages(sender_address, recipient_address, created_at DESC);
+
+ALTER TABLE applications
+  ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'XLM',
+  ADD COLUMN IF NOT EXISTS screening_answers JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 -- ─────────────────────────────────────────
 -- escrows  (schema only; populated by smart-contract layer)
@@ -112,3 +190,18 @@ CREATE TABLE IF NOT EXISTS ratings (
 
 CREATE INDEX IF NOT EXISTS ratings_rated_address_idx ON ratings(rated_address);
 CREATE INDEX IF NOT EXISTS ratings_job_id_idx        ON ratings(job_id);
+
+-- ─────────────────────────────────────────
+-- skill_assessments
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS skill_assessments (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  public_key  TEXT        NOT NULL REFERENCES profiles(public_key),
+  skill       TEXT        NOT NULL,
+  score       INTEGER     NOT NULL CHECK (score BETWEEN 0 AND 100),
+  passed      BOOLEAN     NOT NULL,
+  taken_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS skill_assessments_public_key_idx ON skill_assessments(public_key);
+CREATE INDEX IF NOT EXISTS skill_assessments_skill_idx      ON skill_assessments(skill);

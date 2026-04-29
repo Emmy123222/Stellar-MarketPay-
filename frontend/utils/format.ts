@@ -4,7 +4,7 @@
  */
 
 import { format, formatDistanceToNow } from "date-fns";
-import type { Application, Availability, Job, JobStatus } from "./types";
+import type { Application, Availability, AvailabilityStatus, Job, JobStatus } from "./types";
 
 function escapeCsvCell(value: string): string {
   if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
@@ -104,17 +104,36 @@ export function shortenAddress(address: string, chars = 6): string {
   return `${address.slice(0, chars)}...${address.slice(-chars)}`;
 }
 
+export function availabilityStatusLabel(status?: Availability["status"] | null): string {
+  if (status === "available") return "Available";
+  if (status === "busy") return "Busy";
+  if (status === "unavailable") return "Unavailable";
+  return "Unknown";
+}
+
+export function availabilitySummary(availability?: Availability | null): string {
+  if (!availability) return "";
+
+  const from = availability.availableFrom ? formatDate(availability.availableFrom) : "";
+  const until = availability.availableUntil ? formatDate(availability.availableUntil) : "";
+
+  if (from && until) return `${availabilityStatusLabel(availability.status)} from ${from} to ${until}`;
+  if (from) return `${availabilityStatusLabel(availability.status)} from ${from}`;
+  if (until) return `${availabilityStatusLabel(availability.status)} until ${until}`;
+  return availabilityStatusLabel(availability.status);
+}
+
 export async function copyToClipboard(text: string): Promise<boolean> {
   try { await navigator.clipboard.writeText(text); return true; }
   catch { return false; }
 }
 
 export function statusLabel(status: JobStatus): string {
-  return { open: "Open", in_progress: "In Progress", completed: "Completed", cancelled: "Cancelled" }[status];
+  return { open: "Open", in_progress: "In Progress", completed: "Completed", cancelled: "Cancelled", disputed: "Disputed" }[status];
 }
 
 export function statusClass(status: JobStatus): string {
-  return { open: "badge-open", in_progress: "badge-progress", completed: "badge-complete", cancelled: "badge-cancelled" }[status];
+  return { open: "badge-open", in_progress: "badge-progress", completed: "badge-complete", cancelled: "badge-cancelled", disputed: "badge-disputed" }[status];
 }
 
 export const JOB_CATEGORIES = [
@@ -135,6 +154,14 @@ export const CATEGORY_ICONS: Record<string, string> = {
   "Mobile Development": "📱",
   "Other": "📦",
 };
+
+export function categoryToSlug(category: string): string {
+  return category.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+export function slugToCategory(slug: string): string | undefined {
+  return JOB_CATEGORIES.find(cat => categoryToSlug(cat) === slug);
+}
 
 /**
  * Common Web3 and development skill suggestions for autocomplete.
@@ -182,4 +209,45 @@ export function getMonthlyEstimate(xlmAmount: string | number, xlmPriceUsd: numb
   if (isNaN(num)) return null;
   const monthlyUsd = (num * xlmPriceUsd).toFixed(2);
   return `$${monthlyUsd}/mo est.`;
+}
+
+export interface ProgressData {
+  percentage: number;
+  daysRemaining: number;
+  colorClass: string;
+}
+
+/**
+ * Calculates job progress for in-progress jobs with a deadline.
+ * Returns null if the job is not in progress or has no deadline.
+ */
+export function calculateJobProgress(job: Job): ProgressData | null {
+  if (job.status !== "in_progress" || !job.deadline) return null;
+
+  const start = new Date(job.updatedAt).getTime();
+  const end = new Date(job.deadline).getTime();
+  const now = Date.now();
+
+  const total = end - start;
+  if (total <= 0) {
+    return {
+      percentage: 100,
+      daysRemaining: 0,
+      colorClass: "bg-red-500",
+    };
+  }
+
+  const elapsed = now - start;
+  const percentage = Math.min(100, Math.max(0, (elapsed / total) * 100));
+
+  const daysRemaining = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)));
+
+  let colorClass = "bg-emerald-500"; // green
+  if (percentage > 80) {
+    colorClass = "bg-red-500";
+  } else if (percentage >= 50) {
+    colorClass = "bg-amber-500";
+  }
+
+  return { percentage, daysRemaining, colorClass };
 }
