@@ -13,11 +13,25 @@ import ApplicationForm from "@/components/ApplicationForm";
 import RatingForm from "@/components/RatingForm";
 import ProposalComparison from "@/components/ProposalComparison";
 import ShareJobModal from "@/components/ShareJobModal";
-import { fetchJob, fetchApplications, acceptApplication, releaseEscrow, raiseDispute, resolveDispute } from "@/lib/api";
-import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
+import {
+  fetchJob,
+  fetchApplications,
+  acceptApplication,
+  releaseEscrow,
+  scoreProposals,
+  fetchProfile,
+  inviteFreelancer,
+  timeoutRefund,
+} from "@/lib/api";
+import { formatXLM, timeAgo, formatDate, shortenAddress, statusLabel, statusClass, copyToClipboard } from "@/utils/format";
 import {
   accountUrl,
   buildReleaseEscrowTransaction,
+  buildReleaseWithConversionTransaction,
+  buildTimeoutRefundTransaction,
+  getEscrowTimeoutLedger,
+  getCurrentLedgerSequence,
+  getPathPaymentPrice,
   submitSignedSorobanTransaction,
   USDC_ISSUER,
   USDC_SAC_ADDRESS,
@@ -65,14 +79,44 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [prefillData, setPrefillData] = useState<any>(null);
-  const [showDisputeModal, setShowDisputeModal] = useState(false);
-  const [disputeReason, setDisputeReason] = useState("");
-  const [disputeDescription, setDisputeDescription] = useState("");
-  const [raisingDispute, setRaisingDispute] = useState(false);
-  const [resolvingDispute, setResolvingDispute] = useState(false);
 
-  const isClient = publicKey && job?.clientAddress === publicKey;
-  const isFreelancer = publicKey && job?.freelancerAddress === publicKey;
+  const [releaseCurrency, setReleaseCurrency] = useState<"XLM" | "USDC">("XLM");
+  const [estimatedOutput, setEstimatedOutput] = useState<string | null>(null);
+  const [fetchingPrice, setFetchingPrice] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [inviteAddress, setInviteAddress] = useState("");
+
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportCategory, setReportCategory] = useState("");
+  const [reportDescription, setReportDescription] = useState("");
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportSuccess, setReportSuccess] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [isLiveSubscriptionActive, setIsLiveSubscriptionActive] = useState(false);
+
+  // Issue #175 — Escrow timeout state
+  const [timeoutLedger, setTimeoutLedger] = useState<number | null>(null);
+  const [currentLedger, setCurrentLedger] = useState<number>(0);
+  const [timeoutCountdown, setTimeoutCountdown] = useState<string | null>(null);
+  const [timeoutRefundLoading, setTimeoutRefundLoading] = useState(false);
+  const [timeoutRefundSuccess, setTimeoutRefundSuccess] = useState(false);
+  const [pendingTimeoutRefund, setPendingTimeoutRefund] = useState<Transaction | null>(null);
+
+  const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
+  const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
+  const hasApplied = applications.some(
+    (application) => application.freelancerAddress === publicKey
+  );
+
+  const handleCopyJobLink = async () => {
+    const ok = await copyToClipboard(window.location.href);
+    if (!ok) return;
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+
+  const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
+  const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
   const hasApplied = applications.some((application) => application.freelancerAddress === publicKey);
 
   useEffect(() => {
@@ -88,6 +132,83 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     } else {
       setPrefillData(null);
     }
+
+    setLoading(true);
+
+    Promise.all([fetchJob(id as string), fetchApplications(id as string)])
+      .then(([jobData, applicationData]) => {
+        setJob(jobData);
+        setApplications(applicationData);
+      })
+    Promise.all([
+      fetchJob(id as string, publicKey || undefined),
+      fetchApplications(id as string),
+    ])
+      .then(([j, apps]) => { setJob(j); setApplications(apps); })
+      .catch(() => router.push("/jobs"))
+      .finally(() => setLoading(false));
+  }, [id, router.isReady]);
+
+  useEffect(() => {
+    if (!job?.escrowContractId || !job?.id) return;
+
+    let cancelled = false;
+
+    async function loadTimeout() {
+      try {
+        const [timeout, current] = await Promise.all([
+          getEscrowTimeoutLedger(job.escrowContractId!, job.id),
+          getCurrentLedgerSequence(),
+        ]);
+        if (cancelled) return;
+        setTimeoutLedger(timeout);
+        setCurrentLedger(current);
+      } catch {
+        // Silently ignore — timeout UI is optional enhancement
+      }
+    }
+
+    loadTimeout();
+
+    // Refresh ledger every 30s for countdown accuracy
+    const interval = setInterval(() => {
+      getCurrentLedgerSequence().then((seq) => {
+        if (!cancelled) setCurrentLedger(seq);
+      }).catch(() => {});
+    }, 30000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [job?.escrowContractId, job?.id]);
+
+  // Issue #175 — Countdown timer effect
+  useEffect(() => {
+    if (!timeoutLedger || !currentLedger || timeoutLedger <= currentLedger) {
+      setTimeoutCountdown(null);
+      return;
+    }
+
+    const ledgersRemaining = timeoutLedger - currentLedger;
+    // Approximate 5 seconds per ledger
+    const secondsRemaining = ledgersRemaining * 5;
+
+    const days = Math.floor(secondsRemaining / 86400);
+    const hours = Math.floor((secondsRemaining % 86400) / 3600);
+    const minutes = Math.floor((secondsRemaining % 3600) / 60);
+
+    if (days > 0) {
+      setTimeoutCountdown(`${days}d ${hours}h ${minutes}m`);
+    } else if (hours > 0) {
+      setTimeoutCountdown(`${hours}h ${minutes}m`);
+    } else {
+      setTimeoutCountdown(`${minutes}m`);
+    }
+  }, [timeoutLedger, currentLedger]);
+
+  useEffect(() => {
+    if (!job) return;
 
     let cancelled = false;
     setLoading(true);
@@ -281,26 +402,70 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     }
   };
 
-  const handleRaiseDispute = async () => {
-    if (!publicKey || !job) return;
-    if (!disputeReason || !disputeDescription) {
-      setActionError("Please provide both a reason and a description.");
+  // Issue #175 — Timeout refund handlers
+  const handleTimeoutRefund = async () => {
+    if (!publicKey || !job || !id) return;
+    if (!job.escrowContractId) {
+      setActionError("This job has no escrow contract ID.");
       return;
     }
 
-    setRaisingDispute(true);
+    setTimeoutRefundLoading(true);
     setActionError(null);
 
     try {
-      await raiseDispute(job.id, { reason: disputeReason, description: disputeDescription });
-      const refreshedJob = await fetchJob(job.id);
-      setJob(refreshedJob);
-      setShowDisputeModal(false);
-    } catch (e: any) {
-      setActionError(e.response?.data?.error || "Failed to raise dispute.");
-    } finally {
-      setRaisingDispute(false);
+      const prepared = await buildTimeoutRefundTransaction(
+        job.escrowContractId,
+        job.id,
+        publicKey
+      );
+      setPendingTimeoutRefund(prepared);
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : "Could not prepare timeout refund.");
+      setTimeoutRefundLoading(false);
     }
+  };
+
+  const completeTimeoutRefund = async (signedXDR: string) => {
+    if (!publicKey || !job || !id) return;
+    try {
+      const { hash } = await submitSignedSorobanTransaction(signedXDR);
+
+      try {
+        await timeoutRefund(job.id, publicKey, hash);
+        const refreshedJob = await fetchJob(id as string);
+        setJob(refreshedJob);
+        setTimeoutRefundSuccess(true);
+      } catch {
+        setActionError("Refund was processed on-chain, but the app could not update your job status.");
+        setTimeoutRefundSuccess(true);
+      }
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : "Could not complete the timeout refund.");
+    } finally {
+      setTimeoutRefundLoading(false);
+      setPendingTimeoutRefund(null);
+    }
+  };
+
+  const handleConfirmTimeoutRefundFee = async () => {
+    if (!pendingTimeoutRefund) return;
+    const transaction = pendingTimeoutRefund;
+    setPendingTimeoutRefund(null);
+
+    const { signedXDR, error: signError } = await signTransactionWithWallet(transaction.toXDR());
+    if (signError || !signedXDR) {
+      setActionError(signError || "Signing was cancelled.");
+      setTimeoutRefundLoading(false);
+      return;
+    }
+    await completeTimeoutRefund(signedXDR);
+  };
+
+  const handleCancelTimeoutRefundFee = () => {
+    setPendingTimeoutRefund(null);
+    setTimeoutRefundLoading(false);
+    setActionError("Cancelled before signing.");
   };
 
   if (loading) {
@@ -706,8 +871,59 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               )}
             </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Issue #175 — Escrow timeout countdown + refund UI */}
+        {job.escrowContractId && timeoutLedger && job.status !== "completed" && job.status !== "cancelled" && (
+          <div className="card mb-6">
+            <h2 className="font-display text-lg font-bold text-amber-100 mb-3">Escrow Timeout</h2>
+
+            {timeoutRefundSuccess ? (
+              <div>
+                <p className="text-market-400 font-medium">Timeout refund processed successfully.</p>
+              </div>
+            ) : timeoutCountdown && currentLedger < timeoutLedger ? (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-amber-700">
+                  Auto-refund available in:
+                </span>
+                <span className="font-mono text-sm text-market-400 bg-market-500/8 px-3 py-1 rounded border border-market-500/15">
+                  {timeoutCountdown}
+                </span>
+              </div>
+            ) : isClient && currentLedger >= timeoutLedger ? (
+              <div>
+                <p className="text-sm text-red-400 mb-3">
+                  The freelancer did not start work within the timeout period. You can claim a refund.
+                </p>
+                <button
+                  onClick={handleTimeoutRefund}
+                  disabled={timeoutRefundLoading}
+                  className="btn-ghost text-sm py-2 px-4 text-red-400/80 hover:text-red-400 hover:bg-red-500/8 disabled:opacity-60"
+                >
+                  {timeoutRefundLoading ? "Processing..." : "Claim Timeout Refund"}
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-amber-700">
+                Timeout period has expired. Only the client can claim a refund.
+              </p>
+            )}
+          </div>
+        )}
+
+        {actionError && <p className="mb-6 text-red-400 text-sm">{actionError}</p>}
+
+        {job.status === "completed" && publicKey && !ratingSubmitted && (
+          <div className="mt-6">
+            {isClient && job.freelancerAddress && (
+              <RatingForm
+                jobId={job.id}
+                ratedAddress={job.freelancerAddress}
+                ratedLabel="the freelancer"
+                onSuccess={() => setRatingSubmitted(true)}
+              />
+            )}
 
       {/* Rating section (job completed) */}
       {job.status === "completed" && publicKey && !ratingSubmitted && (
@@ -882,60 +1098,25 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             margin: 0 0 4mm;
           }
 
-          .brief-subtitle {
-            margin: 4mm 0 0;
-            color: #4b5563;
-            font-size: 11pt;
-          }
+      {pendingRelease && publicKey && (
+        <FeeEstimationModal
+          transaction={pendingRelease.transaction}
+          functionName={pendingRelease.fnName}
+          payerPublicKey={publicKey}
+          onConfirm={handleConfirmReleaseFee}
+          onCancel={handleCancelReleaseFee}
+        />
+      )}
 
-          .brief-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 8mm;
-            margin-bottom: 10mm;
-          }
-
-          .brief-grid h2,
-          .brief-section h2 {
-            font-size: 10pt;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: #6b7280;
-            margin: 0 0 2mm;
-          }
-
-          .brief-grid p,
-          .brief-section p,
-          .brief-section li {
-            font-size: 11pt;
-            line-height: 1.6;
-            margin: 0;
-          }
-
-          .brief-address {
-            word-break: break-all;
-          }
-
-          .brief-section {
-            margin-bottom: 10mm;
-          }
-
-          .brief-paragraph {
-            white-space: pre-wrap;
-          }
-
-          .brief-skills {
-            margin: 0;
-            padding-left: 18px;
-            columns: 2;
-            column-gap: 10mm;
-          }
-
-          .brief-skills li {
-            margin-bottom: 2mm;
-          }
-        }
-      `}</style>
+      {pendingTimeoutRefund && publicKey && (
+        <FeeEstimationModal
+          transaction={pendingTimeoutRefund}
+          functionName="timeout_refund"
+          payerPublicKey={publicKey}
+          onConfirm={handleConfirmTimeoutRefundFee}
+          onCancel={handleCancelTimeoutRefundFee}
+        />
+      )}
     </>
   );
 }
