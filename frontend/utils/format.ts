@@ -243,21 +243,43 @@ export function getMonthlyEstimate(xlmAmount: string | number, xlmPriceUsd: numb
   return `$${monthlyUsd}/mo est.`;
 }
 
-export function availabilityStatusLabel(status?: AvailabilityStatus | null): string {
-  if (status === "available") return "Available";
-  if (status === "busy") return "Busy";
-  if (status === "unavailable") return "Unavailable";
-  return "Unknown";
+export interface ProgressData {
+  percentage: number;
+  daysRemaining: number;
+  colorClass: string;
 }
 
-export function availabilitySummary(availability?: Availability | null): string {
-  if (!availability) return "";
-  const { availableFrom, availableUntil, status } = availability;
-  if (status === "unavailable") return "Not currently accepting new work.";
-  if (availableFrom && availableUntil) {
-    return `Available from ${formatDate(availableFrom)} to ${formatDate(availableUntil)}.`;
+/**
+ * Calculates job progress for in-progress jobs with a deadline.
+ * Returns null if the job is not in progress or has no deadline.
+ */
+export function calculateJobProgress(job: Job): ProgressData | null {
+  if (job.status !== "in_progress" || !job.deadline) return null;
+
+  const start = new Date(job.updatedAt).getTime();
+  const end = new Date(job.deadline).getTime();
+  const now = Date.now();
+
+  const total = end - start;
+  if (total <= 0) {
+    return {
+      percentage: 100,
+      daysRemaining: 0,
+      colorClass: "bg-red-500",
+    };
   }
-  if (availableFrom) return `Available from ${formatDate(availableFrom)}.`;
-  if (availableUntil) return `Available until ${formatDate(availableUntil)}.`;
-  return "";
+
+  const elapsed = now - start;
+  const percentage = Math.min(100, Math.max(0, (elapsed / total) * 100));
+
+  const daysRemaining = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)));
+
+  let colorClass = "bg-emerald-500"; // green
+  if (percentage > 80) {
+    colorClass = "bg-red-500";
+  } else if (percentage >= 50) {
+    colorClass = "bg-amber-500";
+  }
+
+  return { percentage, daysRemaining, colorClass };
 }
