@@ -208,105 +208,53 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS payment_records_job_id_idx ON payment_records(job_id);
-CREATE INDEX IF NOT EXISTS payment_records_ledger_idx ON payment_records(ledger DESC);
+CREATE INDEX IF NOT EXISTS referrals_referrer_address_idx ON referrals(referrer_address);
+CREATE INDEX IF NOT EXISTS referrals_job_id_idx          ON referrals(job_id);
 
 -- ─────────────────────────────────────────
--- donor_stats (simple on-chain donor leaderboard)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS donor_stats (
-  address             TEXT PRIMARY KEY,
-  total_donated_xlm   NUMERIC(20,7) NOT NULL DEFAULT 0,
-  donation_count      INTEGER       NOT NULL DEFAULT 0,
-  updated_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
-);
-
--- ─────────────────────────────────────────
--- indexer_state (single-row sync cursor)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS indexer_state (
-  id                     INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  synced                 BOOLEAN      NOT NULL DEFAULT FALSE,
-  last_processed_ledger  BIGINT,
-  last_transaction_at    TIMESTAMPTZ,
-  updated_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-);
-
-INSERT INTO indexer_state (id, synced)
-VALUES (1, FALSE)
-ON CONFLICT (id) DO NOTHING;
-
--- ─────────────────────────────────────────
--- scope_sessions (real-time scope collaboration history)
+-- scope_sessions (real-time collaborative editor — Issue #227)
 -- ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS scope_sessions (
-  session_id          TEXT PRIMARY KEY,
-  content             TEXT        NOT NULL DEFAULT '',
-  cursors             JSONB       NOT NULL DEFAULT '{}'::jsonb,
-  finalized           BOOLEAN     NOT NULL DEFAULT FALSE,
-  finalized_payload   JSONB,
-  expires_at          TIMESTAMPTZ NOT NULL,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  session_id        TEXT PRIMARY KEY,
+  content           TEXT          NOT NULL DEFAULT '',
+  cursors           JSONB         NOT NULL DEFAULT '{}'::jsonb,
+  finalized         BOOLEAN       NOT NULL DEFAULT false,
+  finalized_payload JSONB,
+  expires_at        TIMESTAMPTZ   NOT NULL,
+  created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS scope_sessions_expires_at_idx ON scope_sessions(expires_at);
 
 -- ─────────────────────────────────────────
--- contract_events (Issue #199)
+-- webauthn_credentials (passkey auth — Issue #218)
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS contract_events (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id          TEXT        NOT NULL,                -- May be UUID or contract String ID
-  event_type      TEXT        NOT NULL,                -- escrow_created, work_started, etc.
-  contract_id     TEXT        NOT NULL,
-  tx_hash         TEXT        NOT NULL,
-  ledger          BIGINT      NOT NULL,
-  data            JSONB       NOT NULL DEFAULT '{}'::jsonb,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+  id               UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
+  public_key       TEXT  NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
+  credential_id    TEXT  NOT NULL UNIQUE,
+  credential_name  TEXT  NOT NULL DEFAULT 'Passkey',
+  public_key_cose  TEXT  NOT NULL,
+  counter          BIGINT NOT NULL DEFAULT 0,
+  transports       TEXT[] NOT NULL DEFAULT '{}',
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS contract_events_job_id_idx ON contract_events(job_id);
-CREATE INDEX IF NOT EXISTS contract_events_created_at_idx ON contract_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS webauthn_credentials_public_key_idx ON webauthn_credentials(public_key);
 
 -- ─────────────────────────────────────────
--- job_drafts (Issue #219)
+-- dispute_evidence (IPFS evidence upload — Issue #223)
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS job_drafts (
-  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_address      TEXT        NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
-  title               TEXT        NOT NULL,
-  description         TEXT        NOT NULL,
-  budget              NUMERIC(20,7) NOT NULL,
-  category            TEXT        NOT NULL,
-  skills              TEXT[]      NOT NULL DEFAULT '{}',
-  currency            TEXT        NOT NULL DEFAULT 'XLM',
-  timezone            TEXT,
-  visibility          TEXT        NOT NULL DEFAULT 'public',
-  screening_questions TEXT[]      NOT NULL DEFAULT '{}',
-  deadline            TIMESTAMPTZ,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS dispute_evidence (
+  id               UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id           UUID  NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  uploader_address TEXT  NOT NULL REFERENCES profiles(public_key),
+  file_name        TEXT  NOT NULL,
+  file_size        INTEGER NOT NULL,
+  mime_type        TEXT  NOT NULL,
+  ipfs_cid         TEXT  NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS job_drafts_client_idx ON job_drafts(client_address);
-CREATE INDEX IF NOT EXISTS job_drafts_updated_at_idx ON job_drafts(updated_at DESC);
-
--- ─────────────────────────────────────────
--- platform_stats (Issue #232)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS platform_stats (
-  id                  INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  total_jobs_posted   INTEGER     NOT NULL DEFAULT 0,
-  total_escrow_xlm    NUMERIC(20,7) NOT NULL DEFAULT 0,
-  active_users_30d    INTEGER     NOT NULL DEFAULT 0,
-  completion_rate     NUMERIC(5,2) NOT NULL DEFAULT 0,
-  avg_job_budget      NUMERIC(20,7) NOT NULL DEFAULT 0,
-  last_updated        TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-INSERT INTO platform_stats (id)
-VALUES (1)
-ON CONFLICT (id) DO NOTHING;
-
--- ─────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS dispute_evidence_job_id_idx ON dispute_evidence(job_id);
