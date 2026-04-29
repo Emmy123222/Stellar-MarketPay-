@@ -54,6 +54,59 @@ router.post("/", profileUpdateRateLimiter, async (req, res, next) => {
   catch (e) { next(e); }
 });
 
+// GET /api/profiles/:publicKey/notifications - Get notification preferences
+router.get("/:publicKey/notifications", generalProfileRateLimiter, async (req, res, next) => {
+  try {
+    const { getUserPreferences } = require("../services/notificationService");
+    const prefs = await getUserPreferences(req.params.publicKey);
+    
+    if (!prefs) {
+      return res.status(404).json({ success: false, error: "Profile not found" });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        email: prefs.email,
+        emailNotificationsEnabled: prefs.email_notifications_enabled,
+        webhookUrl: prefs.webhook_url,
+        webhookSecret: prefs.webhook_secret ? "***" : null, // Hide secret
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/profiles/:publicKey/notifications - Update notification preferences
+router.post("/:publicKey/notifications", profileUpdateRateLimiter, async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+    const { email, emailNotificationsEnabled, webhookUrl, webhookSecret } = req.body;
+
+    // Update profile with notification preferences
+    const updated = await upsertProfile({
+      publicKey,
+      email,
+      emailNotificationsEnabled,
+      webhookUrl,
+      webhookSecret,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        email: updated.email,
+        emailNotificationsEnabled: updated.emailNotificationsEnabled,
+        webhookUrl: updated.webhookUrl,
+        webhookSecret: updated.webhookSecret ? "***" : null,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post("/:publicKey/availability", profileUpdateRateLimiter, async (req, res, next) => {
   try {
     res.json({

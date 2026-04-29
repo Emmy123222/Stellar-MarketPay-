@@ -14,6 +14,7 @@ const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
 const { WebSocketServer } = require("ws");
 const nodemailer = require("nodemailer");
+const { sanitizeMiddleware } = require("./middleware/sanitize");
 
 const jobRoutes = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -36,6 +37,7 @@ const turretsRoutes     = require("./routes/turrets");
 const migrate           = require("./db/migrate");
 const IndexerService    = require("./services/indexerService");
 const { PriceAlertService } = require("./services/priceAlertService");
+const { processPendingNotifications } = require("./services/notificationService");
 const pool              = require("./db/pool");
 
 const app  = express();
@@ -129,9 +131,36 @@ app.locals.indexerService = indexerService;
 app.locals.broadcastRealtime = broadcastRealtime;
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+      upgradeInsecureRequests: [],
+    },
+  },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true,
+  },
+  noSniff: true,
+  xssFilter: true,
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+}));
 app.use(morgan("dev"));
 app.use(express.json({ limit: "20kb" }));
+app.use(sanitizeMiddleware({ strict: false }));
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").split(",").map(o => o.trim());
 app.use(cors({
@@ -308,6 +337,9 @@ async function bootstrap() {
   // Start job expiry checker - run every hour
   startJobExpiryChecker();
 
+  // Start notification processor - run every 2 minutes
+  startNotificationProcessor();
+
   server.listen(PORT, () => {
     console.log(`
   🏪 Stellar MarketPay API
@@ -359,6 +391,44 @@ async function startJobExpiryChecker() {
       console.error("[job-expiry] Error on scheduled check:", err.message);
     }
   }, 60 * 60 * 1000).unref();
+}
+
+/**
+ * Periodically process pending notifications (runs every 2 minutes).
+ */
+async function startNotificationProcessor() {
+  const sendEmailFn = async ({ to, subject, text, html }) => {
+    if (!smtpTransport || !to) return;
+    await smtpTransport.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to,
+      subject,
+      text,
+      html,
+    });
+  };
+
+  // Run immediately on startup
+  try {
+    const stats = await processPendingNotifications(sendEmailFn);
+    if (stats.total > 0) {
+      console.log(`[notifications] Processed ${stats.sent} sent, ${stats.failed} failed out of ${stats.total} notifications`);
+    }
+  } catch (err) {
+    console.error("[notifications] Error on initial processing:", err.message);
+  }
+
+  // Schedule checks every 2 minutes
+  setInterval(async () => {
+    try {
+      const stats = await processPendingNotifications(sendEmailFn);
+      if (stats.total > 0) {
+        console.log(`[notifications] Processed ${stats.sent} sent, ${stats.failed} failed out of ${stats.total} notifications`);
+      }
+    } catch (err) {
+      console.error("[notifications] Error on scheduled processing:", err.message);
+    }
+  }, 2 * 60 * 1000).unref();
 }
 }
 

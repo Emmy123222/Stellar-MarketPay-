@@ -142,7 +142,8 @@ CREATE INDEX IF NOT EXISTS private_messages_participants_idx
 
 ALTER TABLE applications
   ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'XLM',
-  ADD COLUMN IF NOT EXISTS screening_answers JSONB NOT NULL DEFAULT '{}'::jsonb;
+  ADD COLUMN IF NOT EXISTS screening_answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS withdrawn_at TIMESTAMPTZ;
 
 -- ─────────────────────────────────────────
 -- escrows  (schema only; populated by smart-contract layer)
@@ -306,6 +307,36 @@ CREATE TABLE IF NOT EXISTS platform_stats (
 INSERT INTO platform_stats (id)
 VALUES (1)
 ON CONFLICT (id) DO NOTHING;
+
+-- ─────────────────────────────────────────
+-- notification_preferences (Issue #182)
+-- ─────────────────────────────────────────
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS email TEXT,
+  ADD COLUMN IF NOT EXISTS email_notifications_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS webhook_url TEXT,
+  ADD COLUMN IF NOT EXISTS webhook_secret TEXT;
+
+-- ─────────────────────────────────────────
+-- notification_queue (Issue #182)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS notification_queue (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recipient_address TEXT        NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
+  notification_type TEXT        NOT NULL,  -- email, webhook
+  event_type        TEXT        NOT NULL,  -- escrow_created, work_started, escrow_released, etc.
+  job_id            UUID        REFERENCES jobs(id) ON DELETE CASCADE,
+  payload           JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  status            TEXT        NOT NULL DEFAULT 'pending',  -- pending, sent, failed
+  retry_count       INTEGER     NOT NULL DEFAULT 0,
+  last_attempt_at   TIMESTAMPTZ,
+  error_message     TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  sent_at           TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS notification_queue_status_idx ON notification_queue(status, created_at);
+CREATE INDEX IF NOT EXISTS notification_queue_recipient_idx ON notification_queue(recipient_address);
 
 -- ─────────────────────────────────────────
 

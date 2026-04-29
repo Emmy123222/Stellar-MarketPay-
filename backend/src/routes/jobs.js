@@ -11,13 +11,17 @@ const { verifyJWT } = require("../middleware/auth");
 
 const jobService = require("../services/jobService");
 const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount } = jobService.default || jobService;
-const { verifyJWT } = require("../middleware/auth");
 const { inviteFreelancerToJob } = require("../services/jobInvitationService");
 const { logContractInteraction } = require("../services/contractAuditService");
 const jobDraftService = require("../services/jobDraftService");
 const recommendationService = require("../services/recommendationService");
 
 const jobReports = new Map();
+
+// Rate limiters
+const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per minute
+const jobCreationRateLimiter = createRateLimiter(10, 15); // 10 requests per 15 minutes
+const reportJobRateLimiter = createRateLimiter(5, 15); // 5 reports per 15 minutes
 
 function escapeXml(str) {
   if (str === null || str === undefined) return "";
@@ -144,16 +148,6 @@ router.patch("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, ne
     const job = await boostJob(req.params.id, txHash);
     res.json({ success: true, data: job });
   } catch (e) { next(e); }
-});
-
-    res.json({
-      success: true,
-      data: result.jobs,
-      nextCursor: result.nextCursor,
-    });
-  } catch (e) {
-    next(e);
-  }
 });
 
 // GET /api/jobs/client/:publicKey
