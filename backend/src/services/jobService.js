@@ -1,5 +1,7 @@
 /**
  * src/services/jobService.js
+ * Service responsibility: Manages job listings, including creation, retrieval, searching, status updates, freelancer assignment, escrow integration, and visibility boosting.
+ * All data persisted in the `jobs` PostgreSQL table.
  */
 "use strict";
 
@@ -103,7 +105,11 @@ function isTimezoneCompatible(jobTimezone, userTimezone) {
     const now = new Date();
     const userOffset = getTimezoneOffset(userTimezone, now);
     const jobOffset = getTimezoneOffset(jobTimezone, now);
+
+    // Calculate the absolute difference in hours
     const diffHours = Math.abs(userOffset - jobOffset) / (1000 * 60 * 60);
+
+    // Return true if within ±3 hour range
     return diffHours <= 3;
   } catch {
     return true;
@@ -122,9 +128,8 @@ function rowToJob(row) {
     title: row.title,
     description: row.description,
     budget: row.budget,
-    currency: row.currency || "XLM",
+    currency: row.currency || 'XLM',
     category: row.category,
-    visibility: row.visibility || "public",
     skills: row.skills,
     status: row.status,
     clientAddress: row.client_address,
@@ -139,31 +144,38 @@ function rowToJob(row) {
     screeningQuestions: row.screening_questions || [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    expiresAt: row.expires_at,
-    extendedCount: row.extended_count || 0,
-    extendedUntil: row.extended_until,
   };
 }
 
 /**
- * Create a new job listing in `status = 'open'`.
+ * @typedef {Object} CreateJobInput
+ * @property {string} title - The title of the job (min 10 characters).
+ * @property {string} description - The detailed description of the job (min 30 characters).
+ * @property {string|number} budget - The positive budget amount for the job.
+ * @property {string} [currency='XLM'] - The currency, either 'XLM' or 'USDC'.
+ * @property {string} category - The category of the job (must be a valid category).
+ * @property {string[]} [skills] - Array of relevant skills (max 8).
+ * @property {Date|string} [deadline] - The deadline for the job.
+ * @property {string} clientAddress - The Stellar public key of the client.
+ */
+
+/**
+ * Create a new job listing.
+ * Note: client's profile row must already exist (FK constraint).
  *
- * The client's profile row must already exist; the FK constraint on
- * `client_address` will otherwise reject the insert.
- *
- * @param {CreateJobInput} input
- * @returns {Promise<Job>}  The newly persisted job.
- * @throws {Error} 400 — when title/description/budget/category/currency fail validation.
+ * @param {CreateJobInput} params - The parameters to create a job.
+ * @returns {Promise<Object>} The created job object.
+ * @throws {Error} If validation fails or client profile doesn't exist.
  *
  * @example
- * const job = await createJob({
- *   title: "Build a Soroban escrow contract",
- *   description: "We need a Rust developer to ship an escrow with milestones...",
- *   budget: "500",
- *   currency: "XLM",
- *   category: "Smart Contracts",
- *   skills: ["Rust", "Soroban"],
- *   clientAddress: "GABCDEF...XYZ",
+ * const newJob = await jobService.createJob({
+ *   title: 'Build a Smart Contract',
+ *   description: 'Need a developer to build a Soroban smart contract for an escrow service.',
+ *   budget: 500,
+ *   currency: 'USDC',
+ *   category: 'Smart Contracts',
+ *   skills: ['Soroban', 'Rust'],
+ *   clientAddress: 'GBX...',
  * });
  */
 async function createJob({
@@ -243,11 +255,11 @@ async function createJob({
 }
 
 /**
- * Fetch a single job by id.
+ * Retrieves a job by its ID.
  *
- * @param {string} id  UUID of the job.
- * @returns {Promise<Job>}
- * @throws {Error} 404 — when no job with this id exists.
+ * @param {number|string} id - The ID of the job to retrieve.
+ * @returns {Promise<Object>} The job object.
+ * @throws {Error} If the job is not found.
  */
 async function getJob(id) {
   const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [id]);
@@ -294,24 +306,23 @@ function decodeCursor(cursor) {
 }
 
 /**
- * Page through jobs, with optional filtering and ordering.
- *
- * Boosted (Featured) listings sort first; ties break on `created_at DESC, id DESC`.
- * Cursor pagination is keyset-based — pass {@link JobListPage.nextCursor} from the
- * previous page to fetch the next slice.
- *
- * @param {Object}  [opts]
- * @param {string}  [opts.category]               Restrict to a category from {@link VALID_CATEGORIES}.
- * @param {("open"|"in_progress"|"completed"|"cancelled")} [opts.status="open"]
- * @param {number}  [opts.limit=50]               Page size (clamped to 1..100).
- * @param {string}  [opts.search]                 Substring search over title, description, and skills.
- * @param {string}  [opts.cursor]                 Opaque cursor from the previous page.
- * @param {string}  [opts.timezone]               IANA timezone of the viewer; only jobs whose
- *                                                timezone is within ±3h are returned.
- * @returns {Promise<JobListPage>}
- * @throws {Error} 400 — when `cursor` is malformed.
+ * @typedef {Object} ListJobsOptions
+ * @property {string} [category] - Filter by job category.
+ * @property {string} [status='open'] - Filter by job status.
+ * @property {number} [limit=50] - Max number of results to return (max 100).
+ * @property {string} [search] - Search term for title, description, or skills.
+ * @property {string} [cursor] - Pagination cursor.
+ * @property {string} [timezone] - Filter by timezone.
  */
-async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone, viewerAddress } = {}) {
+
+/**
+ * List jobs with optional filtering, searching, and pagination.
+ *
+ * @param {ListJobsOptions} [options={}] - Options for listing jobs.
+ * @returns {Promise<{jobs: Object[], nextCursor: string|null}>} An object containing the list of jobs and an optional next cursor for pagination.
+ * @throws {Error} If the provided cursor is invalid.
+ */
+async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone } = {}) {
   const conditions = [];
   const params = [];
 
@@ -382,11 +393,11 @@ async function listJobs({ category, status = "open", limit = 50, search, cursor,
 }
 
 /**
- * List every job posted by a specific client, newest first.
+ * Retrieve all jobs posted by a specific client.
  *
- * @param {string} clientAddress  Stellar G-address of the client.
- * @returns {Promise<Job[]>}
- * @throws {Error} 400 — invalid Stellar public key.
+ * @param {string} clientAddress - The Stellar public key of the client.
+ * @returns {Promise<Object[]>} An array of job objects.
+ * @throws {Error} If the clientAddress is an invalid Stellar public key.
  */
 async function listJobsByClient(clientAddress) {
   validatePublicKey(clientAddress);
@@ -398,13 +409,12 @@ async function listJobsByClient(clientAddress) {
 }
 
 /**
- * Transition a job to a new status.
+ * Update the status of a specific job.
  *
- * @param {string} id      UUID of the job.
- * @param {("open"|"in_progress"|"completed"|"cancelled")} status
- * @returns {Promise<Job>}
- * @throws {Error} 400 — invalid status.
- * @throws {Error} 404 — job not found.
+ * @param {number|string} id - The ID of the job.
+ * @param {string} status - The new status (must be one of VALID_STATUSES).
+ * @returns {Promise<Object>} The updated job object.
+ * @throws {Error} If the status is invalid or the job is not found.
  */
 async function updateJobStatus(id, status) {
   if (!VALID_STATUSES.includes(status)) {
@@ -428,13 +438,12 @@ async function updateJobStatus(id, status) {
 }
 
 /**
- * Hire a freelancer for a job and move it to `in_progress`.
+ * Assign a freelancer to a job and update its status to 'in_progress'.
  *
- * @param {string} jobId              UUID of the job.
- * @param {string} freelancerAddress  Stellar G-address of the freelancer being hired.
- * @returns {Promise<Job>}
- * @throws {Error} 400 — invalid freelancer public key.
- * @throws {Error} 404 — job not found.
+ * @param {number|string} jobId - The ID of the job.
+ * @param {string} freelancerAddress - The Stellar public key of the freelancer.
+ * @returns {Promise<Object>} The updated job object.
+ * @throws {Error} If the freelancerAddress is invalid or the job is not found.
  */
 async function assignFreelancer(jobId, freelancerAddress) {
   validatePublicKey(freelancerAddress);
@@ -457,14 +466,12 @@ async function assignFreelancer(jobId, freelancerAddress) {
 }
 
 /**
- * Persist the on-chain escrow contract id against a job. Called after the
- * client signs and submits the Soroban `create_escrow` transaction.
+ * Update the escrow contract ID associated with a job.
  *
- * @param {string} jobId             UUID of the job.
- * @param {string} escrowContractId  Soroban contract id (or transaction hash).
- * @returns {Promise<Job>}
- * @throws {Error} 400 — invalid escrow contract id.
- * @throws {Error} 404 — job not found.
+ * @param {number|string} jobId - The ID of the job.
+ * @param {string} escrowContractId - The escrow contract ID.
+ * @returns {Promise<Object>} The updated job object.
+ * @throws {Error} If the escrowContractId is invalid or the job is not found.
  */
 async function updateJobEscrowId(jobId, escrowContractId) {
   if (!escrowContractId || typeof escrowContractId !== "string") {
@@ -488,12 +495,11 @@ async function updateJobEscrowId(jobId, escrowContractId) {
 }
 
 /**
- * Hard-delete a job. Used to roll back an "orphaned" job whose escrow
- * transaction failed after the row was inserted.
+ * Delete a job by its ID.
  *
- * @param {string} jobId  UUID of the job.
- * @returns {Promise<void>}
- * @throws {Error} 404 — job not found.
+ * @param {number|string} jobId - The ID of the job to delete.
+ * @returns {Promise<void>} Resolves when the job is deleted.
+ * @throws {Error} If the job is not found.
  */
 async function deleteJob(jobId) {
   const { rowCount } = await pool.query("DELETE FROM jobs WHERE id = $1", [jobId]);
@@ -505,19 +511,14 @@ async function deleteJob(jobId) {
 }
 
 /**
- * Mark a job as Featured for the next 7 days.
+ * Boost a job to increase its visibility for 7 days.
  *
- * The route handler accepts a Stellar transaction hash from the client
- * (intended to record the 10 XLM platform fee), but on-chain verification
- * of that payment has not yet been wired up — see the `TODO` in
- * `routes/jobs.js`. The hash is therefore not consumed by this service
- * function today.
- *
- * @param {string} jobId  UUID of the job to boost.
- * @returns {Promise<Job>}
- * @throws {Error} 404 — job not found.
+ * @param {number|string} jobId - The ID of the job to boost.
+ * @param {string} txHash - The transaction hash of the payment for boosting.
+ * @returns {Promise<Object>} The updated job object.
+ * @throws {Error} If the job is not found.
  */
-async function boostJob(jobId) {
+async function boostJob(jobId, txHash) {
   // Verify job exists
   const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [jobId]);
   if (!rows.length) {
@@ -541,69 +542,16 @@ async function boostJob(jobId) {
 }
 
 /**
- * Increment the per-job share counter. Called when the client clicks
- * "Share" or otherwise copies the job link.
+ * Increment the share count for a specific job.
  *
- * @param {string} jobId  UUID of the job.
- * @returns {Promise<Job>}
- * @throws {Error} 404 — job not found.
+ * @param {number|string} jobId - The ID of the job.
+ * @returns {Promise<Object>} The updated job object.
+ * @throws {Error} If the job is not found.
  */
 async function incrementShareCount(jobId) {
   const { rows } = await pool.query(
     "UPDATE jobs SET share_count = COALESCE(share_count, 0) + 1, updated_at = NOW() WHERE id = $1 RETURNING *",
     [jobId]
-  );
-
-  if (!rows.length) {
-    const e = new Error("Job not found");
-    e.status = 404;
-    throw e;
-  }
-
-  return rowToJob(rows[0]);
-}
-
-/**
- * Update a job's expiry date (extend).
- *
- * @param {string} jobId  UUID of the job.
- * @param {number} additionalDays  Number of days to add (e.g., 30).
- * @param {number} maxExtensions   Maximum allowed extensions (default 3).
- * @returns {Promise<Job>}
- * @throws {Error} 404 — job not found.
- * @throws {Error} 400 — job already completed/cancelled or max extensions reached.
- */
-async function extendJobExpiry(jobId, additionalDays, maxExtensions = 3) {
-  const job = await getJob(jobId);
-
-  if (job.status === "completed" || job.status === "cancelled") {
-    const e = new Error("Cannot extend a completed or cancelled job");
-    e.status = 400;
-    throw e;
-  }
-
-  if (job.extendedCount >= maxExtensions) {
-    const e = new Error("Maximum number of extensions reached");
-    e.status = 400;
-    throw e;
-  }
-
-  const currentExpiry = job.expiresAt ? new Date(job.expiresAt) : new Date(job.createdAt);
-  if (isNaN(currentExpiry.getTime())) {
-    currentExpiry.setTime(Date.now());
-  }
-
-  const newExpiry = new Date(currentExpiry.getTime() + additionalDays * 24 * 60 * 60 * 1000);
-
-  const { rows } = await pool.query(
-    `UPDATE jobs
-     SET expires_at = $1,
-         extended_count = extended_count + 1,
-         extended_until = $1,
-         updated_at = NOW()
-     WHERE id = $2
-     RETURNING *`,
-    [newExpiry.toISOString(), jobId]
   );
 
   if (!rows.length) {

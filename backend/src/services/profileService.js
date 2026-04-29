@@ -1,14 +1,7 @@
 /**
  * src/services/profileService.js
- *
- * Profiles service — owns all reads and writes against the `profiles`
- * PostgreSQL table. Validates portfolio items and availability blocks,
- * upserts profile metadata keyed by Stellar public key, computes a
- * derived reputation score (rating + accept/release latency) on read,
- * derives a freelancer tier label, and records optional DID/KYC
- * verification.
- *
- * @module services/profileService
+ * Service responsibility: Manages user profiles for clients and freelancers, including retrieval, creation, and updating.
+ * All data persisted in the `profiles` PostgreSQL table.
  */
 "use strict";
 
@@ -220,38 +213,11 @@ function rowToProfile(row) {
 }
 
 /**
- * Derive a freelancer tier label from completed-jobs count and average rating.
+ * Retrieve a user profile by their Stellar public key. Includes average rating and rating count.
  *
- * Tiers (highest first):
- * - **Top Talent** — ≥30 completed jobs and rating ≥4.8
- * - **Expert** — ≥15 completed jobs and rating ≥4.5
- * - **Rising Star** — ≥5 completed jobs (rating not required)
- * - **Newcomer** — anyone else
- *
- * @param {number} [completedJobs=0]   Number of completed jobs for the freelancer.
- * @param {number|null} [rating=null]  Average rating (1..5), or null if unrated.
- * @returns {("Top Talent"|"Expert"|"Rising Star"|"Newcomer")}
- */
-function calculateFreelancerTier(completedJobs = 0, rating = null) {
-  const jobs = Number(completedJobs) || 0;
-  const safeRating = rating === null || rating === undefined ? null : Number(rating);
-
-  if (jobs >= 30 && safeRating !== null && safeRating >= 4.8) return "Top Talent";
-  if (jobs >= 15 && safeRating !== null && safeRating >= 4.5) return "Expert";
-  if (jobs >= 5) return "Rising Star";
-  return "Newcomer";
-}
-
-/**
- * Fetch a profile by public key, including aggregated rating data and a
- * derived reputation score (0..100) computed from the rating, average
- * acceptance latency, and average escrow-release latency.
- *
- * @param {string} publicKey  Stellar G-address.
- * @returns {Promise<UserProfile>}  The profile, with `rating`, `ratingCount`,
- *                                  `reputationScore`, and `reputationMetrics` populated.
- * @throws {Error} 400 — invalid Stellar public key.
- * @throws {Error} 404 — profile not found.
+ * @param {string} publicKey - The Stellar public key of the user.
+ * @returns {Promise<Object>} The user profile object.
+ * @throws {Error} If the public key is invalid or the profile is not found.
  */
 async function getProfile(publicKey) {
   validatePublicKey(publicKey);
@@ -287,18 +253,17 @@ async function getProfile(publicKey) {
   const profile = rowToProfile(rows[0]);
   profile.rating = rows[0].avg_rating !== null ? parseFloat(rows[0].avg_rating) : null;
   profile.ratingCount = rows[0].rating_count;
-  profile.tier = calculateFreelancerTier(profile.completedJobs, profile.rating);
-  
+
   // Calculate reputation score (simple formula: higher weight on ratings, lower on time)
   // Max score 100.
   let repScore = 0;
   if (profile.rating) repScore += profile.rating * 15; // up to 75
-  
+
   // Bonus for fast acceptance (avg < 24h)
   const acceptHours = parseFloat(rows[0].avg_accept_hours || 0);
   if (acceptHours > 0 && acceptHours < 24) repScore += 15;
   else if (acceptHours > 0 && acceptHours < 72) repScore += 10;
-  
+
   // Bonus for fast release (avg < 48h)
   const releaseHours = parseFloat(rows[0].avg_release_hours || 0);
   if (releaseHours > 0 && releaseHours < 48) repScore += 10;
@@ -314,29 +279,43 @@ async function getProfile(publicKey) {
 }
 
 /**
- * Insert or update a profile row keyed by `publicKey`.
+ * @typedef {Object} UpsertProfileInput
+ * @property {string} publicKey - The Stellar public key of the user.
+ * @property {string} [displayName] - The display name of the user.
+ * @property {string} [bio] - The user's biography.
+ * @property {string[]} [skills] - Array of skills (max 15).
+ * @property {Object[]} [portfolioItems] - Array of portfolio items (max 10).
+ * @property {Object} [availability] - Availability status and dates.
+ * @property {string} [role] - The role of the user (e.g., 'freelancer', 'client', 'both').
+ */
+
+/**
+ * Create or update a user profile. Only provided fields will be updated if the profile already exists.
  *
- * Empty-string fields fall back to the existing values via the SQL
- * `NULLIF(EXCLUDED.field, '')` pattern, so a partial update will not
- * blank out previously-saved data.
- *
- * @param {UpsertProfileInput} input
- * @returns {Promise<UserProfile>}
- * @throws {Error} 400 — invalid public key, role, portfolio items, or availability.
+ * @param {UpsertProfileInput} params - The profile details to upsert.
+ * @returns {Promise<Object>} The created or updated profile object.
+ * @throws {Error} If the public key is invalid.
  *
  * @example
- * const profile = await upsertProfile({
- *   publicKey: "GABCDEF...XYZ",
- *   displayName: "Ada",
- *   bio: "Smart-contract auditor since 2019.",
- *   skills: ["Rust", "Soroban", "Security Audit"],
- *   portfolioItems: [
- *     { title: "Escrow audit", type: "github", url: "https://github.com/ada/audit-x" },
- *   ],
- *   role: "freelancer",
+ * const profile = await profileService.upsertProfile({
+ *   publicKey: 'GBX...',
+ *   displayName: 'Alice Developer',
+ *   bio: 'Full-stack developer specializing in Stellar network integrations.',
+ *   skills: ['React', 'Node.js', 'Stellar SDK'],
+ *   portfolioItems: [{
+ *     title: 'My Awesome Project',
+ *     type: 'live',
+ *     url: 'https://example.com',
+ *   }],
+ *   availability: {
+ *     status: 'available',
+ *     availableFrom: '2023-01-01',
+ *     availableUntil: '2023-12-31',
+ *   },
+ *   role: 'freelancer',
  * });
  */
-async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, portfolioFiles, availability, role }) {
+async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, availability, role }) {
   validatePublicKey(publicKey);
 
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 15) : null;

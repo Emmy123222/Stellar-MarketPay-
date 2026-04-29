@@ -1,12 +1,7 @@
 /**
  * src/services/applicationService.js
- *
- * Applications service — owns all reads and writes against the `applications`
- * PostgreSQL table. Handles freelancer proposal submission, validation of
- * screening-question answers, listing applications by job or freelancer, and
- * the atomic "accept one + reject the rest" transition that hires a freelancer.
- *
- * @module services/applicationService
+ * Service responsibility: Manages job applications, including submission, retrieval by job or freelancer, and accepting/rejecting applications.
+ * All data persisted in the `applications` PostgreSQL table.
  */
 "use strict";
 
@@ -77,45 +72,47 @@ function rowToApp(row) {
     freelancerTier: calculateFreelancerTier(completedJobs, freelancerRating),
     proposal: row.proposal,
     bidAmount: row.bid_amount,
-    currency: row.currency || "XLM",
+    currency: row.currency || 'XLM',
     status: row.status,
     screeningAnswers: row.screening_answers || {},
     createdAt: row.created_at,
   };
 }
 
+// ─── service functions ───────────────────────────────────────────────────────
+
+// async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, currency = 'XLM' }) {
 /**
- * Submit a freelancer's proposal to a job. Inserts a row in `applications`
- * and increments the parent job's `applicant_count`. Returns the new
- * application as a camel-cased {@link Application}.
+ * @typedef {Object} SubmitApplicationInput
+ * @property {number|string} jobId - The ID of the job being applied for.
+ * @property {string} freelancerAddress - The Stellar public key of the freelancer.
+ * @property {string} proposal - The application proposal text (min 50 chars).
+ * @property {string|number} bidAmount - The positive bid amount for the application.
+ * @property {string} currency - The currency of the bid amount (default: 'XLM').
+ * @property {Object} screeningAnswers - The screening answers for the job.
+ */
+
+/**
+ * Submit an application for a specific job.
  *
- * @param {SubmitApplicationInput} input
- * @returns {Promise<Application>}
- * @throws {Error} 400 — invalid public key, proposal too short, bid not positive,
- *                       or screening answers missing/incomplete.
- * @throws {Error} 400 — job is not `open`.
- * @throws {Error} 400 — applicant is the job's own client.
- * @throws {Error} 404 — job not found.
- * @throws {Error} 409 — duplicate application from the same freelancer.
+ * @param {SubmitApplicationInput} params - The parameters for submitting an application.
+ * @returns {Promise<Object>} The created application object.
+ * @throws {Error} If validation fails, job is not open, client is applying to own job, or if freelancer already applied.
  *
  * @example
- * const application = await submitApplication({
- *   jobId: "f4d3...e1",
- *   freelancerAddress: "GXYZ...ABC",
- *   proposal: "I have shipped 5 Soroban contracts and...",
- *   bidAmount: "450",
- *   currency: "XLM",
- *   screeningAnswers: { "Years of Rust?": "4" },
+ * const app = await applicationService.submitApplication({
+ *   jobId: 10,
+ *   freelancerAddress: 'GBX...',
+ *   proposal: 'I have 5 years of experience building similar applications...',
+ *   bidAmount: 200,
+ *   currency: 'XLM',
+ *   screeningAnswers: {
+ *     question1: 'answer1',
+ *     question2: 'answer2',
+ *   },
  * });
  */
-async function submitApplication({
-  jobId,
-  freelancerAddress,
-  proposal,
-  bidAmount,
-  currency = "XLM",
-  screeningAnswers,
-}) {
+async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, currency = 'XLM', screeningAnswers }) {
   validatePublicKey(freelancerAddress);
 
   const job = await getJob(jobId);
@@ -209,12 +206,10 @@ async function submitApplication({
 }
 
 /**
- * List every application for a given job, oldest first. Joins in profile
- * `completed_jobs` and the freelancer's average rating so the result row can
- * compute a freelancer tier label.
+ * Retrieves all applications for a specific job.
  *
- * @param {string} jobId  UUID of the job.
- * @returns {Promise<Application[]>}
+ * @param {number|string} jobId - The ID of the job.
+ * @returns {Promise<Object[]>} An array of application objects ordered by creation date ascending.
  */
 async function getApplicationsForJob(jobId) {
   const { rows } = await pool.query(
@@ -233,11 +228,11 @@ async function getApplicationsForJob(jobId) {
 }
 
 /**
- * List every application submitted by a freelancer, newest first.
+ * Retrieves all applications submitted by a specific freelancer.
  *
- * @param {string} freelancerAddress  Stellar G-address of the freelancer.
- * @returns {Promise<Application[]>}
- * @throws {Error} 400 — invalid Stellar public key.
+ * @param {string} freelancerAddress - The Stellar public key of the freelancer.
+ * @returns {Promise<Object[]>} An array of application objects ordered by creation date descending.
+ * @throws {Error} If the freelancerAddress is an invalid Stellar public key.
  */
 async function getApplicationsForFreelancer(freelancerAddress) {
   validatePublicKey(freelancerAddress);
@@ -257,21 +252,12 @@ async function getApplicationsForFreelancer(freelancerAddress) {
 }
 
 /**
- * Accept a freelancer's proposal. Atomically marks the chosen application
- * `accepted` and rejects every other pending application on the same job,
- * then assigns the freelancer to the job (which transitions it to
- * `in_progress`).
+ * Accept a specific application for a job. Also rejects all other pending applications for that job, and assigns the freelancer to the job.
  *
- * Wrapped in a single Postgres transaction so a partial failure cannot
- * leave two accepted applications on one job.
- *
- * @param {string} applicationId  UUID of the application to accept.
- * @param {string} clientAddress  Stellar G-address of the calling client; must
- *                                match the parent job's `client_address`.
- * @returns {Promise<Application>}  The newly accepted application.
- * @throws {Error} 400 — invalid client public key, or job no longer open.
- * @throws {Error} 403 — caller is not the job's client.
- * @throws {Error} 404 — application or job not found.
+ * @param {number|string} applicationId - The ID of the application to accept.
+ * @param {string} clientAddress - The Stellar public key of the client who owns the job.
+ * @returns {Promise<Object>} The accepted application object.
+ * @throws {Error} If the application is not found, client does not own the job, or the job is no longer open.
  */
 async function acceptApplication(applicationId, clientAddress) {
   validatePublicKey(clientAddress);
