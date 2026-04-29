@@ -17,7 +17,7 @@ import WithdrawToBankModal, {
   loadWithdrawHistory,
   type WithdrawHistoryEntry,
 } from "@/components/WithdrawToBankModal";
-import PasskeyManager from "@/components/PasskeyManager";
+import { useBookmarks } from "@/hooks/useBookmarks";
 import { useToast } from "@/components/Toast";
 import { usePriceContext } from "@/contexts/PriceContext";
 import clsx from "clsx";
@@ -51,7 +51,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "send" | "transactions" | "edit_profile" | "templates" | "price_alerts" | "withdrawals";
+type Tab = "posted" | "applied" | "saved" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
@@ -66,10 +66,23 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
 
-  // ── Job alert matches ──────────────────────────────────────────────────────
-  const [alertSubscriptions, setAlertSubscriptions] = useState<string[]>([]);
-  const [alertMatches, setAlertMatches] = useState<Job[]>([]);
-  const [alertMatchesDismissed, setAlertMatchesDismissed] = useState(false);
+  const [processedTxs, setProcessedTxs] = useState<Set<string>>(new Set());
+  const [templates, setTemplates] = useState<{ id: string; name: string; content: string }[]>([]);
+  const [templateName, setTemplateName] = useState("");
+  const [templateContent, setTemplateContent] = useState("");
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [emailEnabled, setEmailEnabled] = useState(false);
+  const [alertEmail, setAlertEmail] = useState("");
+  const [showBuyXLM, setShowBuyXLM] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [withdrawHistory, setWithdrawHistory] = useState<WithdrawHistoryEntry[]>([]);
+  const [savedJobs, setSavedJobs] = useState<Job[]>([]);
+  const { savedCount, getSavedJobs } = useBookmarks();
+  const { info, success } = useToast();
+
+  const isRepostable = (status: Job["status"]) => status === "expired" || status === "cancelled";
 
   // Tooltip configurations for new users
   const tooltipConfigs: TooltipConfig[] = [

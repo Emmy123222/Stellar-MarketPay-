@@ -1,9 +1,22 @@
-# Skill Endorsement Feature — Implementation Steps
+# Bookmark Feature Implementation Plan
 
-- [x] 1. Add `skill_endorsements` table to `backend/src/db/schema.sql`
-- [x] 2. Add endorsement functions to `backend/src/services/profileService.js`
-- [x] 3. Add endorsement endpoints to `backend/src/routes/profiles.js`
-- [x] 4. Add endorsement types to `frontend/utils/types.ts`
-- [x] 5. Add endorsement API functions to `frontend/lib/api.ts`
-- [x] 6. Add UI + logic to `frontend/pages/freelancers/[publicKey].tsx`
-- [ ] 7. Restart backend to run DB migrations and test
+## Status: ✅ Completed
+
+### Completed Steps:
+
+- [x] 1. Create `frontend/hooks/useBookmarks.ts` hook for localStorage management, isSaved/toggle/savedJobs/count
+- [x] 2. Update `frontend/components/JobCard.tsx`: Add bookmark button with heart icon (filled when saved), using useBookmarks hook
+- [x] 3. Update `frontend/pages/dashboard.tsx`:
+  - Add "saved" tab with dynamic badge (savedCount)
+  - Render saved jobs list in new tab content
+  - Add unbookmark buttons per job
+  - Handle empty state
+
+### Verification:
+
+- Bookmark button toggles on JobCard, persists across refresh
+- Dashboard "Saved Jobs" tab shows badge with accurate count
+- Saved jobs list displays correctly with unbookmark functionality
+- Empty state shown when no bookmarks
+
+**All acceptance criteria met. Ready for completion.**
