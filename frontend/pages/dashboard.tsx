@@ -17,6 +17,7 @@ import WithdrawToBankModal, {
   loadWithdrawHistory,
   type WithdrawHistoryEntry,
 } from "@/components/WithdrawToBankModal";
+import { useBookmarks } from "@/hooks/useBookmarks";
 import { useToast } from "@/components/Toast";
 import clsx from "clsx";
 import JobAnalytics from "@/components/JobAnalytics";
@@ -44,7 +45,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals";
+type Tab = "posted" | "applied" | "saved" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
@@ -71,6 +72,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [showBuyXLM, setShowBuyXLM] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawHistory, setWithdrawHistory] = useState<WithdrawHistoryEntry[]>([]);
+  const [savedJobs, setSavedJobs] = useState<Job[]>([]);
+  const { savedCount, getSavedJobs } = useBookmarks();
   const { info, success } = useToast();
 
   const isRepostable = (status: Job["status"]) => status === "expired" || status === "cancelled";

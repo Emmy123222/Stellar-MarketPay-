@@ -295,32 +295,6 @@ export async function verifyIdentity(publicKey: string, didHash: string) {
   return data.data;
 }
 
-/**
- * Fetches application statistics for a freelancer profile.
- *
- * @param publicKey Freelancer Stellar public key.
- * @returns Statistics including total applications, accepted count, and success rate.
- */
-export async function fetchProfileStats(publicKey: string) {
-  const { data } = await api.get<{ success: boolean; data: ProfileStats }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/stats`
-  );
-  return data.data;
-}
-
-/**
- * Fetches the average response time (acceptance to completion) for a freelancer.
- *
- * @param publicKey Freelancer Stellar public key.
- * @returns Average response time in days.
- */
-export async function fetchResponseTime(publicKey: string) {
-  const { data } = await api.get<{ success: boolean; data: ResponseTimeStats }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/response-time`
-  );
-  return data.data;
-}
-
 // ─── Escrow ───────────────────────────────────────────────────────────────────
 
 export async function fetchEscrow(jobId: string) {
@@ -342,18 +316,16 @@ export async function releaseEscrow(
   return data.data;
 }
 
-export async function timeoutRefund(jobId: string, clientAddress: string, contractTxHash?: string) {
-  const { data } = await api.post(`/api/escrow/${jobId}/timeout-refund`, {
-    clientAddress,
-    ...(contractTxHash ? { contractTxHash } : {}),
-  });
-  return data.data;
-}
-
-export async function inviteFreelancer(jobId: string, freelancerAddress: string) {
-  const { data } = await api.post<{ success: boolean; data: any }>(`/api/jobs/${jobId}/invite`, {
-    freelancerAddress,
-  });
+export async function inviteFreelancer(
+  jobId: string,
+  freelancerAddress: string,
+) {
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    `/api/jobs/${jobId}/invite`,
+    {
+      freelancerAddress,
+    },
+  );
   return data.data;
 }
 

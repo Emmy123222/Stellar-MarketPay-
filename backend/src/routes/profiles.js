@@ -92,6 +92,29 @@ router.post("/:publicKey/skill-endorsements", verifyJWT, profileUpdateRateLimite
   }
 });
 
+// ─── Skill Endorsements ──────────────────────────────────────────────────────
+
+router.post("/:publicKey/skill-endorsements", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
+  try {
+    const recipientAddress = req.params.publicKey;
+    const endorserAddress = req.user.publicKey;
+    const { skill } = req.body;
+
+    if (!skill || typeof skill !== "string" || !skill.trim()) {
+      return res.status(400).json({ error: "skill is required" });
+    }
+
+    if (endorserAddress === recipientAddress) {
+      return res.status(400).json({ error: "Cannot endorse your own skill" });
+    }
+
+    await endorseSkill({ skill, endorserAddress, recipientAddress });
+    res.status(201).json({ success: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get("/:publicKey/skill-endorsements", generalProfileRateLimiter, async (req, res, next) => {
   try {
     const endorsements = await getSkillEndorsements(req.params.publicKey);
