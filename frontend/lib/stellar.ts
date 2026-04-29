@@ -23,6 +23,14 @@ export const NETWORK_PASSPHRASE = NETWORK === "mainnet" ? Networks.PUBLIC : Netw
 export const server = new Horizon.Server(HORIZON_URL);
 export const sorobanServer = new SorobanRpc.Server(SOROBAN_RPC_URL);
 
+export type MarketPayContractEventType = "created" | "released" | "refunded";
+
+export interface MarketPayContractEvent {
+  type: MarketPayContractEventType;
+  jobId: string | null;
+  raw: SorobanRpc.Api.GetEventsResponse["events"][number];
+}
+
 // XLM SAC (Stellar Asset Contract) address on testnet
 export const XLM_SAC_ADDRESS =
   NETWORK === "mainnet"
@@ -494,4 +502,75 @@ export function streamAccountTransactions(
     });
 
   return closeStream;
+}
+
+export function subscribeToContractEvents(
+  contractId: string,
+  onEvent: (event: MarketPayContractEvent) => void
+): () => void {
+  let isClosed = false;
+  let timeoutRef: ReturnType<typeof setTimeout> | null = null;
+  let attempts = 0;
+  let cursor: string | undefined;
+  const maxAttempts = 3;
+  const supported = new Set<MarketPayContractEventType>(["created", "released", "refunded"]);
+
+  const parseEvent = (
+    event: SorobanRpc.Api.GetEventsResponse["events"][number]
+  ): MarketPayContractEvent | null => {
+    const value = event.value as unknown as { _attributes?: Record<string, unknown>; _value?: unknown };
+    const attrs = value?._attributes || {};
+    const topics = Array.isArray(attrs.topic) ? attrs.topic : [];
+    const first = topics[0] as unknown as { _value?: string } | undefined;
+    const eventType = first?._value as MarketPayContractEventType | undefined;
+    if (!eventType || !supported.has(eventType)) return null;
+
+    let jobId: string | null = null;
+    const payload = value?._value;
+    if (Array.isArray(payload) && payload.length > 0 && payload[0]?._value) {
+      jobId = String(payload[0]._value);
+    }
+
+    return { type: eventType, jobId, raw: event };
+  };
+
+  const scheduleRetry = () => {
+    if (isClosed || attempts >= maxAttempts) return;
+    const delay = 1000 * (2 ** attempts);
+    attempts += 1;
+    timeoutRef = setTimeout(() => {
+      pollLoop();
+    }, delay);
+  };
+
+  const pollLoop = async () => {
+    while (!isClosed) {
+      try {
+        const response = await sorobanServer.getEvents({
+          startLedger: undefined,
+          filters: [{ contractIds: [contractId], type: "contract" }],
+          pagination: { cursor, limit: 50 },
+        });
+
+        attempts = 0;
+        for (const event of response.events) {
+          cursor = event.pagingToken;
+          const parsed = parseEvent(event);
+          if (parsed) onEvent(parsed);
+        }
+      } catch (error) {
+        console.error("Contract event subscription error:", error);
+        scheduleRetry();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  };
+
+  pollLoop();
+
+  return () => {
+    isClosed = true;
+    if (timeoutRef) clearTimeout(timeoutRef);
+  };
 }

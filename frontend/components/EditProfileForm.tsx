@@ -3,12 +3,13 @@
  * Form to view and edit user profile details.
  */
 import { useState, useEffect } from "react";
-import { fetchProfile, updateProfileAvailability, upsertProfile } from "@/lib/api";
+import { fetchProfile, updateProfileAvailability, upsertProfile, uploadPortfolioFiles } from "@/lib/api";
 import type {
   Availability,
   AvailabilityStatus,
   PortfolioItem,
   PortfolioItemType,
+  PortfolioFile,
   UserProfile,
   UserRole,
 } from "@/utils/types";
@@ -19,10 +20,12 @@ interface Props {
 }
 
 const MAX_PORTFOLIO_ITEMS = 10;
+const MAX_PORTFOLIO_FILES = 5;
 const portfolioTypeOptions: { value: PortfolioItemType; label: string; placeholder: string }[] = [
   { value: "github", label: "GitHub Repo", placeholder: "https://github.com/username/project" },
   { value: "live", label: "Live URL", placeholder: "https://example.com" },
   { value: "stellar_tx", label: "Stellar Transaction", placeholder: "Transaction ID" },
+  { value: "file", label: "Uploaded File", placeholder: "Select file to upload" },
 ];
 const availabilityStatusOptions: { value: AvailabilityStatus; label: string }[] = [
   { value: "available", label: "Available" },
@@ -55,6 +58,8 @@ export default function EditProfileForm({ publicKey }: Props) {
   const [skills, setSkills] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState("");
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([]);
+  const [portfolioFiles, setPortfolioFiles] = useState<PortfolioFile[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
   const [availability, setAvailability] = useState<Availability>(createDefaultAvailability());
 
   useEffect(() => {
@@ -67,6 +72,7 @@ export default function EditProfileForm({ publicKey }: Props) {
           setRole(data.role || "freelancer");
           setSkills(data.skills || []);
           setPortfolioItems(data.portfolioItems || []);
+          setPortfolioFiles(data.portfolioFiles || []);
           setAvailability({
             status: data.availability?.status || "available",
             availableFrom: data.availability?.availableFrom || "",
@@ -124,6 +130,38 @@ export default function EditProfileForm({ publicKey }: Props) {
     setAvailability((current) => ({ ...current, [key]: value }));
   };
 
+  const handleFileUpload = async (files: FileList) => {
+    if (portfolioFiles.length >= MAX_PORTFOLIO_FILES) {
+      setErrorMsg(`Maximum ${MAX_PORTFOLIO_FILES} files allowed`);
+      return;
+    }
+
+    const remainingSlots = MAX_PORTFOLIO_FILES - portfolioFiles.length;
+    if (files.length > remainingSlots) {
+      setErrorMsg(`Only ${remainingSlots} more files can be uploaded`);
+      return;
+    }
+
+    setUploadingFiles(true);
+    setErrorMsg("");
+
+    try {
+      const result = await uploadPortfolioFiles(publicKey, files);
+      setPortfolioFiles((current) => [...current, ...result.uploadedFiles]);
+      setSuccessMsg(`${result.uploadedFiles.length} file(s) uploaded successfully!`);
+      setTimeout(() => setSuccessMsg(""), 3000);
+    } catch (err: any) {
+      console.error("File upload error:", err);
+      setErrorMsg(err.response?.data?.error || "Failed to upload files");
+    } finally {
+      setUploadingFiles(false);
+    }
+  };
+
+  const removePortfolioFile = (index: number) => {
+    setPortfolioFiles((current) => current.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (displayName && (displayName.length < 3 || displayName.length > 30)) {
@@ -175,6 +213,7 @@ export default function EditProfileForm({ publicKey }: Props) {
         role,
         skills,
         portfolioItems: normalizedPortfolioItems,
+        portfolioFiles,
       });
 
       const availabilityPayload: Availability = {
@@ -456,6 +495,78 @@ export default function EditProfileForm({ publicKey }: Props) {
                 No portfolio items yet. Add GitHub repos, live URLs, or Stellar transaction proofs.
               </div>
             )}
+
+            {/* File Upload Section */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <label className="block text-sm font-medium text-amber-100">Upload Files</label>
+                  <p className="text-xs text-amber-800 mt-1">
+                    Upload up to {MAX_PORTFOLIO_FILES} files (max 10MB each). Images, PDFs, and documents supported.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {/* File Upload Input */}
+                <div className="relative">
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*,.pdf,.doc,.docx,.txt"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        handleFileUpload(e.target.files);
+                      }
+                    }}
+                    disabled={uploadingFiles || portfolioFiles.length >= MAX_PORTFOLIO_FILES}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                  />
+                  <div className="rounded-xl border border-dashed border-market-500/30 bg-ink-900/40 px-4 py-6 text-center hover:border-market-500/50 transition-colors cursor-pointer">
+                    <div className="text-2xl mb-2">📁</div>
+                    <p className="text-sm text-amber-100">
+                      {uploadingFiles ? "Uploading..." : "Click to upload files or drag and drop"}
+                    </p>
+                    <p className="text-xs text-amber-800 mt-1">
+                      {portfolioFiles.length}/{MAX_PORTFOLIO_FILES} files uploaded
+                    </p>
+                  </div>
+                </div>
+
+                {/* Uploaded Files List */}
+                {portfolioFiles.length > 0 && (
+                  <div className="space-y-2">
+                    {portfolioFiles.map((file, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 rounded-lg border border-market-500/20 bg-ink-900/50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-lg">
+                            {file.mimeType.startsWith("image/") ? "🖼️" :
+                             file.mimeType === "application/pdf" ? "📄" :
+                             file.mimeType.includes("word") ? "📝" : "📎"}
+                          </span>
+                          <div>
+                            <p className="text-sm text-amber-100 font-medium">{file.fileName}</p>
+                            <p className="text-xs text-amber-800">
+                              {(file.size / 1024 / 1024).toFixed(2)} MB • Uploaded {new Date(file.uploadedAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removePortfolioFile(index)}
+                          className="text-sm text-red-400 hover:text-red-300 transition-colors"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 

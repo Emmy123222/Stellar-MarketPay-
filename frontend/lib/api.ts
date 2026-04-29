@@ -1,13 +1,5 @@
 import axios from "axios";
-import type {
-  Availability,
-  Job,
-  Application,
-  UserProfile,
-  Rating,
-  ProposalTemplate,
-  PriceAlertPreference,
-} from "@/utils/types";
+import type { Availability, Job, Application, UserProfile, Rating, AssessmentInfo, AssessmentResult, SkillBadge } from "@/utils/types";
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000",
@@ -100,12 +92,9 @@ export async function fetchJob(id: string, viewerAddress?: string) {
 }
 
 export async function createJob(payload: {
-  title: string;
-  description: string;
-  budget: string;
-  category: string;
-  skills: string[];
-  deadline?: string;
+  title: string; description: string; budget: string;
+  currency?: "XLM" | "USDC";
+  category: string; skills: string[]; deadline?: string;
   timezone?: string;
   clientAddress: string;
   screeningQuestions?: string[];
@@ -121,59 +110,15 @@ export async function fetchMyJobs(publicKey: string) {
 }
 
 /**
-   * Evaluates application quality using AI (Claude API).
-   * 
-   * @param jobId Job identifier.
-   * @returns Array of scores and reasonings for all applications.
-   */
-  export async function scoreProposals(jobId: string) {
-    const { data } = await api.post<{ success: boolean; data: { id: string; score: number; reasoning: string }[] }>(
-      `/api/jobs/${jobId}/score-proposals`
-    );
-    return data.data;
-  }
+ * Tracks a referral click for a job.
+ * 
+ * @param jobId Job identifier.
+ * @param referrer Referrer's Stellar public key.
+ */
+export async function trackReferralClick(jobId: string, referrer: string) {
+  await api.post(`/api/jobs/${jobId}/referral`, { referrer });
+}
 
-  /**
-   * Get analytics for a job (applications per day, avg bid, skill distribution, time to hire).
-   *
-   * @param jobId Job identifier.
-   * @returns Analytics data for the job.
-   */
-  export async function fetchJobAnalytics(jobId: string) {
-    const { data } = await api.get<{ success: boolean; data: JobAnalytics }>(`/api/jobs/${jobId}/analytics`);
-    return data.data;
-  }
-
-  /**
-   * Extend a job's expiry by 30 days.
-   *
-   * @param jobId Job identifier.
-   * @returns Updated job record.
-   */
-  export async function extendJobExpiry(jobId: string) {
-    const { data } = await api.patch<{ success: boolean; data: Job }>(`/api/jobs/${jobId}/extend`);
-    return data.data;
-  }
-
-  /**
-   * Get jobs expiring within 3 days.
-   *
-   * @returns Array of expiring jobs.
-   */
-  export async function fetchExpiringJobs() {
-    const { data } = await api.get<{ success: boolean; data: Job[] }>("/api/jobs/expiring");
-    return data.data;
-  }
-
-  /**
-   * Manually trigger expiry check for old jobs.
-   *
-   * @returns Count of expired jobs.
-   */
-  export async function expireOldJobs() {
-    const { data } = await api.post<{ success: boolean; data: { expiredCount: number } }>("/api/jobs/expire-old");
-    return data.data.expiredCount;
-  }
 
 // ─── Applications ─────────────────────────────────────────────────────────────
 
@@ -191,6 +136,7 @@ export async function submitApplication(payload: {
   bidAmount: string;
   currency: string;
   screeningAnswers?: Record<string, string>;
+  referredBy?: string;
 }) {
   const { data } = await api.post<{ success: boolean; data: Application }>(
     "/api/applications",
@@ -261,6 +207,32 @@ export async function verifyIdentity(publicKey: string, didHash: string) {
   const { data } = await api.post<{ success: boolean; data: UserProfile }>(
     `/api/profiles/${encodeURIComponent(publicKey)}/verify`,
     { didHash }
+  );
+  return data.data;
+}
+
+/**
+ * Fetches application statistics for a freelancer profile.
+ *
+ * @param publicKey Freelancer Stellar public key.
+ * @returns Statistics including total applications, accepted count, and success rate.
+ */
+export async function fetchProfileStats(publicKey: string) {
+  const { data } = await api.get<{ success: boolean; data: ProfileStats }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/stats`
+  );
+  return data.data;
+}
+
+/**
+ * Fetches the average response time (acceptance to completion) for a freelancer.
+ *
+ * @param publicKey Freelancer Stellar public key.
+ * @returns Average response time in days.
+ */
+export async function fetchResponseTime(publicKey: string) {
+  const { data } = await api.get<{ success: boolean; data: ResponseTimeStats }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/response-time`
   );
   return data.data;
 }
@@ -397,5 +369,249 @@ export async function deleteDraft(draftId: string) {
 
 export async function fetchRecommendedJobs(limit = 10) {
   const { data } = await api.get<{ success: boolean; data: Job[] }>("/api/jobs/recommended", { params: { limit } });
+  return data.data;
+}
+
+// ─── IPFS File Upload (Issue #202) ──────────────────────────────────────────
+
+export async function uploadPortfolioFiles(publicKey: string, files: FileList) {
+  const formData = new FormData();
+  
+  // Append all files to FormData
+  Array.from(files).forEach((file) => {
+    formData.append("files", file);
+  });
+
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: { 
+      uploadedFiles: PortfolioFile[];
+      gatewayUrls: string[];
+    }
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/upload-files`, formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+    timeout: 60000, // 60 seconds for file uploads
+  });
+
+  return data.data;
+}
+
+// ─── Stellar Faucet (Issue #205) ───────────────────────────────────────────
+
+export async function fundTestnetWallet(publicKey: string) {
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: {
+      success: boolean;
+      message: string;
+      fundedAmount: string;
+      newBalance?: string;
+      transactionHash?: string;
+      ledger?: number;
+    }
+  }>("/api/faucet/fund", { publicKey });
+
+  return data.data;
+}
+
+export async function checkAccountNeedsFunding(publicKey: string) {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: {
+      needsFunding: boolean;
+      currentBalance: string;
+      exists: boolean;
+    }
+  }>(`/api/faucet/check/${encodeURIComponent(publicKey)}`);
+
+  return data.data;
+}
+
+export async function getFaucetStatus() {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: {
+      enabled: boolean;
+      network: string;
+      amount: string;
+      asset: string;
+    }
+  }>("/api/faucet/status");
+
+  return data.data;
+}
+
+// ─── Token Support (Issue #228) ─────────────────────────────────────────────
+
+export async function getPopularTokens() {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: TokenInfo[];
+  }>("/api/tokens/popular");
+
+  return data.data;
+}
+
+export async function searchTokens(query: string) {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: TokenInfo[];
+  }>("/api/tokens/search", { params: { q: query } });
+
+  return data.data;
+}
+
+export async function getTokenMetadata(contractId: string) {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: TokenInfo;
+  }>(`/api/tokens/${contractId}/metadata`);
+
+  return data.data;
+}
+
+export async function getTokenBalance(contractId: string, publicKey: string) {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: TokenBalance;
+  }>(`/api/tokens/${contractId}/balance/${publicKey}`);
+
+  return data.data;
+}
+
+export async function validateTokenContract(contractId: string) {
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: {
+      valid: boolean;
+      error?: string;
+    };
+  }>("/api/tokens/validate", { contractId });
+
+  return data.data;
+}
+
+// ─── Stellar Turrets (Issue #224) ───────────────────────────────────────────
+
+export async function submitViaTurrets(transactionXDR: string, useTurret?: boolean) {
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: {
+      success: boolean;
+      hash: string;
+      ledger: number;
+      feeCharged: string;
+      turretUsed: boolean;
+      message: string;
+    };
+  }>("/api/turrets/submit", { transactionXDR, useTurret });
+
+  return data.data;
+}
+
+export async function getTurretsStatus() {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: {
+      available: boolean;
+      url?: string;
+      network?: string;
+      version?: string;
+      feeSponsorship?: boolean;
+      message: string;
+      error?: string;
+    };
+  }>("/api/turrets/status");
+
+  return data.data;
+}
+
+export async function estimateTurretsFee(transactionXDR: string) {
+  const { data } = await api.post<{ 
+    success: boolean; 
+    data: {
+      success: boolean;
+      baseFee: string;
+      turretFee: string;
+      totalFee: string;
+      feeSponsored: boolean;
+      message?: string;
+    };
+  }>("/api/turrets/estimate", { transactionXDR });
+
+  return data.data;
+}
+
+export async function getTurretsConfig() {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: {
+      configured: boolean;
+      url: string | null;
+      hasApiKey: boolean;
+      shouldUseByDefault: boolean;
+    };
+  }>("/api/turrets/config");
+
+  return data.data;
+}
+
+// ─── Messages ──────────────────────────────────────────────────────────────────
+
+/**
+ * Fetches all messages for a specific job.
+ * Automatically marks messages as read for the current user.
+ *
+ * @param jobId Job identifier.
+ * @returns Messages sorted chronologically (oldest first).
+ * @throws {import("axios").AxiosError} If unauthorized, job not found, or request fails.
+ * @see backend/src/routes/messageRoutes.js
+ */
+export async function fetchMessages(jobId: string): Promise<Message[]> {
+  const { data } = await api.get<{ success: boolean; data: Message[] }>(`/api/messages/job/${jobId}`);
+  return data.data;
+}
+
+/**
+ * Sends a message in a job thread.
+ *
+ * Request payload shape:
+ * - `content` (string): message text (1-2000 characters).
+ *
+ * @param jobId Job identifier.
+ * @param content Message content.
+ * @returns The created message object.
+ * @throws {import("axios").AxiosError} If unauthorized, validation fails, or request fails.
+ * @see backend/src/routes/messageRoutes.js
+ */
+export async function sendMessage(jobId: string, content: string): Promise<Message> {
+  const { data } = await api.post<{ success: boolean; data: Message }>(`/api/messages/job/${jobId}`, { content });
+  return data.data;
+}
+
+// ─── Assessments ──────────────────────────────────────────────────────────────
+
+/** Fetches assessment questions and cooldown info for a skill. Requires JWT. */
+export async function fetchAssessment(skill: string): Promise<AssessmentInfo> {
+  const { data } = await api.get<{ success: boolean; data: AssessmentInfo }>(`/api/assessments/${skill}`);
+  return data.data;
+}
+
+/** Submits answers for grading. Returns score and pass/fail. Requires JWT. */
+export async function submitAssessment(skill: string, answers: Record<number, number>): Promise<AssessmentResult> {
+  const { data } = await api.post<{ success: boolean; data: AssessmentResult }>(
+    `/api/assessments/${skill}/submit`,
+    { answers }
+  );
+  return data.data;
+}
+
+/** Fetches all skill assessment results (badges) for a public profile. */
+export async function fetchSkillBadges(publicKey: string): Promise<SkillBadge[]> {
+  const { data } = await api.get<{ success: boolean; data: SkillBadge[] }>(
+    `/api/assessments/results/${encodeURIComponent(publicKey)}`
+  );
   return data.data;
 }

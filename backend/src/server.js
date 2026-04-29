@@ -22,18 +22,8 @@ const escrowRoutes      = require("./routes/escrow");
 const healthRoutes      = require("./routes/health");
 const authRoutes        = require("./routes/auth");
 const ratingRoutes      = require("./routes/ratings");
-const progressRoutes    = require("./routes/progress");
-const eventRoutes       = require("./routes/events");
-const statsRoutes       = require("./routes/stats");
-const contributorRoutes = require("./routes/contributors");
-const verificationRoutes = require("./routes/verification");
-const nftRoutes         = require("./routes/nft");
-const aiScorerRoutes    = require("./routes/aiScorer");
-
-const migrate           = require("./db/migrate");
-const IndexerService    = require("./services/indexerService");
-const { PriceAlertService } = require("./services/priceAlertService");
-const pool              = require("./db/pool");
+const progressRoutes      = require("./routes/progress");
+const assessmentRoutes    = require("./routes/assessments");
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
@@ -149,19 +139,7 @@ app.use("/api/profiles",      profileRoutes);
 app.use("/api/escrow",        escrowRoutes);
 app.use("/api/ratings",       ratingRoutes);
 app.use("/api/progress",      progressRoutes);
-app.use("/api/events",        eventRoutes);
-app.use("/api/stats",         statsRoutes);
-app.use("/api/contributors",  contributorRoutes);
-app.use("/api/verification",  verificationRoutes);
-app.use("/api/nft",           nftRoutes);
-app.use("/api/ai-scorer",     aiScorerRoutes);
-
-app.get("/api/indexer/health", (req, res) => {
-  res.json({
-    status: "ok",
-    indexer: indexerService.getHealth(),
-  });
-});
+app.use("/api/assessments",  assessmentRoutes);
 
 app.use((err, req, res, next) => {
   console.error("[Error]", err.message);

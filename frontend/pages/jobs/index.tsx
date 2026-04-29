@@ -430,6 +430,7 @@ export default function JobsPage() {
               </Link>
               {JOB_CATEGORIES.map((cat) => {
                 const count = jobs.filter((j) => j.category === cat).length;
+                const isAlerted = alertedCategories.includes(cat);
                 return (
                   <Link key={cat} href={`/jobs/category/${categoryToSlug(cat)}`} locale={false}
                     className={clsx(
@@ -444,6 +445,35 @@ export default function JobsPage() {
                 );
               })}
             </div>
+
+          {/* Alert permission denied warning */}
+          {alertStatus === "denied" && (
+            <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+              Notifications blocked. Enable them in browser settings to use job alerts.
+            </div>
+          )}
+
+          {/* Active alerts summary */}
+          {alertedCategories.length > 0 && (
+            <div className="px-3 py-2 rounded-lg bg-market-500/8 border border-market-500/20 text-xs text-market-400 space-y-1">
+              <p className="font-semibold flex items-center gap-1">
+                <BellIcon className="w-3 h-3" filled />
+                Active alerts ({alertedCategories.length})
+              </p>
+              {alertedCategories.map((c) => (
+                <div key={c} className="flex items-center justify-between">
+                  <span className="text-amber-700 truncate">{CATEGORY_ICONS[c] ?? ""} {c}</span>
+                  <button
+                    onClick={() => removeAlert(c)}
+                    className="text-amber-900 hover:text-red-400 transition-colors ml-1 flex-shrink-0"
+                    title={`Remove "${c}" alert`}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           </div>
 
           {/* Timezone Filter */}

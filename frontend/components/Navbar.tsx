@@ -7,6 +7,7 @@ import { useRouter } from "next/router";
 import { shortenAddress } from "@/utils/format";
 import clsx from "clsx";
 import { useTranslation } from "@/lib/i18n";
+import FaucetButton from "@/components/FaucetButton";
 
 interface NavbarProps {
   publicKey: string | null;
@@ -129,6 +130,9 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
               {t(l.labelKey)}
               {l.href === "/dashboard" && hasNotification && (
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-emerald-400 rounded-full border border-ink-900" />
+              )}
+              {l.href === "/jobs" && hasJobAlertBadge && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-market-400 rounded-full border border-ink-900" />
               )}
             </Link>
           ))}

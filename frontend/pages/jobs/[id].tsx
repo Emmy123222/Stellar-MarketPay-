@@ -7,28 +7,26 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import Head from "next/head";
-import clsx from "clsx";
-
+import Link from "next/link";
+import { useRouter } from "next/router";
 import ApplicationForm from "@/components/ApplicationForm";
-import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
+import ProposalComparison from "@/components/ProposalComparison";
 import ShareJobModal from "@/components/ShareJobModal";
 import { fetchJob, fetchApplications, acceptApplication, releaseEscrow } from "@/lib/api";
 import { formatXLM, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
 import {
   accountUrl,
   buildReleaseEscrowTransaction,
-  buildReleaseWithConversionTransaction,
-  getPathPaymentPrice,
   submitSignedSorobanTransaction,
   USDC_ISSUER,
   USDC_SAC_ADDRESS,
   XLM_SAC_ADDRESS,
+  subscribeToContractEvents,
 } from "@/lib/stellar";
 import { Asset, type Transaction } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import { fetchActualFee } from "@/lib/sorobanFees";
-import FeeEstimationModal from "@/components/FeeEstimationModal";
+import { formatDate, shortenAddress, statusClass, statusLabel, timeAgo } from "@/utils/format";
 import type { Application, Job } from "@/utils/types";
 
 interface JobDetailProps {
@@ -36,31 +34,26 @@ interface JobDetailProps {
   onConnect: (pk: string) => void;
 }
 
-function cx(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
+function formatBudget(amount: string, currency: string) {
+  const parsed = Number.parseFloat(amount);
+  if (Number.isNaN(parsed)) return `${amount} ${currency}`;
+  return `${parsed.toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 4,
+  })} ${currency}`;
 }
 
-function availabilityStatusLabel(status?: AvailabilityStatus | null) {
-  if (status === "available") return "Available";
-  if (status === "busy") return "Busy";
-  if (status === "unavailable") return "Unavailable";
-  return "Not set";
-}
-
-function availabilitySummary(availability?: UserProfile["availability"]) {
-  if (!availability) return "";
-  return availability.note || availability.hoursPerWeek ? `${availability.hoursPerWeek || 0} hrs/week` : "";
+function printFallback(value?: string | null) {
+  return value && value.trim() ? value : "Not specified";
 }
 
 export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const router = useRouter();
-  const { id } = router.query;
+  const jobId = typeof router.query.id === "string" ? router.query.id : null;
+  const prefill = typeof router.query.prefill === "string" ? router.query.prefill : null;
 
   const [job, setJob] = useState<Job | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
-  const [applicantProfiles, setApplicantProfiles] = useState<Record<string, UserProfile>>({});
-  const [relatedJobs, setRelatedJobs] = useState<Job[]>([]);
-
   const [loading, setLoading] = useState(true);
   const [showApplyForm, setShowApplyForm] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -69,202 +62,91 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [releasingEscrow, setReleasingEscrow] = useState(false);
   const [releaseSuccess, setReleaseSuccess] = useState(false);
   const [releaseTxHash, setReleaseTxHash] = useState<string | null>(null);
-  const [releaseSyncedWithBackend, setReleaseSyncedWithBackend] = useState(false);
-  const [pendingRelease, setPendingRelease] = useState<{
-    transaction: Transaction;
-    fnName: "release_escrow" | "release_with_conversion";
-  } | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [prefillData, setPrefillData] = useState<any>(null);
 
-  const [releaseCurrency, setReleaseCurrency] = useState<"XLM" | "USDC">("XLM");
-  const [estimatedOutput, setEstimatedOutput] = useState<string | null>(null);
-  const [fetchingPrice, setFetchingPrice] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
-  const [inviteAddress, setInviteAddress] = useState("");
+  useEffect(() => {
+    if (!router.isReady || !jobId) return;
 
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [reportCategory, setReportCategory] = useState("");
-  const [reportDescription, setReportDescription] = useState("");
-  const [reportLoading, setReportLoading] = useState(false);
-  const [reportSuccess, setReportSuccess] = useState(false);
-  const [reportError, setReportError] = useState<string | null>(null);
+    if (prefill) {
+      try {
+        const decoded = JSON.parse(window.atob(prefill));
+        setPrefillData(decoded);
+      } catch {
+        setPrefillData(null);
+      }
+    } else {
+      setPrefillData(null);
+    }
 
-  const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
-  const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
-  const hasApplied = applications.some(
-    (application) => application.freelancerAddress === publicKey
-  );
+    let cancelled = false;
+    setLoading(true);
 
-  const handleCopyJobLink = async () => {
-    const ok = await copyToClipboard(window.location.href);
-    if (!ok) return;
-    setLinkCopied(true);
-    setTimeout(() => setLinkCopied(false), 2000);
-  };
+    Promise.all([fetchJob(jobId), fetchApplications(jobId)])
+      .then(([nextJob, nextApplications]) => {
+        if (cancelled) return;
+        setJob(nextJob);
+        setApplications(nextApplications);
+      })
+      .catch(() => {
+        if (!cancelled) router.push("/jobs");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId, prefill, router, router.isReady]);
 
   const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
   const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
   const hasApplied = applications.some((application) => application.freelancerAddress === publicKey);
 
-  useEffect(() => {
-    if (job?.currency) setReleaseCurrency(job.currency as "XLM" | "USDC");
-  }, [job?.currency]);
-
-  useEffect(() => {
-    if (!job || !releaseCurrency || releaseCurrency === job.currency) {
-      setEstimatedOutput(null);
-      return;
-    }
-
-    let cancelled = false;
-
-    const fetchPrice = async () => {
-      setFetchingPrice(true);
-
-      try {
-        const sourceAsset =
-          job.currency === "XLM" ? Asset.native() : new Asset("USDC", USDC_ISSUER);
-        const destAsset =
-          releaseCurrency === "XLM" ? Asset.native() : new Asset("USDC", USDC_ISSUER);
-
-        const res = await getPathPaymentPrice(sourceAsset, job.budget, destAsset);
-
-        if (!cancelled && res) {
-          setEstimatedOutput(res.amount);
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        if (!cancelled) setFetchingPrice(false);
-      }
-    };
-
-    fetchPrice();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [releaseCurrency, job]);
-
-  useEffect(() => {
-    if (!id) return;
-
-    const { prefill } = router.query;
-    if (typeof prefill === "string") {
-      try {
-        const decoded = JSON.parse(Buffer.from(prefill, "base64").toString("utf8"));
-        setPrefillData(decoded);
-      } catch {
-        setPrefillData(null);
-      }
-    }
-
-    setLoading(true);
-
-    Promise.all([fetchJob(id as string), fetchApplications(id as string)])
-      .then(([jobData, applicationData]) => {
-        setJob(jobData);
-        setApplications(applicationData);
-      })
-    Promise.all([
-      fetchJob(id as string, publicKey || undefined),
-      fetchApplications(id as string),
-    ])
-      .then(([j, apps]) => { setJob(j); setApplications(apps); })
-      .catch(() => router.push("/jobs"))
-      .finally(() => setLoading(false));
-  }, [id, router.isReady]);
-
-  useEffect(() => {
-    if (!job) return;
-
-    let cancelled = false;
-
-    fetchJobs()
-      .then((jobs: Job[]) => {
-        if (cancelled) return;
-
-        const similarJobs = jobs
-          .filter((item) => item.id !== job.id)
-          .filter((item) => item.status === "open")
-          .filter((item) => item.category === job.category)
-          .slice(0, 3);
-
-        setRelatedJobs(similarJobs);
-      })
-      .catch(() => setRelatedJobs([]));
-
-    return () => {
-      cancelled = true;
-    };
+  const printableBudget = useMemo(() => {
+    if (!job) return "";
+    return formatBudget(job.budget, job.currency);
   }, [job]);
 
+  const handleDownloadBrief = () => {
+    if (typeof window === "undefined") return;
+    window.print();
+  };
+
+  const refreshJobState = async () => {
+    if (!jobId) return;
+    const [nextJob, nextApplications] = await Promise.all([fetchJob(jobId), fetchApplications(jobId)]);
+    setJob(nextJob);
+    setApplications(nextApplications);
+  };
 
   useEffect(() => {
-    const handleApplyShortcut = () => {
-      if (job?.status !== "open") return;
-      if (!publicKey) return;
-      if (isClient) return;
-      if (hasApplied) return;
-      setShowApplyForm(true);
-    };
+    if (!job?.escrowContractId || !job?.id) return;
 
-    window.addEventListener("shortcut-apply-job", handleApplyShortcut);
-    return () => window.removeEventListener("shortcut-apply-job", handleApplyShortcut);
-  }, [job?.status, publicKey, isClient, hasApplied]);
+    setIsLiveSubscriptionActive(true);
+    const unsubscribe = subscribeToContractEvents(job.escrowContractId, (event) => {
+      if (event.jobId && event.jobId !== job.id) return;
 
-  useEffect(() => {
-    if (!isClient || applications.length === 0) {
-      setApplicantProfiles({});
-      return;
-    }
-
-    let cancelled = false;
-
-    async function loadProfiles() {
-      const profileEntries = await Promise.all(
-        applications.map(async (application) => {
-          try {
-            const profile = await fetchProfile(application.freelancerAddress);
-            return [application.freelancerAddress, profile] as const;
-          } catch {
-            return null;
-          }
-        })
-      );
-
-      if (cancelled) return;
-
-      const nextProfiles = profileEntries.reduce<Record<string, UserProfile>>((acc, entry) => {
-        if (entry) acc[entry[0]] = entry[1];
-        return acc;
-      }, {});
-
-      setApplicantProfiles(nextProfiles);
-    }
-
-    loadProfiles();
+      if (event.type === "released") {
+        setJob((prev) => (prev ? { ...prev, status: "completed" } : prev));
+      }
+    });
 
     return () => {
-      cancelled = true;
+      setIsLiveSubscriptionActive(false);
+      unsubscribe();
     };
-  }, [applications, isClient]);
+  }, [job?.escrowContractId, job?.id]);
 
   const handleAcceptApplication = async (applicationId: string) => {
-    if (!publicKey || !id) return;
+    if (!publicKey || !jobId) return;
+
+    setActionError(null);
 
     try {
       setActionError(null);
       await acceptApplication(applicationId, publicKey);
-      const [jobData, applicationData] = await Promise.all([
-        fetchJob(id as string),
-        fetchApplications(id as string),
-      ]);
-      setJob(jobData);
-      setApplications(applicationData);
+      await refreshJobState();
     } catch {
       setActionError("Failed to accept application.");
     }
@@ -274,7 +156,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     if (!publicKey || !job || !id) return;
 
     if (!job.escrowContractId) {
-      setActionError("This job has no escrow contract ID.");
+      setActionError("This job does not have an escrow contract ID yet.");
       return;
     }
 
@@ -282,36 +164,12 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     setActionError(null);
 
     try {
-      let prepared;
-      let fnName: "release_escrow" | "release_with_conversion";
+      const prepared = await buildReleaseEscrowTransaction(job.escrowContractId, job.id, publicKey);
+      const { signedXDR, error } = await signTransactionWithWallet(prepared.toXDR());
 
-      if (releaseCurrency !== job.currency && estimatedOutput) {
-        const targetTokenAddress =
-          releaseCurrency === "XLM" ? XLM_SAC_ADDRESS : USDC_SAC_ADDRESS;
-
-        const minAmountOut = BigInt(
-          Math.round(
-            parseFloat(estimatedOutput) *
-              0.99 *
-              (releaseCurrency === "XLM" ? 10_000_000 : 1_000_000)
-          )
-        );
-
-        prepared = await buildReleaseWithConversionTransaction(
-          job.escrowContractId,
-          job.id,
-          publicKey,
-          targetTokenAddress,
-          minAmountOut
-        );
-        fnName = "release_with_conversion";
-      } else {
-        prepared = await buildReleaseEscrowTransaction(
-          job.escrowContractId,
-          job.id,
-          publicKey
-        );
-        fnName = "release_escrow";
+      if (error || !signedXDR) {
+        setActionError(error || "Signing was cancelled.");
+        return;
       }
 
       // Pause for fee confirmation (Issue #222) before Freighter prompts.
@@ -335,19 +193,11 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
         }
       }).catch(() => {});
 
-      try {
-        await releaseEscrow(job.id, publicKey, hash, releaseCurrency);
-        const refreshedJob = await fetchJob(id as string);
-        setJob(refreshedJob);
-        setReleaseSuccess(true);
-        setReleaseSyncedWithBackend(true);
-      } catch {
-        setActionError("Payment was released on-chain, but the app could not update your job status.");
-        setReleaseSuccess(true);
-        setReleaseSyncedWithBackend(false);
-      }
+      setReleaseTxHash(hash);
+      setReleaseSuccess(true);
+      await refreshJobState();
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : "Could not complete the release.");
+      setActionError(error instanceof Error ? error.message : "Could not release escrow.");
     } finally {
       setReleasingEscrow(false);
     }
@@ -440,111 +290,135 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     <>
       <Head>
         <title>{job.title} - Stellar MarketPay</title>
-        <meta name="description" content={job.description.substring(0, 160)} />
+        <meta name="description" content={job.description.slice(0, 160)} />
         <meta property="og:title" content={job.title} />
-        <meta
-          property="og:description"
-          content={job.description.substring(0, 160)}
-        />
+        <meta property="og:description" content={job.description.slice(0, 160)} />
         <meta property="og:type" content="website" />
+        <meta property="og:url" content={`/jobs/${job.id}`} />
         <meta property="og:site_name" content="Stellar MarketPay" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={job.title} />
-        <meta
-          name="twitter:description"
-          content={job.description.substring(0, 160)}
-        />
+        <meta name="twitter:description" content={job.description.slice(0, 160)} />
       </Head>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">
-        <Link
-          href="/jobs"
-          className="inline-flex items-center gap-1.5 text-sm text-amber-800 hover:text-amber-400 transition-colors mb-6"
-        >
-          ← Back to Jobs
-        </Link>
+        <div className="no-print">
+          <Link
+            href="/jobs"
+            className="inline-flex items-center gap-1.5 text-sm text-amber-800 hover:text-amber-400 transition-colors mb-6"
+          >
+            Back to Jobs
+          </Link>
 
-        <div className="card mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-5">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2 flex-wrap">
-                <span className={statusClass(job.status)}>
-                  {statusLabel(job.status)}
-                </span>
-
-                <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">
-                  {job.category}
-                </span>
-
-                {job.boosted && new Date(job.boostedUntil || "") > new Date() && (
-                  <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                    Featured
+          <section className="card mb-6">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex-1">
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
+                  <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">
+                    {job.category}
                   </span>
-                )}
+                  {job.boosted && new Date(job.boostedUntil || "") > new Date() && (
+                    <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                      Featured
+                    </span>
+                  )}
+                </div>
 
-                <button
-                  type="button"
-                  onClick={handleCopyJobLink}
-                  aria-label="Copy job link"
-                  className="btn-ghost inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full"
+                <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug">
+                  {job.title}
+                </h1>
+
+                <div className="mt-4 flex flex-wrap gap-3 text-sm text-amber-700">
+                  <span>Posted {timeAgo(job.createdAt)}</span>
+                  <span>{applications.length} application{applications.length === 1 ? "" : "s"}</span>
+                  {job.deadline && <span>Deadline: {formatDate(job.deadline)}</span>}
+                </div>
+              </div>
+
+              <div className="sm:text-right">
+                <p className="text-xs text-amber-800 mb-1">Budget</p>
+                <p className="font-mono font-bold text-2xl text-market-400">{printableBudget}</p>
+                <a
+                  href={accountUrl(job.clientAddress)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 mt-3 text-sm text-amber-700 hover:text-market-400 transition-colors"
                 >
-                  {linkCopied ? "Copied!" : "Copy link"}
-                </button>
+                  Client: {shortenAddress(job.clientAddress)}
+                </a>
               </div>
-
-              <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug">
-                {job.title}
-              </h1>
             </div>
 
-            <div className="flex-shrink-0 sm:text-right">
-              <p className="text-xs text-amber-800 mb-1">Budget</p>
-              <p className="font-mono font-bold text-2xl text-market-400">
-                {formatXLM(job.budget)} {job.currency}
-              </p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button onClick={handleDownloadBrief} className="btn-secondary text-sm py-2.5 px-4">
+                Download Brief
+              </button>
+              <button onClick={() => setShowShareModal(true)} className="btn-ghost text-sm">
+                Share Job
+              </button>
+            </div>
+          </section>
 
-              {job.deadline && (
-                <p className="text-xs text-amber-700 mt-2">
-                  Deadline: {formatDate(job.deadline)}
-                </p>
+          <section className="card mb-6">
+            <div className="grid gap-6 sm:grid-cols-2">
+              <div>
+                <p className="label">Category</p>
+                <p className="text-amber-100">{job.category}</p>
+              </div>
+              <div>
+                <p className="label">Client Address</p>
+                <p className="font-mono text-sm break-all text-amber-100">{job.clientAddress}</p>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <h2 className="font-display text-lg font-semibold text-amber-100 mb-3">Description</h2>
+              <p className="text-amber-700/90 leading-relaxed whitespace-pre-wrap">{job.description}</p>
+            </div>
+
+            <div className="mt-6">
+              <h2 className="font-display text-lg font-semibold text-amber-100 mb-3">Required Skills</h2>
+              {job.skills.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {job.skills.map((skill) => (
+                    <span
+                      key={skill}
+                      className="text-sm bg-market-500/8 text-market-400 border border-market-500/15 px-3 py-1 rounded-full"
+                    >
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-amber-800 text-sm">No specific skills were added for this brief.</p>
               )}
-
-              <a
-                href={accountUrl(job.clientAddress)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 mt-3 text-sm text-amber-700 hover:text-market-400 transition-colors"
-              >
-                Client: {shortenAddress(job.clientAddress)} ↗
-              </a>
             </div>
-          </div>
+          </section>
 
-          <div className="prose prose-sm max-w-none">
-            <h3 className="font-display text-base font-semibold text-amber-300 mb-3">
-              Description
-            </h3>
+          {actionError && (
+            <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              {actionError}
+            </div>
+          )}
 
-            <p className="text-amber-700/90 leading-relaxed whitespace-pre-wrap font-body text-sm">
-              {job.description}
-            </p>
-          </div>
+          {releaseSuccess && (
+            <div className="mb-6 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm">
+              Escrow released successfully.
+              {releaseTxHash ? ` Transaction hash: ${releaseTxHash}` : ""}
+            </div>
+          )}
 
-          {job.skills?.length > 0 && (
-            <div className="mt-5">
-              <h3 className="font-display text-base font-semibold text-amber-300 mb-3">
-                Required Skills
-              </h3>
-              <div className="flex flex-wrap gap-2">
-                {job.skills.map((skill) => (
-                  <span
-                    key={skill}
-                    className="text-sm bg-market-500/8 text-market-500/80 border border-market-500/15 px-3 py-1 rounded-full"
-                  >
-                    {skill}
-                  </span>
-                ))}
-              </div>
+          {isClient && job.status === "in_progress" && (
+            <div className="card mb-6">
+              <h2 className="font-display text-lg font-semibold text-amber-100 mb-3">Client Actions</h2>
+              <button
+                onClick={handleReleaseEscrow}
+                disabled={releasingEscrow}
+                className="btn-primary text-sm py-2.5 px-5"
+              >
+                {releasingEscrow ? "Releasing Escrow..." : "Release Escrow"}
+              </button>
             </div>
           )}
 
@@ -568,100 +442,53 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               <h2 className="font-display text-xl font-bold text-amber-100">
                 Applications ({applications.length})
               </h2>
-              <div className="hidden sm:flex items-center gap-3 text-[10px] text-amber-800 font-medium uppercase tracking-wider">
-                <span className="flex items-center gap-1"><kbd className="bg-ink-900 px-1.5 py-0.5 rounded border border-market-500/20 text-market-400">↑↓</kbd> Navigate</span>
-                <span className="flex items-center gap-1"><kbd className="bg-ink-900 px-1.5 py-0.5 rounded border border-market-500/20 text-market-400">Enter</kbd> Accept</span>
-              </div>
-            </div>
-
-
-            <div className="space-y-4">
-              {applications.map((app) => {
-                const applicantProfile = applicantProfiles[app.freelancerAddress];
-                const availability = applicantProfile?.availability;
-
-                return (
-                  <div key={app.id} className="card">
-                    <div className="flex items-start justify-between gap-4 mb-3">
+              <div className="space-y-4">
+                {applications.map((application) => (
+                  <article key={application.id} className="card">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <a
-                          href={accountUrl(app.freelancerAddress)}
+                          href={accountUrl(application.freelancerAddress)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="address-tag hover:border-market-500/40 transition-colors"
                         >
-                          {shortenAddress(app.freelancerAddress)} ↗
+                          {shortenAddress(application.freelancerAddress)}
                         </a>
-
-                        <div className="mt-3">
-                          <span
-                            className={clsx(
-                              "text-xs px-2.5 py-1 rounded-full border",
-                              getAvailabilityBadgeClass(availability?.status)
-                            )}
-                          >
-                            {availabilityStatusLabel(availability?.status)}
-                          </span>
-
-                          <p className="text-xs text-amber-800 mt-2">
-                            {availabilitySummary(availability) || "Availability has not been set yet."}
-                          </p>
-                        </div>
                         <p className="text-xs text-amber-800 mt-2">
-                          Applied {timeAgo(app.createdAt)}
+                          Submitted {timeAgo(application.createdAt)}
                         </p>
-                        {availability && (
-                          <div className="mt-3">
-                            <span
-                              className={clsx(
-                                "text-xs px-2.5 py-1 rounded-full border",
-                                getAvailabilityBadgeClass(availability?.status)
-                              )}
-                            >
-                              {availabilityStatusLabel(availability?.status)}
-                            </span>
-                            <p className="text-xs text-amber-800 mt-2">
-                              {availabilitySummary(availability) || "Availability has not been set yet."}
-                            </p>
-                          </div>
-                        )}
                       </div>
 
-                      <div className="flex-shrink-0 flex items-center gap-3 sm:flex-col sm:items-end sm:gap-2">
+                      <div className="flex items-center gap-3">
                         <span className="font-mono text-market-400 font-semibold text-sm">
-                          {formatXLM(app.bidAmount)}
+                          {formatBudget(application.bidAmount, application.currency)}
                         </span>
-
-                        <span
-                          className={clsx(
-                            "text-xs px-2.5 py-1 rounded-full border",
-                            app.status === "accepted"
-                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                              : app.status === "rejected"
-                                ? "bg-red-500/10 text-red-400 border-red-500/20"
-                                : "bg-market-500/10 text-market-400 border-market-500/20"
-                          )}
-                        >
-                          {app.status}
+                        <span className="text-xs px-2.5 py-1 rounded-full border bg-market-500/10 text-market-400 border-market-500/20">
+                          {application.status}
                         </span>
                       </div>
                     </div>
 
-                    <p className="text-amber-700/80 text-sm leading-relaxed mb-4">
-                      {app.proposal}
+                    <p className="text-amber-700/80 text-sm leading-relaxed mt-4 whitespace-pre-wrap">
+                      {application.proposal}
                     </p>
 
-                    {app.status === "pending" && job.status === "open" && (
-                      <div className="flex gap-3 mt-4 pt-4 border-t border-market-500/10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
-                        <button
-                          onClick={() => handleAcceptApplication(app.id)}
-                          className="btn-primary text-sm py-2 px-4"
-                        >
-                          Accept
-                        </button>
-                        <button className="btn-ghost text-sm py-2 px-4 text-red-400/70 hover:text-red-400 hover:bg-red-500/8">
-                          Reject
-                        </button>
+                    {application.screeningAnswers && Object.keys(application.screeningAnswers).length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-market-500/10">
+                        <h3 className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-3">
+                          Screening Answers
+                        </h3>
+                        <div className="space-y-3">
+                          {Object.entries(application.screeningAnswers).map(([question, answer]) => (
+                            <div key={question}>
+                              <p className="text-xs text-amber-300 font-medium mb-1">{question}</p>
+                              <p className="text-sm text-amber-700/80 bg-market-500/5 p-3 rounded-xl border border-market-500/10">
+                                {answer}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -681,31 +508,37 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
 
-        {isClient && job.visibility === "invite_only" && (
-          <div className="card mb-6">
-            <h3 className="font-display text-lg font-semibold text-amber-100 mb-3">Invite Freelancer</h3>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <input
-                value={inviteAddress}
-                onChange={(e) => setInviteAddress(e.target.value)}
-                className="input-field flex-1"
-                placeholder="Freelancer public key"
-              />
-              <button
-                className="btn-primary text-sm"
-                onClick={async () => {
-                  if (!inviteAddress.trim()) return;
-                  await inviteFreelancer(job.id, inviteAddress.trim());
-                  setInviteAddress("");
-                  setActionError("Invitation sent");
-                }}
-              >
-                Send Invite
-              </button>
+          {job.status === "completed" && publicKey && !ratingSubmitted && (
+            <div className="mt-6">
+              {isClient && job.freelancerAddress && (
+                <RatingForm
+                  jobId={job.id}
+                  ratedAddress={job.freelancerAddress}
+                  ratedLabel="the freelancer"
+                  onSuccess={() => setRatingSubmitted(true)}
+                />
+              )}
+              {isFreelancer && (
+                <RatingForm
+                  jobId={job.id}
+                  ratedAddress={job.clientAddress}
+                  ratedLabel="the client"
+                  onSuccess={() => setRatingSubmitted(true)}
+                />
+              )}
             </div>
+          )}
+        </div>
+      </div>
+
+      <div className="job-brief-print" aria-hidden="true">
+        <div className="brief-page">
+          <div className="brief-header">
+            <p className="brief-kicker">Stellar MarketPay</p>
+            <h1>{job.title}</h1>
+            <p className="brief-subtitle">Scope of Work Brief</p>
           </div>
         )}
 
@@ -756,226 +589,163 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               </div>
             )}
 
-            {actionError && (
-              <p className="mt-3 text-red-400 text-sm">{actionError}</p>
-            )}
-          </div>
-        )}
-
-        {isClient && job.status === "in_progress" && (
-          <div className="card mb-6">
-            <h2 className="font-display text-xl font-bold text-amber-100 mb-3">Escrow Payment</h2>
-
-            {releaseSuccess ? (
-              <div>
-                <p className="text-market-400 font-medium">Payment released successfully.</p>
-                {releaseTxHash && (
-                  <p className="text-sm text-amber-700 mt-2 break-all">Transaction: {releaseTxHash}</p>
-                )}
-                {!releaseSyncedWithBackend && (
-                  <p className="text-sm text-red-400 mt-2">
-                    Backend sync failed. Save the transaction hash.
-                  </p>
-                )}
-              </div>
-            ) : (
-              <button
-                onClick={handleReleaseEscrow}
-                disabled={releasingEscrow}
-                className="btn-primary text-sm py-2 px-4 disabled:opacity-60"
-              >
-                {releasingEscrow ? "Releasing..." : "Release Escrow"}
-              </button>
-            )}
-          </div>
-        )}
-
-        {actionError && <p className="mb-6 text-red-400 text-sm">{actionError}</p>}
-
-        {job.status === "completed" && publicKey && !ratingSubmitted && (
-          <div className="mt-6">
-            {isClient && job.freelancerAddress && (
-              <RatingForm
-                jobId={job.id}
-                ratedAddress={job.freelancerAddress}
-                ratedLabel="the freelancer"
-                onSuccess={() => setRatingSubmitted(true)}
-              />
-            )}
-
-            {isFreelancer && (
-              <RatingForm
-                jobId={job.id}
-                ratedAddress={job.clientAddress}
-                ratedLabel="the client"
-                onSuccess={() => setRatingSubmitted(true)}
-              />
-            )}
-          </div>
-        )}
-
-        <div className="card mt-8">
-          <div className="flex items-center justify-between gap-4 mb-4">
+          <div className="brief-grid">
             <div>
-              <h2 className="font-display text-xl font-bold text-amber-100">Similar Jobs</h2>
-              <p className="text-sm text-amber-800 mt-1">More open jobs in {job.category}</p>
+              <h2>Budget</h2>
+              <p>{printableBudget}</p>
             </div>
-
-            <Link
-              href={`/jobs?category=${encodeURIComponent(job.category)}`}
-              className="text-sm text-market-400 hover:text-market-300 transition-colors"
-            >
-              Browse all {job.category} jobs →
-            </Link>
+            <div>
+              <h2>Category</h2>
+              <p>{printFallback(job.category)}</p>
+            </div>
+            <div>
+              <h2>Deadline</h2>
+              <p>{job.deadline ? formatDate(job.deadline) : "Not specified"}</p>
+            </div>
+            <div>
+              <h2>Client Address</h2>
+              <p className="brief-address">{printFallback(job.clientAddress)}</p>
+            </div>
           </div>
 
-          {relatedJobs.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {relatedJobs.map((relatedJob) => (
-                <Link
-                  key={relatedJob.id}
-                  href={`/jobs/${relatedJob.id}`}
-                  className="block rounded-xl border border-market-500/10 bg-ink-800/60 p-4 hover:border-market-500/30 transition-colors"
-                >
-                  <h3 className="font-display font-semibold text-amber-100 line-clamp-2 mb-3">
-                    {relatedJob.title}
-                  </h3>
+          <section className="brief-section">
+            <h2>Description</h2>
+            <p className="brief-paragraph">{printFallback(job.description)}</p>
+          </section>
 
-                  <div className="space-y-2 text-sm">
-                    <p className="text-amber-700">
-                      Budget:{" "}
-                      <span className="font-mono text-market-400">
-                        {formatXLM(relatedJob.budget)} {relatedJob.currency}
-                      </span>
-                    </p>
-
-                    <p className="text-amber-700">
-                      Applicants:{" "}
-                      <span className="text-amber-300">
-                        {relatedJob.applicationsCount ?? relatedJob.applicantCount ?? 0}
-                      </span>
-                    </p>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-market-500/10 bg-market-500/5 p-5 text-center">
-              <p className="text-sm text-amber-700">No other open jobs found in this category.</p>
-            </div>
-          )}
+          <section className="brief-section">
+            <h2>Required Skills</h2>
+            {job.skills.length > 0 ? (
+              <ul className="brief-skills">
+                {job.skills.map((skill) => (
+                  <li key={skill}>{skill}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>No specific skills listed.</p>
+            )}
+          </section>
         </div>
       </div>
 
-      {showReportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <div className="w-full max-w-md rounded-2xl border border-market-500/20 bg-ink-900 p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <div>
-                <h2 className="font-display text-xl font-bold text-amber-100">
-                  Report this job
-                </h2>
-                <p className="text-xs text-amber-800 mt-1">
-                  Help keep suspicious or fraudulent jobs off the platform.
-                </p>
-              </div>
+      {showShareModal && <ShareJobModal job={job} onClose={() => setShowShareModal(false)} />}
 
-              <button
-                onClick={() => setShowReportModal(false)}
-                className="text-amber-800 hover:text-amber-300"
-                aria-label="Close report modal"
-              >
-                ✕
-              </button>
-            </div>
+      <style jsx global>{`
+        .job-brief-print {
+          display: none;
+        }
 
-            {reportSuccess ? (
-              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-                <p className="text-emerald-400 font-medium">
-                  Thank you for your report.
-                </p>
-                <p className="text-xs text-amber-700 mt-1">
-                  The team will review this job listing.
-                </p>
+        @page {
+          size: A4;
+          margin: 12mm;
+        }
 
-                <button
-                  onClick={() => setShowReportModal(false)}
-                  className="btn-primary w-full mt-4"
-                >
-                  Close
-                </button>
-              </div>
-            ) : (
-              <>
-                <label className="block text-sm text-amber-300 mb-2">
-                  Report category
-                </label>
+        @media print {
+          html,
+          body {
+            background: #ffffff !important;
+          }
 
-                <select
-                  value={reportCategory}
-                  onChange={(event) => setReportCategory(event.target.value)}
-                  className="w-full rounded-lg border border-market-500/20 bg-ink-800 px-3 py-2 text-sm text-amber-100 outline-none focus:border-market-400"
-                >
-                  <option value="">Select a category</option>
-                  <option value="fraud">Fraud or scam</option>
-                  <option value="suspicious">Suspicious listing</option>
-                  <option value="spam">Spam</option>
-                  <option value="inappropriate">Inappropriate content</option>
-                  <option value="other">Other</option>
-                </select>
+          body * {
+            visibility: hidden;
+          }
 
-                <label className="block text-sm text-amber-300 mt-4 mb-2">
-                  Description optional
-                </label>
+          .job-brief-print,
+          .job-brief-print * {
+            visibility: visible;
+          }
 
-                <textarea
-                  value={reportDescription}
-                  onChange={(event) => setReportDescription(event.target.value)}
-                  rows={4}
-                  placeholder="Add extra details..."
-                  className="w-full rounded-lg border border-market-500/20 bg-ink-800 px-3 py-2 text-sm text-amber-100 outline-none focus:border-market-400"
-                />
+          .job-brief-print {
+            display: block !important;
+            position: absolute;
+            inset: 0;
+            background: #ffffff;
+            color: #111827;
+          }
 
-                {reportError && (
-                  <p className="mt-3 text-sm text-red-400">{reportError}</p>
-                )}
+          .brief-page {
+            width: 100%;
+            min-height: calc(297mm - 24mm);
+            padding: 0;
+            font-family: "DM Sans", sans-serif;
+            color: #111827;
+          }
 
-                <div className="mt-5 flex gap-3">
-                  <button
-                    onClick={() => setShowReportModal(false)}
-                    className="btn-secondary flex-1"
-                    disabled={reportLoading}
-                  >
-                    Cancel
-                  </button>
+          .brief-header {
+            border-bottom: 2px solid #d1d5db;
+            padding-bottom: 12mm;
+            margin-bottom: 10mm;
+          }
 
-                  <button
-                    onClick={handleSubmitReport}
-                    className="btn-primary flex-1"
-                    disabled={reportLoading}
-                  >
-                    {reportLoading ? "Submitting..." : "Submit Report"}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+          .brief-header h1 {
+            font-family: "Playfair Display", serif;
+            font-size: 24pt;
+            line-height: 1.2;
+            margin: 0;
+          }
 
-      {showShareModal && job && (
-        <ShareJobModal job={job} onClose={() => setShowShareModal(false)} />
-      )}
+          .brief-kicker {
+            font-size: 10pt;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: #92400e;
+            margin: 0 0 4mm;
+          }
 
-      {pendingRelease && publicKey && (
-        <FeeEstimationModal
-          transaction={pendingRelease.transaction}
-          functionName={pendingRelease.fnName}
-          payerPublicKey={publicKey}
-          onConfirm={handleConfirmReleaseFee}
-          onCancel={handleCancelReleaseFee}
-        />
-      )}
+          .brief-subtitle {
+            margin: 4mm 0 0;
+            color: #4b5563;
+            font-size: 11pt;
+          }
+
+          .brief-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8mm;
+            margin-bottom: 10mm;
+          }
+
+          .brief-grid h2,
+          .brief-section h2 {
+            font-size: 10pt;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #6b7280;
+            margin: 0 0 2mm;
+          }
+
+          .brief-grid p,
+          .brief-section p,
+          .brief-section li {
+            font-size: 11pt;
+            line-height: 1.6;
+            margin: 0;
+          }
+
+          .brief-address {
+            word-break: break-all;
+          }
+
+          .brief-section {
+            margin-bottom: 10mm;
+          }
+
+          .brief-paragraph {
+            white-space: pre-wrap;
+          }
+
+          .brief-skills {
+            margin: 0;
+            padding-left: 18px;
+            columns: 2;
+            column-gap: 10mm;
+          }
+
+          .brief-skills li {
+            margin-bottom: 2mm;
+          }
+        }
+      `}</style>
     </>
   );
 }
