@@ -14,7 +14,8 @@ const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
 const { WebSocketServer } = require("ws");
 const nodemailer = require("nodemailer");
-const { sanitizeMiddleware } = require("./middleware/sanitize");
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpecs = require('./config/swagger');
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");

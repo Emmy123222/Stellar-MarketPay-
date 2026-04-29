@@ -12,11 +12,13 @@ const { verifyJWT } = require("../middleware/auth");
 // Rate limiters for different job operations
 const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per minute
 const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per minute
-const reportJobRateLimiter = createRateLimiter(5, 1);   // 5 reports per minute
 
 const jobService = require("../services/jobService");
-const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount, trackReferral } = jobService.default || jobService;
-const { verifyJWT } = require("../middleware/auth");
+const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount } = jobService.default || jobService;
+const { inviteFreelancerToJob } = require("../services/jobInvitationService");
+const { logContractInteraction } = require("../services/contractAuditService");
+const jobDraftService = require("../services/jobDraftService");
+const recommendationService = require("../services/recommendationService");
 
 const jobReports = new Map(); // In-memory report storage for now
 
@@ -76,13 +78,8 @@ function isValidReportCategory(category) {
  *         name: status
  *         schema:
  *           type: string
- *           enum: [open, in_progress, completed, cancelled, expired, all]
+ *           enum: [open, in_progress, completed, cancelled]
  *         description: Filter by job status
- *       - in: query
- *         name: include_expired
- *         schema:
- *           type: boolean
- *         description: Whether to include expired jobs in the results
  *       - in: query
  *         name: limit
  *         schema:
@@ -114,6 +111,22 @@ function isValidReportCategory(category) {
  *     responses:
  *       200:
  *         description: Jobs retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Job'
+ *                 nextCursor:
+ *                   type: string
+ *                   nullable: true
+ *                   description: Cursor for next page
  */
 // GET /api/jobs — list jobs
 router.get("/", generalJobRateLimiter, async (req, res, next) => {
@@ -156,6 +169,79 @@ router.get("/:id", generalJobRateLimiter , async (req, res, next) => {
   catch (e) { next(e); }
 });
 
+/**
+ * @swagger
+ * /api/jobs:
+ *   post:
+ *     summary: Create a new job
+ *     description: Creates a new job posting in the marketplace
+ *     tags: [Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - title
+ *               - description
+ *               - budget
+ *               - clientId
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 description: Job title
+ *               description:
+ *                 type: string
+ *                 description: Detailed job description
+ *               budget:
+ *                 type: number
+ *                 description: Job budget in XLM
+ *               clientId:
+ *                 type: string
+ *                 description: Client's Stellar address
+ *               category:
+ *                 type: string
+ *                 description: Job category
+ *               skills:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Required skills
+ *               visibility:
+ *                 type: string
+ *                 enum: [public, private]
+ *                 default: public
+ *                 description: Job visibility
+ *     responses:
+ *       201:
+ *         description: Job created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/Job'
+ *       400:
+ *         description: Bad request - invalid input data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized - authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // POST /api/jobs — create a new job
 router.post("/", jobCreationRateLimiter , async (req, res, next) => {
   try {
@@ -218,7 +304,16 @@ router.patch("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, ne
   } catch (e) { next(e); }
 });
 
-// PATCH /api/jobs/:id/extend — extend job expiry
+// GET /api/jobs/:id/analytics — job performance analytics
+router.get("/:id/analytics", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { getJobAnalytics } = require("../services/jobService");
+    const analytics = await getJobAnalytics(req.params.id);
+    res.json({ success: true, data: analytics });
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/jobs/:id/extend — extend job expiry by 30 days
 router.patch("/:id/extend", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
   try {
     const { days } = req.body;
