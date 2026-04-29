@@ -7,7 +7,7 @@
 
 const pool = require("../db/pool");
 const { getJob, assignFreelancer } = require("./jobService");
-const { calculateFreelancerTier } = require("./profileService");
+const { calculateFreelancerTier, isBlocked } = require("./profileService");
 
 /**
  * Camel-cased application record returned by this service.
@@ -140,14 +140,20 @@ async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount
     }
   }
 
-  const safeScreeningAnswers =
-    screeningAnswers && typeof screeningAnswers === "object" ? screeningAnswers : {};
+  // Check if freelancer is blocked by the client
+  const blocked = await isBlocked(job.clientAddress, freelancerAddress);
+  if (blocked) {
+    const e = new Error("This job is not available for applications");
+    e.status = 403;
+    throw e;
+  }
 
+  // Insert; the UNIQUE(job_id, freelancer_address) constraint handles duplicates.
   let appRow;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, status, screening_answers, referred_by, created_at)
-       VALUES ($1, $2, $3, $4, 'pending', $5, $6, NOW())
+      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, status, screening_answers, created_at)
+       VALUES ($1, $2, $3, $4, 'pending', $5, NOW())
        RETURNING *`,
       [jobId, freelancerAddress, proposal.trim(), parseFloat(bidAmount).toFixed(7), screeningAnswers || {}, referredBy || null]
     );
@@ -184,6 +190,11 @@ async function getApplicationsForJob(jobId) {
      LEFT JOIN profiles p ON p.public_key = a.freelancer_address
      LEFT JOIN ratings r ON r.rated_address = a.freelancer_address
      WHERE a.job_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM profiles cp
+         WHERE cp.public_key = (SELECT client_address FROM jobs WHERE id = $1)
+           AND a.freelancer_address = ANY(cp.blocked_addresses)
+       )
      GROUP BY a.id, p.completed_jobs
      ORDER BY a.created_at ASC`,
     [jobId]

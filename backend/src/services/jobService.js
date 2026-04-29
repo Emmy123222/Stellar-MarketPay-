@@ -6,7 +6,8 @@
 "use strict";
 
 const pool = require("../db/pool");
-const { query } = pool; // Assuming it might be extracted like this or just use pool.query
+const { getTimezoneOffset } = require("date-fns-tz");
+const { isBlocked } = require("./profileService");
 
 const { getTimezoneOffset } = require("date-fns-tz");
 

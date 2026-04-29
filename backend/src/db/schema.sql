@@ -27,16 +27,7 @@ ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS availability JSONB;
 
 ALTER TABLE profiles
-  ADD COLUMN IF NOT EXISTS did_hash TEXT,
-  ADD COLUMN IF NOT EXISTS is_kyc_verified BOOLEAN NOT NULL DEFAULT FALSE,
-  ADD COLUMN IF NOT EXISTS github_username TEXT,
-  ADD COLUMN IF NOT EXISTS github_avatar_url TEXT,
-  ADD COLUMN IF NOT EXISTS github_profile_url TEXT,
-  ADD COLUMN IF NOT EXISTS github_primary_languages TEXT[] NOT NULL DEFAULT '{}',
-  ADD COLUMN IF NOT EXISTS github_top_repos JSONB NOT NULL DEFAULT '[]'::jsonb,
-  ADD COLUMN IF NOT EXISTS github_token_encrypted TEXT,
-  ADD COLUMN IF NOT EXISTS github_connected_at TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS portfolio_files JSONB NOT NULL DEFAULT '[]'::jsonb;
+  ADD COLUMN IF NOT EXISTS blocked_addresses TEXT[] NOT NULL DEFAULT '{}';
 
 -- ─────────────────────────────────────────
 -- jobs
