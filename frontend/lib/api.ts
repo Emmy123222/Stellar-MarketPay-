@@ -762,35 +762,6 @@ export async function submitAssessment(skill: string, answers: Record<number, nu
   return data.data;
 }
 
-// ─── Earnings (Issue #181) ────────────────────────────────────────────────────
-
-export interface EarningPayment {
-  id: string;
-  jobId: string;
-  jobTitle: string;
-  amountXlm: string;
-  releasedAt: string;
-  clientAddress: string;
-}
-
-export interface MonthlyEarning {
-  month: string;      // "YYYY-MM"
-  totalXlm: number;
-}
-
-export interface EarningsData {
-  totalXlm: string;
-  payments: EarningPayment[];
-  monthly: MonthlyEarning[];
-}
-
-export async function fetchFreelancerEarnings(publicKey: string): Promise<EarningsData> {
-  const { data } = await api.get<{ success: boolean; data: EarningsData }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/earnings`
-  );
-  return data.data;
-}
-
 /** Fetches all skill assessment results (badges) for a public profile. */
 export async function fetchSkillBadges(publicKey: string): Promise<SkillBadge[]> {
   const { data } = await api.get<{ success: boolean; data: SkillBadge[] }>(
@@ -799,80 +770,55 @@ export async function fetchSkillBadges(publicKey: string): Promise<SkillBadge[]>
   return data.data;
 }
 
-// ─── Dispute Evidence (Issue #223) ───────────────────────────────────────────
+// ─── Admin Moderation ──────────────────────────────────────────────────────────
 
-export interface DisputeEvidence {
-  id: string;
-  uploaderAddress: string;
-  fileName: string;
-  fileSize: number;
-  mimeType: string;
-  ipfsCid: string;
-  gatewayUrl: string;
-  createdAt: string;
-}
-
-export interface DisputeDetail {
-  job: {
-    id: string;
-    title: string;
-    status: string;
-    client_address: string;
-    freelancer_address: string;
-    created_at: string;
-  };
-  evidence: DisputeEvidence[];
-}
-
-export async function fetchDisputeDetail(jobId: string): Promise<DisputeDetail> {
-  const { data } = await api.get<{ success: boolean; data: DisputeDetail }>(`/api/disputes/${jobId}`);
+export async function fetchAdminJobReports() {
+  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/reports/jobs");
   return data.data;
 }
 
-export async function uploadDisputeEvidence(jobId: string, file: File): Promise<DisputeEvidence> {
-  const formData = new FormData();
-  formData.append("file", file);
-  const { data } = await api.post<{ success: boolean; data: DisputeEvidence }>(
-    `/api/disputes/${jobId}/evidence`,
-    formData,
-    { headers: { "Content-Type": "multipart/form-data" }, timeout: 60000 }
+export async function fetchAdminDisputes() {
+  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/disputes");
+  return data.data;
+}
+
+export async function fetchAdminLogs() {
+  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/logs");
+  return data.data;
+}
+
+export async function fetchFrozenWallets() {
+  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/wallets/frozen");
+  return data.data;
+}
+
+export async function resolveDispute(jobId: string, resolution: string, releaseTo: "client" | "freelancer") {
+  const { data } = await api.patch<{ success: boolean; message: string }>(
+    `/api/admin/disputes/${jobId}/resolve`,
+    { resolution, releaseTo }
   );
-  return data.data;
-}
-
-// ─── WebAuthn / Passkeys (Issue #218) ────────────────────────────────────────
-
-export interface PasskeyCredential {
-  id: string;
-  credential_name: string;
-  created_at: string;
-}
-
-export async function fetchPasskeyRegistrationOptions(publicKey: string) {
-  const { data } = await api.post<{ success: boolean; data: any }>("/api/webauthn/register-options", { publicKey });
-  return data.data;
-}
-
-export async function verifyPasskeyRegistration(credential: any, name: string) {
-  const { data } = await api.post<{ success: boolean; message: string }>("/api/webauthn/register-verify", { credential, name });
   return data;
 }
 
-export async function fetchPasskeyLoginOptions(publicKey: string) {
-  const { data } = await api.post<{ success: boolean; data: any }>("/api/webauthn/login-options", { publicKey });
-  return data.data;
-}
-
-export async function verifyPasskeyLogin(credential: any, publicKey: string) {
-  const { data } = await api.post<{ success: boolean; token: string }>("/api/webauthn/login-verify", { credential, publicKey });
+export async function adminCancelJob(jobId: string, reason: string) {
+  const { data } = await api.patch<{ success: boolean; message: string }>(
+    `/api/admin/jobs/${jobId}/cancel`,
+    { reason }
+  );
   return data;
 }
 
-export async function fetchPasskeyCredentials(): Promise<PasskeyCredential[]> {
-  const { data } = await api.get<{ success: boolean; data: PasskeyCredential[] }>("/api/webauthn/credentials");
-  return data.data;
+export async function freezeWallet(address: string, reason: string) {
+  const { data } = await api.post<{ success: boolean; message: string }>(
+    `/api/admin/wallets/${address}/freeze`,
+    { reason }
+  );
+  return data;
 }
 
-export async function deletePasskeyCredential(id: string) {
-  await api.delete(`/api/webauthn/credentials/${id}`);
+export async function unfreezeWallet(address: string) {
+  const { data } = await api.delete<{ success: boolean; message: string }>(
+    `/api/admin/wallets/${address}/freeze`
+  );
+  return data;
 }
