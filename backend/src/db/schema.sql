@@ -15,7 +15,9 @@ CREATE TABLE IF NOT EXISTS profiles (
   total_earned_xlm  NUMERIC(20,7) NOT NULL DEFAULT 0,
   rating            NUMERIC(3,2),                -- NULL until first rating
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reputation_points INTEGER     NOT NULL DEFAULT 0,
+  referral_count    INTEGER     NOT NULL DEFAULT 0
 );
 
 ALTER TABLE profiles
@@ -25,16 +27,7 @@ ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS availability JSONB;
 
 ALTER TABLE profiles
-  ADD COLUMN IF NOT EXISTS did_hash TEXT,
-  ADD COLUMN IF NOT EXISTS is_kyc_verified BOOLEAN NOT NULL DEFAULT FALSE,
-  ADD COLUMN IF NOT EXISTS github_username TEXT,
-  ADD COLUMN IF NOT EXISTS github_avatar_url TEXT,
-  ADD COLUMN IF NOT EXISTS github_profile_url TEXT,
-  ADD COLUMN IF NOT EXISTS github_primary_languages TEXT[] NOT NULL DEFAULT '{}',
-  ADD COLUMN IF NOT EXISTS github_top_repos JSONB NOT NULL DEFAULT '[]'::jsonb,
-  ADD COLUMN IF NOT EXISTS github_token_encrypted TEXT,
-  ADD COLUMN IF NOT EXISTS github_connected_at TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS portfolio_files JSONB NOT NULL DEFAULT '[]'::jsonb;
+  ADD COLUMN IF NOT EXISTS blocked_addresses TEXT[] NOT NULL DEFAULT '{}';
 
 -- ─────────────────────────────────────────
 -- jobs
@@ -44,6 +37,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   title               TEXT        NOT NULL,
   description         TEXT        NOT NULL,
   budget              NUMERIC(20,7) NOT NULL,
+  currency            TEXT        NOT NULL DEFAULT 'XLM',
   category            TEXT        NOT NULL,
   skills              TEXT[]      NOT NULL DEFAULT '{}',
   status              TEXT        NOT NULL DEFAULT 'open',
@@ -54,12 +48,19 @@ CREATE TABLE IF NOT EXISTS jobs (
   deadline            TIMESTAMPTZ,
   timezone            TEXT,
   screening_questions TEXT[]      NOT NULL DEFAULT '{}',
+  share_count         INTEGER     NOT NULL DEFAULT 0,
+  boosted             BOOLEAN     NOT NULL DEFAULT false,
+  boosted_until       TIMESTAMPTZ,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at          TIMESTAMPTZ,
   extended_count      INTEGER     NOT NULL DEFAULT 0,
   extended_until      TIMESTAMPTZ
 );
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS share_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS boosted BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS boosted_until TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS jobs_status_idx          ON jobs(status);
 CREATE INDEX IF NOT EXISTS jobs_category_idx        ON jobs(category);
@@ -104,6 +105,7 @@ CREATE TABLE IF NOT EXISTS applications (
   status              TEXT        NOT NULL DEFAULT 'pending',
   accepted_at         TIMESTAMPTZ,                 -- When the client accepted this application
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  referred_by         TEXT        REFERENCES profiles(public_key),
   UNIQUE (job_id, freelancer_address)              -- prevent duplicate applications
 );
 
@@ -189,123 +191,16 @@ CREATE INDEX IF NOT EXISTS ratings_rated_address_idx ON ratings(rated_address);
 CREATE INDEX IF NOT EXISTS ratings_job_id_idx        ON ratings(job_id);
 
 -- ─────────────────────────────────────────
--- payment_records (on-chain payment mirror)
+-- skill_assessments
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS payment_records (
-  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tx_hash             TEXT        NOT NULL UNIQUE,
-  operation_id        TEXT        NOT NULL UNIQUE,
-  ledger              BIGINT      NOT NULL,
-  job_id              UUID        REFERENCES jobs(id),
-  from_address        TEXT        NOT NULL,
-  to_address          TEXT        NOT NULL,
-  amount              NUMERIC(20,7) NOT NULL,
-  asset               TEXT        NOT NULL DEFAULT 'XLM',
-  memo                TEXT,
-  direction           TEXT        NOT NULL DEFAULT 'outbound',
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS skill_assessments (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  public_key  TEXT        NOT NULL REFERENCES profiles(public_key),
+  skill       TEXT        NOT NULL,
+  score       INTEGER     NOT NULL CHECK (score BETWEEN 0 AND 100),
+  passed      BOOLEAN     NOT NULL,
+  taken_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS payment_records_job_id_idx ON payment_records(job_id);
-CREATE INDEX IF NOT EXISTS payment_records_ledger_idx ON payment_records(ledger DESC);
-
--- ─────────────────────────────────────────
--- donor_stats (simple on-chain donor leaderboard)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS donor_stats (
-  address             TEXT PRIMARY KEY,
-  total_donated_xlm   NUMERIC(20,7) NOT NULL DEFAULT 0,
-  donation_count      INTEGER       NOT NULL DEFAULT 0,
-  updated_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
-);
-
--- ─────────────────────────────────────────
--- indexer_state (single-row sync cursor)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS indexer_state (
-  id                     INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  synced                 BOOLEAN      NOT NULL DEFAULT FALSE,
-  last_processed_ledger  BIGINT,
-  last_transaction_at    TIMESTAMPTZ,
-  updated_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-);
-
-INSERT INTO indexer_state (id, synced)
-VALUES (1, FALSE)
-ON CONFLICT (id) DO NOTHING;
-
--- ─────────────────────────────────────────
--- scope_sessions (real-time scope collaboration history)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS scope_sessions (
-  session_id          TEXT PRIMARY KEY,
-  content             TEXT        NOT NULL DEFAULT '',
-  cursors             JSONB       NOT NULL DEFAULT '{}'::jsonb,
-  finalized           BOOLEAN     NOT NULL DEFAULT FALSE,
-  finalized_payload   JSONB,
-  expires_at          TIMESTAMPTZ NOT NULL,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS scope_sessions_expires_at_idx ON scope_sessions(expires_at);
-
--- ─────────────────────────────────────────
--- contract_events (Issue #199)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS contract_events (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id          TEXT        NOT NULL,                -- May be UUID or contract String ID
-  event_type      TEXT        NOT NULL,                -- escrow_created, work_started, etc.
-  contract_id     TEXT        NOT NULL,
-  tx_hash         TEXT        NOT NULL,
-  ledger          BIGINT      NOT NULL,
-  data            JSONB       NOT NULL DEFAULT '{}'::jsonb,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS contract_events_job_id_idx ON contract_events(job_id);
-CREATE INDEX IF NOT EXISTS contract_events_created_at_idx ON contract_events(created_at DESC);
-
--- ─────────────────────────────────────────
--- job_drafts (Issue #219)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS job_drafts (
-  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_address      TEXT        NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
-  title               TEXT        NOT NULL,
-  description         TEXT        NOT NULL,
-  budget              NUMERIC(20,7) NOT NULL,
-  category            TEXT        NOT NULL,
-  skills              TEXT[]      NOT NULL DEFAULT '{}',
-  currency            TEXT        NOT NULL DEFAULT 'XLM',
-  timezone            TEXT,
-  visibility          TEXT        NOT NULL DEFAULT 'public',
-  screening_questions TEXT[]      NOT NULL DEFAULT '{}',
-  deadline            TIMESTAMPTZ,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS job_drafts_client_idx ON job_drafts(client_address);
-CREATE INDEX IF NOT EXISTS job_drafts_updated_at_idx ON job_drafts(updated_at DESC);
-
--- ─────────────────────────────────────────
--- platform_stats (Issue #232)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS platform_stats (
-  id                  INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  total_jobs_posted   INTEGER     NOT NULL DEFAULT 0,
-  total_escrow_xlm    NUMERIC(20,7) NOT NULL DEFAULT 0,
-  active_users_30d    INTEGER     NOT NULL DEFAULT 0,
-  completion_rate     NUMERIC(5,2) NOT NULL DEFAULT 0,
-  avg_job_budget      NUMERIC(20,7) NOT NULL DEFAULT 0,
-  last_updated        TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-INSERT INTO platform_stats (id)
-VALUES (1)
-ON CONFLICT (id) DO NOTHING;
-
--- ─────────────────────────────────────────
-
+CREATE INDEX IF NOT EXISTS skill_assessments_public_key_idx ON skill_assessments(public_key);
+CREATE INDEX IF NOT EXISTS skill_assessments_skill_idx      ON skill_assessments(skill);

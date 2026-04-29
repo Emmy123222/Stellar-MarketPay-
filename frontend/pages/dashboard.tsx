@@ -6,20 +6,9 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
-import {
-  fetchMyJobs,
-  fetchMyApplications,
-  fetchProposalTemplates,
-  createProposalTemplate,
-  updateProposalTemplate,
-  deleteProposalTemplate,
-  fetchPriceAlertPreference,
-  upsertPriceAlertPreference,
-  fetchJobAnalytics,
-  extendJobExpiry,
-} from "@/lib/api";
+import { fetchMyJobs, fetchMyApplications, fetchUnreadCount } from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
-import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV } from "@/utils/format";
+import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV, CATEGORY_ICONS } from "@/utils/format";
 import type { Job, Application } from "@/utils/types";
 import EditProfileForm from "@/components/EditProfileForm";
 import SendPaymentForm from "@/components/SendPaymentForm";
@@ -34,6 +23,22 @@ import JobAnalytics from "@/components/JobAnalytics";
 
 const LOW_BALANCE_THRESHOLD_XLM = 5;
 
+// ── Job Alert localStorage helpers (mirrors jobs/index.tsx) ─────────────────
+const ALERT_KEY = "marketpay_job_alerts";
+
+function getAlertSubscriptions(): string[] {
+  if (typeof window === "undefined") return [];
+  try { return JSON.parse(localStorage.getItem(ALERT_KEY) ?? "[]"); }
+  catch { return []; }
+}
+
+function clearAlertSubscription(cat: string): void {
+  const current = getAlertSubscriptions();
+  const updated = current.filter((c) => c !== cat);
+  localStorage.setItem(ALERT_KEY, JSON.stringify(updated));
+  window.dispatchEvent(new Event("job-alerts-changed"));
+}
+
 interface DashboardProps {
   publicKey: string | null;
   onConnect: (pk: string) => void;
@@ -47,8 +52,9 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [tab, setTab] = useState<Tab>("posted");
   const [myJobs, setMyJobs] = useState<Job[]>([]);
   const [myApplications, setMyApplications] = useState<Application[]>([]);
-  const [balance, setBalance] = useState<string | null>(null);
-  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [balance, setBalance]           = useState<string | null>(null);
+  const [usdcBalance, setUsdcBalance]   = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
@@ -131,6 +137,44 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     }
   };
 
+  // Sync alert subscriptions from localStorage
+  useEffect(() => {
+    const sync = () => setAlertSubscriptions(getAlertSubscriptions());
+    sync();
+    window.addEventListener("job-alerts-changed", sync);
+    return () => window.removeEventListener("job-alerts-changed", sync);
+  }, []);
+
+  // Check for new matching jobs whenever subscriptions change
+  useEffect(() => {
+    if (alertSubscriptions.length === 0) {
+      setAlertMatches([]);
+      window.dispatchEvent(new CustomEvent("job-alert-matches", { detail: { count: 0 } }));
+      return;
+    }
+    // Fetch open jobs for each subscribed category and collect matches
+    Promise.all(
+      alertSubscriptions.map((cat) =>
+        fetchJobs({ category: cat, status: "open", limit: 5 }).then((r) => r.jobs)
+      )
+    )
+      .then((results) => {
+        const seen = new Set<string>();
+        const matches: Job[] = [];
+        for (const batch of results) {
+          for (const job of batch) {
+            if (!seen.has(job.id)) { seen.add(job.id); matches.push(job); }
+          }
+        }
+        setAlertMatches(matches);
+        setAlertMatchesDismissed(false);
+        if (matches.length > 0) {
+          window.dispatchEvent(new CustomEvent("job-alert-matches", { detail: { count: matches.length } }));
+        }
+      })
+      .catch(console.error);
+  }, [alertSubscriptions]);
+
   useEffect(() => {
     if (!publicKey) return;
 
@@ -139,12 +183,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       fetchMyApplications(publicKey),
       getXLMBalance(publicKey),
       getUSDCBalance(publicKey),
+      fetchUnreadCount(),
     ])
-      .then(([jobs, apps, bal, usdc]) => {
+      .then(([jobs, apps, bal, usdc, unread]) => {
         setMyJobs(jobs);
         setMyApplications(apps);
         setBalance(bal);
         setUsdcBalance(usdc);
+        setUnreadCount(unread);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -336,16 +382,25 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         {(["posted", "applied", "send", "edit_profile", "templates", "price_alerts", "withdrawals"] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={clsx(
-              "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap",
+              "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap relative",
               tab === t ? "border-market-400 text-market-300" : "border-transparent text-amber-700 hover:text-amber-400"
             )}>
-            {t === "posted"       ? `Jobs Posted (${myJobs.length})` :
-             t === "applied"      ? `Applications (${myApplications.length})` :
-             t === "send"         ? "Send Payment" :
-             t === "templates"    ? "Proposal Templates" :
-             t === "price_alerts" ? "Price Alerts" :
-             t === "withdrawals"  ? `Withdrawals (${withdrawHistory.length})` :
+            {t === "posted"    ? `Jobs Posted (${myJobs.length})` :
+             t === "applied"   ? (
+               <>
+                 <span>Applications</span>
+                 {unreadCount > 0 && (
+                   <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-red-500 text-white">
+                     {unreadCount > 99 ? "99+" : unreadCount}
+                   </span>
+                 )}
+               </>
+             ) :
+             t === "send"      ? "Send Payment" :
              "Edit Profile"}
+            {t === "job_alerts" && alertSubscriptions.length > 0 && (
+              <span className="absolute top-2 right-1 w-2 h-2 bg-market-400 rounded-full" />
+            )}
           </button>
         ))}
       </div>

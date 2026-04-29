@@ -6,58 +6,9 @@
 export type JobStatus = "open" | "in_progress" | "completed" | "cancelled" | "expired";
 export type UserRole  = "client" | "freelancer" | "both";
 export type Currency  = "XLM" | "USDC";
-export type JobVisibility = "public" | "private" | "invite_only";
 export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent";
 export type AvailabilityStatus = "available" | "busy" | "unavailable";
-export type PortfolioItemType = "github" | "live" | "stellar_tx" | "file";
-
-export interface PortfolioFile {
-  cid: string;
-  fileName: string;
-  mimeType: string;
-  size: number;
-  uploadedAt: string;
-}
-
-export interface TokenInfo {
-  contractId: string;
-  name: string;
-  symbol: string;
-  decimals: number;
-  icon?: string;
-  verified?: boolean;
-}
-
-export interface TokenBalance {
-  balance: string;
-  exists: boolean;
-  limit: string;
-}
-
-export interface ApplicationStatusCounts {
-  pending?: number;
-  accepted?: number;
-  rejected?: number;
-}
-
-export interface ApplicationPerDay {
-  day: string;
-  count: number;
-}
-
-export interface AverageBid {
-  currency: Currency;
-  avgBid: number;
-  count: number;
-}
-
-export interface JobAnalytics {
-  applicationsPerDay: ApplicationPerDay[];
-  averageBidAmount: AverageBid[];
-  skillDistribution: Record<string, number>;
-  daysToHire: number | null;
-  applicationStatusCounts: ApplicationStatusCounts;
-}
+export type PortfolioItemType = "github" | "live" | "stellar_tx";
 
 export interface PortfolioItem {
   title: string;
@@ -69,6 +20,24 @@ export interface Availability {
   status: AvailabilityStatus;
   availableFrom?: string;
   availableUntil?: string;
+}
+
+export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent";
+
+export type AvailabilityStatus = "available" | "busy" | "unavailable";
+
+export interface Availability {
+  status: AvailabilityStatus;
+  availableFrom?: string;   // ISO date string
+  availableUntil?: string;  // ISO date string
+}
+
+export type PortfolioItemType = "github" | "live" | "stellar_tx";
+
+export interface PortfolioItem {
+  title: string;
+  url: string;
+  type: PortfolioItemType;
 }
 
 export interface Job {
@@ -108,7 +77,18 @@ export interface Application {
   currency: Currency;    // XLM or USDC
   status: "pending" | "accepted" | "rejected";
   screeningAnswers?: Record<string, string>;  // Question -> Answer mapping
+  referredBy?: string;
   createdAt: string;
+}
+
+export interface ProfileStats {
+  totalApplications: number;
+  acceptedApplications: number;
+  successRate: number;
+}
+
+export interface ResponseTimeStats {
+  averageDays: number | null;
 }
 
 export interface UserProfile {
@@ -126,8 +106,8 @@ export interface UserProfile {
   tier?: FreelancerTier;
   /** Number of ratings received (when returned by profile API). */
   ratingCount?: number;
-  didHash?: string;
-  isKycVerified?: boolean;
+  reputationPoints?: number;
+  referralCount?: number;
   createdAt: string;
   updatedAt?: string;
 }
@@ -142,23 +122,36 @@ export interface Rating {
   createdAt: string;
 }
 
-export interface ProposalTemplate {
-  id: string;
-  freelancerAddress: string;
-  name: string;
-  content: string;
-  createdAt: string;
-  updatedAt: string;
+export interface AssessmentQuestion {
+  id: number;
+  question: string;
+  options: string[];
 }
 
-export interface PriceAlertPreference {
-  freelancer_address: string;
-  min_xlm_price_usd?: string | null;
-  max_xlm_price_usd?: string | null;
-  email_notifications_enabled: boolean;
-  email?: string | null;
-  last_min_alert_at?: string | null;
-  last_max_alert_at?: string | null;
+export interface AssessmentInfo {
+  skill: string;
+  label: string;
+  questions: AssessmentQuestion[];
+  durationSeconds: number;
+  passScore: number;
+  canRetake: boolean;
+  retakeAvailableAt: string | null;
+  lastAttempt: { score: number; passed: boolean; taken_at: string } | null;
+}
+
+export interface AssessmentResult {
+  skill: string;
+  score: number;
+  passed: boolean;
+  correct: number;
+  total: number;
+}
+
+export interface SkillBadge {
+  skill: string;
+  score: number;
+  passed: boolean;
+  taken_at: string;
 }
 
 export interface EscrowState {
@@ -169,4 +162,14 @@ export interface EscrowState {
   amount: string;
   status: "locked" | "released" | "refunded" | "disputed";
   createdLedger: number;
+}
+
+export interface Message {
+  id: string;
+  jobId: string;
+  senderAddress: string;
+  receiverAddress: string;
+  content: string;
+  read: boolean;
+  createdAt: string;
 }

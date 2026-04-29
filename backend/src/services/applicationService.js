@@ -1,18 +1,13 @@
 /**
  * src/services/applicationService.js
- *
- * Applications service — owns all reads and writes against the `applications`
- * PostgreSQL table. Handles freelancer proposal submission, validation of
- * screening-question answers, listing applications by job or freelancer, and
- * the atomic "accept one + reject the rest" transition that hires a freelancer.
- *
- * @module services/applicationService
+ * Service responsibility: Manages job applications, including submission, retrieval by job or freelancer, and accepting/rejecting applications.
+ * All data persisted in the `applications` PostgreSQL table.
  */
 "use strict";
 
 const pool = require("../db/pool");
 const { getJob, assignFreelancer } = require("./jobService");
-const { calculateFreelancerTier } = require("./profileService");
+const { calculateFreelancerTier, isBlocked } = require("./profileService");
 
 /**
  * Camel-cased application record returned by this service.
@@ -74,48 +69,21 @@ function rowToApp(row) {
     id: row.id,
     jobId: row.job_id,
     freelancerAddress: row.freelancer_address,
-    freelancerTier: calculateFreelancerTier(completedJobs, freelancerRating),
-    proposal: row.proposal,
-    bidAmount: row.bid_amount,
-    currency: row.currency || "XLM",
-    status: row.status,
-    screeningAnswers: row.screening_answers || {},
-    createdAt: row.created_at,
+    freelancerTier:    calculateFreelancerTier(completedJobs, freelancerRating),
+    proposal:          row.proposal,
+    bidAmount:         row.bid_amount,
+    currency:          row.currency || 'XLM',
+    status:            row.status,
+    screeningAnswers:  row.screening_answers || {},
+    createdAt:         row.created_at,
+    referredBy:        row.referred_by,
   };
 }
 
-/**
- * Submit a freelancer's proposal to a job. Inserts a row in `applications`
- * and increments the parent job's `applicant_count`. Returns the new
- * application as a camel-cased {@link Application}.
- *
- * @param {SubmitApplicationInput} input
- * @returns {Promise<Application>}
- * @throws {Error} 400 — invalid public key, proposal too short, bid not positive,
- *                       or screening answers missing/incomplete.
- * @throws {Error} 400 — job is not `open`.
- * @throws {Error} 400 — applicant is the job's own client.
- * @throws {Error} 404 — job not found.
- * @throws {Error} 409 — duplicate application from the same freelancer.
- *
- * @example
- * const application = await submitApplication({
- *   jobId: "f4d3...e1",
- *   freelancerAddress: "GXYZ...ABC",
- *   proposal: "I have shipped 5 Soroban contracts and...",
- *   bidAmount: "450",
- *   currency: "XLM",
- *   screeningAnswers: { "Years of Rust?": "4" },
- * });
- */
-async function submitApplication({
-  jobId,
-  freelancerAddress,
-  proposal,
-  bidAmount,
-  currency = "XLM",
-  screeningAnswers,
-}) {
+// ─── service functions ───────────────────────────────────────────────────────
+
+async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, screeningAnswers, referredBy }) {
+
   validatePublicKey(freelancerAddress);
 
   const job = await getJob(jobId);
@@ -172,23 +140,22 @@ async function submitApplication({
     }
   }
 
-  const safeScreeningAnswers =
-    screeningAnswers && typeof screeningAnswers === "object" ? screeningAnswers : {};
+  // Check if freelancer is blocked by the client
+  const blocked = await isBlocked(job.clientAddress, freelancerAddress);
+  if (blocked) {
+    const e = new Error("This job is not available for applications");
+    e.status = 403;
+    throw e;
+  }
 
+  // Insert; the UNIQUE(job_id, freelancer_address) constraint handles duplicates.
   let appRow;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, currency, screening_answers, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())
+      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, status, screening_answers, created_at)
+       VALUES ($1, $2, $3, $4, 'pending', $5, NOW())
        RETURNING *`,
-      [
-        jobId,
-        freelancerAddress,
-        proposal.trim(),
-        parseFloat(bidAmount).toFixed(7),
-        currency,
-        JSON.stringify(safeScreeningAnswers),
-      ]
+      [jobId, freelancerAddress, proposal.trim(), parseFloat(bidAmount).toFixed(7), screeningAnswers || {}, referredBy || null]
     );
     appRow = rows[0];
   } catch (err) {
@@ -209,12 +176,10 @@ async function submitApplication({
 }
 
 /**
- * List every application for a given job, oldest first. Joins in profile
- * `completed_jobs` and the freelancer's average rating so the result row can
- * compute a freelancer tier label.
+ * Retrieves all applications for a specific job.
  *
- * @param {string} jobId  UUID of the job.
- * @returns {Promise<Application[]>}
+ * @param {number|string} jobId - The ID of the job.
+ * @returns {Promise<Object[]>} An array of application objects ordered by creation date ascending.
  */
 async function getApplicationsForJob(jobId) {
   const { rows } = await pool.query(
@@ -225,6 +190,11 @@ async function getApplicationsForJob(jobId) {
      LEFT JOIN profiles p ON p.public_key = a.freelancer_address
      LEFT JOIN ratings r ON r.rated_address = a.freelancer_address
      WHERE a.job_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM profiles cp
+         WHERE cp.public_key = (SELECT client_address FROM jobs WHERE id = $1)
+           AND a.freelancer_address = ANY(cp.blocked_addresses)
+       )
      GROUP BY a.id, p.completed_jobs
      ORDER BY a.created_at ASC`,
     [jobId]
@@ -233,11 +203,11 @@ async function getApplicationsForJob(jobId) {
 }
 
 /**
- * List every application submitted by a freelancer, newest first.
+ * Retrieves all applications submitted by a specific freelancer.
  *
- * @param {string} freelancerAddress  Stellar G-address of the freelancer.
- * @returns {Promise<Application[]>}
- * @throws {Error} 400 — invalid Stellar public key.
+ * @param {string} freelancerAddress - The Stellar public key of the freelancer.
+ * @returns {Promise<Object[]>} An array of application objects ordered by creation date descending.
+ * @throws {Error} If the freelancerAddress is an invalid Stellar public key.
  */
 async function getApplicationsForFreelancer(freelancerAddress) {
   validatePublicKey(freelancerAddress);
@@ -257,21 +227,12 @@ async function getApplicationsForFreelancer(freelancerAddress) {
 }
 
 /**
- * Accept a freelancer's proposal. Atomically marks the chosen application
- * `accepted` and rejects every other pending application on the same job,
- * then assigns the freelancer to the job (which transitions it to
- * `in_progress`).
+ * Accept a specific application for a job. Also rejects all other pending applications for that job, and assigns the freelancer to the job.
  *
- * Wrapped in a single Postgres transaction so a partial failure cannot
- * leave two accepted applications on one job.
- *
- * @param {string} applicationId  UUID of the application to accept.
- * @param {string} clientAddress  Stellar G-address of the calling client; must
- *                                match the parent job's `client_address`.
- * @returns {Promise<Application>}  The newly accepted application.
- * @throws {Error} 400 — invalid client public key, or job no longer open.
- * @throws {Error} 403 — caller is not the job's client.
- * @throws {Error} 404 — application or job not found.
+ * @param {number|string} applicationId - The ID of the application to accept.
+ * @param {string} clientAddress - The Stellar public key of the client who owns the job.
+ * @returns {Promise<Object>} The accepted application object.
+ * @throws {Error} If the application is not found, client does not own the job, or the job is no longer open.
  */
 async function acceptApplication(applicationId, clientAddress) {
   validatePublicKey(clientAddress);

@@ -1,16 +1,5 @@
 import axios from "axios";
-import type {
-  Availability,
-  Job,
-  Application,
-  UserProfile,
-  Rating,
-  ProposalTemplate,
-  PriceAlertPreference,
-  PortfolioFile,
-  TokenInfo,
-  TokenBalance,
-} from "@/utils/types";
+import type { Availability, Job, Application, UserProfile, Rating, AssessmentInfo, AssessmentResult, SkillBadge } from "@/utils/types";
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000",
@@ -103,12 +92,9 @@ export async function fetchJob(id: string, viewerAddress?: string) {
 }
 
 export async function createJob(payload: {
-  title: string;
-  description: string;
-  budget: string;
-  category: string;
-  skills: string[];
-  deadline?: string;
+  title: string; description: string; budget: string;
+  currency?: "XLM" | "USDC";
+  category: string; skills: string[]; deadline?: string;
   timezone?: string;
   clientAddress: string;
   screeningQuestions?: string[];
@@ -124,59 +110,15 @@ export async function fetchMyJobs(publicKey: string) {
 }
 
 /**
-   * Evaluates application quality using AI (Claude API).
-   * 
-   * @param jobId Job identifier.
-   * @returns Array of scores and reasonings for all applications.
-   */
-  export async function scoreProposals(jobId: string) {
-    const { data } = await api.post<{ success: boolean; data: { id: string; score: number; reasoning: string }[] }>(
-      `/api/jobs/${jobId}/score-proposals`
-    );
-    return data.data;
-  }
+ * Tracks a referral click for a job.
+ * 
+ * @param jobId Job identifier.
+ * @param referrer Referrer's Stellar public key.
+ */
+export async function trackReferralClick(jobId: string, referrer: string) {
+  await api.post(`/api/jobs/${jobId}/referral`, { referrer });
+}
 
-  /**
-   * Get analytics for a job (applications per day, avg bid, skill distribution, time to hire).
-   *
-   * @param jobId Job identifier.
-   * @returns Analytics data for the job.
-   */
-  export async function fetchJobAnalytics(jobId: string) {
-    const { data } = await api.get<{ success: boolean; data: JobAnalytics }>(`/api/jobs/${jobId}/analytics`);
-    return data.data;
-  }
-
-  /**
-   * Extend a job's expiry by 30 days.
-   *
-   * @param jobId Job identifier.
-   * @returns Updated job record.
-   */
-  export async function extendJobExpiry(jobId: string) {
-    const { data } = await api.patch<{ success: boolean; data: Job }>(`/api/jobs/${jobId}/extend`);
-    return data.data;
-  }
-
-  /**
-   * Get jobs expiring within 3 days.
-   *
-   * @returns Array of expiring jobs.
-   */
-  export async function fetchExpiringJobs() {
-    const { data } = await api.get<{ success: boolean; data: Job[] }>("/api/jobs/expiring");
-    return data.data;
-  }
-
-  /**
-   * Manually trigger expiry check for old jobs.
-   *
-   * @returns Count of expired jobs.
-   */
-  export async function expireOldJobs() {
-    const { data } = await api.post<{ success: boolean; data: { expiredCount: number } }>("/api/jobs/expire-old");
-    return data.data.expiredCount;
-  }
 
 // ─── Applications ─────────────────────────────────────────────────────────────
 
@@ -194,6 +136,7 @@ export async function submitApplication(payload: {
   bidAmount: string;
   currency: string;
   screeningAnswers?: Record<string, string>;
+  referredBy?: string;
 }) {
   const { data } = await api.post<{ success: boolean; data: Application }>(
     "/api/applications",
@@ -264,6 +207,32 @@ export async function verifyIdentity(publicKey: string, didHash: string) {
   const { data } = await api.post<{ success: boolean; data: UserProfile }>(
     `/api/profiles/${encodeURIComponent(publicKey)}/verify`,
     { didHash }
+  );
+  return data.data;
+}
+
+/**
+ * Fetches application statistics for a freelancer profile.
+ *
+ * @param publicKey Freelancer Stellar public key.
+ * @returns Statistics including total applications, accepted count, and success rate.
+ */
+export async function fetchProfileStats(publicKey: string) {
+  const { data } = await api.get<{ success: boolean; data: ProfileStats }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/stats`
+  );
+  return data.data;
+}
+
+/**
+ * Fetches the average response time (acceptance to completion) for a freelancer.
+ *
+ * @param publicKey Freelancer Stellar public key.
+ * @returns Average response time in days.
+ */
+export async function fetchResponseTime(publicKey: string) {
+  const { data } = await api.get<{ success: boolean; data: ResponseTimeStats }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/response-time`
   );
   return data.data;
 }
@@ -586,5 +555,63 @@ export async function getTurretsConfig() {
     };
   }>("/api/turrets/config");
 
+  return data.data;
+}
+
+// ─── Messages ──────────────────────────────────────────────────────────────────
+
+/**
+ * Fetches all messages for a specific job.
+ * Automatically marks messages as read for the current user.
+ *
+ * @param jobId Job identifier.
+ * @returns Messages sorted chronologically (oldest first).
+ * @throws {import("axios").AxiosError} If unauthorized, job not found, or request fails.
+ * @see backend/src/routes/messageRoutes.js
+ */
+export async function fetchMessages(jobId: string): Promise<Message[]> {
+  const { data } = await api.get<{ success: boolean; data: Message[] }>(`/api/messages/job/${jobId}`);
+  return data.data;
+}
+
+/**
+ * Sends a message in a job thread.
+ *
+ * Request payload shape:
+ * - `content` (string): message text (1-2000 characters).
+ *
+ * @param jobId Job identifier.
+ * @param content Message content.
+ * @returns The created message object.
+ * @throws {import("axios").AxiosError} If unauthorized, validation fails, or request fails.
+ * @see backend/src/routes/messageRoutes.js
+ */
+export async function sendMessage(jobId: string, content: string): Promise<Message> {
+  const { data } = await api.post<{ success: boolean; data: Message }>(`/api/messages/job/${jobId}`, { content });
+  return data.data;
+}
+
+// ─── Assessments ──────────────────────────────────────────────────────────────
+
+/** Fetches assessment questions and cooldown info for a skill. Requires JWT. */
+export async function fetchAssessment(skill: string): Promise<AssessmentInfo> {
+  const { data } = await api.get<{ success: boolean; data: AssessmentInfo }>(`/api/assessments/${skill}`);
+  return data.data;
+}
+
+/** Submits answers for grading. Returns score and pass/fail. Requires JWT. */
+export async function submitAssessment(skill: string, answers: Record<number, number>): Promise<AssessmentResult> {
+  const { data } = await api.post<{ success: boolean; data: AssessmentResult }>(
+    `/api/assessments/${skill}/submit`,
+    { answers }
+  );
+  return data.data;
+}
+
+/** Fetches all skill assessment results (badges) for a public profile. */
+export async function fetchSkillBadges(publicKey: string): Promise<SkillBadge[]> {
+  const { data } = await api.get<{ success: boolean; data: SkillBadge[] }>(
+    `/api/assessments/results/${encodeURIComponent(publicKey)}`
+  );
   return data.data;
 }
