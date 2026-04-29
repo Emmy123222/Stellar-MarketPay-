@@ -113,6 +113,26 @@ export interface PriceAlertPreference {
   last_max_alert_at?: string | null;
 }
 
+export interface ClientSpendingFreelancer {
+  freelancerAddress: string;
+  jobsCount: number;
+  totalPaidXlm: string;
+}
+
+export interface ClientSpendingAnalytics {
+  totalSpentXlm: string;
+  jobsBreakdown: {
+    posted: number;
+    completed: number;
+    cancelled: number;
+    inProgress: number;
+  };
+  averageBudgetXlm: string;
+  averagePaidXlm: string;
+  topFreelancers: ClientSpendingFreelancer[];
+  hasCompletedJobs: boolean;
+}
+
 export interface EscrowState {
   contractId: string;
   jobId: string;

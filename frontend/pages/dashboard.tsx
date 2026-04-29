@@ -6,10 +6,16 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
-import { fetchMyJobs, fetchMyApplications, fetchUnreadCount } from "@/lib/api";
+import {
+  fetchMyJobs, fetchMyApplications, fetchUnreadCount,
+  fetchJobs, fetchProposalTemplates, createProposalTemplate, updateProposalTemplate, deleteProposalTemplate,
+  fetchProfile, fetchClientSpendingAnalytics,
+  fetchPriceAlertPreference, upsertPriceAlertPreference,
+  extendJobExpiry,
+} from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
 import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV, calculateJobProgress } from "@/utils/format";
-import type { Job, Application } from "@/utils/types";
+import type { Job, Application, ClientSpendingAnalytics } from "@/utils/types";
 import EditProfileForm from "@/components/EditProfileForm";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import BuyXLMModal from "@/components/BuyXLMModal";
@@ -23,6 +29,7 @@ import { usePriceContext } from "@/contexts/PriceContext";
 import clsx from "clsx";
 import JobAnalytics from "@/components/JobAnalytics";
 import { fetchFreelancerEarnings, EarningsData } from "@/lib/api";
+import ClientSpendingTab from "@/components/ClientSpendingTab";
 
 const LOW_BALANCE_THRESHOLD_XLM = 5;
 
@@ -150,12 +157,13 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "earnings" | "security";
+type Tab = "posted" | "applied" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "earnings" | "security";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("posted");
+  const [canViewSpending, setCanViewSpending] = useState(true);
   const [myJobs, setMyJobs] = useState<Job[]>([]);
   const [myApplications, setMyApplications] = useState<Application[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
@@ -179,6 +187,13 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [withdrawHistory, setWithdrawHistory] = useState<WithdrawHistoryEntry[]>([]);
   const [earnings, setEarnings] = useState<EarningsData | null>(null);
   const [earningsLoading, setEarningsLoading] = useState(false);
+  const [alertSubscriptions, setAlertSubscriptions] = useState<string[]>([]);
+  const [alertMatches, setAlertMatches] = useState<Job[]>([]);
+  const [alertMatchesDismissed, setAlertMatchesDismissed] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [extendingJob, setExtendingJob] = useState<string | null>(null);
+  const [spendingAnalytics, setSpendingAnalytics] = useState<ClientSpendingAnalytics | null>(null);
+  const [spendingLoading, setSpendingLoading] = useState(false);
   const { info, success } = useToast();
   const { xlmPriceUsd } = usePriceContext();
 
@@ -418,6 +433,32 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     }).catch(() => {});
   }, [publicKey]);
 
+  useEffect(() => {
+    if (!publicKey) return;
+    setSpendingLoading(true);
+    fetchClientSpendingAnalytics(publicKey)
+      .then(setSpendingAnalytics)
+      .catch(() => setSpendingAnalytics(null))
+      .finally(() => setSpendingLoading(false));
+  }, [publicKey]);
+
+  useEffect(() => {
+    if (!publicKey) return;
+    fetchProfile(publicKey)
+      .then((profile) => {
+        setCanViewSpending(profile.role === "client" || profile.role === "both");
+      })
+      .catch(() => {
+        setCanViewSpending(true);
+      });
+  }, [publicKey]);
+
+  useEffect(() => {
+    if (tab === "spending" && !canViewSpending) {
+      setTab("posted");
+    }
+  }, [tab, canViewSpending]);
+
   if (!publicKey) {
     return (
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16">
@@ -613,7 +654,20 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
       {/* Tabs */}
       <div className="flex border-b border-market-500/10 mb-6 overflow-x-auto">
-        {(["posted", "applied", "earnings", "send", "edit_profile", "templates", "price_alerts", "withdrawals", "security"] as Tab[]).map((t) => (
+        {(
+          [
+            "posted",
+            "applied",
+            ...(canViewSpending ? (["spending"] as Tab[]) : []),
+            "earnings",
+            "send",
+            "edit_profile",
+            "templates",
+            "price_alerts",
+            "withdrawals",
+            "security",
+          ] as Tab[]
+        ).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={clsx(
               "px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap flex items-center gap-2",
@@ -630,6 +684,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                  )}
                </>
              ) :
+             t === "spending"     ? "Spending" :
              t === "earnings"     ? "Earnings" :
              t === "send"         ? "Send Payment" :
              t === "edit_profile" ? "Edit Profile" :
@@ -787,6 +842,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             </div>
           )}
         </div>
+      ) : tab === "spending" ? (
+        <ClientSpendingTab analytics={spendingAnalytics} loading={spendingLoading} xlmPriceUsd={xlmPriceUsd} />
       ) : tab === "send" ? (
         <div className="space-y-4">
           <div className="card space-y-3">

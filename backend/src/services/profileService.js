@@ -526,6 +526,72 @@ async function endorseSkill({ skill, endorserAddress, recipientAddress }) {
   );
 }
 
+async function getClientSpendingAnalytics(publicKey) {
+  validatePublicKey(publicKey);
+
+  const { rows } = await pool.query(
+    `
+    WITH client_jobs AS (
+      SELECT id, budget::numeric AS budget, status, freelancer_address
+      FROM jobs
+      WHERE client_address = $1
+    ),
+    released_escrows AS (
+      SELECT e.job_id, e.amount_xlm::numeric AS amount_xlm
+      FROM escrows e
+      JOIN client_jobs j ON j.id = e.job_id
+      WHERE e.status = 'released'
+    )
+    SELECT
+      COALESCE((SELECT SUM(amount_xlm) FROM released_escrows), 0)::numeric(20,7) AS total_spent_xlm,
+      COALESCE((SELECT COUNT(*) FROM client_jobs), 0)::int AS jobs_posted,
+      COALESCE((SELECT COUNT(*) FROM client_jobs WHERE status = 'completed'), 0)::int AS jobs_completed,
+      COALESCE((SELECT COUNT(*) FROM client_jobs WHERE status = 'cancelled'), 0)::int AS jobs_cancelled,
+      COALESCE((SELECT COUNT(*) FROM client_jobs WHERE status = 'in_progress'), 0)::int AS jobs_in_progress,
+      COALESCE((SELECT AVG(budget) FROM client_jobs), 0)::numeric(20,7) AS average_budget_xlm,
+      COALESCE((SELECT AVG(amount_xlm) FROM released_escrows), 0)::numeric(20,7) AS average_paid_xlm
+    `,
+    [publicKey]
+  );
+
+  const summary = rows[0];
+  const { rows: topRows } = await pool.query(
+    `
+    SELECT
+      j.freelancer_address,
+      COUNT(*)::int AS jobs_count,
+      COALESCE(SUM(e.amount_xlm::numeric), 0)::numeric(20,7) AS total_paid_xlm
+    FROM jobs j
+    JOIN escrows e ON e.job_id = j.id
+    WHERE j.client_address = $1
+      AND e.status = 'released'
+      AND j.freelancer_address IS NOT NULL
+    GROUP BY j.freelancer_address
+    ORDER BY jobs_count DESC, total_paid_xlm DESC
+    LIMIT 5
+    `,
+    [publicKey]
+  );
+
+  return {
+    totalSpentXlm: String(summary.total_spent_xlm),
+    jobsBreakdown: {
+      posted: Number(summary.jobs_posted) || 0,
+      completed: Number(summary.jobs_completed) || 0,
+      cancelled: Number(summary.jobs_cancelled) || 0,
+      inProgress: Number(summary.jobs_in_progress) || 0,
+    },
+    averageBudgetXlm: String(summary.average_budget_xlm),
+    averagePaidXlm: String(summary.average_paid_xlm),
+    topFreelancers: topRows.map((row) => ({
+      freelancerAddress: row.freelancer_address,
+      jobsCount: Number(row.jobs_count) || 0,
+      totalPaidXlm: String(row.total_paid_xlm),
+    })),
+    hasCompletedJobs: (Number(summary.jobs_completed) || 0) > 0,
+  };
+}
+
 module.exports = {
   getProfile,
   upsertProfile,
@@ -533,6 +599,7 @@ module.exports = {
   verifyIdentity,
   getSkillEndorsements,
   endorseSkill,
+  getClientSpendingAnalytics,
   calculateFreelancerTier,
   VALID_PORTFOLIO_TYPES,
   VALID_AVAILABILITY_STATUSES,

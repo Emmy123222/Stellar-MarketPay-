@@ -3,11 +3,16 @@ import type {
   Availability,
   Job,
   Application,
+  JobAnalytics,
   UserProfile,
   Rating,
   ProposalTemplate,
   PriceAlertPreference,
   SkillEndorsement,
+  ClientSpendingAnalytics,
+  PortfolioFile,
+  TokenInfo,
+  TokenBalance,
 } from "@/utils/types";
 
 const api = axios.create({
@@ -370,6 +375,13 @@ export async function fetchPriceAlertPreference(publicKey: string) {
     success: boolean;
     data: PriceAlertPreference | null;
   }>(`/api/profiles/${encodeURIComponent(publicKey)}/price-alerts`);
+  return data.data;
+}
+
+export async function fetchClientSpendingAnalytics(publicKey: string) {
+  const { data } = await api.get<{ success: boolean; data: ClientSpendingAnalytics }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/spending`,
+  );
   return data.data;
 }
 
