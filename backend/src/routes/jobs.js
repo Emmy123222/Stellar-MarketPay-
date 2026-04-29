@@ -12,13 +12,33 @@ const { verifyJWT } = require("../middleware/auth");
 // Rate limiters for different job operations
 const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per minute
 const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per minute
+const reportJobRateLimiter = createRateLimiter(5, 1);   // 5 reports per minute
 
 const jobService = require("../services/jobService");
-const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount } = jobService.default || jobService;
+const { 
+  createJob, 
+  getJob, 
+  listJobs, 
+  listJobsByClient, 
+  updateJobEscrowId, 
+  deleteJob, 
+  boostJob, 
+  incrementShareCount,
+  incrementViewCount,
+  extendJobExpiry,
+  expireOldJobs,
+  getExpiringJobs,
+  raiseDispute,
+  resolveDispute,
+  getRecommendedJobs
+} = jobService;
+
 const { inviteFreelancerToJob } = require("../services/jobInvitationService");
 const { logContractInteraction } = require("../services/contractAuditService");
 const jobDraftService = require("../services/jobDraftService");
 const recommendationService = require("../services/recommendationService");
+
+const jobReports = new Map(); // In-memory report storage for now
 
 // Feed Helpers
 
@@ -71,8 +91,13 @@ function isValidReportCategory(category) {
  *         name: status
  *         schema:
  *           type: string
- *           enum: [open, in_progress, completed, cancelled]
+ *           enum: [open, in_progress, completed, cancelled, expired, all]
  *         description: Filter by job status
+ *       - in: query
+ *         name: include_expired
+ *         schema:
+ *           type: boolean
+ *         description: Whether to include expired jobs in the results
  *       - in: query
  *         name: limit
  *         schema:
@@ -104,29 +129,24 @@ function isValidReportCategory(category) {
  *     responses:
  *       200:
  *         description: Jobs retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Job'
- *                 nextCursor:
- *                   type: string
- *                   nullable: true
- *                   description: Cursor for next page
  */
 // GET /api/jobs — list jobs
 router.get("/", generalJobRateLimiter, async (req, res, next) => {
   try {
-    const { category, status, limit, search, cursor, timezone, viewerAddress } = req.query;
+    const { category, status, limit, search, cursor, timezone, viewerAddress, include_expired } = req.query;
     const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
-    const result = await listJobs({ category, status, limit: safeLimit, search, cursor, timezone, viewerAddress });
+    const includeExpired = include_expired === "true";
+    
+    const result = await listJobs({ 
+      category, 
+      status, 
+      limit: safeLimit, 
+      search, 
+      cursor, 
+      timezone, 
+      viewerAddress,
+      includeExpired
+    });
     res.json({ success: true, data: result.jobs, nextCursor: result.nextCursor });
   } catch (e) { next(e); }
 });
@@ -146,89 +166,26 @@ router.get("/recommended/:publicKey", generalJobRateLimiter, async (req, res, ne
 });
 
 // GET /api/jobs/:id — get single job
-router.get("/:id", generalJobRateLimiter , async (req, res, next) => {
-  try { res.json({ success: true, data: await getJob(req.params.id) }); }
-  catch (e) { next(e); }
+router.get("/:id", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const job = await getJob(req.params.id);
+    res.json({ success: true, data: job });
+  } catch (e) { next(e); }
 });
 
-/**
- * @swagger
- * /api/jobs:
- *   post:
- *     summary: Create a new job
- *     description: Creates a new job posting in the marketplace
- *     tags: [Jobs]
- *     security:
- *       - bearerAuth: []
- *       - cookieAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - title
- *               - description
- *               - budget
- *               - clientId
- *             properties:
- *               title:
- *                 type: string
- *                 description: Job title
- *               description:
- *                 type: string
- *                 description: Detailed job description
- *               budget:
- *                 type: number
- *                 description: Job budget in XLM
- *               clientId:
- *                 type: string
- *                 description: Client's Stellar address
- *               category:
- *                 type: string
- *                 description: Job category
- *               skills:
- *                 type: array
- *                 items:
- *                   type: string
- *                 description: Required skills
- *               visibility:
- *                 type: string
- *                 enum: [public, private]
- *                 default: public
- *                 description: Job visibility
- *     responses:
- *       201:
- *         description: Job created successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   $ref: '#/components/schemas/Job'
- *       400:
- *         description: Bad request - invalid input data
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       401:
- *         description: Unauthorized - authentication required
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
 // POST /api/jobs — create a new job
-router.post("/", jobCreationRateLimiter , async (req, res, next) => {
+router.post("/", jobCreationRateLimiter, async (req, res, next) => {
   try {
     const job = await createJob(req.body);
     res.status(201).json({ success: true, data: job });
+  } catch (e) { next(e); }
+});
+
+// POST /api/jobs/:id/view — increment view count
+router.post("/:id/view", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const viewCount = await incrementViewCount(req.params.id);
+    res.json({ success: true, data: { viewCount } });
   } catch (e) { next(e); }
 });
 
@@ -248,9 +205,7 @@ router.post("/:id/invite", verifyJWT, generalJobRateLimiter, async (req, res, ne
     });
 
     res.status(201).json({ success: true, data: invitation });
-  } catch (e) {
-    next(e);
-  }
+  } catch (e) { next(e); }
 });
 
 // PATCH /api/jobs/:id/escrow — store escrow contract ID after on-chain lock
@@ -272,146 +227,55 @@ router.patch("/:id/escrow", verifyJWT, generalJobRateLimiter, async (req, res, n
 router.patch("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
   try {
     const { txHash } = req.body;
-    
     if (!txHash || typeof txHash !== "string") {
       return res.status(400).json({ success: false, error: "Transaction hash is required" });
     }
-
-    // TODO: Verify Stellar payment of 10 XLM to platform wallet
-    // For now, we'll just accept the txHash
-    
     const job = await boostJob(req.params.id, txHash);
     res.json({ success: true, data: job });
   } catch (e) { next(e); }
 });
 
-// GET /api/jobs/:id/analytics — job performance analytics
-router.get("/:id/analytics", generalJobRateLimiter, async (req, res, next) => {
-  try {
-    const { getJobAnalytics } = require("../services/jobService");
-    const analytics = await getJobAnalytics(req.params.id);
-    res.json({ success: true, data: analytics });
-  } catch (e) { next(e); }
-});
-
-// PATCH /api/jobs/:id/extend — extend job expiry by 30 days
+// PATCH /api/jobs/:id/extend — extend job expiry
 router.patch("/:id/extend", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
   try {
-    const { extendJobExpiry } = require("../services/jobService");
-    const job = await extendJobExpiry(req.params.id, 30, 3);
+    const { days } = req.body;
+    const job = await extendJobExpiry(req.params.id, days || 30);
     res.json({ success: true, data: job });
   } catch (e) { next(e); }
 });
 
-// POST /api/jobs/:id/referral — track a referral click
-router.post("/:id/referral", generalJobRateLimiter, async (req, res, next) => {
+// DELETE /api/jobs/:id — delete a job
+router.delete("/:id", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
   try {
-    const { referrer } = req.body;
-    if (!referrer) return res.status(400).json({ success: false, error: "Referrer address is required" });
-    const ip = req.ip;
-    await trackReferral(req.params.id, referrer, ip);
+    await deleteJob(req.params.id);
     res.json({ success: true });
   } catch (e) { next(e); }
 });
 
-// DELETE /api/jobs/:id — roll back an orphaned job (escrow failed after creation)
-router.delete("/:id", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
+// POST /api/jobs/:id/report — report a job
+router.post("/:id/report", reportJobRateLimiter, (req, res, next) => {
   try {
-    const { getExpiringJobs } = require("../services/jobService");
-    const jobs = await getExpiringJobs(3);
-    res.json({ success: true, data: jobs });
-  } catch (e) { next(e); }
-});
+    const { reporterAddress, category, description } = req.body;
+    const jobId = req.params.id;
+    const normalizedReporterAddress = normalizeAddress(reporterAddress);
 
-// POST /api/jobs/expire-old — manually trigger expiry check (also runs as background job)
-router.post("/expire-old", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
-  try {
-    const { expireOldJobs } = require("../services/jobService");
-    const count = await expireOldJobs();
-    res.json({ success: true, data: { expiredCount: count } });
-  } catch (e) { next(e); }
-});
+    if (!normalizedReporterAddress) return res.status(400).json({ success: false, error: "Reporter address is required" });
+    if (!isValidReportCategory(category)) return res.status(400).json({ success: false, error: "Valid report category is required" });
 
-// POST /api/jobs/:id/score-proposals — score all applications using AI
-router.post("/:id/score-proposals", verifyJWT, async (req, res, next) => {
-  try {
-    const { scoreProposals } = require("../services/aiService");
-    const { getApplicationsForJob } = require("../services/applicationService");
-    
-    const job = await getJob(req.params.id);
-    if (!job) return res.status(404).json({ success: false, error: "Job not found" });
+    const duplicateKey = `${jobId}:${normalizedReporterAddress}`;
+    if (jobReports.has(duplicateKey)) return res.status(409).json({ success: false, error: "You have already reported this job" });
 
-    // Verify ownership
-    if (job.clientAddress !== req.user.publicKey) {
-      return res.status(403).json({ success: false, error: "Only the job client can score proposals" });
-    }
+    const report = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      jobId,
+      reporterAddress: normalizedReporterAddress,
+      category,
+      description: typeof description === "string" ? description.trim().slice(0, 1000) : "",
+      createdAt: new Date().toISOString(),
+    };
 
-    const applications = await getApplicationsForJob(req.params.id);
-    const scores = await scoreProposals(job, applications);
-
-    res.json({ success: true, data: scores });
-  } catch (e) { next(e); }
-});
-
-// GET /api/jobs/suggestions — autocomplete suggestions for search
-router.get("/suggestions", generalJobRateLimiter, async (req, res, next) => {
-  try {
-    const { q } = req.query;
-    if (!q || q.length < 2) return res.json({ success: true, data: [] });
-
-    const result = await listJobs({ status: "open", limit: 100 });
-    const jobs = result.jobs;
-    const query = q.toLowerCase();
-
-    const titleSuggestions = jobs
-      .filter(j => j.title.toLowerCase().includes(query))
-      .slice(0, 5)
-      .map(j => ({ type: "title", value: j.title }));
-
-    const skillSuggestions = jobs
-      .flatMap(j => j.skills || [])
-      .filter((skill, index, self) => self.indexOf(skill) === index)
-      .filter(skill => skill.toLowerCase().includes(query))
-      .slice(0, 5)
-      .map(skill => ({ type: "skill", value: skill }));
-
-    const categorySuggestions = [...new Set(jobs.map(j => j.category))]
-      .filter(cat => cat.toLowerCase().includes(query))
-      .slice(0, 5)
-      .map(cat => ({ type: "category", value: cat }));
-
-    const suggestions = [...titleSuggestions, ...skillSuggestions, ...categorySuggestions];
-    res.json({ success: true, data: suggestions });
-  } catch (e) { next(e); }
-});
-
-// POST /api/jobs/:id/dispute — raise a dispute for an in-progress job
-router.post("/:id/dispute", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
-  try {
-    const { reason, description } = req.body;
-    if (!reason || !description) {
-      return res.status(400).json({ success: false, error: "Reason and description are required" });
-    }
-    const job = await raiseDispute(req.params.id, { 
-      reason, 
-      description, 
-      raisedBy: req.user.publicKey 
-    });
-    res.json({ success: true, data: job });
-  } catch (e) { next(e); }
-});
-
-// POST /api/jobs/:id/resolve — resolve a dispute (Admin only)
-router.post("/:id/resolve", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
-  try {
-    // Basic admin check - in a real app this would be more robust
-    const adminKey = process.env.ADMIN_PUBLIC_KEY;
-    if (adminKey && req.user.publicKey !== adminKey) {
-      return res.status(403).json({ success: false, error: "Only admins can resolve disputes" });
-    }
-    
-    const job = await resolveDispute(req.params.id);
-    res.json({ success: true, data: job });
+    jobReports.set(duplicateKey, report);
+    res.status(201).json({ success: true, message: "Thank you for your report", data: report });
   } catch (e) { next(e); }
 });
 
@@ -421,16 +285,9 @@ router.get("/feed.rss", generalJobRateLimiter, async (req, res, next) => {
     const { category } = req.query;
     const result = await listJobs({ category, status: "open", limit: 20 });
     const jobs = result.jobs;
-
     const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-    const feedUrl = `${baseUrl}/api/jobs/feed.rss${
-      category ? `?category=${encodeURIComponent(category)}` : ""
-    }`;
-
-    const lastBuildDate =
-      jobs.length > 0
-        ? formatDateRss(new Date(jobs[0].createdAt))
-        : formatDateRss(new Date());
+    const feedUrl = `${baseUrl}/api/jobs/feed.rss${category ? `?category=${encodeURIComponent(category)}` : ""}`;
+    const lastBuildDate = jobs.length > 0 ? formatDateRss(new Date(jobs[0].createdAt)) : formatDateRss(new Date());
 
     let rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
@@ -447,7 +304,6 @@ router.get("/feed.rss", generalJobRateLimiter, async (req, res, next) => {
       const jobUrl = `${baseUrl}/jobs/${job.id}`;
       const pubDate = formatDateRss(new Date(job.createdAt));
       const description = escapeXml(truncateDescription(job.description, 200));
-
       rss += `    <item>
       <title>${escapeXml(job.title)}</title>
       <description>${description}</description>
@@ -465,9 +321,7 @@ router.get("/feed.rss", generalJobRateLimiter, async (req, res, next) => {
 
     res.set("Content-Type", "application/rss+xml; charset=utf-8");
     res.send(rss);
-  } catch (e) {
-    next(e);
-  }
+  } catch (e) { next(e); }
 });
 
 // GET /api/jobs/feed.atom
@@ -476,16 +330,9 @@ router.get("/feed.atom", generalJobRateLimiter, async (req, res, next) => {
     const { category } = req.query;
     const result = await listJobs({ category, status: "open", limit: 20 });
     const jobs = result.jobs;
-
     const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-    const feedUrl = `${baseUrl}/api/jobs/feed.atom${
-      category ? `?category=${encodeURIComponent(category)}` : ""
-    }`;
-
-    const updatedDate =
-      jobs.length > 0
-        ? formatDateAtom(new Date(jobs[0].createdAt))
-        : formatDateAtom(new Date());
+    const feedUrl = `${baseUrl}/api/jobs/feed.atom${category ? `?category=${encodeURIComponent(category)}` : ""}`;
+    const updatedDate = jobs.length > 0 ? formatDateAtom(new Date(jobs[0].createdAt)) : formatDateAtom(new Date());
 
     let atom = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -501,7 +348,6 @@ router.get("/feed.atom", generalJobRateLimiter, async (req, res, next) => {
       const jobUrl = `${baseUrl}/jobs/${job.id}`;
       const published = formatDateAtom(new Date(job.createdAt));
       const summary = escapeXml(truncateDescription(job.description, 200));
-
       atom += `  <entry>
     <title>${escapeXml(job.title)}</title>
     <summary>${summary}</summary>
@@ -516,173 +362,9 @@ router.get("/feed.atom", generalJobRateLimiter, async (req, res, next) => {
     });
 
     atom += `</feed>`;
-
     res.set("Content-Type", "application/atom+xml; charset=utf-8");
     res.send(atom);
-  } catch (e) {
-    next(e);
-  }
-});
-
-// GET /api/jobs/:id
-router.get("/:id", generalJobRateLimiter, (req, res, next) => {
-  try {
-    const job = getJob(req.params.id);
-
-    if (!job) {
-      return res.status(404).json({
-        success: false,
-        error: "Job not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      data: job,
-    });
-  } catch (e) {
-    next(e);
-  }
-});
-
-// POST /api/jobs
-router.post("/", jobCreationRateLimiter, (req, res, next) => {
-  try {
-    const job = createJob(req.body);
-
-    res.status(201).json({
-      success: true,
-      data: job,
-    });
-  } catch (e) {
-    next(e);
-  }
-});
-
-// POST /api/jobs/:id/report
-router.post("/:id/report", reportJobRateLimiter, (req, res, next) => {
-  try {
-    const { reporterAddress, category, description } = req.body;
-    const jobId = req.params.id;
-    const normalizedReporterAddress = normalizeAddress(reporterAddress);
-
-    const job = getJob(jobId);
-
-    if (!job) {
-      return res.status(404).json({
-        success: false,
-        error: "Job not found",
-      });
-    }
-
-    if (!normalizedReporterAddress) {
-      return res.status(400).json({
-        success: false,
-        error: "Reporter address is required",
-      });
-    }
-
-    if (!isValidReportCategory(category)) {
-      return res.status(400).json({
-        success: false,
-        error: "Valid report category is required",
-      });
-    }
-
-    const duplicateKey = `${jobId}:${normalizedReporterAddress}`;
-
-    if (jobReports.has(duplicateKey)) {
-      return res.status(409).json({
-        success: false,
-        error: "You have already reported this job",
-      });
-    }
-
-    const report = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      jobId,
-      reporterAddress: normalizedReporterAddress,
-      category,
-      description:
-        typeof description === "string" ? description.trim().slice(0, 1000) : "",
-      createdAt: new Date().toISOString(),
-    };
-
-    jobReports.set(duplicateKey, report);
-
-    res.status(201).json({
-      success: true,
-      message: "Thank you for your report",
-      data: report,
-    });
-  } catch (e) {
-    next(e);
-  }
-});
-
-// PATCH /api/jobs/:id/escrow
-router.patch("/:id/escrow", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
-  try {
-    const { escrowContractId } = req.body;
-    const job = await updateJobEscrowId(req.params.id, escrowContractId);
-
-    res.json({
-      success: true,
-      data: job,
-    });
-  } catch (e) {
-    next(e);
-  }
-});
-
-// PATCH /api/jobs/:id/boost
-router.patch("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
-  try {
-    const { txHash } = req.body;
-
-    if (!txHash || typeof txHash !== "string") {
-      return res.status(400).json({
-        success: false,
-        error: "Transaction hash is required",
-      });
-    }
-
-    const job = await boostJob(req.params.id, txHash);
-
-    res.json({
-      success: true,
-      data: job,
-    });
-  } catch (e) {
-    next(e);
-  }
-});
-
-// PATCH /api/jobs/:id/share
-router.patch("/:id/share", generalJobRateLimiter, async (req, res, next) => {
-  try {
-    const job = await incrementShareCount(req.params.id);
-
-    res.json({
-      success: true,
-      data: job,
-    });
-  } catch (e) {
-    next(e);
-  }
-});
-
-// DELETE /api/jobs/:id
-router.delete("/:id", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
-  try {
-    await deleteJob(req.params.id);
-
-    res.json({
-      success: true,
-    });
-  } catch (e) {
-    next(e);
-  }
+  } catch (e) { next(e); }
 });
 
 // GET /api/jobs/drafts — list job drafts for authenticated user

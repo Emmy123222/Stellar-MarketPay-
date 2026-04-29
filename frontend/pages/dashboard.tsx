@@ -583,7 +583,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                       <span className="text-xs text-amber-800">{job.category}</span>
                     </div>
                     <p className="font-display font-semibold text-amber-100 truncate">{job.title}</p>
-                    <p className="text-xs text-amber-800 mt-1">{job.applicantCount} applicant{job.applicantCount !== 1 ? "s" : ""} · {timeAgo(job.createdAt)}</p>
+                    <p className="text-xs text-amber-800 mt-1">{job.applicantCount} applicant{job.applicantCount !== 1 ? "s" : ""} · {job.viewCount || 0} views · {timeAgo(job.createdAt)}</p>
                     
                     {/* Progress Indicator */}
                     {(() => {

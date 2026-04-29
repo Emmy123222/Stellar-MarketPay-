@@ -169,6 +169,21 @@ export async function extendJobExpiry(jobId: string) {
   return data.data;
 }
 
+export async function incrementJobView(id: string) {
+  const { data } = await api.post<{ success: boolean; data: { viewCount: number } }>(
+    `/api/jobs/${id}/view`,
+  );
+  return data.data;
+}
+
+export async function fetchRateLimitStatus() {
+  const { data } = await api.get<{ 
+    success: boolean; 
+    data: { limit: number; remaining: number; reset: string } 
+  }>("/api/rate-limit");
+  return data.data;
+}
+
 /**
  * Get jobs expiring within 3 days.
  *

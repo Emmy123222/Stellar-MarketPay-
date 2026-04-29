@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at          TIMESTAMPTZ,
   extended_count      INTEGER     NOT NULL DEFAULT 0,
-  extended_until      TIMESTAMPTZ
+  extended_until      TIMESTAMPTZ,
+  view_count          INTEGER     NOT NULL DEFAULT 0
 );
 
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS share_count INTEGER NOT NULL DEFAULT 0;
@@ -78,7 +79,8 @@ ALTER TABLE jobs
   ADD COLUMN IF NOT EXISTS screening_questions TEXT[] NOT NULL DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS extended_count INTEGER NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS extended_until TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS extended_until TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0;
 
 -- enforce valid visibility values for all rows
 DO $$

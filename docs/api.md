@@ -6,8 +6,11 @@ All responses: `{ "success": true, "data": {...} }` or `{ "success": false, "err
 
 ---
 
-## Health
-`GET /health` — Server status check.
+## Health & Utility
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Server status check |
+| GET | `/api/rate-limit` | Get current rate limit usage |
 
 ---
 
@@ -15,10 +18,12 @@ All responses: `{ "success": true, "data": {...} }` or `{ "success": false, "err
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/jobs` | List jobs (`?status=open&category=...&limit=50`) |
+| GET | `/api/jobs` | List jobs (`?status=open&category=...&limit=50&include_expired=false`) |
 | GET | `/api/jobs/:id` | Get single job |
 | GET | `/api/jobs/client/:publicKey` | Jobs posted by a client |
 | POST | `/api/jobs` | Create a new job |
+| POST | `/api/jobs/:id/view` | Increment view count for a job |
+| PATCH | `/api/jobs/:id/extend` | Extend job deadline (Client only) |
 
 ### POST /api/jobs
 ```json
@@ -87,3 +92,12 @@ All responses: `{ "success": true, "data": {...} }` or `{ "success": false, "err
 | `in_progress` | Freelancer hired, work underway |
 | `completed` | Escrow released, job done |
 | `cancelled` | Cancelled by client |
+| `expired` | Deadline passed without hiring |
+
+---
+
+## Rate Limit Headers
+All API responses include the following headers:
+- `X-RateLimit-Limit`: Maximum requests allowed in the window.
+- `X-RateLimit-Remaining`: Remaining requests in the current window.
+- `X-RateLimit-Reset`: Time when the limit resets (ISO 8601 format).
