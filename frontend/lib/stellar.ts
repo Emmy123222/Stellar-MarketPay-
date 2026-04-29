@@ -6,7 +6,7 @@ import * as SorobanRpc from "@stellar/stellar-sdk/rpc";
 
 import {
   Horizon, Networks, Asset, Operation, TransactionBuilder, Transaction,
-  Contract, nativeToScVal, Address,
+  Contract, nativeToScVal, Address, scValToNative,
 } from "@stellar/stellar-sdk";
 import { SorobanRpc } from "@stellar/stellar-sdk";
 import {
@@ -34,6 +34,14 @@ const SOROBAN_RPC_URL =
 export const NETWORK_PASSPHRASE = NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 export const server = new Horizon.Server(HORIZON_URL);
 export const sorobanServer = new SorobanRpc.Server(SOROBAN_RPC_URL);
+
+export type MarketPayContractEventType = "created" | "released" | "refunded" | "timeout_refunded";
+
+export interface MarketPayContractEvent {
+  type: MarketPayContractEventType;
+  jobId: string | null;
+  raw: SorobanRpc.Api.GetEventsResponse["events"][number];
+}
 
 // XLM SAC (Stellar Asset Contract) address on testnet
 export const XLM_SAC_ADDRESS =
@@ -138,6 +146,92 @@ export async function buildCreateEscrowTx(
 
   // Simulate to populate the soroban data / auth entries
   const simResponse = await server.simulateTransaction(tx);
+
+/**
+ * Issue #175 — Read the timeout_ledger for a job directly from the contract.
+ * Uses simulation (no transaction submission or fees).
+ * @returns timeout_ledger as a number, or null if the call fails.
+ */
+export async function getEscrowTimeoutLedger(contractId: string, jobId: string): Promise<number | null> {
+  if (!CONTRACT_ID_RE.test(contractId)) return null;
+  try {
+    // Use a dummy source account for simulation
+    const account = await sorobanServer.getAccount("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF");
+    const contract = new Contract(contractId);
+    const op = contract.call("get_timeout_ledger", nativeToScVal(jobId));
+    const tx = new TransactionBuilder(account, {
+      fee: "100",
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(op)
+      .setTimeout(30)
+      .build();
+
+    const sim = await sorobanServer.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationSuccess(sim) && sim.result?.retval) {
+      const raw = scValToNative(sim.result.retval);
+      if (typeof raw === "number") return raw;
+      if (typeof raw === "bigint") return Number(raw);
+      if (typeof raw === "string") return parseInt(raw, 10);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch the latest closed ledger sequence from Soroban RPC.
+ * Used for timeout countdown calculations.
+ */
+export async function getCurrentLedgerSequence(): Promise<number> {
+  try {
+    const latest = await sorobanServer.getLatestLedger();
+    return latest.sequence;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Builds a prepared Soroban transaction that invokes `timeout_refund(job_id, client)` on the escrow contract.
+ * Issue #175 — Client claims refund after freelancer inactivity timeout.
+ */
+export async function buildTimeoutRefundTransaction(
+  contractId: string,
+  jobId: string,
+  clientAddress: string
+): Promise<Transaction> {
+  if (!CONTRACT_ID_RE.test(contractId)) {
+    throw new Error("Invalid escrow contract ID. Expected a Soroban contract address (C…).");
+  }
+  if (!jobId.trim()) throw new Error("Job ID is required.");
+  if (!/^G[A-Z0-9]{55}$/.test(clientAddress)) {
+    throw new Error("Invalid client account.");
+  }
+
+  try {
+    const account = await sorobanServer.getAccount(clientAddress);
+    const contract = new Contract(contractId);
+    const op = contract.call(
+      "timeout_refund",
+      nativeToScVal(jobId),
+      Address.fromString(clientAddress).toScVal()
+    );
+
+    const built = new TransactionBuilder(account, {
+      fee: "1000000",
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(op)
+      .setTimeout(60)
+      .build();
+
+    return await sorobanServer.prepareTransaction(built);
+  } catch (err: unknown) {
+    throw new Error(friendlySorobanError(err));
+  }
+}
 
 /**
  * Issue #175 — Read the timeout_ledger for a job directly from the contract.
@@ -458,21 +552,36 @@ export async function buildCreateEscrowTransaction({
   return SorobanRpc.assembleTransaction(tx, simResult).build();
 }
 
-/**
- * Submit a signed Soroban transaction and poll until it's confirmed.
- * 
- * When NEXT_PUBLIC_USE_CONTRACT_MOCK=true, calls the mock contract instead.
- */
-export async function submitSorobanTransaction(signedXDR: string, mockParams?: any): Promise<string> {
-  // Mock mode: call mock contract
-  if (USE_MOCK && signedXDR === "MOCK_SIGNED_XDR" && mockParams) {
-    console.log("[STELLAR] Submitting to mock contract");
-    return await mockCreateEscrow(mockParams);
-  }
+export function subscribeToContractEvents(
+  contractId: string,
+  onEvent: (event: MarketPayContractEvent) => void
+): () => void {
+  let isClosed = false;
+  let timeoutRef: ReturnType<typeof setTimeout> | null = null;
+  let attempts = 0;
+  let cursor: string | undefined;
+  const maxAttempts = 3;
+  const supported = new Set<MarketPayContractEventType>(["created", "released", "refunded", "timeout_refunded"]);
 
-  const sendResult = await sorobanServer.sendTransaction(
-    new Transaction(signedXDR, NETWORK_PASSPHRASE)
-  );
+  const parseEvent = (
+    event: SorobanRpc.Api.GetEventsResponse["events"][number]
+  ): MarketPayContractEvent | null => {
+    const value = event.value as unknown as { _attributes?: Record<string, unknown>; _value?: unknown };
+    const attrs = value?._attributes || {};
+    const topics = Array.isArray(attrs.topic) ? attrs.topic : [];
+    const first = topics[0] as unknown as { _value?: string } | undefined;
+    const rawType = first?._value;
+    if (!rawType) return null;
+
+    // Map contract symbols to frontend event types
+    const typeMap: Record<string, MarketPayContractEventType> = {
+      "created": "created",
+      "released": "released",
+      "refunded": "refunded",
+      "torefnd": "timeout_refunded",
+    };
+    const eventType = typeMap[rawType];
+    if (!eventType || !supported.has(eventType)) return null;
 
   if (sendResult.status === "ERROR") {
     throw new Error(`Soroban submission failed: ${JSON.stringify(sendResult.errorResult)}`);
@@ -490,86 +599,46 @@ export async function submitSorobanTransaction(signedXDR: string, mockParams?: a
     }
   }
 
-  throw new Error(`Soroban transaction timed out: ${hash}`);
-}
+    return { type: eventType, jobId, raw: event };
+  };
 
-/**
- * Build and submit start_work transaction.
- * Marks escrow as in-progress when client accepts a freelancer.
- */
-export async function startWork(jobId: string, clientPublicKey: string): Promise<string> {
-  if (USE_MOCK) {
-    console.log("[STELLAR] Using contract mock mode for start_work");
-    return await mockStartWork({ jobId, client: clientPublicKey });
-  }
+  const scheduleRetry = () => {
+    if (isClosed || attempts >= maxAttempts) return;
+    const delay = 1000 * (2 ** attempts);
+    attempts += 1;
+    timeoutRef = setTimeout(() => {
+      pollLoop();
+    }, delay);
+  };
 
-  // Real implementation would build + sign + submit transaction
-  throw new Error("start_work not yet implemented for real contract");
-}
+  const pollLoop = async () => {
+    while (!isClosed) {
+      try {
+        const response = await sorobanServer.getEvents({
+          startLedger: undefined,
+          filters: [{ contractIds: [contractId], type: "contract" }],
+          pagination: { cursor, limit: 50 },
+        });
 
-/**
- * Build and submit release_escrow transaction.
- * Releases funds to freelancer when work is approved.
- */
-export async function releaseEscrow(jobId: string, clientPublicKey: string): Promise<string> {
-  if (USE_MOCK) {
-    console.log("[STELLAR] Using contract mock mode for release_escrow");
-    return await mockReleaseEscrow({ jobId, client: clientPublicKey });
-  }
+        attempts = 0;
+        for (const event of response.events) {
+          cursor = event.pagingToken;
+          const parsed = parseEvent(event);
+          if (parsed) onEvent(parsed);
+        }
+      } catch (error) {
+        console.error("Contract event subscription error:", error);
+        scheduleRetry();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  };
 
-  // Real implementation would build + sign + submit transaction
-  throw new Error("release_escrow not yet implemented for real contract");
-}
+  pollLoop();
 
-/**
- * Build and submit refund_escrow transaction.
- * Returns funds to client before work starts.
- */
-export async function refundEscrow(jobId: string, clientPublicKey: string): Promise<string> {
-  if (USE_MOCK) {
-    console.log("[STELLAR] Using contract mock mode for refund_escrow");
-    return await mockRefundEscrow({ jobId, client: clientPublicKey });
-  }
-
-  // Real implementation would build + sign + submit transaction
-  throw new Error("refund_escrow not yet implemented for real contract");
-}
-
-/**
- * Query escrow status for a job.
- */
-export async function getEscrowStatus(jobId: string): Promise<string> {
-  if (USE_MOCK) {
-    console.log("[STELLAR] Using contract mock mode for get_status");
-    return await mockGetStatus(jobId);
-  }
-
-  // Real implementation would query contract
-  throw new Error("get_status not yet implemented for real contract");
-}
-
-/**
- * Query full escrow record for a job.
- */
-export async function getEscrow(jobId: string): Promise<any> {
-  if (USE_MOCK) {
-    console.log("[STELLAR] Using contract mock mode for get_escrow");
-    return await mockGetEscrow(jobId);
-  }
-
-  // Real implementation would query contract
-  throw new Error("get_escrow not yet implemented for real contract");
-}
-
-/**
- * Query total escrow count.
- */
-export async function getEscrowCount(): Promise<number> {
-  if (USE_MOCK) {
-    console.log("[STELLAR] Using contract mock mode for get_escrow_count");
-    return await mockGetEscrowCount();
-  }
-
-  // Real implementation would query contract
-  throw new Error("get_escrow_count not yet implemented for real contract");
+  return () => {
+    isClosed = true;
+    if (timeoutRef) clearTimeout(timeoutRef);
+  };
 }

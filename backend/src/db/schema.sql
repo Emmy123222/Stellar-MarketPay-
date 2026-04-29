@@ -309,19 +309,3 @@ VALUES (1)
 ON CONFLICT (id) DO NOTHING;
 
 -- ─────────────────────────────────────────
--- skill_endorsements
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS skill_endorsements (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  skill             TEXT NOT NULL,
-  endorser_address  TEXT NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
-  recipient_address TEXT NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (skill, endorser_address, recipient_address)
-);
-
-CREATE INDEX IF NOT EXISTS skill_endorsements_recipient_idx ON skill_endorsements(recipient_address, skill);
-CREATE INDEX IF NOT EXISTS skill_endorsements_endorser_idx ON skill_endorsements(endorser_address);
-
--- ─────────────────────────────
-

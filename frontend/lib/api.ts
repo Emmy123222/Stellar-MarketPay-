@@ -316,16 +316,18 @@ export async function releaseEscrow(
   return data.data;
 }
 
-export async function inviteFreelancer(
-  jobId: string,
-  freelancerAddress: string,
-) {
-  const { data } = await api.post<{ success: boolean; data: any }>(
-    `/api/jobs/${jobId}/invite`,
-    {
-      freelancerAddress,
-    },
-  );
+export async function timeoutRefund(jobId: string, clientAddress: string, contractTxHash?: string) {
+  const { data } = await api.post(`/api/escrow/${jobId}/timeout-refund`, {
+    clientAddress,
+    ...(contractTxHash ? { contractTxHash } : {}),
+  });
+  return data.data;
+}
+
+export async function inviteFreelancer(jobId: string, freelancerAddress: string) {
+  const { data } = await api.post<{ success: boolean; data: any }>(`/api/jobs/${jobId}/invite`, {
+    freelancerAddress,
+  });
   return data.data;
 }
 
@@ -710,144 +712,4 @@ export async function getTurretsConfig() {
   }>("/api/turrets/config");
 
   return data.data;
-}
-
-// ─── Assessments ──────────────────────────────────────────────────────────────
-
-/** Fetches assessment questions and cooldown info for a skill. Requires JWT. */
-export async function fetchAssessment(skill: string): Promise<AssessmentInfo> {
-  const { data } = await api.get<{ success: boolean; data: AssessmentInfo }>(`/api/assessments/${skill}`);
-  return data.data;
-}
-
-/** Submits answers for grading. Returns score and pass/fail. Requires JWT. */
-export async function submitAssessment(skill: string, answers: Record<number, number>): Promise<AssessmentResult> {
-  const { data } = await api.post<{ success: boolean; data: AssessmentResult }>(
-    `/api/assessments/${skill}/submit`,
-    { answers }
-  );
-  return data.data;
-}
-
-/** Fetches all skill assessment results (badges) for a public profile. */
-export async function fetchSkillBadges(publicKey: string): Promise<SkillBadge[]> {
-  const { data } = await api.get<{ success: boolean; data: SkillBadge[] }>(
-    `/api/assessments/results/${encodeURIComponent(publicKey)}`
-  );
-  return data.data;
-}
-
-// ─── Messages ──────────────────────────────────────────────────────────────────
-
-/**
- * Fetches all messages for a specific job.
- * Automatically marks messages as read for the current user.
- *
- * @param jobId Job identifier.
- * @returns Messages sorted chronologically (oldest first).
- * @throws {import("axios").AxiosError} If unauthorized, job not found, or request fails.
- * @see backend/src/routes/messageRoutes.js
- */
-export async function fetchMessages(jobId: string): Promise<Message[]> {
-  const { data } = await api.get<{ success: boolean; data: Message[] }>(`/api/messages/job/${jobId}`);
-  return data.data;
-}
-
-/**
- * Sends a message in a job thread.
- *
- * Request payload shape:
- * - `content` (string): message text (1-2000 characters).
- *
- * @param jobId Job identifier.
- * @param content Message content.
- * @returns The created message object.
- * @throws {import("axios").AxiosError} If unauthorized, validation fails, or request fails.
- * @see backend/src/routes/messageRoutes.js
- */
-export async function sendMessage(jobId: string, content: string): Promise<Message> {
-  const { data } = await api.post<{ success: boolean; data: Message }>(`/api/messages/job/${jobId}`, { content });
-  return data.data;
-}
-
-/**
- * Fetches the total unread message count for the authenticated user.
- *
- * @returns Number of unread messages.
- * @throws {import("axios").AxiosError} If not authenticated or request fails.
- * @see backend/src/routes/messageRoutes.js
- */
-export async function fetchUnreadCount(): Promise<number> {
-  const { data } = await api.get<{ success: boolean; data: { unreadCount: number } }>("/api/messages/unread-count");
-  return data.data.unreadCount;
-}
-
-/** Submits answers for grading. Returns score and pass/fail. Requires JWT. */
-export async function submitAssessment(skill: string, answers: Record<number, number>): Promise<AssessmentResult> {
-  const { data } = await api.post<{ success: boolean; data: AssessmentResult }>(
-    `/api/assessments/${skill}/submit`,
-    { answers }
-  );
-  return data.data;
-}
-
-/** Fetches all skill assessment results (badges) for a public profile. */
-export async function fetchSkillBadges(publicKey: string): Promise<SkillBadge[]> {
-  const { data } = await api.get<{ success: boolean; data: SkillBadge[] }>(
-    `/api/assessments/results/${encodeURIComponent(publicKey)}`
-  );
-  return data.data;
-}
-
-// ─── Admin Moderation ──────────────────────────────────────────────────────────
-
-export async function fetchAdminJobReports() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/reports/jobs");
-  return data.data;
-}
-
-export async function fetchAdminDisputes() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/disputes");
-  return data.data;
-}
-
-export async function fetchAdminLogs() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/logs");
-  return data.data;
-}
-
-export async function fetchFrozenWallets() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/wallets/frozen");
-  return data.data;
-}
-
-export async function resolveDispute(jobId: string, resolution: string, releaseTo: "client" | "freelancer") {
-  const { data } = await api.patch<{ success: boolean; message: string }>(
-    `/api/admin/disputes/${jobId}/resolve`,
-    { resolution, releaseTo }
-  );
-  return data;
-}
-
-export async function adminCancelJob(jobId: string, reason: string) {
-  const { data } = await api.patch<{ success: boolean; message: string }>(
-    `/api/admin/jobs/${jobId}/cancel`,
-    { reason }
-  );
-  return data;
-}
-
-export async function freezeWallet(address: string, reason: string) {
-  const { data } = await api.post<{ success: boolean; message: string }>(
-    `/api/admin/wallets/${address}/freeze`,
-    { reason }
-  );
-  return data;
-}
-
-export async function unfreezeWallet(address: string) {
-  const { data } = await api.delete<{ success: boolean; message: string }>(
-    `/api/admin/wallets/${address}/freeze`
-  );
-  return data;
 }
