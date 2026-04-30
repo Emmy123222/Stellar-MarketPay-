@@ -9,8 +9,32 @@ import type { Job } from "@/utils/types";
 import clsx from "clsx";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useState, useRef, useCallback } from "react";
-import { getTimezoneOffset, toZonedTime } from "date-fns-tz";
+import { useEffect, useState } from "react";
+import { getTimezoneOffset } from "date-fns-tz";
+
+// ── Job Alert localStorage helpers ──────────────────────────────────────────
+const ALERT_KEY = "marketpay_job_alerts";
+
+function getAlerts(): string[] {
+  if (typeof window === "undefined") return [];
+  try { return JSON.parse(localStorage.getItem(ALERT_KEY) ?? "[]"); }
+  catch { return []; }
+}
+
+function saveAlerts(cats: string[]): void {
+  localStorage.setItem(ALERT_KEY, JSON.stringify(cats));
+  window.dispatchEvent(new Event("job-alerts-changed"));
+}
+
+function addAlert(cat: string): void {
+  const current = getAlerts();
+  if (!current.includes(cat)) saveAlerts([...current, cat]);
+}
+
+function removeAlert(cat: string): void {
+  saveAlerts(getAlerts().filter((c) => c !== cat));
+}
+
 
 export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   const router = useRouter();
@@ -31,6 +55,39 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   const [geoLoading, setGeoLoading] = useState<boolean>(false);
   const [geoError, setGeoError] = useState<string | null>(null);
 
+  // ── Job-alert state ────────────────────────────────────────────────────────
+  const [alertedCategories, setAlertedCategories] = useState<string[]>([]);
+  const [alertStatus, setAlertStatus] = useState<"idle" | "granted" | "denied">("idle");
+
+  // Sync alertedCategories from localStorage on mount
+  useEffect(() => {
+    setAlertedCategories(getAlerts());
+    const handler = () => setAlertedCategories(getAlerts());
+    window.addEventListener("job-alerts-changed", handler);
+    return () => window.removeEventListener("job-alerts-changed", handler);
+  }, []);
+
+  const handleSetAlert = async (cat: string) => {
+    if (alertedCategories.includes(cat)) {
+      // Toggle off
+      removeAlert(cat);
+      return;
+    }
+
+    // Request notification permission
+    if (typeof Notification === "undefined") return;
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      setAlertStatus("granted");
+      addAlert(cat);
+      new Notification("Job alert set!", {
+        body: `You'll be notified when new "${cat}" jobs are posted.`,
+        icon: "/favicon.ico",
+      });
+    } else {
+      setAlertStatus("denied");
+    }
+  };
 
   const category = (router.query.category as string) || "";
   const status = (router.query.status as string) || "open";
@@ -468,16 +525,33 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
                 const count = jobs.filter((j) => j.category === cat).length;
                 const isAlerted = alertedCategories.includes(cat);
                 return (
-                  <Link key={cat} href={`/jobs/category/${categoryToSlug(cat)}`} locale={false}
-                    className={clsx(
-                      "w-full text-left px-3 py-2 rounded-lg text-sm font-body transition-all duration-200 block",
-                      category === cat
-                        ? "bg-market-500/20 text-market-300 font-medium ring-1 ring-market-500/30"
-                        : "text-amber-700 hover:text-amber-400 hover:bg-market-500/8 hover:translate-x-0.5"
-                    )}>
-                    {CATEGORY_ICONS[cat] ?? ""} {cat}
-                    <span className="ml-1 text-xs text-amber-800">({count})</span>
-                  </Link>
+                  <div key={cat} className="flex items-center gap-1 group/catrow">
+                    <button onClick={() => setFilter("category", cat)}
+                      className={clsx(
+                        "flex-1 text-left px-3 py-2 rounded-lg text-sm font-body transition-all duration-200",
+                        category === cat
+                          ? "bg-market-500/20 text-market-300 font-medium ring-1 ring-market-500/30"
+                          : "text-amber-700 hover:text-amber-400 hover:bg-market-500/8 hover:translate-x-0.5"
+                      )}>
+                      {CATEGORY_ICONS[cat] ?? ""} {cat}
+                      <span className="ml-1 text-xs text-amber-800">({count})</span>
+                    </button>
+
+                    {/* Set job alert bell button */}
+                    <button
+                      id={`alert-btn-${cat.replace(/\s+/g, "-").toLowerCase()}`}
+                      onClick={() => handleSetAlert(cat)}
+                      title={isAlerted ? `Remove alert for "${cat}"` : `Set alert for "${cat}"`}
+                      className={clsx(
+                        "p-1.5 rounded-md transition-all duration-150 flex-shrink-0",
+                        isAlerted
+                          ? "text-market-300 bg-market-500/20 ring-1 ring-market-500/30"
+                          : "text-amber-900 hover:text-market-400 hover:bg-market-500/10 opacity-0 group-hover/catrow:opacity-100"
+                      )}
+                    >
+                      <BellIcon className="w-3.5 h-3.5" filled={isAlerted} />
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -645,27 +719,10 @@ function SpinnerIcon({ className }: { className?: string }) {
   );
 }
 
-function BriefcaseMiniIcon() {
+function BellIcon({ className, filled = false }: { className?: string; filled?: boolean }) {
   return (
-    <svg className="w-3 h-3 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0M12 12.75h.008v.008H12v-.008z" />
-    </svg>
-  );
-}
-
-function TagMiniIcon() {
-  return (
-    <svg className="w-3 h-3 text-market-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
-    </svg>
-  );
-}
-
-function CategoryMiniIcon() {
-  return (
-    <svg className="w-3 h-3 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+    <svg className={className} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
     </svg>
   );
 }

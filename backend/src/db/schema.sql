@@ -196,22 +196,20 @@ CREATE INDEX IF NOT EXISTS ratings_rated_address_idx ON ratings(rated_address);
 CREATE INDEX IF NOT EXISTS ratings_job_id_idx        ON ratings(job_id);
 
 -- ─────────────────────────────────────────
--- skill_assessments
+-- messages
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS skill_assessments (
-  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  public_key  TEXT        NOT NULL REFERENCES profiles(public_key),
-  skill       TEXT        NOT NULL,
-  score       INTEGER     NOT NULL CHECK (score BETWEEN 0 AND 100),
-  passed      BOOLEAN     NOT NULL,
-  taken_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS messages (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id           UUID        NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  sender_address   TEXT        NOT NULL REFERENCES profiles(public_key),
+  receiver_address TEXT        NOT NULL REFERENCES profiles(public_key),
+  content          TEXT        NOT NULL CHECK (char_length(content) >= 1 AND char_length(content) <= 2000),
+  read             BOOLEAN    NOT NULL DEFAULT FALSE,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS referrals_referrer_address_idx ON referrals(referrer_address);
 CREATE INDEX IF NOT EXISTS referrals_job_id_idx          ON referrals(job_id);
-
-CREATE INDEX IF NOT EXISTS skill_assessments_public_key_idx ON skill_assessments(public_key);
-CREATE INDEX IF NOT EXISTS skill_assessments_skill_idx      ON skill_assessments(skill);
 
 -- ─────────────────────────────────────────
 -- scope_sessions (real-time collaborative editor — Issue #227)
@@ -259,55 +257,4 @@ CREATE TABLE IF NOT EXISTS dispute_evidence (
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS job_drafts_client_idx ON job_drafts(client_address);
-CREATE INDEX IF NOT EXISTS job_drafts_updated_at_idx ON job_drafts(updated_at DESC);
-
--- ─────────────────────────────────────────
--- platform_stats (Issue #232)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS platform_stats (
-  id                  INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  total_jobs_posted   INTEGER     NOT NULL DEFAULT 0,
-  total_escrow_xlm    NUMERIC(20,7) NOT NULL DEFAULT 0,
-  active_users_30d    INTEGER     NOT NULL DEFAULT 0,
-  completion_rate     NUMERIC(5,2) NOT NULL DEFAULT 0,
-  avg_job_budget      NUMERIC(20,7) NOT NULL DEFAULT 0,
-  last_updated        TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-INSERT INTO platform_stats (id)
-VALUES (1)
-ON CONFLICT (id) DO NOTHING;
-
--- ─────────────────────────────────────────
--- notification_preferences (Issue #182)
--- ─────────────────────────────────────────
-ALTER TABLE profiles
-  ADD COLUMN IF NOT EXISTS email TEXT,
-  ADD COLUMN IF NOT EXISTS email_notifications_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-  ADD COLUMN IF NOT EXISTS webhook_url TEXT,
-  ADD COLUMN IF NOT EXISTS webhook_secret TEXT;
-
--- ─────────────────────────────────────────
--- notification_queue (Issue #182)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS notification_queue (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  recipient_address TEXT        NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
-  notification_type TEXT        NOT NULL,  -- email, webhook
-  event_type        TEXT        NOT NULL,  -- escrow_created, work_started, escrow_released, etc.
-  job_id            UUID        REFERENCES jobs(id) ON DELETE CASCADE,
-  payload           JSONB       NOT NULL DEFAULT '{}'::jsonb,
-  status            TEXT        NOT NULL DEFAULT 'pending',  -- pending, sent, failed
-  retry_count       INTEGER     NOT NULL DEFAULT 0,
-  last_attempt_at   TIMESTAMPTZ,
-  error_message     TEXT,
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  sent_at           TIMESTAMPTZ
-);
-
-CREATE INDEX IF NOT EXISTS notification_queue_status_idx ON notification_queue(status, created_at);
-CREATE INDEX IF NOT EXISTS notification_queue_recipient_idx ON notification_queue(recipient_address);
-
--- ─────────────────────────────────────────
-
+CREATE INDEX IF NOT EXISTS dispute_evidence_job_id_idx ON dispute_evidence(job_id);

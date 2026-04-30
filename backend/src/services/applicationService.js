@@ -73,18 +73,47 @@ function rowToApp(row) {
     freelancerTier: calculateFreelancerTier(completedJobs, freelancerRating),
     proposal: row.proposal,
     bidAmount: row.bid_amount,
-    currency: row.currency || "XLM",
+    currency: row.currency || 'XLM',
     status: row.status,
     screeningAnswers: row.screening_answers || {},
     createdAt: row.created_at,
-    withdrawnAt: row.withdrawn_at || null,
   };
 }
 
 // ─── service functions ───────────────────────────────────────────────────────
 
-async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, screeningAnswers, referredBy }) {
+// async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, currency = 'XLM' }) {
+/**
+ * @typedef {Object} SubmitApplicationInput
+ * @property {number|string} jobId - The ID of the job being applied for.
+ * @property {string} freelancerAddress - The Stellar public key of the freelancer.
+ * @property {string} proposal - The application proposal text (min 50 chars).
+ * @property {string|number} bidAmount - The positive bid amount for the application.
+ * @property {string} currency - The currency of the bid amount (default: 'XLM').
+ * @property {Object} screeningAnswers - The screening answers for the job.
+ */
 
+/**
+ * Submit an application for a specific job.
+ *
+ * @param {SubmitApplicationInput} params - The parameters for submitting an application.
+ * @returns {Promise<Object>} The created application object.
+ * @throws {Error} If validation fails, job is not open, client is applying to own job, or if freelancer already applied.
+ *
+ * @example
+ * const app = await applicationService.submitApplication({
+ *   jobId: 10,
+ *   freelancerAddress: 'GBX...',
+ *   proposal: 'I have 5 years of experience building similar applications...',
+ *   bidAmount: 200,
+ *   currency: 'XLM',
+ *   screeningAnswers: {
+ *     question1: 'answer1',
+ *     question2: 'answer2',
+ *   },
+ * });
+ */
+async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, currency = 'XLM', screeningAnswers }) {
   validatePublicKey(freelancerAddress);
 
   const job = await getJob(jobId);
@@ -177,9 +206,7 @@ async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount
 }
 
 /**
- * List every application for a given job, oldest first. Joins in profile
- * `completed_jobs` and the freelancer's average rating so the result row can
- * compute a freelancer tier label. Excludes withdrawn applications.
+ * Retrieves all applications for a specific job.
  *
  * @param {number|string} jobId - The ID of the job.
  * @returns {Promise<Object[]>} An array of application objects ordered by creation date ascending.
@@ -192,7 +219,12 @@ async function getApplicationsForJob(jobId) {
      FROM applications a
      LEFT JOIN profiles p ON p.public_key = a.freelancer_address
      LEFT JOIN ratings r ON r.rated_address = a.freelancer_address
-     WHERE a.job_id = $1 AND a.withdrawn_at IS NULL
+     WHERE a.job_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM profiles cp
+         WHERE cp.public_key = (SELECT client_address FROM jobs WHERE id = $1)
+           AND a.freelancer_address = ANY(cp.blocked_addresses)
+       )
      GROUP BY a.id, p.completed_jobs
      ORDER BY a.created_at ASC`,
     [jobId]

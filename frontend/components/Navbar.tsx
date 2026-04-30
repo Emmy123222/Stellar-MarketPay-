@@ -28,10 +28,7 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
   const router = useRouter();
   const { i18n } = useTranslation("common");
   const [hasNotification, setHasNotification] = useState(false);
-  const [balance, setBalance] = useState<string | null>(null);
-  const [balanceLoading, setBalanceLoading] = useState(false);
-
-  const t = (key: string): string => i18n.t(key) as string;
+  const [hasJobAlertBadge, setHasJobAlertBadge] = useState(false);
 
   useEffect(() => {
     const handleActivity = () => {
@@ -50,47 +47,23 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
     }
   }, [router.pathname]);
 
+  // Job-alert badge on Browse Jobs
   useEffect(() => {
-    if (!publicKey) {
-      setBalance(null);
-      return;
-    }
-
-    let cancelled = false;
-    const fetchBalance = async () => {
-      setBalanceLoading(true);
-      try {
-        const horizonUrl = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
-        const res = await fetch(`${horizonUrl}/accounts/${publicKey}`);
-        if (!res.ok) throw new Error("Failed to fetch balance");
-        const data = await res.json();
-        const xlmBalance = data.balances?.find((b: any) => b.asset_type === "native");
-        if (!cancelled && xlmBalance) {
-          setBalance(parseFloat(xlmBalance.balance).toFixed(2));
-        }
-      } catch (err) {
-        console.error("Balance fetch error:", err);
-      } finally {
-        if (!cancelled) setBalanceLoading(false);
+    const handleAlertMatches = (e: Event) => {
+      const count = (e as CustomEvent<{ count: number }>).detail?.count ?? 0;
+      if (router.pathname !== "/jobs") {
+        setHasJobAlertBadge(count > 0);
       }
     };
-
-    fetchBalance();
-    const interval = setInterval(fetchBalance, 30000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [publicKey]);
-
-  const switchLanguage = (locale: string) => {
-    router.push(router.pathname, router.asPath, { locale });
-    localStorage.setItem("preferredLocale", locale);
-  };
+    window.addEventListener("job-alert-matches", handleAlertMatches);
+    return () => window.removeEventListener("job-alert-matches", handleAlertMatches);
+  }, [router.pathname]);
 
   useEffect(() => {
-    const savedLocale = localStorage.getItem("preferredLocale");
-    if (savedLocale && savedLocale !== i18n.language) {
-      switchLanguage(savedLocale);
+    if (router.pathname === "/jobs") {
+      setHasJobAlertBadge(false);
     }
-  }, []);
+  }, [router.pathname]);
 
   return (
     <nav className="sticky top-0 z-50 border-b border-[rgba(251,191,36,0.10)] bg-ink-900/85 backdrop-blur-xl">

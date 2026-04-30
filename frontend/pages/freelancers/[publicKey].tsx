@@ -113,6 +113,21 @@ export default function PublicFreelancerProfilePage({
     }
   };
 
+  const handleEndorse = async (skill: string) => {
+    if (!publicKey || isOwner) return;
+    setEndorsingSkill(skill);
+    try {
+      await endorseSkill(rawKey, skill);
+      const refreshed = await fetchSkillEndorsements(rawKey);
+      setEndorsements(refreshed);
+    } catch (error: unknown) {
+      console.error("Endorsement error:", error);
+      alert(error instanceof Error ? error.message : "Failed to endorse skill");
+    } finally {
+      setEndorsingSkill(null);
+    }
+  };
+
   const titleBase = useMemo(() => {
     if (state.status === "ok" && state.profile.displayName?.trim()) {
       return `${state.profile.displayName.trim()} · MarketPay`;
