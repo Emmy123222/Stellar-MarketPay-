@@ -80,6 +80,8 @@ pub struct Escrow {
     pub timeout_ledger: u32,
     /// Optional milestones for partial releases
     pub milestones: soroban_sdk::Vec<Milestone>,
+    /// Optional referrer address — receives 2% bonus on release
+    pub referrer:   Option<Address>,
 }
 
 /// Budget commitment for sealed-bid system (Issue #108)
@@ -243,6 +245,7 @@ impl MarketPayContract {
     ///   amount           — payment amount in smallest token units
     ///   milestones       — optional list of milestones (amounts must sum to total amount)
     ///   timeout_ledgers  — optional ledger timeout (default 7 days)
+    ///   referrer         — optional referrer address; receives 2% bonus on release
     pub fn create_escrow(
         env:        Env,
         job_id:     String,
@@ -252,11 +255,19 @@ impl MarketPayContract {
         amount:     i128,
         milestones: Option<soroban_sdk::Vec<i128>>,
         timeout_ledgers: Option<u32>,
+        referrer:   Option<Address>,
     ) {
         client.require_auth();
 
         if amount <= 0 {
             panic!("Amount must be positive");
+        }
+
+        // Referrer must not be the freelancer or client
+        if let Some(ref r) = referrer {
+            if r == &client || r == &freelancer {
+                panic!("Referrer cannot be the client or freelancer");
+            }
         }
 
         // Validate milestones if provided
@@ -304,6 +315,7 @@ impl MarketPayContract {
             created_at: current_ledger,
             timeout_ledger,
             milestones: milestone_list,
+            referrer,
         };
 
         env.storage().instance().set(&DataKey::Escrow(job_id.clone()), &escrow);
@@ -393,19 +405,57 @@ impl MarketPayContract {
         env.storage().instance().set(&DataKey::Escrow(job_id.clone()), &escrow);
 
         if release_amount > 0 {
-            // Transfer funds to freelancer
             let token_client = token::Client::new(&env, &escrow.token);
-            token_client.transfer(
-                &env.current_contract_address(),
-                &escrow.freelancer,
-                &release_amount,
+
+            // ── Referral bonus: 2% of release_amount goes to referrer ──────────
+            // The remaining 98% goes to the freelancer.
+            let (freelancer_amount, referral_amount) = match &escrow.referrer {
+                Some(referrer_addr) => {
+                    // 2% in basis points: amount * 200 / 10_000
+                    let bonus = release_amount
+                        .checked_mul(200)
+                        .expect("Arithmetic overflow")
+                        .checked_div(10_000)
+                        .expect("Arithmetic overflow");
+                    let to_freelancer = release_amount
+                        .checked_sub(bonus)
+                        .expect("Arithmetic overflow");
+                    // Transfer bonus to referrer
+                    if bonus > 0 {
+                        token_client.transfer(
+                            &env.current_contract_address(),
+                            referrer_addr,
+                            &bonus,
+                        );
+                        env.events().publish(
+                            (symbol_short!("ref_bon"), referrer_addr.clone()),
+                            (job_id.clone(), bonus),
+                        );
+                    }
+                    (to_freelancer, bonus)
+                }
+                None => (release_amount, 0i128),
+            };
+
+            // Transfer remaining funds to freelancer
+            if freelancer_amount > 0 {
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &escrow.freelancer,
+                    &freelancer_amount,
+                );
+            }
+
+            env.events().publish(
+                (symbol_short!("released"), client),
+                (job_id, freelancer_amount, referral_amount),
+            );
+        } else {
+            env.events().publish(
+                (symbol_short!("released"), client),
+                (job_id, 0i128, 0i128),
             );
         }
-
-        env.events().publish(
-            (symbol_short!("released"), client),
-            (job_id, release_amount),
-        );
     }
 
     /// Client approves work and releases funds WITH conversion through DEX.
@@ -576,6 +626,14 @@ impl MarketPayContract {
             .get(&DataKey::Escrow(job_id))
             .expect("Escrow not found");
         escrow.timeout_ledger
+    }
+
+    /// Get the referrer address for a job's escrow, if one was set.
+    pub fn get_referrer(env: Env, job_id: String) -> Option<Address> {
+        let escrow: Escrow = env.storage().instance()
+            .get(&DataKey::Escrow(job_id))
+            .expect("Escrow not found");
+        escrow.referrer
     }
 
     /// Get total number of escrows created.

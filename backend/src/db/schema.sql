@@ -208,8 +208,41 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ─────────────────────────────────────────
+-- referrals — tracks who referred whom and bonus payout status
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS referrals (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  referrer_address TEXT        NOT NULL REFERENCES profiles(public_key),
+  referee_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  job_id           UUID        REFERENCES jobs(id),          -- first job that triggered payout
+  status           TEXT        NOT NULL DEFAULT 'pending',   -- pending | paid | ineligible
+  payout_amount    NUMERIC(20,7),                            -- XLM paid to referrer (2% of job earnings)
+  paid_at          TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (referrer_address, referee_address)                 -- one referral relationship per pair
+);
+
 CREATE INDEX IF NOT EXISTS referrals_referrer_address_idx ON referrals(referrer_address);
-CREATE INDEX IF NOT EXISTS referrals_job_id_idx          ON referrals(job_id);
+CREATE INDEX IF NOT EXISTS referrals_referee_address_idx  ON referrals(referee_address);
+CREATE INDEX IF NOT EXISTS referrals_job_id_idx           ON referrals(job_id);
+
+-- ─────────────────────────────────────────
+-- referral_payouts — audit log of every XLM bonus sent
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS referral_payouts (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  referral_id      UUID        NOT NULL REFERENCES referrals(id),
+  referrer_address TEXT        NOT NULL REFERENCES profiles(public_key),
+  referee_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  job_id           UUID        NOT NULL REFERENCES jobs(id),
+  amount_xlm       NUMERIC(20,7) NOT NULL,
+  contract_tx_hash TEXT,                                     -- on-chain tx hash from release_escrow
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS referral_payouts_referrer_idx ON referral_payouts(referrer_address);
+CREATE INDEX IF NOT EXISTS referral_payouts_referee_idx  ON referral_payouts(referee_address);
 
 -- ─────────────────────────────────────────
 -- scope_sessions (real-time collaborative editor — Issue #227)

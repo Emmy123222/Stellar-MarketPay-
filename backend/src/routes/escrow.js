@@ -12,7 +12,11 @@ const router = express.Router();
 const pool = require("../db/pool");
 const { getJob, updateJobStatus } = require("../services/jobService");
 const { logContractInteraction } = require("../services/contractAuditService");
-const { notifyEscrowEvent, EVENT_TYPES } = require("../services/notificationService");
+const {
+  notifyEscrowEvent,
+  EVENT_TYPES,
+} = require("../services/notificationService");
+const { processReferralPayout } = require("../services/referralService");
 
 /**
  * POST /api/escrow/:jobId/release
@@ -41,80 +45,96 @@ router.post("/:jobId/release", async (req, res, next) => {
       throw e;
     }
 
-    // Update escrow
-    await pool.query(
-      `UPDATE escrows 
-       SET status = 'released', released_at = NOW(), updated_at = NOW() 
-       WHERE job_id = $1`,
-      [jobId]
+    // Update escrow and fetch amount for bonus calculation
+    const { rows: escrowRows } = await pool.query(
+      `UPDATE escrows
+       SET status = 'released', released_at = NOW(), updated_at = NOW()
+       WHERE job_id = $1
+       RETURNING amount_xlm`,
+      [jobId],
     );
 
     // Update job
     await updateJobStatus(jobId, "completed");
 
-    // Credit referrer if applicable
-    const { rows: appRows } = await pool.query(
-      "SELECT referred_by FROM applications WHERE job_id = $1 AND status = 'accepted'",
-      [jobId]
+    // Process referral bonus payout (2% of earnings to referrer on referee's first job).
+    // The on-chain transfer is handled by the Soroban contract's release_escrow();
+    // this records the payout in the DB and updates referral status.
+    const amountXlm = escrowRows.length ? escrowRows[0].amount_xlm : "0";
+    const referralResult = await processReferralPayout(
+      jobId,
+      job.freelancerAddress,
+      amountXlm,
+      contractTxHash || null,
     );
-    if (appRows.length > 0 && appRows[0].referred_by) {
-      const referrer = appRows[0].referred_by;
-      await pool.query(
-        "UPDATE profiles SET reputation_points = reputation_points + 5 WHERE public_key = $1",
-        [referrer]
-      );
-    }
 
-    res.json({ success: true, message: "Escrow released and job completed" });
-  } catch (e) { next(e); }
+    res.json({
+      success: true,
+      message: "Escrow released and job completed",
+      ...(referralResult && {
+        referralBonus: {
+          referrer: referralResult.referrer,
+          bonusXlm: referralResult.bonusXlm,
+        },
+      }),
+    });
+  } catch (e) {
+    next(e);
+  }
 });
 
 /**
  * POST /api/escrow/:jobId/partial_release
  */
-router.post("/:jobId/partial_release", escrowActionRateLimiter, async (req, res, next) => {
-  try {
-    const { jobId } = req.params;
-    const { clientAddress, contractTxHash, milestoneIndex } = req.body;
+router.post(
+  "/:jobId/partial_release",
+  escrowActionRateLimiter,
+  async (req, res, next) => {
+    try {
+      const { jobId } = req.params;
+      const { clientAddress, contractTxHash, milestoneIndex } = req.body;
 
-    if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
-      const e = new Error("Invalid client address");
-      e.status = 400;
-      throw e;
-    }
+      if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
+        const e = new Error("Invalid client address");
+        e.status = 400;
+        throw e;
+      }
 
-    const job = await getJob(jobId);
+      const job = await getJob(jobId);
 
-    if (job.clientAddress !== clientAddress) {
-      const e = new Error("Only the job client can release milestones");
-      e.status = 403;
-      throw e;
-    }
+      if (job.clientAddress !== clientAddress) {
+        const e = new Error("Only the job client can release milestones");
+        e.status = 403;
+        throw e;
+      }
 
-    await logContractInteraction({
-      functionName: "partial_release",
-      callerAddress: clientAddress,
-      jobId,
-      txHash: contractTxHash || `offchain-${Date.now()}`,
-    });
-
-    // Notify users about escrow release
-    await notifyEscrowEvent({
-      eventType: EVENT_TYPES.ESCROW_RELEASED,
-      jobId,
-      clientAddress: job.clientAddress,
-      freelancerAddress: job.freelancerAddress,
-      data: {
-        jobTitle: job.title,
+      await logContractInteraction({
+        functionName: "partial_release",
+        callerAddress: clientAddress,
         jobId,
-        amount: job.budget,
-        currency: job.currency,
-      },
-    });
+        txHash: contractTxHash || `offchain-${Date.now()}`,
+      });
 
-    res.json({ success: true, message: "Escrow released and job completed" });
-  } catch (e) { next(e); }
-});
+      // Notify users about escrow release
+      await notifyEscrowEvent({
+        eventType: EVENT_TYPES.ESCROW_RELEASED,
+        jobId,
+        clientAddress: job.clientAddress,
+        freelancerAddress: job.freelancerAddress,
+        data: {
+          jobTitle: job.title,
+          jobId,
+          amount: job.budget,
+          currency: job.currency,
+        },
+      });
+
+      res.json({ success: true, message: "Escrow released and job completed" });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 /**
  * POST /api/escrow/:jobId/refund
@@ -126,14 +146,16 @@ router.post("/:jobId/refund", async (req, res, next) => {
     const { clientAddress, contractTxHash } = req.body;
     const job = await getJob(jobId);
     if (job.clientAddress !== clientAddress) {
-      const e = new Error("Only the job client can refund escrow"); e.status = 403; throw e;
+      const e = new Error("Only the job client can refund escrow");
+      e.status = 403;
+      throw e;
     }
 
     await pool.query(
       `UPDATE escrows
        SET status = 'refunded', updated_at = NOW()
        WHERE job_id = $1`,
-      [jobId]
+      [jobId],
     );
     await updateJobStatus(jobId, "cancelled");
 
@@ -159,7 +181,9 @@ router.post("/:jobId/refund", async (req, res, next) => {
     });
 
     res.json({ success: true, message: "Escrow refunded" });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 /**
@@ -172,14 +196,16 @@ router.post("/:jobId/timeout-refund", async (req, res, next) => {
     const { clientAddress, contractTxHash } = req.body;
     const job = await getJob(jobId);
     if (job.clientAddress !== clientAddress) {
-      const e = new Error("Only the job client can request a timeout refund"); e.status = 403; throw e;
+      const e = new Error("Only the job client can request a timeout refund");
+      e.status = 403;
+      throw e;
     }
 
     await pool.query(
       `UPDATE escrows
        SET status = 'timeout_refunded', updated_at = NOW()
        WHERE job_id = $1`,
-      [jobId]
+      [jobId],
     );
     await updateJobStatus(jobId, "cancelled");
 
@@ -190,8 +216,13 @@ router.post("/:jobId/timeout-refund", async (req, res, next) => {
       txHash: contractTxHash || `offchain-${Date.now()}`,
     });
 
-    res.json({ success: true, message: "Escrow refunded due to inactivity timeout" });
-  } catch (e) { next(e); }
+    res.json({
+      success: true,
+      message: "Escrow refunded due to inactivity timeout",
+    });
+  } catch (e) {
+    next(e);
+  }
 });
 
 /**
@@ -201,7 +232,7 @@ router.get("/:jobId", escrowActionRateLimiter, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       "SELECT * FROM escrows WHERE job_id = $1",
-      [req.params.jobId]
+      [req.params.jobId],
     );
 
     if (!rows.length) {
@@ -214,7 +245,6 @@ router.get("/:jobId", escrowActionRateLimiter, async (req, res, next) => {
       success: true,
       data: rows[0],
     });
-
   } catch (e) {
     next(e);
   }

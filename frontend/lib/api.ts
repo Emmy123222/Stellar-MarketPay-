@@ -13,6 +13,7 @@ import type {
   PortfolioFile,
   TokenInfo,
   TokenBalance,
+  ReferralStats,
 } from "@/utils/types";
 
 const api = axios.create({
@@ -112,9 +113,13 @@ export async function fetchJob(id: string, viewerAddress?: string) {
 }
 
 export async function createJob(payload: {
-  title: string; description: string; budget: string;
+  title: string;
+  description: string;
+  budget: string;
   currency?: "XLM" | "USDC";
-  category: string; skills: string[]; deadline?: string;
+  category: string;
+  skills: string[];
+  deadline?: string;
   timezone?: string;
   clientAddress: string;
   screeningQuestions?: string[];
@@ -303,7 +308,9 @@ export async function verifyIdentity(publicKey: string, didHash: string) {
 // ─── Escrow ───────────────────────────────────────────────────────────────────
 
 export async function fetchEscrow(jobId: string) {
-  const { data } = await api.get<{ success: boolean; data: any }>(`/api/escrow/${jobId}`);
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    `/api/escrow/${jobId}`,
+  );
   return data.data;
 }
 
@@ -321,7 +328,11 @@ export async function releaseEscrow(
   return data.data;
 }
 
-export async function timeoutRefund(jobId: string, clientAddress: string, contractTxHash?: string) {
+export async function timeoutRefund(
+  jobId: string,
+  clientAddress: string,
+  contractTxHash?: string,
+) {
   const { data } = await api.post(`/api/escrow/${jobId}/timeout-refund`, {
     clientAddress,
     ...(contractTxHash ? { contractTxHash } : {}),
@@ -329,10 +340,16 @@ export async function timeoutRefund(jobId: string, clientAddress: string, contra
   return data.data;
 }
 
-export async function inviteFreelancer(jobId: string, freelancerAddress: string) {
-  const { data } = await api.post<{ success: boolean; data: any }>(`/api/jobs/${jobId}/invite`, {
-    freelancerAddress,
-  });
+export async function inviteFreelancer(
+  jobId: string,
+  freelancerAddress: string,
+) {
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    `/api/jobs/${jobId}/invite`,
+    {
+      freelancerAddress,
+    },
+  );
   return data.data;
 }
 
@@ -379,9 +396,10 @@ export async function fetchPriceAlertPreference(publicKey: string) {
 }
 
 export async function fetchClientSpendingAnalytics(publicKey: string) {
-  const { data } = await api.get<{ success: boolean; data: ClientSpendingAnalytics }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/spending`,
-  );
+  const { data } = await api.get<{
+    success: boolean;
+    data: ClientSpendingAnalytics;
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/spending`);
   return data.data;
 }
 
@@ -430,8 +448,14 @@ export async function deleteJob(jobId: string) {
  * @param payload Dispute details (reason and description).
  * @returns The updated job record.
  */
-export async function raiseDispute(jobId: string, payload: { reason: string; description: string }) {
-  const { data } = await api.post<{ success: boolean; data: Job }>(`/api/jobs/${jobId}/dispute`, payload);
+export async function raiseDispute(
+  jobId: string,
+  payload: { reason: string; description: string },
+) {
+  const { data } = await api.post<{ success: boolean; data: Job }>(
+    `/api/jobs/${jobId}/dispute`,
+    payload,
+  );
   return data.data;
 }
 
@@ -442,7 +466,9 @@ export async function raiseDispute(jobId: string, payload: { reason: string; des
  * @returns The updated job record.
  */
 export async function resolveDispute(jobId: string) {
-  const { data } = await api.post<{ success: boolean; data: Job }>(`/api/jobs/${jobId}/resolve`);
+  const { data } = await api.post<{ success: boolean; data: Job }>(
+    `/api/jobs/${jobId}/resolve`,
+  );
   return data.data;
 }
 
@@ -470,20 +496,27 @@ export async function fetchRatings(publicKey: string) {
 
 // ─── Recommendations ──────────────────────────────────────────────────────────
 
-export async function fetchRecommendedJobs(publicKey: string): Promise<(Job & { matchScore: number })[]> {
-  const { data } = await api.get<{ success: boolean; data: (Job & { matchScore: number })[] }>(
-    `/api/jobs/recommended/${encodeURIComponent(publicKey)}`
-  );
+export async function fetchRecommendedJobs(
+  publicKey: string,
+): Promise<(Job & { matchScore: number })[]> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: (Job & { matchScore: number })[];
+  }>(`/api/jobs/recommended/${encodeURIComponent(publicKey)}`);
   return data.data;
 }
 
 export async function fetchDrafts() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/jobs/drafts");
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    "/api/jobs/drafts",
+  );
   return data.data;
 }
 
 export async function fetchDraft(draftId: string) {
-  const { data } = await api.get<{ success: boolean; data: any }>(`/api/jobs/drafts/${draftId}`);
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    `/api/jobs/drafts/${draftId}`,
+  );
   return data.data;
 }
 
@@ -494,7 +527,10 @@ export async function deleteDraft(draftId: string) {
 // ─── Job Recommendations (Issue #221) ───────────────────────────────────
 
 export async function fetchRecommendedJobs(limit = 10) {
-  const { data } = await api.get<{ success: boolean; data: Job[] }>("/api/jobs/recommended", { params: { limit } });
+  const { data } = await api.get<{ success: boolean; data: Job[] }>(
+    "/api/jobs/recommended",
+    { params: { limit } },
+  );
   return data.data;
 }
 
@@ -502,18 +538,18 @@ export async function fetchRecommendedJobs(limit = 10) {
 
 export async function uploadPortfolioFiles(publicKey: string, files: FileList) {
   const formData = new FormData();
-  
+
   // Append all files to FormData
   Array.from(files).forEach((file) => {
     formData.append("files", file);
   });
 
-  const { data } = await api.post<{ 
-    success: boolean; 
-    data: { 
+  const { data } = await api.post<{
+    success: boolean;
+    data: {
       uploadedFiles: PortfolioFile[];
       gatewayUrls: string[];
-    }
+    };
   }>(`/api/profiles/${encodeURIComponent(publicKey)}/upload-files`, formData, {
     headers: {
       "Content-Type": "multipart/form-data",
@@ -527,8 +563,8 @@ export async function uploadPortfolioFiles(publicKey: string, files: FileList) {
 // ─── Stellar Faucet (Issue #205) ───────────────────────────────────────────
 
 export async function fundTestnetWallet(publicKey: string) {
-  const { data } = await api.post<{ 
-    success: boolean; 
+  const { data } = await api.post<{
+    success: boolean;
     data: {
       success: boolean;
       message: string;
@@ -536,34 +572,34 @@ export async function fundTestnetWallet(publicKey: string) {
       newBalance?: string;
       transactionHash?: string;
       ledger?: number;
-    }
+    };
   }>("/api/faucet/fund", { publicKey });
 
   return data.data;
 }
 
 export async function checkAccountNeedsFunding(publicKey: string) {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: {
       needsFunding: boolean;
       currentBalance: string;
       exists: boolean;
-    }
+    };
   }>(`/api/faucet/check/${encodeURIComponent(publicKey)}`);
 
   return data.data;
 }
 
 export async function getFaucetStatus() {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: {
       enabled: boolean;
       network: string;
       amount: string;
       asset: string;
-    }
+    };
   }>("/api/faucet/status");
 
   return data.data;
@@ -572,8 +608,8 @@ export async function getFaucetStatus() {
 // ─── Token Support (Issue #228) ─────────────────────────────────────────────
 
 export async function getPopularTokens() {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: TokenInfo[];
   }>("/api/tokens/popular");
 
@@ -581,8 +617,8 @@ export async function getPopularTokens() {
 }
 
 export async function searchTokens(query: string) {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: TokenInfo[];
   }>("/api/tokens/search", { params: { q: query } });
 
@@ -590,8 +626,8 @@ export async function searchTokens(query: string) {
 }
 
 export async function getTokenMetadata(contractId: string) {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: TokenInfo;
   }>(`/api/tokens/${contractId}/metadata`);
 
@@ -599,8 +635,8 @@ export async function getTokenMetadata(contractId: string) {
 }
 
 export async function getTokenBalance(contractId: string, publicKey: string) {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: TokenBalance;
   }>(`/api/tokens/${contractId}/balance/${publicKey}`);
 
@@ -608,8 +644,8 @@ export async function getTokenBalance(contractId: string, publicKey: string) {
 }
 
 export async function validateTokenContract(contractId: string) {
-  const { data } = await api.post<{ 
-    success: boolean; 
+  const { data } = await api.post<{
+    success: boolean;
     data: {
       valid: boolean;
       error?: string;
@@ -621,9 +657,12 @@ export async function validateTokenContract(contractId: string) {
 
 // ─── Stellar Turrets (Issue #224) ───────────────────────────────────────────
 
-export async function submitViaTurrets(transactionXDR: string, useTurret?: boolean) {
-  const { data } = await api.post<{ 
-    success: boolean; 
+export async function submitViaTurrets(
+  transactionXDR: string,
+  useTurret?: boolean,
+) {
+  const { data } = await api.post<{
+    success: boolean;
     data: {
       success: boolean;
       hash: string;
@@ -638,8 +677,8 @@ export async function submitViaTurrets(transactionXDR: string, useTurret?: boole
 }
 
 export async function getTurretsStatus() {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: {
       available: boolean;
       url?: string;
@@ -655,8 +694,8 @@ export async function getTurretsStatus() {
 }
 
 export async function estimateTurretsFee(transactionXDR: string) {
-  const { data } = await api.post<{ 
-    success: boolean; 
+  const { data } = await api.post<{
+    success: boolean;
     data: {
       success: boolean;
       baseFee: string;
@@ -671,8 +710,8 @@ export async function estimateTurretsFee(transactionXDR: string) {
 }
 
 export async function getTurretsConfig() {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: {
       configured: boolean;
       url: string | null;
@@ -696,7 +735,9 @@ export async function getTurretsConfig() {
  * @see backend/src/routes/messageRoutes.js
  */
 export async function fetchMessages(jobId: string): Promise<Message[]> {
-  const { data } = await api.get<{ success: boolean; data: Message[] }>(`/api/messages/job/${jobId}`);
+  const { data } = await api.get<{ success: boolean; data: Message[] }>(
+    `/api/messages/job/${jobId}`,
+  );
   return data.data;
 }
 
@@ -712,8 +753,14 @@ export async function fetchMessages(jobId: string): Promise<Message[]> {
  * @throws {import("axios").AxiosError} If unauthorized, validation fails, or request fails.
  * @see backend/src/routes/messageRoutes.js
  */
-export async function sendMessage(jobId: string, content: string): Promise<Message> {
-  const { data } = await api.post<{ success: boolean; data: Message }>(`/api/messages/job/${jobId}`, { content });
+export async function sendMessage(
+  jobId: string,
+  content: string,
+): Promise<Message> {
+  const { data } = await api.post<{ success: boolean; data: Message }>(
+    `/api/messages/job/${jobId}`,
+    { content },
+  );
   return data.data;
 }
 
@@ -725,7 +772,10 @@ export async function sendMessage(jobId: string, content: string): Promise<Messa
  * @see backend/src/routes/messageRoutes.js
  */
 export async function fetchUnreadCount(): Promise<number> {
-  const { data } = await api.get<{ success: boolean; data: { unreadCount: number } }>("/api/messages/unread-count");
+  const { data } = await api.get<{
+    success: boolean;
+    data: { unreadCount: number };
+  }>("/api/messages/unread-count");
   return data.data.unreadCount;
 }
 
@@ -741,7 +791,7 @@ export interface EarningPayment {
 }
 
 export interface MonthlyEarning {
-  month: string;      // "YYYY-MM"
+  month: string; // "YYYY-MM"
   totalXlm: number;
 }
 
@@ -751,9 +801,11 @@ export interface EarningsData {
   monthly: MonthlyEarning[];
 }
 
-export async function fetchFreelancerEarnings(publicKey: string): Promise<EarningsData> {
+export async function fetchFreelancerEarnings(
+  publicKey: string,
+): Promise<EarningsData> {
   const { data } = await api.get<{ success: boolean; data: EarningsData }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/earnings`
+    `/api/profiles/${encodeURIComponent(publicKey)}/earnings`,
   );
   return data.data;
 }
@@ -783,18 +835,25 @@ export interface DisputeDetail {
   evidence: DisputeEvidence[];
 }
 
-export async function fetchDisputeDetail(jobId: string): Promise<DisputeDetail> {
-  const { data } = await api.get<{ success: boolean; data: DisputeDetail }>(`/api/disputes/${jobId}`);
+export async function fetchDisputeDetail(
+  jobId: string,
+): Promise<DisputeDetail> {
+  const { data } = await api.get<{ success: boolean; data: DisputeDetail }>(
+    `/api/disputes/${jobId}`,
+  );
   return data.data;
 }
 
-export async function uploadDisputeEvidence(jobId: string, file: File): Promise<DisputeEvidence> {
+export async function uploadDisputeEvidence(
+  jobId: string,
+  file: File,
+): Promise<DisputeEvidence> {
   const formData = new FormData();
   formData.append("file", file);
   const { data } = await api.post<{ success: boolean; data: DisputeEvidence }>(
     `/api/disputes/${jobId}/evidence`,
     formData,
-    { headers: { "Content-Type": "multipart/form-data" }, timeout: 60000 }
+    { headers: { "Content-Type": "multipart/form-data" }, timeout: 60000 },
   );
   return data.data;
 }
@@ -808,27 +867,42 @@ export interface PasskeyCredential {
 }
 
 export async function fetchPasskeyRegistrationOptions(publicKey: string) {
-  const { data } = await api.post<{ success: boolean; data: any }>("/api/webauthn/register-options", { publicKey });
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    "/api/webauthn/register-options",
+    { publicKey },
+  );
   return data.data;
 }
 
 export async function verifyPasskeyRegistration(credential: any, name: string) {
-  const { data } = await api.post<{ success: boolean; message: string }>("/api/webauthn/register-verify", { credential, name });
+  const { data } = await api.post<{ success: boolean; message: string }>(
+    "/api/webauthn/register-verify",
+    { credential, name },
+  );
   return data;
 }
 
 export async function fetchPasskeyLoginOptions(publicKey: string) {
-  const { data } = await api.post<{ success: boolean; data: any }>("/api/webauthn/login-options", { publicKey });
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    "/api/webauthn/login-options",
+    { publicKey },
+  );
   return data.data;
 }
 
 export async function verifyPasskeyLogin(credential: any, publicKey: string) {
-  const { data } = await api.post<{ success: boolean; token: string }>("/api/webauthn/login-verify", { credential, publicKey });
+  const { data } = await api.post<{ success: boolean; token: string }>(
+    "/api/webauthn/login-verify",
+    { credential, publicKey },
+  );
   return data;
 }
 
 export async function fetchPasskeyCredentials(): Promise<PasskeyCredential[]> {
-  const { data } = await api.get<{ success: boolean; data: PasskeyCredential[] }>("/api/webauthn/credentials");
+  const { data } = await api.get<{
+    success: boolean;
+    data: PasskeyCredential[];
+  }>("/api/webauthn/credentials");
   return data.data;
 }
 
@@ -839,8 +913,8 @@ export async function deletePasskeyCredential(id: string) {
 // ─── Admin Functions ──────────────────────────────────────────────────────────
 
 export async function fetchAdminMetrics(period: "7d" | "30d" | "90d" = "30d") {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: {
       period: string;
       platformHealth: {
@@ -869,7 +943,11 @@ export async function fetchAdminMetrics(period: "7d" | "30d" | "90d" = "30d") {
         total_ratings: number;
         repeat_hires: number;
       };
-      disputeMetrics: Array<{ week: string; disputes_opened: number; disputes_resolved: number }>;
+      disputeMetrics: Array<{
+        week: string;
+        disputes_opened: number;
+        disputes_resolved: number;
+      }>;
       topEarners: Array<{
         public_key: string;
         display_name: string;
@@ -877,44 +955,90 @@ export async function fetchAdminMetrics(period: "7d" | "30d" | "90d" = "30d") {
         completed_jobs: number;
         rating: number;
       }>;
-      jobVolume: Array<{ date: string; jobs_created: number; jobs_completed: number }>;
-    }
+      jobVolume: Array<{
+        date: string;
+        jobs_created: number;
+        jobs_completed: number;
+      }>;
+    };
   }>("/api/admin/metrics", { params: { period } });
   return data.data;
 }
 
 export async function fetchAdminJobReports() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/reports/jobs");
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    "/api/admin/reports/jobs",
+  );
   return data.data;
 }
 
 export async function fetchAdminDisputes() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/disputes");
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    "/api/admin/disputes",
+  );
   return data.data;
 }
 
 export async function fetchAdminLogs() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/logs");
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    "/api/admin/logs",
+  );
   return data.data;
 }
 
 export async function fetchFrozenWallets() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/wallets/frozen");
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    "/api/admin/wallets/frozen",
+  );
   return data.data;
 }
 
 export async function adminCancelJob(jobId: string, reason: string) {
-  const { data } = await api.patch<{ success: boolean; message: string }>(`/api/admin/jobs/${jobId}/cancel`, { reason });
+  const { data } = await api.patch<{ success: boolean; message: string }>(
+    `/api/admin/jobs/${jobId}/cancel`,
+    { reason },
+  );
   return data;
 }
 
 export async function freezeWallet(address: string, reason: string) {
-  const { data } = await api.post<{ success: boolean; message: string }>(`/api/admin/wallets/${address}/freeze`, { reason });
+  const { data } = await api.post<{ success: boolean; message: string }>(
+    `/api/admin/wallets/${address}/freeze`,
+    { reason },
+  );
   return data;
 }
 
 export async function unfreezeWallet(address: string) {
-  const { data } = await api.delete<{ success: boolean; message: string }>(`/api/admin/wallets/${address}/freeze`);
+  const { data } = await api.delete<{ success: boolean; message: string }>(
+    `/api/admin/wallets/${address}/freeze`,
+  );
   return data;
 }
 
+// ─── Referrals ────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch referral stats and history for a referrer.
+ */
+export async function fetchReferralStats(
+  publicKey: string,
+): Promise<ReferralStats> {
+  const { data } = await api.get<{ success: boolean; data: ReferralStats }>(
+    `/api/referrals/${encodeURIComponent(publicKey)}`,
+  );
+  return data.data;
+}
+
+/**
+ * Register a referral relationship when a new user signs up via a referral link.
+ */
+export async function registerReferral(
+  referrerAddress: string,
+  refereeAddress: string,
+): Promise<void> {
+  await api.post("/api/referrals/register", {
+    referrerAddress,
+    refereeAddress,
+  });
+}
