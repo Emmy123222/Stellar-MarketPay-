@@ -161,6 +161,11 @@ CREATE TABLE IF NOT EXISTS escrows (
   status              TEXT        NOT NULL DEFAULT 'funded',   -- funded | released | refunded | timeout_refunded
   released_at         TIMESTAMPTZ,                 -- When the escrow was released
   timeout_at          TIMESTAMPTZ,                 -- Issue #175: Ledger timeout mapped to wall-clock (approx)
+  guardian_address    TEXT,                        -- Optional guardian for multi-sig (Issue #359)
+  high_value_threshold NUMERIC(20,7),              -- Threshold above which guardian approval required
+  guardian_approved   BOOLEAN DEFAULT false,       -- Whether guardian has approved the release
+  guardian_approved_at TIMESTAMPTZ,                -- When guardian approved
+  release_timeout_at  TIMESTAMPTZ,                 -- After 48h, client can release unilaterally
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -258,3 +263,19 @@ CREATE TABLE IF NOT EXISTS dispute_evidence (
 );
 
 CREATE INDEX IF NOT EXISTS dispute_evidence_job_id_idx ON dispute_evidence(job_id);
+
+-- ─────────────────────────────────────────
+-- notification_preferences (user notification settings — Issue #358)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS notification_preferences (
+  id                  UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_address        TEXT  NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
+  notification_type   TEXT  NOT NULL,
+  channel             TEXT  NOT NULL CHECK (channel IN ('email', 'inapp')),
+  enabled             BOOLEAN NOT NULL DEFAULT true,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(user_address, notification_type, channel)
+);
+
+CREATE INDEX IF NOT EXISTS notification_preferences_user_address_idx ON notification_preferences(user_address);

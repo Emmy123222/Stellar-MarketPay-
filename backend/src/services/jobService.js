@@ -657,6 +657,41 @@ async function getAnalyticsOverview() {
   };
 }
 
+async function getSuggestions(query) {
+  if (!query || query.length < 2) {
+    return { titles: [], skills: [], categories: [] };
+  }
+
+  const q = query.trim();
+  const likePattern = `%${q}%`;
+
+  try {
+    const [titleResults, skillResults] = await Promise.all([
+      pool.query(
+        `SELECT DISTINCT title FROM jobs WHERE title ILIKE $1 AND status = 'open' ORDER BY title LIMIT 5`,
+        [likePattern]
+      ),
+      pool.query(
+        `SELECT DISTINCT skill FROM (SELECT unnest(skills) as skill FROM jobs WHERE status = 'open') skills WHERE skill ILIKE $1 ORDER BY skill LIMIT 3`,
+        [likePattern]
+      ),
+    ]);
+
+    const categoryMatches = VALID_CATEGORIES.filter((cat) =>
+      cat.toLowerCase().includes(q.toLowerCase())
+    ).slice(0, 2);
+
+    return {
+      titles: titleResults.rows.map((r) => r.title),
+      skills: skillResults.rows.map((r) => r.skill),
+      categories: categoryMatches,
+    };
+  } catch (err) {
+    console.error("Error fetching suggestions:", err);
+    return { titles: [], skills: [], categories: [] };
+  }
+}
+
 export default {
   createJob,
   getJob,
@@ -672,4 +707,5 @@ export default {
   resolveDispute,
   getCategoryAnalytics,
   getAnalyticsOverview,
+  getSuggestions,
 };
