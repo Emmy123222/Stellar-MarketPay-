@@ -30,8 +30,9 @@ const messageRoutes   = require("./routes/messageRoutes");
 const webauthnRoutes  = require("./routes/webauthn");
 const disputeRoutes   = require("./routes/disputes");
 const adminRoutes     = require("./routes/admin");
+const timeEntryRoutes = require("./routes/timeEntries");
 const pool            = require("./db/pool");
-const migrate         = require("./db/migrate");
+const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 
@@ -198,6 +199,7 @@ app.use("/api/messages",      messageRoutes);
 app.use("/api/webauthn",      webauthnRoutes);
 app.use("/api/disputes",      disputeRoutes);
 app.use("/api/admin",         adminRoutes);
+app.use("/api/time-entries",  timeEntryRoutes);
 
 app.use((err, req, res, next) => {
   logError(req.logger || serviceLogger, err, {
@@ -353,6 +355,10 @@ async function bootstrap() {
       nodeEnv: process.env.NODE_ENV || "development",
     }, 'Stellar MarketPay API server started');
   });
+  } catch (err) {
+    logError(serviceLogger, err, { operation: "bootstrap" });
+    process.exit(1);
+  }
 }
 
 /**
@@ -452,8 +458,7 @@ async function startNotificationProcessor() {
     }
   }, 2 * 60 * 1000).unref();
 }
-}
-
 bootstrap();
 
 module.exports = app;
+

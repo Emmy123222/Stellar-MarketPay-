@@ -2,7 +2,7 @@
  * pages/dashboard.tsx
  * User dashboard — shows posted jobs, applications, and wallet balance.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";

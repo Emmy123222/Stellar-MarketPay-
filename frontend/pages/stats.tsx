@@ -58,6 +58,9 @@ export default function StatsPage() {
     };
 
     loadStats();
+    // Refresh stats every 5 minutes (stats do not need to be real-time).
+    const interval = setInterval(loadStats, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   if (loading) {
@@ -78,6 +81,9 @@ export default function StatsPage() {
       <Head>
         <title>Platform Statistics - Stellar MarketPay</title>
         <meta name="description" content="View platform-wide statistics and metrics" />
+        <meta property="og:title" content="Platform Statistics - Stellar MarketPay" />
+        <meta property="og:description" content="Live platform-wide metrics: jobs posted, escrow value, completion rate, and top categories." />
+        <meta property="og:type" content="website" />
       </Head>
 
       <div className="min-h-screen bg-gray-50 py-12 px-4">

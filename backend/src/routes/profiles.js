@@ -7,6 +7,8 @@ const router  = express.Router();
 const pool    = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT } = require("../middleware/auth");
+const multer = require("multer");
+const { uploadFile, getGatewayUrl, MAX_FILE_SIZE } = require("../services/ipfsService");
 
 const profileUpdateRateLimiter = createRateLimiter(5, 1); // 5 profile updates per minute
 const generalProfileRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for getting profiles
@@ -221,4 +223,58 @@ router.get("/:publicKey/earnings", generalProfileRateLimiter, async (req, res, n
   } catch (e) { next(e); }
 });
 
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE },
+});
+
+router.post("/:publicKey/portfolio", verifyJWT, upload.single("file"), async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: "Unauthorized" });
+    if (!req.file) return res.status(400).json({ error: "File is required" });
+
+    const { rows } = await pool.query("SELECT portfolio_items FROM profiles WHERE public_key = $1", [publicKey]);
+    const current = rows[0]?.portfolio_items || [];
+    if (current.length >= 10) return res.status(400).json({ error: "Maximum 10 portfolio items allowed" });
+
+    const uploaded = await uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype);
+    const item = {
+      id: require("crypto").randomUUID(),
+      title: req.body.title?.trim() || req.file.originalname,
+      type: uploaded.mimeType.startsWith("image/") ? "image" : "pdf",
+      cid: uploaded.cid,
+      fileName: uploaded.fileName,
+      mimeType: uploaded.mimeType,
+      size: uploaded.size,
+      uploadedAt: uploaded.uploadedAt,
+      url: getGatewayUrl(uploaded.cid),
+    };
+
+    const updated = [...current, item];
+    await pool.query("UPDATE profiles SET portfolio_items = $2::jsonb, updated_at = NOW() WHERE public_key = $1", [publicKey, JSON.stringify(updated)]);
+
+    res.json({ success: true, data: item });
+  } catch (e) { next(e); }
+});
+
+router.delete("/:publicKey/portfolio/:itemId", verifyJWT, async (req, res, next) => {
+  try {
+    const { publicKey, itemId } = req.params;
+    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: "Unauthorized" });
+
+    const { rows } = await pool.query("SELECT portfolio_items FROM profiles WHERE public_key = $1", [publicKey]);
+    const current = rows[0]?.portfolio_items || [];
+    const nextItems = current.filter((item) => item.id !== itemId);
+
+    if (nextItems.length === current.length) return res.status(404).json({ error: "Portfolio item not found" });
+
+    await pool.query("UPDATE profiles SET portfolio_items = $2::jsonb, updated_at = NOW() WHERE public_key = $1", [publicKey, JSON.stringify(nextItems)]);
+
+    res.json({ success: true, data: { deleted: true } });
+  } catch (e) { next(e); }
+});
 module.exports = router;
+
+

@@ -16,7 +16,7 @@ import "../lib/i18n";
 
 function App({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
-  const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
+  const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);`n  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(null);`n  const [installDismissed, setInstallDismissed] = useState(false);
   const router = useRouter();
 
   const isJobDetailPage = router.pathname === "/jobs/[id]";
@@ -70,7 +70,7 @@ function App({ Component, pageProps }: AppProps) {
     }
   }, []);
 
-  const handleConnect = async () => {
+  useEffect(() => {`n    const onInstallPrompt = (event: any) => {`n      event.preventDefault();`n      setDeferredInstallPrompt(event);`n    };`n    window.addEventListener("beforeinstallprompt", onInstallPrompt);`n    return () => window.removeEventListener("beforeinstallprompt", onInstallPrompt);`n  }, []);`n`n  const handleInstallApp = async () => {`n    if (!deferredInstallPrompt) return;`n    deferredInstallPrompt.prompt();`n    const choice = await deferredInstallPrompt.userChoice;`n    if (choice?.outcome !== "accepted") setInstallDismissed(true);`n    setDeferredInstallPrompt(null);`n  };`n`n  const handleConnect = async () => {
     const { publicKey: pk, error } = await connectWallet();
     if (pk) {
       const authenticated = await handleAuthAndConnect(pk);
@@ -103,7 +103,7 @@ function App({ Component, pageProps }: AppProps) {
           <main>
             <Component {...pageProps} publicKey={publicKey} onConnect={handleConnect} />
           </main>
-          {publicKey && <FaucetButton publicKey={publicKey} />}
+          {publicKey && <FaucetButton publicKey={publicKey} />}`n          {deferredInstallPrompt && !installDismissed && (`n            <button onClick={handleInstallApp} className="fixed right-4 bottom-4 z-50 btn-primary text-sm">Install App</button>`n          )}
           <ShortcutsModal
             isOpen={shortcutsModalOpen}
             onClose={() => setShortcutsModalOpen(false)}
@@ -117,3 +117,4 @@ function App({ Component, pageProps }: AppProps) {
 }
 
 export default App;
+

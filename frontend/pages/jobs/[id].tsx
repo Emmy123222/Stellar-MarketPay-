@@ -319,8 +319,12 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           </div>
         </div>
 
-        {isFreelancer && job.status === "in_progress" && (
-          <TimeTracker jobId={job.id} />
+        {(isFreelancer || isClient) && job.status === "in_progress" && (
+          <TimeTracker
+            jobId={job.id}
+            isFreelancer={isFreelancer}
+            isClient={isClient}
+          />
         )}
 
         {isClient && (

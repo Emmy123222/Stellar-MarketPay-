@@ -45,8 +45,11 @@ function EvidenceCard({ ev, isOwn }: { ev: DisputeEvidence; isOwn: boolean }) {
           <img
             src={ev.gatewayUrl}
             alt={ev.fileName}
+            width={80}
+            height={64}
             className="w-20 h-16 object-cover rounded-lg border border-market-500/20"
             loading="lazy"
+            decoding="async"
           />
         )}
         <a

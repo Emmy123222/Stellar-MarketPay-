@@ -1,56 +1,58 @@
 {
-  "name": "stellar-marketpay-backend",
-  "version": "1.0.0",
-  "description": "Backend API for Stellar MarketPay",
-  "main": "src/server.js",
-  "scripts": {
-    "dev": "nodemon src/server.js",
-    "start": "node src/server.js",
-    "lint": "eslint src/**/*.js",
-    "test": "jest",
-    "generate-openapi": "node scripts/generate-openapi.js",
-    "build": "npm run generate-openapi && npm run lint"
-  },
-  "dependencies": {
-    "@simplewebauthn/server": "^9.0.3",
-    "@stellar/stellar-sdk": "^12.0.0",
-    "axios": "^1.7.2",
-    "cors": "^2.8.5",
-    "date-fns-tz": "^3.2.0",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "express-rate-limit": "^7.3.1",
-    "form-data": "^4.0.0",
-    "helmet": "^7.1.0",
-    "jsonwebtoken": "^9.0.3",
-    "morgan": "^1.10.0",
-    "multer": "^1.4.5-lts.1",
-    "nodemailer": "^6.9.14",
-    "pg": "^8.20.0",
-    "pino": "^8.17.2",
-    "pino-pretty": "^10.3.1",
-    "rss": "^1.2.2",
-    "speakeasy": "^2.0.0",
-    "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.0",
-    "uuid": "^10.0.0",
-    "ws": "^8.20.0"
-  },
-  "devDependencies": {
-    "eslint": "^8.57.0",
-    "jest": "^30.3.0",
-    "nodemon": "^3.1.2"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "jest": {
-    "testEnvironment": "node",
-    "transformIgnorePatterns": [
-      "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus)/)"
-    ],
-    "moduleNameMapper": {
-      "^(\\.{1,2}/.*)\\.js$": "$1"
-    }
-  }
+    "name":  "stellar-marketpay-backend",
+    "version":  "1.0.0",
+    "description":  "Backend API for Stellar MarketPay",
+    "main":  "src/server.js",
+    "scripts":  {
+                    "dev":  "nodemon src/server.js",
+                    "start":  "node src/server.js",
+                    "lint":  "eslint src/**/*.js",
+                    "test":  "jest",
+                    "generate-openapi":  "node scripts/generate-openapi.js",
+                    "build":  "npm run generate-openapi \u0026\u0026 npm run lint",
+                    "migrate":  "node src/db/migrate.js",
+                    "migrate:rollback":  "node src/db/migrate.js down"
+                },
+    "dependencies":  {
+                         "@simplewebauthn/server":  "^9.0.3",
+                         "@stellar/stellar-sdk":  "^12.0.0",
+                         "axios":  "^1.7.2",
+                         "cors":  "^2.8.5",
+                         "date-fns-tz":  "^3.2.0",
+                         "dotenv":  "^16.4.5",
+                         "express":  "^4.19.2",
+                         "express-rate-limit":  "^7.3.1",
+                         "form-data":  "^4.0.0",
+                         "helmet":  "^7.1.0",
+                         "jsonwebtoken":  "^9.0.3",
+                         "morgan":  "^1.10.0",
+                         "multer":  "^1.4.5-lts.1",
+                         "nodemailer":  "^6.9.14",
+                         "pg":  "^8.20.0",
+                         "pino":  "^8.17.2",
+                         "pino-pretty":  "^10.3.1",
+                         "rss":  "^1.2.2",
+                         "speakeasy":  "^2.0.0",
+                         "swagger-jsdoc":  "^6.2.8",
+                         "swagger-ui-express":  "^5.0.0",
+                         "uuid":  "^10.0.0",
+                         "ws":  "^8.20.0"
+                     },
+    "devDependencies":  {
+                            "eslint":  "^8.57.0",
+                            "jest":  "^30.3.0",
+                            "nodemon":  "^3.1.2"
+                        },
+    "engines":  {
+                    "node":  "\u003e=18.0.0"
+                },
+    "jest":  {
+                 "testEnvironment":  "node",
+                 "transformIgnorePatterns":  [
+                                                 "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus)/)"
+                                             ],
+                 "moduleNameMapper":  {
+                                          "^(\\.{1,2}/.*)\\.js$":  "$1"
+                                      }
+             }
 }
