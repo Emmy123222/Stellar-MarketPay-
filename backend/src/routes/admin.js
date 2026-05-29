@@ -28,9 +28,15 @@ function requireAdmin(req, res, next) {
 async function logAdminAction({ action, adminAddress, targetId, targetType, details }) {
   try {
     await pool.query(
-      `INSERT INTO admin_action_logs (action, admin_address, target_id, target_type, details, created_at)
+      `INSERT INTO audit_logs (actor_address, action, target, reason, metadata, created_at)
        VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [action, adminAddress, targetId, targetType, JSON.stringify(details || {})]
+      [
+        adminAddress,
+        action,
+        targetId || null,
+        details?.reason || null,
+        JSON.stringify({ targetType, ...details }),
+      ]
     );
   } catch {
     // Table may not exist yet — fail silently, action is still performed
@@ -236,8 +242,8 @@ router.get("/reported-wallets", verifyJWT, requireAdmin, requireAdmin2FA, async 
 router.get("/logs", verifyJWT, requireAdmin, requireAdmin2FA, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, action, admin_address, target_id, target_type, details, created_at
-       FROM admin_action_logs
+      `SELECT id, action, actor_address, target, reason, metadata, created_at
+       FROM audit_logs
        ORDER BY created_at DESC
        LIMIT 200`
     );
@@ -273,7 +279,7 @@ router.patch("/disputes/:jobId/resolve", verifyJWT, requireAdmin, requireAdmin2F
       adminAddress: req.user.publicKey,
       targetId: jobId,
       targetType: "job",
-      details: { resolution, releaseTo, newJobStatus },
+      details: { reason: resolution, resolution, releaseTo, newJobStatus },
     });
 
     await logContractInteraction({

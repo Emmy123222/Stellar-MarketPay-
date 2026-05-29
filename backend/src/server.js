@@ -35,6 +35,8 @@ const timeEntryRoutes = require("./routes/timeEntries");
 const referralRoutes  = require("./routes/referrals");
 const notificationRoutes = require("./routes/notifications");
 const certificateRoutes = require("./routes/certificates");
+const developerRoutes = require("./routes/developer");
+const publicRoutes = require("./routes/public");
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
@@ -184,7 +186,7 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").
 app.use(cors({
   origin: (origin, cb) => (!origin || allowedOrigins.includes(origin)) ? cb(null, true) : cb(new Error("CORS blocked")),
   methods: ["GET", "POST", "PATCH", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key"],
   credentials: true,
 }));
 
@@ -205,6 +207,8 @@ app.use("/api/webauthn",      webauthnRoutes);
 app.use("/api/disputes",      disputeRoutes);
 app.use("/api/admin/2fa",     admin2faRoutes);
 app.use("/api/admin",         adminRoutes);
+app.use("/api/developer",     developerRoutes);
+app.use("/api/public",        publicRoutes);
 app.use("/api/time-entries",  timeEntryRoutes);
 app.use("/api/referrals",     referralRoutes);
 app.use("/api/certificates",  certificateRoutes);
@@ -469,4 +473,3 @@ async function startNotificationProcessor() {
 bootstrap();
 
 module.exports = app;
-

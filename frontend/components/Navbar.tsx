@@ -21,13 +21,14 @@ const links = [
   { href: "/dashboard",   labelKey: "nav.dashboard" },
   { href: "/post-job",    labelKey: "nav.postJob" },
   { href: "/insights",    labelKey: "nav.insights" },
+  { href: "/developer",   labelKey: "nav.developer" },
 ];
 
 const STELLAR_NETWORK = process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet";
 
 export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarProps) {
   const router = useRouter();
-  const { i18n } = useTranslation("common");
+  const { t, i18n } = useTranslation("common");
   const [hasNotification, setHasNotification] = useState(false);
   const [hasJobAlertBadge, setHasJobAlertBadge] = useState(false);
 

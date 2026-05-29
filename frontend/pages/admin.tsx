@@ -71,6 +71,14 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
+function formatAuditTarget(target?: string | null) {
+  if (!target) return "—";
+  if (/^G[A-Z0-9]{55}$/.test(target)) {
+    return shortenAddress(target);
+  }
+  return target;
+}
+
 export default function AdminDashboard({ publicKey }: AdminPageProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ActiveTab>("analytics");
@@ -493,6 +501,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                           <th className="text-left px-4 py-3">Action</th>
                           <th className="text-left px-4 py-3">Admin</th>
                           <th className="text-left px-4 py-3">Target</th>
+                          <th className="text-left px-4 py-3">Reason</th>
                           <th className="text-left px-4 py-3">Time</th>
                         </tr>
                       </thead>
@@ -501,10 +510,13 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                           <tr key={log.id} className="hover:bg-market-500/5 transition-colors">
                             <td className="px-4 py-3 text-amber-100 font-mono text-xs">{log.action}</td>
                             <td className="px-4 py-3 text-amber-800 font-mono text-xs">
-                              {shortenAddress(log.admin_address)}
+                              {shortenAddress(log.actor_address || log.admin_address)}
                             </td>
                             <td className="px-4 py-3 text-amber-800 font-mono text-xs">
-                              {log.target_id ? shortenAddress(log.target_id) : "—"}
+                              {formatAuditTarget(log.target || log.target_id)}
+                            </td>
+                            <td className="px-4 py-3 text-amber-800 text-xs">
+                              {log.reason || "—"}
                             </td>
                             <td className="px-4 py-3 text-amber-900 text-xs whitespace-nowrap">
                               {timeAgo(log.created_at)}
