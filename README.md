@@ -84,22 +84,27 @@ npm run dev
 
 ## 🔑 Environment Variables
 
+See [docs/environment-variables.md](docs/environment-variables.md) for the full list of backend and frontend variables, validation rules, and examples.
+
 ### Frontend (`frontend/.env.local`)
 ```env
+NEXT_PUBLIC_API_URL=http://localhost:4000
 NEXT_PUBLIC_STELLAR_NETWORK=testnet
 NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
 NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
-NEXT_PUBLIC_API_URL=http://localhost:4000
-NEXT_PUBLIC_CONTRACT_ID=           # Set after deploying contract
-NEXT_PUBLIC_USE_CONTRACT_MOCK=false # Set to 'true' for offline development
+NEXT_PUBLIC_CONTRACT_ID=CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+NEXT_PUBLIC_USE_CONTRACT_MOCK=false
 ```
 
 ### Backend (`backend/.env`)
 ```env
 PORT=4000
+DATABASE_URL=postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork
+JWT_SECRET=replace-with-a-long-random-secret
 STELLAR_NETWORK=testnet
 HORIZON_URL=https://horizon-testnet.stellar.org
-CONTRACT_ID=                        # Set after deploying contract
+CONTRACT_ID=CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+ALLOWED_ORIGINS=http://localhost:3000
 ```
 
 ---

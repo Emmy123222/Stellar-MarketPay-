@@ -11,8 +11,16 @@ This Soroban smart contract manages trustless escrow between clients and freelan
 | `start_work(job_id, client)` | Client | Mark work as started |
 | `release_escrow(job_id, client)` | Client | Release funds to freelancer |
 | `refund_escrow(job_id, client)` | Client | Refund before work starts |
+| `timeout_refund(job_id, client)` | Client | Refund after the timestamp-based timeout expires |
+| `raise_dispute(job_id, caller)` | Client/Freelancer | Mark escrow as disputed |
+| `nominate_arbitrators(job_id, admin, arbitrators)` | Admin | Pick 3 arbitrators for a disputed job |
+| `arbitrator_vote(job_id, arbitrator, client_percent)` | Arbitrator | Cast a dispute vote |
+| `finalize_dispute(job_id)` | Anyone | Split funds using the median vote |
+| `emergency_admin_resolve(job_id, admin, recipient)` | Admin | Force a dispute resolution |
 | `get_escrow(job_id)` | Anyone | Read escrow record |
 | `get_status(job_id)` | Anyone | Read escrow status |
+| `get_timeout_timestamp(job_id)` | Anyone | Read the Unix timestamp used for timeout enforcement |
+| `set_default_timeout_seconds(admin, timeout_seconds)` | Admin | Override the default timeout for new escrows |
 | `upgrade(new_wasm_hash)` | Admin only | Upgrade contract WASM, bumps version and preserves storage |
 | `get_version()` | Anyone | Return current contract version number |
 
@@ -95,4 +103,4 @@ CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
 ## Roadmap
 
 - **v2.0** — Milestone-based partial releases
-- **v2.1** — Dispute resolution via DAO governance
+- **v2.1** — Dispute resolution via 3-arbitrator voting with emergency admin fallback

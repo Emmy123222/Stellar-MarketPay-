@@ -18,6 +18,7 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
 const { logger, requestLoggerMiddleware, logError, createServiceLogger } = require('./utils/logger');
 const { sanitizeMiddleware } = require('./middleware/sanitize');
+const { requireChoice } = require("./config/env");
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -49,6 +50,9 @@ const app  = express();
 const PORT = process.env.PORT || 4000;
 const server = http.createServer(app);
 const WS_OPEN = 1;
+const STELLAR_NETWORK = requireChoice("STELLAR_NETWORK", ["testnet", "mainnet"], {
+  fallback: "testnet",
+});
 
 const metricsRegistry = new promClient.Registry();
 promClient.collectDefaultMetrics({
@@ -147,6 +151,7 @@ setInterval(() => {
 const indexerService = new IndexerService({
   platformWallet: process.env.PLATFORM_WALLET_ADDRESS,
   horizonUrl: process.env.HORIZON_URL,
+  contractId: process.env.CONTRACT_ID || process.env.ESCROW_CONTRACT_ID,
   broadcast: broadcastRealtime,
 });
 const smtpEnabled = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
@@ -436,7 +441,7 @@ async function bootstrap() {
   server.listen(PORT, () => {
     serviceLogger.info({
       port: PORT,
-      network: process.env.STELLAR_NETWORK || "testnet",
+      network: STELLAR_NETWORK,
       nodeEnv: process.env.NODE_ENV || "development",
     }, 'Stellar MarketPay API server started');
   });

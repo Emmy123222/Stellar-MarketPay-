@@ -6,13 +6,12 @@
 "use strict";
 
 const { Pool } = require("pg");
+const { requireEnv } = require("../config/env");
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL environment variable is not set");
-}
+const DATABASE_URL = requireEnv("DATABASE_URL");
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: DATABASE_URL,
   // Keep a modest pool; tune per deployment.
   max:             10,
   idleTimeoutMillis: 30_000,

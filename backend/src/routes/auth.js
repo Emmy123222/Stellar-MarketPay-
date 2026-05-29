@@ -124,7 +124,7 @@ router.get("/", (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   try {
     const { transaction } = req.body;
     if (!transaction) {

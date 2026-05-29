@@ -2,6 +2,7 @@
 
 const { Horizon } = require("@stellar/stellar-sdk");
 const pool = require("../db/pool");
+const { requireEnv } = require("../config/env");
 
 function parseJobIdFromMemo(memoValue) {
   if (!memoValue || typeof memoValue !== "string") return null;
@@ -32,7 +33,7 @@ function isDonation(op, platformWallet) {
 }
 
 class IndexerService {
-  constructor({ platformWallet, horizonUrl, broadcast = () => {} }) {
+  constructor({ platformWallet, horizonUrl, contractId, broadcast = () => {} }) {
     this.platformWallet = platformWallet;
     this.horizonUrl = horizonUrl || "https://horizon-testnet.stellar.org";
     this.broadcast = broadcast;
@@ -46,7 +47,7 @@ class IndexerService {
     };
     this.closeStream = null;
     this.closeEventStream = null;
-    this.contractId = process.env.ESCROW_CONTRACT_ID;
+    this.contractId = requireEnv("CONTRACT_ID", { fallback: contractId || process.env.ESCROW_CONTRACT_ID });
   }
 
   async loadCheckpoint() {

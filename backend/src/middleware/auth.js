@@ -4,8 +4,9 @@
 "use strict";
 const jwt = require("jsonwebtoken");
 const pool = require("../db/pool");
+const { requireEnv } = require("../config/env");
 
-const JWT_SECRET = process.env.JWT_SECRET || "super_secret_fallback_key";
+const JWT_SECRET = requireEnv("JWT_SECRET");
 
 async function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;

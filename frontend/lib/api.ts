@@ -1,4 +1,5 @@
 import axios from "axios";
+import { optionalClientEnv } from "./env";
 import type {
   Availability,
   Job,
@@ -17,7 +18,7 @@ import type {
 } from "@/utils/types";
 
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000",
+  baseURL: optionalClientEnv("NEXT_PUBLIC_API_URL", "http://localhost:4000"),
   headers: { "Content-Type": "application/json" },
   withCredentials: true,
   timeout: 10000,
