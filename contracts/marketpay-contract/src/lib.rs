@@ -20,6 +20,11 @@
  */
 
 #![no_std]
+#![allow(
+    clippy::too_many_arguments,
+    clippy::manual_range_contains,
+    unused_variables
+)]
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, token,
@@ -844,7 +849,7 @@ impl MarketPayContract {
         sender.require_auth();
 
         // Basic validation
-        if ipfs_cid.len() == 0 {
+        if ipfs_cid.is_empty() {
             panic!("IPFS CID cannot be empty");
         }
 
