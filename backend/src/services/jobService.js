@@ -7,7 +7,6 @@
 
 const pool = require("../db/pool");
 const { getTimezoneOffset } = require("date-fns-tz");
-const { isBlocked } = require("./profileService");
 
 /**
  * Camel-cased job record returned by this service.
@@ -153,6 +152,10 @@ function rowToJob(row) {
     disputeDescription: row.dispute_description,
     disputedBy: row.disputed_by,
     disputedAt: row.disputed_at,
+    expiresAt: row.expires_at,
+    extendedCount: row.extended_count,
+    extendedUntil: row.extended_until,
+    viewCount: row.view_count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -200,6 +203,7 @@ async function createJob({
   timezone,
   clientAddress,
   screeningQuestions,
+  visibility,
 }) {
   validatePublicKey(clientAddress);
 
@@ -242,8 +246,8 @@ async function createJob({
   const { rows } = await pool.query(
     `
     INSERT INTO jobs
-      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, NOW(), NOW())
+      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, visibility, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, $11, NOW(), NOW())
     RETURNING *
     `,
     [
@@ -257,6 +261,7 @@ async function createJob({
       deadline || null,
       timezone || null,
       safeScreeningQuestions,
+      visibility || "public",
     ],
   );
 
@@ -340,6 +345,8 @@ async function listJobs({
   search,
   cursor,
   timezone,
+  includeExpired,
+  viewerAddress,
 } = {}) {
   const conditions = [];
   const params = [];
@@ -588,7 +595,7 @@ async function incrementShareCount(jobId) {
 }
 
 async function raiseDispute(jobId, { reason, description, raisedBy }) {
-  const { rows } = await query(
+  const { rows } = await pool.query(
     `UPDATE jobs 
      SET status = 'disputed', 
          dispute_reason = $1, 
@@ -611,7 +618,7 @@ async function raiseDispute(jobId, { reason, description, raisedBy }) {
 }
 
 async function resolveDispute(jobId) {
-  const { rows } = await query(
+  const { rows } = await pool.query(
     `UPDATE jobs 
      SET status = 'in_progress', 
          dispute_reason = NULL, 
@@ -692,6 +699,269 @@ async function getAnalyticsOverview() {
   };
 }
 
+/**
+ * Extend a job's expiry by the given number of days.
+ * Validates ownership, max 90-day total extension limit, and charges a 0.5 XLM fee per 7-day block.
+ *
+ * @param {string} jobId - Job UUID.
+ * @param {number} days - Number of days to extend (7, 14, or 30).
+ * @param {string} clientAddress - The client's Stellar address for ownership validation.
+ * @returns {Promise<Object>} The updated job object.
+ * @throws {Error} 400 — invalid input, 403 — not the owner, 404 — not found.
+ */
+async function extendJobExpiry(jobId, days = 30, clientAddress) {
+  const daysNum = parseInt(days, 10);
+  if (![7, 14, 30].includes(daysNum)) {
+    const e = new Error("Extension days must be 7, 14, or 30");
+    e.status = 400;
+    throw e;
+  }
+
+  const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [jobId]);
+  if (!rows.length) {
+    const e = new Error("Job not found");
+    e.status = 404;
+    throw e;
+  }
+
+  const job = rows[0];
+
+  if (clientAddress && job.client_address !== clientAddress) {
+    const e = new Error("Only the job owner can extend expiry");
+    e.status = 403;
+    throw e;
+  }
+
+  // Calculate total extension from original expires_at (or created_at if never set)
+  const originalDate = job.expires_at || job.created_at;
+  const originalTime = new Date(originalDate).getTime();
+  const currentTime = Date.now();
+  const alreadyExtendedMs = currentTime - originalTime;
+  const alreadyExtendedDays = alreadyExtendedMs / (1000 * 60 * 60 * 24);
+
+  if (alreadyExtendedDays + daysNum > 90) {
+    const e = new Error("Maximum total extension is 90 days from the original expiry");
+    e.status = 400;
+    throw e;
+  }
+
+  // Calculate fee: 0.5 XLM per 7-day block
+  const feeBlocks = Math.ceil(daysNum / 7);
+  const feeXlm = (0.5 * feeBlocks).toFixed(7);
+
+  // Update the job
+  const newExpiry = new Date();
+  newExpiry.setDate(newExpiry.getDate() + daysNum);
+
+  const { rows: updateRows } = await pool.query(
+    `UPDATE jobs
+     SET expires_at = $1,
+         extended_count = COALESCE(extended_count, 0) + 1,
+         extended_until = $1,
+         updated_at = NOW()
+     WHERE id = $2
+     RETURNING *`,
+    [newExpiry.toISOString(), jobId]
+  );
+
+  const updatedJob = rowToJob(updateRows[0]);
+  updatedJob.extensionFeeXlm = feeXlm;
+
+  return updatedJob;
+}
+
+/**
+ * Increment view count for a job.
+ * @param {string} jobId
+ * @returns {Promise<number>} New view count.
+ */
+async function incrementViewCount(jobId) {
+  const { rows } = await pool.query(
+    `UPDATE jobs SET view_count = COALESCE(view_count, 0) + 1, updated_at = NOW()
+     WHERE id = $1 RETURNING view_count`,
+    [jobId]
+  );
+  if (!rows.length) {
+    const e = new Error("Job not found");
+    e.status = 404;
+    throw e;
+  }
+  return rows[0].view_count;
+}
+
+/**
+ * Get job analytics for a specific job.
+ * @param {string} jobId
+ * @returns {Promise<Object>}
+ */
+async function getJobAnalytics(jobId) {
+  const { rows: jobRows } = await pool.query(
+    "SELECT * FROM jobs WHERE id = $1",
+    [jobId]
+  );
+  if (!jobRows.length) {
+    const e = new Error("Job not found");
+    e.status = 404;
+    throw e;
+  }
+
+  const { rows: appRows } = await pool.query(
+    `SELECT
+       COUNT(*)::int AS total_applications,
+       COUNT(*) FILTER (WHERE status = 'accepted')::int AS accepted_applications,
+       ROUND(AVG(bid_amount)::numeric, 7) AS avg_bid,
+       MIN(bid_amount) AS min_bid,
+       MAX(bid_amount) AS max_bid
+     FROM applications WHERE job_id = $1`,
+    [jobId]
+  );
+
+  const { rows: viewRows } = await pool.query(
+    `SELECT COUNT(*)::int AS total_views,
+            COUNT(DISTINCT ip_hash)::int AS unique_views
+     FROM job_views WHERE job_id = $1`,
+    [jobId]
+  );
+
+  return {
+    jobId,
+    totalApplications: appRows[0]?.total_applications || 0,
+    acceptedApplications: appRows[0]?.accepted_applications || 0,
+    avgBid: appRows[0]?.avg_bid || "0",
+    minBid: appRows[0]?.min_bid || "0",
+    maxBid: appRows[0]?.max_bid || "0",
+    totalViews: viewRows[0]?.total_views || 0,
+    uniqueViews: viewRows[0]?.unique_views || 0,
+  };
+}
+
+/**
+ * Auto-expire jobs past their expiry date.
+ * @returns {Promise<number>} Count of expired jobs.
+ */
+async function expireOldJobs() {
+  const { rowCount } = await pool.query(
+    `UPDATE jobs
+     SET status = 'expired', updated_at = NOW()
+     WHERE status = 'open'
+       AND expires_at IS NOT NULL
+       AND expires_at < NOW()`
+  );
+  return rowCount || 0;
+}
+
+/**
+ * Get jobs expiring within the given number of days.
+ * @param {number} daysFromNow
+ * @returns {Promise<Object[]>}
+ */
+async function getExpiringJobs(daysFromNow = 3) {
+  const { rows } = await pool.query(
+    `SELECT * FROM jobs
+     WHERE status = 'open'
+       AND expires_at IS NOT NULL
+       AND expires_at > NOW()
+       AND expires_at <= NOW() + INTERVAL '1 day' * $1
+     ORDER BY expires_at ASC`,
+    [daysFromNow]
+  );
+  return rows.map(rowToJob);
+}
+
+/**
+ * Bulk cancel multiple jobs owned by a client.
+ * @param {string[]} jobIds
+ * @param {string} clientAddress
+ * @returns {Promise<Object[]>}
+ */
+async function bulkCancelJobs(jobIds, clientAddress) {
+  const results = [];
+  for (const id of jobIds) {
+    try {
+      const { rows } = await pool.query(
+        `UPDATE jobs SET status = 'cancelled', updated_at = NOW()
+         WHERE id = $1 AND client_address = $2 AND status = 'open'
+         RETURNING id`,
+        [id, clientAddress]
+      );
+      results.push({ id, success: rows.length > 0 });
+    } catch {
+      results.push({ id, success: false });
+    }
+  }
+  return results;
+}
+
+/**
+ * Bulk extend expiry for multiple jobs owned by a client.
+ * @param {string[]} jobIds
+ * @param {string} clientAddress
+ * @param {number} days
+ * @returns {Promise<Object[]>}
+ */
+async function bulkExtendJobs(jobIds, clientAddress, days = 30) {
+  const results = [];
+  for (const id of jobIds) {
+    try {
+      const job = await extendJobExpiry(id, days, clientAddress);
+      results.push({ id, success: true, ...job });
+    } catch {
+      results.push({ id, success: false });
+    }
+  }
+  return results;
+}
+
+/**
+ * Bulk boost multiple jobs.
+ * @param {string[]} jobIds
+ * @param {string} clientAddress
+ * @param {string} txHash
+ * @returns {Promise<Object[]>}
+ */
+async function bulkBoostJobs(jobIds, clientAddress, txHash) {
+  const results = [];
+  for (const id of jobIds) {
+    try {
+      const job = await boostJob(id, txHash);
+      results.push({ id, success: true, boostedUntil: job.boostedUntil });
+    } catch {
+      results.push({ id, success: false });
+    }
+  }
+  return results;
+}
+
+/**
+ * Get recommended jobs for a freelancer based on their skills.
+ * @param {string} publicKey
+ * @returns {Promise<Object[]>}
+ */
+async function getRecommendedJobs(publicKey) {
+  const { rows: profileRows } = await pool.query(
+    "SELECT skills FROM profiles WHERE public_key = $1",
+    [publicKey]
+  );
+  const skills = profileRows.length ? profileRows[0].skills || [] : [];
+
+  if (!skills.length) {
+    const result = await listJobs({ status: "open", limit: 5 });
+    return result.jobs;
+  }
+
+  const { rows } = await pool.query(
+    `SELECT * FROM jobs
+     WHERE status = 'open'
+       AND visibility = 'public'
+       AND skills && $1
+     ORDER BY created_at DESC
+     LIMIT 5`,
+    [skills]
+  );
+
+  return rows.map(rowToJob);
+}
+
 async function getSuggestions(query) {
   if (!query || query.length < 2) {
     return { titles: [], skills: [], categories: [] };
@@ -727,7 +997,7 @@ async function getSuggestions(query) {
   }
 }
 
-export default {
+module.exports = {
   createJob,
   getJob,
   listJobs,
@@ -743,4 +1013,13 @@ export default {
   getCategoryAnalytics,
   getAnalyticsOverview,
   getSuggestions,
+  extendJobExpiry,
+  incrementViewCount,
+  getJobAnalytics,
+  expireOldJobs,
+  getExpiringJobs,
+  bulkCancelJobs,
+  bulkExtendJobs,
+  bulkBoostJobs,
+  getRecommendedJobs,
 };

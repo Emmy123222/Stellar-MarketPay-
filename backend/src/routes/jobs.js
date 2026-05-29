@@ -12,8 +12,11 @@ const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per
 const generalJobRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for listing/getting jobs
 const suggestRateLimiter = createRateLimiter(60, 1); // 60 suggest requests per minute
 
-const jobService = require("../services/jobService");
-const { createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob, boostJob, incrementShareCount, raiseDispute, resolveDispute, getRecommendedJobs, getSuggestions } = jobService.default || jobService;
+const {
+  createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob,
+  boostJob, incrementShareCount, raiseDispute, resolveDispute,
+  getRecommendedJobs, getSuggestions, extendJobExpiry, incrementViewCount,
+} = require("../services/jobService");
 const { verifyJWT } = require("../middleware/auth");
 
 // Feed Helpers
@@ -395,7 +398,8 @@ router.get("/:id/analytics", generalJobRateLimiter, async (req, res, next) => {
   }
 });
 
-// PATCH /api/jobs/:id/extend — extend job expiry by 30 days
+// PATCH /api/jobs/:id/extend — extend job expiry with XLM fee
+// Validates: only job owner, max 90-day total extension, charges 0.5 XLM per 7-day block
 router.patch(
   "/:id/extend",
   verifyJWT,
@@ -403,7 +407,15 @@ router.patch(
   async (req, res, next) => {
     try {
       const { days } = req.body;
-      const job = await extendJobExpiry(req.params.id, days || 30);
+      const validDays = [7, 14, 30];
+      const daysNum = parseInt(days, 10) || 30;
+      if (!validDays.includes(daysNum)) {
+        return res.status(400).json({
+          success: false,
+          error: "Extension days must be 7, 14, or 30",
+        });
+      }
+      const job = await extendJobExpiry(req.params.id, daysNum, req.user.publicKey);
       res.json({ success: true, data: job });
     } catch (e) {
       next(e);

@@ -14,6 +14,8 @@ import {
   fetchSkillEndorsements,
   endorseSkill,
   fetchSkillBadges,
+  fetchUserCertificates,
+  type CertificateData,
 } from "@/lib/api";
 import StateMessage from "@/components/StateMessage";
 import {
@@ -82,6 +84,7 @@ export default function PublicFreelancerProfilePage({
   const [endorsements, setEndorsements] = useState<SkillEndorsement[]>([]);
   const [endorsingSkill, setEndorsingSkill] = useState<string | null>(null);
   const [badges, setBadges] = useState<SkillBadge[]>([]);
+  const [certificates, setCertificates] = useState<CertificateData[]>([]);
 
   const isOwner = publicKey && rawKey === publicKey;
 
@@ -173,6 +176,11 @@ export default function PublicFreelancerProfilePage({
     // Fetch badges separately (non-blocking)
     fetchSkillBadges(rawKey)
       .then((data) => { if (!cancelled) setBadges(data.filter((b) => b.passed)); })
+      .catch(() => {});
+
+    // Fetch certificates separately (non-blocking)
+    fetchUserCertificates(rawKey)
+      .then((data) => { if (!cancelled) setCertificates(data); })
       .catch(() => {});
 
     return () => {
@@ -523,17 +531,42 @@ export default function PublicFreelancerProfilePage({
               <div className="mb-6 sm:mb-8">
                 <h2 className="label mb-3">Verified Skills</h2>
                 <ul className="flex flex-wrap gap-2">
-                  {badges.map((b) => (
-                    <li key={b.skill} className="relative group">
-                      <span className="inline-flex items-center gap-1.5 text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-3 py-1.5 rounded-full cursor-default">
-                        ✓ {b.skill.charAt(0).toUpperCase() + b.skill.slice(1)}
-                      </span>
-                      {/* Score tooltip */}
-                      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg bg-ink-900 border border-market-500/20 px-2.5 py-1 text-xs text-amber-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10">
-                        Score: {b.score}% · {new Date(b.taken_at).toLocaleDateString()}
-                      </span>
-                    </li>
-                  ))}
+                  {badges.map((b) => {
+                    const cert = certificates.find(
+                      (c) => c.skill.toLowerCase() === b.skill.toLowerCase(),
+                    );
+                    return (
+                      <li key={b.skill} className="relative group">
+                        <span className="inline-flex items-center gap-1.5 text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-3 py-1.5 rounded-full">
+                          ✓ {b.skill.charAt(0).toUpperCase() + b.skill.slice(1)}
+                        </span>
+                        {/* Score tooltip */}
+                        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg bg-ink-900 border border-market-500/20 px-2.5 py-1 text-xs text-amber-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10">
+                          Score: {b.score}% · {new Date(b.taken_at).toLocaleDateString()}
+                          {cert && (
+                            <>
+                              <br />
+                              <a
+                                href={`/certificates/${cert.id}`}
+                                className="text-market-400 underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                View Certificate
+                              </a>
+                            </>
+                          )}
+                        </span>
+                        {cert && (
+                          <Link
+                            href={`/certificates/${cert.id}`}
+                            className="ml-1 inline-flex items-center text-[10px] text-market-400 hover:text-market-300 underline"
+                          >
+                            Verify
+                          </Link>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}

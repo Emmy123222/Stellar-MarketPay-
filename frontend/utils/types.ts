@@ -186,6 +186,27 @@ export interface TokenBalance {
   symbol: string;
 }
 
+// ─── Skill Endorsements ────────────────────────────────────────
+
+export interface SkillEndorsement {
+  skill: string;
+  count: number;
+  endorsers: string[];
+}
+
+export interface SkillBadge {
+  skill: string;
+  score: number;
+  passed: boolean;
+  taken_at: string;
+}
+
+export interface AssessmentQuestion {
+  id: number;
+  question: string;
+  options: string[];
+}
+
 // ─── Referrals ────────────────────────────────────────────────────────────────
 
 export type ReferralStatus = "pending" | "paid" | "ineligible";

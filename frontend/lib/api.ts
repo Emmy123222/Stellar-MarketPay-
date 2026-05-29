@@ -167,14 +167,17 @@ export async function fetchJobAnalytics(jobId: string) {
 }
 
 /**
- * Extend a job's expiry by 30 days.
+ * Extend a job's expiry by the given number of days.
+ * Charges a 0.5 XLM fee per 7-day block.
  *
  * @param jobId Job identifier.
+ * @param days Number of days to extend (7, 14, or 30).
  * @returns Updated job record.
  */
-export async function extendJobExpiry(jobId: string) {
+export async function extendJobExpiry(jobId: string, days = 30) {
   const { data } = await api.patch<{ success: boolean; data: Job }>(
     `/api/jobs/${jobId}/extend`,
+    { days },
   );
   return data.data;
 }
@@ -964,6 +967,82 @@ export async function fetchPasskeyCredentials(): Promise<PasskeyCredential[]> {
 
 export async function deletePasskeyCredential(id: string) {
   await api.delete(`/api/webauthn/credentials/${id}`);
+}
+
+// ─── Skill Certificates ─────────────────────────────────────────
+
+export interface CertificateData {
+  id: string;
+  publicKey: string;
+  displayName: string | null;
+  skill: string;
+  score: number;
+  certificateHash: string;
+  ipfsCid: string | null;
+  txHash: string | null;
+  issuedAt: string;
+  verifyUrl: string;
+}
+
+export async function fetchCertificate(id: string): Promise<CertificateData> {
+  const { data } = await api.get<{ success: boolean; data: CertificateData }>(
+    `/api/certificates/${id}`,
+  );
+  return data.data;
+}
+
+export async function fetchUserCertificates(
+  publicKey: string,
+): Promise<CertificateData[]> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: CertificateData[];
+  }>(`/api/certificates/user/${encodeURIComponent(publicKey)}`);
+  return data.data;
+}
+
+// ─── Skill Endorsements ─────────────────────────────────────────
+
+export interface SkillEndorsementData {
+  skill: string;
+  count: number;
+  endorsers: string[];
+}
+
+export async function fetchSkillEndorsements(
+  publicKey: string,
+): Promise<SkillEndorsementData[]> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: SkillEndorsementData[];
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/endorsements`);
+  return data.data;
+}
+
+export async function endorseSkill(
+  publicKey: string,
+  skill: string,
+): Promise<void> {
+  await api.post(`/api/profiles/${encodeURIComponent(publicKey)}/endorse`, {
+    skill,
+  });
+}
+
+export interface SkillBadge {
+  skill: string;
+  score: number;
+  passed: boolean;
+  taken_at: string;
+}
+
+export async function fetchSkillBadges(
+  publicKey: string,
+): Promise<SkillBadge[]> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: SkillBadge[];
+  }>(`/api/assessments/results/${encodeURIComponent(publicKey)}`);
+  return data.data;
 }
 
 // ─── Admin Functions ──────────────────────────────────────────────────────────

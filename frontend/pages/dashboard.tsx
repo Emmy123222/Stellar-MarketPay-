@@ -45,6 +45,7 @@ import { useToast } from "@/components/Toast";
 import clsx from "clsx";
 import JobAnalytics from "@/components/JobAnalytics";
 import BulkJobActionBar from "@/components/BulkJobActionBar";
+import ExtendJobModal from "@/components/ExtendJobModal";
 import ClientSpendingTab from "@/components/ClientSpendingTab";
 import { usePriceContext } from "@/contexts/PriceContext";
 import ProfileCompletenessWidget from "@/components/ProfileCompletenessWidget";
@@ -127,6 +128,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   >([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [extendingJob, setExtendingJob] = useState<string | null>(null);
+  const [extendModalJob, setExtendModalJob] = useState<Job | null>(null);
   const [spendingAnalytics, setSpendingAnalytics] =
     useState<ClientSpendingAnalytics | null>(null);
   const [spendingLoading, setSpendingLoading] = useState(false);
@@ -259,14 +261,12 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   };
 
   const handleExtendJob = async (jobId: string) => {
-    setExtendingJob(jobId);
-    try {
-      await extendJobExpiry(jobId);
-      const jobs = await fetchMyJobs(publicKey!);
-      setMyJobs(jobs);
-    } finally {
-      setExtendingJob(null);
-    }
+    const job = myJobs.find((j) => j.id === jobId);
+    if (job) setExtendModalJob(job);
+  };
+
+  const handleJobExtended = (updated: Job) => {
+    setMyJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
   };
 
   useEffect(() => {
@@ -606,14 +606,38 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                     <p className="font-mono font-semibold text-market-400">
                       {formatXLM(job.budget)}
                     </p>
-                    {isRepostable(job.status) && (
-                      <button
-                        className="btn-secondary text-xs px-3 py-1.5"
-                        onClick={() => handleRepost(job)}
-                      >
-                        Repost Job
-                      </button>
-                    )}
+                    <div className="flex gap-1 mt-1 justify-end">
+                      {job.status === "open" && job.expiresAt && (
+                        (() => {
+                          const daysUntilExpiry = Math.ceil(
+                            (new Date(job.expiresAt).getTime() - Date.now()) /
+                              (1000 * 60 * 60 * 24),
+                          );
+                          if (daysUntilExpiry <= 3) {
+                            return (
+                              <button
+                                className="btn-secondary text-xs px-2 py-1"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  handleExtendJob(job.id);
+                                }}
+                              >
+                                Extend
+                              </button>
+                            );
+                          }
+                          return null;
+                        })()
+                      )}
+                      {isRepostable(job.status) && (
+                        <button
+                          className="btn-secondary text-xs px-3 py-1.5"
+                          onClick={() => handleRepost(job)}
+                        >
+                          Repost Job
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -891,6 +915,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         onClearSelection={() => setSelectedJobIds(new Set())}
         loading={bulkLoading}
       />
+
+      {extendModalJob && (
+        <ExtendJobModal
+          job={extendModalJob}
+          onClose={() => setExtendModalJob(null)}
+          onExtended={handleJobExtended}
+        />
+      )}
     </>
   );
 }
