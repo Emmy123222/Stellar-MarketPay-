@@ -11,7 +11,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@simplewebauthn/browser": "^9.0.1",
+    "@simplewebauthn/browser": "^13.3.0",
     "@stellar/freighter-api": "^2.0.0",
     "@stellar/stellar-sdk": "^12.0.0",
     "@types/qrcode.react": "^1.0.5",
