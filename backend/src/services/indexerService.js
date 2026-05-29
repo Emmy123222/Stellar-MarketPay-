@@ -183,43 +183,130 @@ class IndexerService {
     }
   }
 
+  extractTopicString(topic) {
+    // Horizon returns Soroban symbols as plain strings.
+    // Soroban String values can be { type: "string", value: "..." } or a plain string.
+    if (!topic) return null;
+    if (typeof topic === "string") return topic;
+    if (typeof topic.value === "string") return topic.value;
+    return null;
+  }
+
   async processEvent(event) {
     // Soroban events from Horizon have: type, id, paging_token, ledger, ledger_closed_at, contract_id, topic, value, etc.
     if (this.contractId && event.contract_id !== this.contractId) return;
 
-    const eventTypeRaw = event.topic?.[0];
+    const eventTypeRaw = this.extractTopicString(event.topic?.[0]);
     if (!eventTypeRaw) return;
 
     // Map contract symbols to DB event types
     const typeMap = {
-      "created": "escrow_created",
-      "started": "work_started",
-      "released": "escrow_released",
-      "conv_rel": "escrow_released",
-      "refunded": "escrow_refunded",
-      "torefnd": "escrow_timeout_refunded",
-      "disputed": "dispute_opened"
+      "escrow_created":      "escrow_created",
+      "work_started":        "work_started",
+      "escrow_released":     "escrow_released",
+      "escrow_refunded":     "escrow_refunded",
+      "escrow_timeout_refunded": "escrow_refunded",
+      "escrow_disputed":     "dispute_opened",
+      "milestone_released":  "milestone_released"
     };
 
     const eventType = typeMap[eventTypeRaw];
     if (!eventType) return;
 
-    const jobId = event.value?.job_id || event.value; // Simplification: depends on event structure
+    // Extract job_id from topic[1] — all escrow lifecycle events use (symbol, job_id) as topics
+    const jobId = this.extractTopicString(event.topic?.[1]) || event.value?.job_id;
     if (!jobId) return;
+
+    const data = JSON.stringify(event.value || {});
 
     await pool.query(
       `INSERT INTO contract_events (job_id, event_type, contract_id, tx_hash, ledger, data, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT DO NOTHING`,
       [
         jobId,
         eventType,
         event.contract_id,
         event.transaction_hash,
         event.ledger,
-        JSON.stringify(event.value || {}),
+        data,
         event.ledger_closed_at
       ]
     );
+
+    // ── Auto-update database status based on event ──────────────────────
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      switch (eventType) {
+        case "escrow_created":
+          await client.query(
+            `UPDATE escrows SET status = 'funded', updated_at = NOW() WHERE job_id = $1 AND status = 'funded'`,
+            [jobId]
+          );
+          break;
+
+        case "work_started":
+          await client.query(
+            `UPDATE escrows SET status = 'in_progress', updated_at = NOW() WHERE job_id = $1`,
+            [jobId]
+          );
+          break;
+
+        case "escrow_released":
+          await client.query(
+            `UPDATE jobs SET status = 'completed', updated_at = NOW() WHERE id = $1 AND status <> 'completed'`,
+            [jobId]
+          );
+          await client.query(
+            `UPDATE escrows SET status = 'released', released_at = NOW(), updated_at = NOW() WHERE job_id = $1 AND status <> 'released'`,
+            [jobId]
+          );
+          break;
+
+        case "escrow_refunded":
+          await client.query(
+            `UPDATE jobs SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND status <> 'cancelled'`,
+            [jobId]
+          );
+          await client.query(
+            `UPDATE escrows SET status = 'refunded', updated_at = NOW() WHERE job_id = $1 AND status <> 'refunded'`,
+            [jobId]
+          );
+          break;
+
+        case "dispute_opened":
+          await client.query(
+            `UPDATE jobs SET status = 'disputed', updated_at = NOW() WHERE id = $1`,
+            [jobId]
+          );
+          await client.query(
+            `UPDATE escrows SET status = 'disputed', updated_at = NOW() WHERE job_id = $1`,
+            [jobId]
+          );
+          break;
+
+        case "milestone_released":
+          // Mark partial progress; full release events will update status separately
+          await client.query(
+            `UPDATE escrows SET updated_at = NOW() WHERE job_id = $1`,
+            [jobId]
+          );
+          break;
+
+        default:
+          break;
+      }
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      // Non-fatal: event is already inserted, status update will retry on next event
+      console.error("[Indexer] failed to update DB status for event:", error.message);
+    } finally {
+      client.release();
+    }
 
     this.broadcast("contract:event", { jobId, eventType, txHash: event.transaction_hash });
   }
