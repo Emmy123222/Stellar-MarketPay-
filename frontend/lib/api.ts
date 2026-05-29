@@ -17,6 +17,7 @@ import type {
   ReferralStats,
   TimeEntry,
   TimeInvoice,
+  Message,
 } from "@/utils/types";
 
 const api = axios.create({
