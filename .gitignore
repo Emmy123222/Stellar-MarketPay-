@@ -22,5 +22,10 @@ Thumbs.db
 .idea/
 *.swp
 
+# Coverage
+coverage/
+backend/coverage/
+frontend/coverage/
+
 # Cargo
 Cargo.lock

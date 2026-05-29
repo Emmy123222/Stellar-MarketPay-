@@ -232,7 +232,8 @@ async function createJob({
     e.status = 400;
     throw e;
   }
-  if (!["public", "private", "invite_only"].includes(visibility)) {
+  const jobVisibility = visibility || "public";
+  if (!["public", "private", "invite_only"].includes(jobVisibility)) {
     const e = new Error("Visibility must be public, private, or invite_only");
     e.status = 400;
     throw e;
@@ -261,7 +262,7 @@ async function createJob({
       deadline || null,
       timezone || null,
       safeScreeningQuestions,
-      visibility || "public",
+      jobVisibility,
     ],
   );
 

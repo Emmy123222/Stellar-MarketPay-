@@ -6,6 +6,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Stellar](https://img.shields.io/badge/Stellar-Testnet-blue)](https://stellar.org)
 [![Soroban](https://img.shields.io/badge/Soroban-Smart%20Contracts-purple)](https://soroban.stellar.org)
+[![Backend Coverage](https://img.shields.io/badge/backend%20coverage-60%25%2B-brightgreen)](#testing)
 
 Stellar MarketPay is an open-source decentralised freelance marketplace where clients post jobs, freelancers apply, and payments are secured in **Soroban smart contract escrow** — released automatically when work is approved. No middlemen. No payment delays. No platform fees eating your earnings.
 
@@ -86,6 +87,8 @@ npm run dev
 
 See [docs/environment-variables.md](docs/environment-variables.md) for the full list of backend and frontend variables, validation rules, and examples.
 
+Deploy the Soroban escrow contract with [docs/contract-deployment.md](docs/contract-deployment.md).
+
 ### Frontend (`frontend/.env.local`)
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:4000
@@ -147,6 +150,19 @@ For frontend development without a deployed Soroban contract:
 2. Switch to **Testnet** in Freighter settings
 3. Visit [Stellar Friendbot](https://friendbot.stellar.org) with your public key
 4. Receive 10,000 test XLM instantly
+
+---
+
+## Testing
+
+| Suite | Command | Notes |
+|-------|---------|--------|
+| Frontend unit snapshots | `cd frontend && npm test` | Jest + React Testing Library |
+| Update snapshots | `cd frontend && npm run test:update-snapshots` | Regenerate when UI changes are intentional |
+| Backend unit + coverage | `cd backend && npm test` | HTML report in `backend/coverage/` |
+| E2E (Playwright) | `cd frontend && npm run test:e2e` | Includes full client/freelancer marketplace flow |
+
+Deploy or upgrade the Soroban escrow contract using [docs/contract-deployment.md](docs/contract-deployment.md).
 
 ---
 

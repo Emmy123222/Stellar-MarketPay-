@@ -649,7 +649,17 @@ async function getProfileStats(publicKey) {
      FROM applications WHERE freelancer_address = $1`,
     [publicKey]
   );
-  return rows[0] || { totalApplications: 0, acceptedApplications: 0 };
+  const row = rows[0] || {};
+  const totalApplications =
+    row.total_applications ?? row.totalApplications ?? 0;
+  const acceptedApplications =
+    row.accepted_applications ?? row.acceptedApplications ?? 0;
+  const successRate =
+    totalApplications > 0
+      ? Math.round((acceptedApplications / totalApplications) * 100)
+      : 0;
+
+  return { totalApplications, acceptedApplications, successRate };
 }
 
 /**
@@ -669,7 +679,13 @@ async function getResponseTime(publicKey) {
        AND e.released_at IS NOT NULL`,
     [publicKey]
   );
-  return { averageDays: rows[0]?.average_days || null };
+  const averageDays = rows[0]?.average_days;
+  return {
+    averageDays:
+      averageDays === null || averageDays === undefined
+        ? null
+        : Number(averageDays),
+  };
 }
 
 module.exports = {

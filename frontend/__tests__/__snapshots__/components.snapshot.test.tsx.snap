@@ -1,0 +1,891 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`component snapshots FreelancerTierBadge Expert 1`] = `
+<span
+  class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold tracking-wide border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
+>
+  Expert
+</span>
+`;
+
+exports[`component snapshots FreelancerTierBadge Newcomer 1`] = `
+<span
+  class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold tracking-wide border-slate-400/20 bg-slate-400/10 text-slate-200"
+>
+  Newcomer
+</span>
+`;
+
+exports[`component snapshots FreelancerTierBadge Rising Star 1`] = `
+<span
+  class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold tracking-wide border-sky-400/25 bg-sky-400/10 text-sky-300"
+>
+  Rising Star
+</span>
+`;
+
+exports[`component snapshots FreelancerTierBadge Top Talent 1`] = `
+<span
+  class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold tracking-wide border-amber-400/30 bg-amber-400/10 text-amber-200"
+>
+  Top Talent
+</span>
+`;
+
+exports[`component snapshots JobCard with bookmark 1`] = `
+<a
+  href="/jobs/job-bookmarked"
+>
+  <div
+    class="card-hover group animate-fade-in relative cursor-pointer outline-none "
+    tabindex="0"
+  >
+    <div
+      class="flex items-start justify-between gap-3 mb-3"
+    >
+      <h3
+        class="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2"
+      >
+        Build a Soroban escrow contract for marketplace payouts
+      </h3>
+      <span
+        class="badge-open flex-shrink-0 text-xs"
+      >
+        Open
+      </span>
+    </div>
+    <p
+      class="text-amber-800/80 text-sm leading-relaxed line-clamp-3 mb-4"
+    >
+      Need a secure escrow contract and integration tests for release and refund paths on testnet.
+    </p>
+    <div
+      class="flex flex-wrap gap-1.5 mb-4"
+    >
+      <span
+        class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
+      >
+        Rust
+      </span>
+      <span
+        class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
+      >
+        Soroban
+      </span>
+      <span
+        class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
+      >
+        Testing
+      </span>
+    </div>
+    <div
+      class="flex items-center justify-between pt-3 border-t border-[rgba(251,191,36,0.07)] relative"
+    >
+      <div
+        class="group/tooltip relative"
+      >
+        <p
+          class="text-xs text-amber-800 mb-0.5"
+        >
+          Budget
+        </p>
+        <p
+          class="font-mono font-semibold text-market-400 text-sm cursor-help"
+        >
+          500 XLM
+        </p>
+        <div
+          class="absolute bottom-full left-0 mb-2 hidden group-hover/tooltip:block z-20"
+        >
+          <div
+            class="bg-ink-800 border border-market-500/30 text-amber-100 text-[10px] py-1.5 px-2.5 rounded shadow-xl whitespace-nowrap backdrop-blur-md"
+          >
+            <p
+              class="font-semibold text-market-300"
+            >
+              ≈ $60.00 USD
+            </p>
+            <p
+              class="text-amber-800/80 mt-0.5"
+            >
+              Estimated monthly: ≈ $60.00 USD
+            </p>
+          </div>
+          <div
+            class="w-2 h-2 bg-ink-800 border-r border-b border-market-500/30 rotate-45 -mt-1 ml-3"
+          />
+        </div>
+      </div>
+      <div
+        class="text-right flex items-center gap-2"
+      >
+        <button
+          aria-label="Remove bookmark"
+          class="p-1.5 rounded-md transition-all flex items-center justify-center hover:bg-amber-500/10 group/bookmark"
+          title="Remove bookmark"
+          type="button"
+        >
+          <svg
+            class="transition-colors group-hover/bookmark:text-amber-400 text-amber-400"
+            fill="currentColor"
+            height="16"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="16"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="m14 20 4-6H4l4 6z"
+            />
+            <path
+              d="M18 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0z"
+            />
+          </svg>
+        </button>
+        <div
+          class="text-right"
+        >
+          <p
+            class="text-xs text-amber-800 mb-0.5"
+          >
+            2
+             applicant
+            s
+          </p>
+        </div>
+        <p
+          class="text-xs text-amber-800/60"
+        >
+          5 months ago
+        </p>
+      </div>
+    </div>
+    <div
+      class="mt-3"
+    >
+      <span
+        class="text-xs text-amber-700 bg-ink-700 px-2.5 py-1 rounded-full border border-[rgba(251,191,36,0.08)]"
+      >
+        Smart Contracts
+      </span>
+    </div>
+  </div>
+</a>
+`;
+
+exports[`component snapshots JobCard without bookmark 1`] = `
+<a
+  href="/jobs/job-1"
+>
+  <div
+    class="card-hover group animate-fade-in relative cursor-pointer outline-none "
+    tabindex="0"
+  >
+    <div
+      class="flex items-start justify-between gap-3 mb-3"
+    >
+      <h3
+        class="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2"
+      >
+        Build a Soroban escrow contract for marketplace payouts
+      </h3>
+      <span
+        class="badge-open flex-shrink-0 text-xs"
+      >
+        Open
+      </span>
+    </div>
+    <p
+      class="text-amber-800/80 text-sm leading-relaxed line-clamp-3 mb-4"
+    >
+      Need a secure escrow contract and integration tests for release and refund paths on testnet.
+    </p>
+    <div
+      class="flex flex-wrap gap-1.5 mb-4"
+    >
+      <span
+        class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
+      >
+        Rust
+      </span>
+      <span
+        class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
+      >
+        Soroban
+      </span>
+      <span
+        class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
+      >
+        Testing
+      </span>
+    </div>
+    <div
+      class="flex items-center justify-between pt-3 border-t border-[rgba(251,191,36,0.07)] relative"
+    >
+      <div
+        class="group/tooltip relative"
+      >
+        <p
+          class="text-xs text-amber-800 mb-0.5"
+        >
+          Budget
+        </p>
+        <p
+          class="font-mono font-semibold text-market-400 text-sm cursor-help"
+        >
+          500 XLM
+        </p>
+        <div
+          class="absolute bottom-full left-0 mb-2 hidden group-hover/tooltip:block z-20"
+        >
+          <div
+            class="bg-ink-800 border border-market-500/30 text-amber-100 text-[10px] py-1.5 px-2.5 rounded shadow-xl whitespace-nowrap backdrop-blur-md"
+          >
+            <p
+              class="font-semibold text-market-300"
+            >
+              ≈ $60.00 USD
+            </p>
+            <p
+              class="text-amber-800/80 mt-0.5"
+            >
+              Estimated monthly: ≈ $60.00 USD
+            </p>
+          </div>
+          <div
+            class="w-2 h-2 bg-ink-800 border-r border-b border-market-500/30 rotate-45 -mt-1 ml-3"
+          />
+        </div>
+      </div>
+      <div
+        class="text-right flex items-center gap-2"
+      >
+        <button
+          aria-label="Remove bookmark"
+          class="p-1.5 rounded-md transition-all flex items-center justify-center hover:bg-amber-500/10 group/bookmark"
+          title="Remove bookmark"
+          type="button"
+        >
+          <svg
+            class="transition-colors group-hover/bookmark:text-amber-400 text-amber-700/60 group-hover/bookmark:text-amber-400"
+            fill="none"
+            height="16"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="16"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="m14 20 4-6H4l4 6z"
+            />
+            <path
+              d="M18 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0z"
+            />
+          </svg>
+        </button>
+        <div
+          class="text-right"
+        >
+          <p
+            class="text-xs text-amber-800 mb-0.5"
+          >
+            2
+             applicant
+            s
+          </p>
+        </div>
+        <p
+          class="text-xs text-amber-800/60"
+        >
+          5 months ago
+        </p>
+      </div>
+    </div>
+    <div
+      class="mt-3"
+    >
+      <span
+        class="text-xs text-amber-700 bg-ink-700 px-2.5 py-1 rounded-full border border-[rgba(251,191,36,0.08)]"
+      >
+        Smart Contracts
+      </span>
+    </div>
+  </div>
+</a>
+`;
+
+exports[`component snapshots JobCardSkeleton 1`] = `
+<div
+  class="card"
+>
+  <div
+    class="flex items-start justify-between gap-3 mb-3"
+  >
+    <div
+      class="h-5 w-3/5 rounded bg-market-500/8 animate-pulse"
+    />
+    <div
+      class="h-5 w-16 rounded-full bg-market-500/12 animate-pulse flex-shrink-0"
+    />
+  </div>
+  <div
+    class="space-y-2 mb-4"
+  >
+    <div
+      class="h-3 w-full rounded bg-market-500/8 animate-pulse"
+    />
+    <div
+      class="h-3 w-11/12 rounded bg-market-500/8 animate-pulse"
+    />
+    <div
+      class="h-3 w-4/5 rounded bg-market-500/8 animate-pulse"
+    />
+  </div>
+  <div
+    class="flex flex-wrap gap-1.5 mb-4"
+  >
+    <div
+      class="h-5 w-16 rounded-md bg-market-500/10 border border-market-500/15 animate-pulse"
+    />
+    <div
+      class="h-5 w-20 rounded-md bg-market-500/10 border border-market-500/15 animate-pulse"
+    />
+    <div
+      class="h-5 w-14 rounded-md bg-market-500/10 border border-market-500/15 animate-pulse"
+    />
+  </div>
+  <div
+    class="flex items-center justify-between pt-3 border-t border-[rgba(251,191,36,0.07)]"
+  >
+    <div
+      class="space-y-1"
+    >
+      <div
+        class="h-3 w-10 rounded bg-market-500/8 animate-pulse"
+      />
+      <div
+        class="h-4 w-20 rounded bg-market-500/12 animate-pulse"
+      />
+    </div>
+    <div
+      class="space-y-1.5 flex flex-col items-end"
+    >
+      <div
+        class="h-3 w-24 rounded bg-market-500/8 animate-pulse"
+      />
+      <div
+        class="h-3 w-16 rounded bg-market-500/8 animate-pulse"
+      />
+    </div>
+  </div>
+  <div
+    class="mt-3"
+  >
+    <div
+      class="h-6 w-24 rounded-full bg-market-500/8 border border-[rgba(251,191,36,0.08)] animate-pulse"
+    />
+  </div>
+</div>
+`;
+
+exports[`component snapshots Navbar logged in 1`] = `
+<nav
+  class="sticky top-0 z-50 border-b border-[rgba(251,191,36,0.10)] bg-ink-900/85 backdrop-blur-xl"
+>
+  <div
+    class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4"
+  >
+    <a
+      href="/"
+    >
+      <div
+        class="w-8 h-8 rounded-lg bg-market-500/15 border border-market-500/25 flex items-center justify-center group-hover:border-market-500/50 transition-colors"
+      >
+        <svg
+          class="w-4 h-4 text-market-400"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0M12 12.75h.008v.008H12v-.008z"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </div>
+      <span
+        class="font-display font-bold text-amber-100 text-lg tracking-tight"
+      >
+        Stellar
+        <span
+          class="text-market-400"
+        >
+          MarketPay
+        </span>
+      </span>
+    </a>
+    <span
+      class="hidden md:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border flex-shrink-0 bg-amber-500/10 text-amber-400 border-amber-500/20"
+    >
+      Testnet
+    </span>
+    <div
+      class="hidden md:flex items-center gap-1"
+    >
+      <a
+        href="/"
+      >
+        Home
+      </a>
+      <a
+        href="/jobs"
+      >
+        Browse Jobs
+      </a>
+      <a
+        href="/dashboard"
+      >
+        Dashboard
+      </a>
+      <a
+        href="/post-job"
+      >
+        Post Job
+      </a>
+      <a
+        href="/insights"
+      >
+        Insights
+      </a>
+      <a
+        href="/developer"
+      >
+        Developer
+      </a>
+    </div>
+    <div
+      class="hidden md:flex items-center"
+    >
+      <select
+        aria-label="Language"
+        class="bg-market-900/40 border border-amber-900/30 rounded px-2 py-1 text-xs text-amber-100 cursor-pointer"
+      >
+        <option
+          value="en"
+        >
+          English
+        </option>
+        <option
+          value="es"
+        >
+          Spanish
+        </option>
+      </select>
+    </div>
+    <div
+      class="flex items-center gap-2 flex-shrink-0"
+    >
+      <button
+        class="flex items-center gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity"
+        title="Balance"
+      >
+        <span
+          class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"
+        />
+        GCLIEN...QRSTUV
+      </button>
+      <button
+        class="text-xs text-amber-800 hover:text-amber-500 transition-colors px-2 py-1"
+      >
+        Disconnect
+      </button>
+    </div>
+  </div>
+</nav>
+`;
+
+exports[`component snapshots Navbar logged out 1`] = `
+<nav
+  class="sticky top-0 z-50 border-b border-[rgba(251,191,36,0.10)] bg-ink-900/85 backdrop-blur-xl"
+>
+  <div
+    class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4"
+  >
+    <a
+      href="/"
+    >
+      <div
+        class="w-8 h-8 rounded-lg bg-market-500/15 border border-market-500/25 flex items-center justify-center group-hover:border-market-500/50 transition-colors"
+      >
+        <svg
+          class="w-4 h-4 text-market-400"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0M12 12.75h.008v.008H12v-.008z"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </div>
+      <span
+        class="font-display font-bold text-amber-100 text-lg tracking-tight"
+      >
+        Stellar
+        <span
+          class="text-market-400"
+        >
+          MarketPay
+        </span>
+      </span>
+    </a>
+    <span
+      class="hidden md:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border flex-shrink-0 bg-amber-500/10 text-amber-400 border-amber-500/20"
+    >
+      Testnet
+    </span>
+    <div
+      class="hidden md:flex items-center gap-1"
+    >
+      <a
+        href="/"
+      >
+        Home
+      </a>
+      <a
+        href="/jobs"
+      >
+        Browse Jobs
+      </a>
+      <a
+        href="/dashboard"
+      >
+        Dashboard
+      </a>
+      <a
+        href="/post-job"
+      >
+        Post Job
+      </a>
+      <a
+        href="/insights"
+      >
+        Insights
+      </a>
+      <a
+        href="/developer"
+      >
+        Developer
+      </a>
+    </div>
+    <div
+      class="hidden md:flex items-center"
+    >
+      <select
+        aria-label="Language"
+        class="bg-market-900/40 border border-amber-900/30 rounded px-2 py-1 text-xs text-amber-100 cursor-pointer"
+      >
+        <option
+          value="en"
+        >
+          English
+        </option>
+        <option
+          value="es"
+        >
+          Spanish
+        </option>
+      </select>
+    </div>
+    <div
+      class="flex items-center gap-2 flex-shrink-0"
+    >
+      <button
+        class="btn-primary text-sm py-2 px-4"
+      >
+        Connect Wallet
+      </button>
+    </div>
+  </div>
+</nav>
+`;
+
+exports[`component snapshots RatingForm 1`] = `
+<div
+  class="card border-market-500/20"
+>
+  <h3
+    class="font-display text-base font-semibold text-amber-100 mb-1"
+  >
+    Leave a Rating
+     for the freelancer
+  </h3>
+  <p
+    class="text-amber-800 text-xs mb-4"
+  >
+    Rate your experience working together
+  </p>
+  <div
+    aria-label="Star rating"
+    class="flex items-center gap-1 mb-4"
+    role="group"
+  >
+    <button
+      aria-label="1 star"
+      class="text-2xl transition-transform hover:scale-110 text-amber-900"
+      type="button"
+    >
+      ★
+    </button>
+    <button
+      aria-label="2 stars"
+      class="text-2xl transition-transform hover:scale-110 text-amber-900"
+      type="button"
+    >
+      ★
+    </button>
+    <button
+      aria-label="3 stars"
+      class="text-2xl transition-transform hover:scale-110 text-amber-900"
+      type="button"
+    >
+      ★
+    </button>
+    <button
+      aria-label="4 stars"
+      class="text-2xl transition-transform hover:scale-110 text-amber-900"
+      type="button"
+    >
+      ★
+    </button>
+    <button
+      aria-label="5 stars"
+      class="text-2xl transition-transform hover:scale-110 text-amber-900"
+      type="button"
+    >
+      ★
+    </button>
+  </div>
+  <textarea
+    class="w-full bg-ink-800 border border-market-500/15 rounded-xl px-4 py-3 text-sm text-amber-100 placeholder-amber-900 focus:outline-none focus:border-market-500/40 resize-none mb-1"
+    placeholder="Optional: leave a short review (max 200 characters)"
+    rows="3"
+  />
+  <p
+    class="text-xs text-amber-900 text-right mb-4"
+  >
+    0
+    /200
+  </p>
+  <button
+    class="btn-primary text-sm py-2 px-5 disabled:opacity-50"
+    disabled=""
+  >
+    Submit Rating
+  </button>
+</div>
+`;
+
+exports[`component snapshots Toast error 1`] = `
+<div
+  aria-atomic="true"
+  aria-live="assertive"
+  class="relative flex items-start gap-3 w-full max-w-sm rounded-xl border border-white/[0.08] bg-[#111A14]/90 backdrop-blur-xl px-4 py-3 shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] opacity-100 translate-y-0 scale-100"
+  role="alert"
+>
+  <span
+    aria-hidden="true"
+    class="absolute left-0 top-0 h-full w-[3px] rounded-l-xl bg-red-500"
+  />
+  <span
+    class="mt-[1px] shrink-0 text-red-400"
+  >
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="16"
+      viewBox="0 0 16 16"
+      width="16"
+    >
+      <circle
+        cx="8"
+        cy="8"
+        r="7"
+        stroke="currentColor"
+        stroke-width="1.5"
+      />
+      <path
+        d="M5.5 5.5L10.5 10.5M10.5 5.5L5.5 10.5"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-width="1.5"
+      />
+    </svg>
+  </span>
+  <p
+    class="flex-1 text-[13px] leading-snug text-amber-100/90 pr-2"
+  >
+    Transaction failed
+  </p>
+  <button
+    aria-label="Dismiss notification"
+    class="shrink-0 text-amber-800/60 hover:text-amber-100 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 rounded"
+    type="button"
+  >
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="14"
+      viewBox="0 0 14 14"
+      width="14"
+    >
+      <path
+        d="M3 3L11 11M11 3L3 11"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-width="1.5"
+      />
+    </svg>
+  </button>
+</div>
+`;
+
+exports[`component snapshots Toast info 1`] = `
+<div
+  aria-atomic="true"
+  aria-live="assertive"
+  class="relative flex items-start gap-3 w-full max-w-sm rounded-xl border border-white/[0.08] bg-[#111A14]/90 backdrop-blur-xl px-4 py-3 shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] opacity-100 translate-y-0 scale-100"
+  role="alert"
+>
+  <span
+    aria-hidden="true"
+    class="absolute left-0 top-0 h-full w-[3px] rounded-l-xl bg-sky-500"
+  />
+  <span
+    class="mt-[1px] shrink-0 text-sky-400"
+  >
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="16"
+      viewBox="0 0 16 16"
+      width="16"
+    >
+      <circle
+        cx="8"
+        cy="8"
+        r="7"
+        stroke="currentColor"
+        stroke-width="1.5"
+      />
+      <path
+        d="M8 7V11M8 5.5V5"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-width="1.5"
+      />
+    </svg>
+  </span>
+  <p
+    class="flex-1 text-[13px] leading-snug text-amber-100/90 pr-2"
+  >
+    Application saved
+  </p>
+  <button
+    aria-label="Dismiss notification"
+    class="shrink-0 text-amber-800/60 hover:text-amber-100 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 rounded"
+    type="button"
+  >
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="14"
+      viewBox="0 0 14 14"
+      width="14"
+    >
+      <path
+        d="M3 3L11 11M11 3L3 11"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-width="1.5"
+      />
+    </svg>
+  </button>
+</div>
+`;
+
+exports[`component snapshots Toast success 1`] = `
+<div
+  aria-atomic="true"
+  aria-live="assertive"
+  class="relative flex items-start gap-3 w-full max-w-sm rounded-xl border border-white/[0.08] bg-[#111A14]/90 backdrop-blur-xl px-4 py-3 shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] opacity-100 translate-y-0 scale-100"
+  role="alert"
+>
+  <span
+    aria-hidden="true"
+    class="absolute left-0 top-0 h-full w-[3px] rounded-l-xl bg-emerald-500"
+  />
+  <span
+    class="mt-[1px] shrink-0 text-emerald-400"
+  >
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="16"
+      viewBox="0 0 16 16"
+      width="16"
+    >
+      <circle
+        cx="8"
+        cy="8"
+        r="7"
+        stroke="currentColor"
+        stroke-width="1.5"
+      />
+      <path
+        d="M5 8.5L7 10.5L11 6"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="1.5"
+      />
+    </svg>
+  </span>
+  <p
+    class="flex-1 text-[13px] leading-snug text-amber-100/90 pr-2"
+  >
+    Escrow funded successfully
+  </p>
+  <button
+    aria-label="Dismiss notification"
+    class="shrink-0 text-amber-800/60 hover:text-amber-100 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 rounded"
+    type="button"
+  >
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="14"
+      viewBox="0 0 14 14"
+      width="14"
+    >
+      <path
+        d="M3 3L11 11M11 3L3 11"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-width="1.5"
+      />
+    </svg>
+  </button>
+</div>
+`;

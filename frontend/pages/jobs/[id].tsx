@@ -8,19 +8,25 @@ import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
 import RealtimeBidComparison from "@/components/RealtimeBidComparison";
-import { fetchJob, fetchApplications, acceptApplication, releaseEscrow } from "@/lib/api";
-import { formatXLM, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
+import {
+  fetchJob,
+  fetchApplications,
+  acceptApplication,
+  releaseEscrow,
+} from "@/lib/api";
+import {
+  formatXLM,
+  formatDate,
+  shortenAddress,
+  statusLabel,
+  statusClass,
+  timeAgo,
+} from "@/utils/format";
 import {
   accountUrl,
   buildReleaseEscrowTransaction,
   submitSignedSorobanTransaction,
-  USDC_SAC_ADDRESS,
-  XLM_SAC_ADDRESS,
-  subscribeToContractEvents,
-  getEscrowState,
-  buildPartialReleaseTransaction,
 } from "@/lib/stellar";
-import { Asset, type Transaction } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import type { Application, Job } from "@/utils/types";
 
@@ -29,16 +35,9 @@ interface JobDetailProps {
   onConnect: (pk: string) => void;
 }
 
-function badgeClass(status: string) {
-  if (status === "accepted") return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-  if (status === "rejected") return "bg-red-500/10 text-red-400 border-red-500/20";
-  return "bg-market-500/10 text-market-400 border-market-500/20";
-}
-
 export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const router = useRouter();
   const jobId = typeof router.query.id === "string" ? router.query.id : null;
-  const prefill = typeof router.query.prefill === "string" ? router.query.prefill : null;
 
   const [job, setJob] = useState<Job | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
@@ -49,49 +48,51 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [releasingEscrow, setReleasingEscrow] = useState(false);
   const [releaseSuccess, setReleaseSuccess] = useState(false);
-  const [prefillData, setPrefillData] = useState<any>(null);
-  const [showDisputeModal, setShowDisputeModal] = useState(false);
-  const [disputeReason, setDisputeReason] = useState("");
-  const [disputeDescription, setDisputeDescription] = useState("");
-  const [raisingDispute, setRaisingDispute] = useState(false);
-  const [resolvingDispute, setResolvingDispute] = useState(false);
+  const [prefillData, setPrefillData] = useState<{
+    bidAmount?: string;
+    message?: string;
+  } | null>(null);
 
   const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
   const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
-  const hasApplied = applications.some((application) => application.freelancerAddress === publicKey);
+  const hasApplied = applications.some(
+    (application) => application.freelancerAddress === publicKey,
+  );
 
   useEffect(() => {
-    if (!id || !router.isReady) return;
+    if (!jobId || !router.isReady) return;
 
     const { prefill } = router.query;
 
     if (typeof prefill === "string") {
       try {
-        setPrefillData(JSON.parse(Buffer.from(prefill, "base64").toString("utf8")));
+        setPrefillData(
+          JSON.parse(Buffer.from(prefill, "base64").toString("utf8")),
+        );
       } catch {
         setPrefillData(null);
       }
     }
 
-    Promise.all([fetchJob(id as string), fetchApplications(id as string)])
+    Promise.all([fetchJob(jobId), fetchApplications(jobId)])
       .then(([loadedJob, loadedApplications]) => {
         setJob(loadedJob);
         setApplications(loadedApplications);
       })
       .catch(() => router.push("/jobs"))
       .finally(() => setLoading(false));
-  }, [id, router, router.isReady, router.query]);
+  }, [jobId, router, router.isReady, router.query]);
 
   const handleAcceptApplication = async (applicationId: string) => {
-    if (!publicKey || !id) return;
+    if (!publicKey || !jobId) return;
 
     try {
       setActionError(null);
       await acceptApplication(applicationId, publicKey);
 
       const [updatedJob, updatedApplications] = await Promise.all([
-        fetchJob(id as string),
-        fetchApplications(id as string),
+        fetchJob(jobId),
+        fetchApplications(jobId),
       ]);
 
       setJob(updatedJob);
@@ -113,8 +114,14 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     setActionError(null);
 
     try {
-      const prepared = await buildReleaseEscrowTransaction(job.escrowContractId, job.id, publicKey);
-      const { signedXDR, error: signError } = await signTransactionWithWallet(prepared.toXDR());
+      const prepared = await buildReleaseEscrowTransaction(
+        job.escrowContractId,
+        job.id,
+        publicKey,
+      );
+      const { signedXDR, error: signError } = await signTransactionWithWallet(
+        prepared.toXDR(),
+      );
 
       if (signError || !signedXDR) {
         setActionError(signError || "Signing was cancelled.");
@@ -128,48 +135,11 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
       setJob(refreshedJob);
       setReleaseSuccess(true);
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : "Could not complete escrow release.");
+      setActionError(
+        error instanceof Error ? error.message : "Could not complete escrow release.",
+      );
     } finally {
       setReleasingEscrow(false);
-    }
-  };
-  
-  const handlePartialRelease = async (index: number) => {
-    if (!publicKey || !job) return;
-    setActionError(null);
-    setReleasingMilestoneIndex(index);
-    setReleasingEscrow(true);
-    try {
-      const contractId = process.env.NEXT_PUBLIC_CONTRACT_ID;
-      if (!contractId) throw new Error("Contract ID not configured");
-      const tx = await buildPartialReleaseTransaction(contractId, job.id, publicKey, index);
-      setPendingRelease({ transaction: tx, fnName: "release_escrow" as any });
-    } catch (err: unknown) {
-      setActionError(err instanceof Error ? err.message : String(err));
-      setReleasingEscrow(false);
-      setReleasingMilestoneIndex(null);
-    }
-  };
-
-  const handleRaiseDispute = async () => {
-    if (!publicKey || !job) return;
-    if (!disputeReason || !disputeDescription) {
-      setActionError("Please provide both a reason and a description.");
-      return;
-    }
-
-    setRaisingDispute(true);
-    setActionError(null);
-
-    try {
-      await raiseDispute(job.id, { reason: disputeReason, description: disputeDescription });
-      const refreshedJob = await fetchJob(job.id);
-      setJob(refreshedJob);
-      setShowDisputeModal(false);
-    } catch (e: any) {
-      setActionError(e.response?.data?.error || "Failed to raise dispute.");
-    } finally {
-      setRaisingDispute(false);
     }
   };
 
@@ -212,44 +182,20 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                 <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">
                   {job.category}
                 </span>
-                {job.boosted && new Date(job.boostedUntil || "") > new Date() && (
-                  <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                    Featured
-                  </span>
-                  {job.boosted && new Date(job.boostedUntil || "") > new Date() && (
-                    <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                      Featured
-                    </span>
-                  )}
-                </div>
-
-                <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug">
-                  {job.title}
-                </h1>
-
-                <div className="mt-4 flex flex-wrap gap-3 text-sm text-amber-700">
-                  <span>Posted {timeAgo(job.createdAt)}</span>
-                  <span>{applications.length} application{applications.length === 1 ? "" : "s"}</span>
-                  {job.deadline && <span>Deadline: {formatDate(job.deadline)}</span>}
-                </div>
-              </div>
-
-              <div className="sm:text-right">
-                <p className="text-xs text-amber-800 mb-1">Budget</p>
-                <p className="font-mono font-bold text-2xl text-market-400">{printableBudget}</p>
-                <a
-                  href={accountUrl(job.clientAddress)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 mt-3 text-sm text-amber-700 hover:text-market-400 transition-colors"
-                >
-                  Client: {shortenAddress(job.clientAddress)}
-                </a>
               </div>
 
               <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug">
                 {job.title}
               </h1>
+
+              <div className="mt-4 flex flex-wrap gap-3 text-sm text-amber-700">
+                <span>Posted {timeAgo(job.createdAt)}</span>
+                <span>
+                  {applications.length} application
+                  {applications.length === 1 ? "" : "s"}
+                </span>
+                {job.deadline && <span>Deadline: {formatDate(job.deadline)}</span>}
+              </div>
             </div>
 
             <div className="flex-shrink-0 sm:text-right">
@@ -257,13 +203,6 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               <p className="font-mono font-bold text-2xl text-market-400">
                 {formatXLM(job.budget)} {job.currency}
               </p>
-
-              {job.deadline && (
-                <p className="text-xs text-amber-700 mt-2">
-                  Deadline: {formatDate(job.deadline)}
-                </p>
-              )}
-
               <a
                 href={accountUrl(job.clientAddress)}
                 target="_blank"
@@ -289,7 +228,6 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               <h3 className="font-display text-base font-semibold text-amber-300 mb-3">
                 Required Skills
               </h3>
-
               <div className="flex flex-wrap gap-2">
                 {job.skills.map((skill) => (
                   <span
@@ -300,12 +238,6 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                   </span>
                 ))}
               </div>
-            </div>
-          </section>
-
-          {actionError && (
-            <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-              {actionError}
             </div>
           )}
 
@@ -319,6 +251,12 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           </div>
         </div>
 
+        {actionError && (
+          <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+            {actionError}
+          </div>
+        )}
+
         {(isFreelancer || isClient) && job.status === "in_progress" && (
           <TimeTracker
             jobId={job.id}
@@ -327,7 +265,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           />
         )}
 
-        {isClient && (
+        {isClient && job.status === "open" && (
           <div className="mb-6">
             <RealtimeBidComparison
               jobId={job.id}
@@ -338,34 +276,16 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           </div>
         )}
 
+        {job.status === "open" && !publicKey && !isClient && (
+          <div className="mb-6">
+            <WalletConnect onConnect={onConnect} />
+          </div>
+        )}
 
-        {/* Issue #175 — Escrow timeout countdown + refund UI */}
-        {job.escrowContractId && timeoutLedger && job.status !== "completed" && job.status !== "cancelled" && (
-          <div className="card mb-6">
-            <h2 className="font-display text-lg font-bold text-amber-100 mb-3">Escrow Timeout</h2>
-
-            {timeoutRefundSuccess ? (
-              <div>
-                <p className="text-market-400 font-medium">Timeout refund processed successfully.</p>
-              </div>
-            ) : timeoutCountdown && currentLedger < timeoutLedger ? (
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-amber-700">
-                  Auto-refund available in:
-                </span>
-                <span className="font-mono text-sm text-market-400 bg-market-500/8 px-3 py-1 rounded border border-market-500/15">
-                  {timeoutCountdown}
-                </span>
-              </div>
-            ) : isClient && currentLedger >= timeoutLedger ? (
-              <div>
-                <p className="text-sm text-red-400 mb-3">
-                  The freelancer did not start work within the timeout period. You can claim a refund.
-                </p>
-                <WalletConnect onConnect={onConnect} />
-              </div>
-            ) : hasApplied ? (
-              <div className="card text-center py-8 border-market-500/20">
+        {job.status === "open" && publicKey && !isClient && (
+          <>
+            {hasApplied ? (
+              <div className="card text-center py-8 border-market-500/20 mb-6">
                 <p className="text-market-400 font-medium mb-1">Application submitted</p>
                 <p className="text-amber-800 text-sm">
                   The client will review your proposal shortly.
@@ -375,14 +295,14 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               <ApplicationForm
                 job={job}
                 publicKey={publicKey}
-                prefillData={prefillData}
+                prefillData={prefillData || undefined}
                 onSuccess={() => {
                   setShowApplyForm(false);
                   fetchApplications(job.id).then(setApplications);
                 }}
               />
             ) : (
-              <div className="text-center">
+              <div className="text-center mb-6">
                 <button
                   onClick={() => setShowApplyForm(true)}
                   className="btn-primary text-base px-10 py-3.5"
@@ -390,20 +310,13 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                   Apply for this Job
                 </button>
               </div>
-            ) : (
-              <p className="text-sm text-amber-700">
-                Timeout period has expired. Only the client can claim a refund.
-              </p>
             )}
-          </div>
+          </>
         )}
 
         {isClient && job.status === "in_progress" && (
           <div className="card mb-6">
-            <h2 className="font-display text-xl font-bold text-amber-100 mb-3">
-              Escrow
-            </h2>
-
+            <h2 className="font-display text-xl font-bold text-amber-100 mb-3">Escrow</h2>
             <button
               onClick={handleReleaseEscrow}
               disabled={releasingEscrow}
@@ -411,17 +324,10 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             >
               {releasingEscrow ? "Releasing..." : "Release Escrow"}
             </button>
-
             {releaseSuccess && (
-              <p className="mt-3 text-emerald-400 text-sm">
-                Escrow released successfully.
-              </p>
+              <p className="mt-3 text-emerald-400 text-sm">Escrow released successfully.</p>
             )}
           </div>
-        )}
-
-        {actionError && (
-          <p className="mt-3 mb-6 text-red-400 text-sm">{actionError}</p>
         )}
 
         {job.status === "completed" && publicKey && !ratingSubmitted && (
@@ -434,7 +340,6 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                 onSuccess={() => setRatingSubmitted(true)}
               />
             )}
-
             {isFreelancer && (
               <RatingForm
                 jobId={job.id}
@@ -449,73 +354,6 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
 
       {showShareModal && (
         <ShareJobModal job={job} onClose={() => setShowShareModal(false)} />
-      )}
-
-      {pendingTimeoutRefund && publicKey && (
-        <FeeEstimationModal
-          transaction={pendingTimeoutRefund}
-          functionName="timeout_refund"
-          payerPublicKey={publicKey}
-          onConfirm={handleConfirmTimeoutRefundFee}
-          onCancel={handleCancelTimeoutRefundFee}
-        />
-      )}
-
-      {/* Dispute Modal */}
-      {showDisputeModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6">
-          <div className="absolute inset-0 bg-ink-950/80 backdrop-blur-sm" onClick={() => setShowDisputeModal(false)} />
-          <div className="relative w-full max-w-md bg-ink-900 border border-market-500/20 rounded-2xl p-6 shadow-2xl animate-scale-in">
-            <h3 className="font-display text-xl font-bold text-amber-100 mb-2">Raise a Dispute</h3>
-            <p className="text-sm text-amber-800 mb-6">Flag this job for admin review. This will block escrow release until resolved.</p>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="label">Reason</label>
-                <select 
-                  value={disputeReason} 
-                  onChange={(e) => setDisputeReason(e.target.value)}
-                  className="input-field"
-                >
-                  <option value="">Select a reason</option>
-                  <option value="Quality of work">Quality of work</option>
-                  <option value="Non-delivery">Non-delivery</option>
-                  <option value="Communication issues">Communication issues</option>
-                  <option value="Unfair terms">Unfair terms</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              <div>
-                <label className="label">Description</label>
-                <textarea 
-                  value={disputeDescription}
-                  onChange={(e) => setDisputeDescription(e.target.value)}
-                  placeholder="Explain the issue in detail..."
-                  rows={4}
-                  className="textarea-field"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-8">
-              <button 
-                onClick={() => setShowDisputeModal(false)} 
-                className="flex-1 btn-secondary py-2.5"
-                disabled={raisingDispute}
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleRaiseDispute} 
-                className="flex-1 btn-primary py-2.5 flex items-center justify-center gap-2"
-                disabled={raisingDispute || !disputeReason || !disputeDescription}
-              >
-                {raisingDispute ? <Spinner /> : "Raise Dispute"}
-              </button>
-            </div>
-            {actionError && <p className="mt-3 text-red-400 text-sm text-center">{actionError}</p>}
-          </div>
-        </div>
       )}
     </>
   );

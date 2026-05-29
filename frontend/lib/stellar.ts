@@ -33,10 +33,12 @@ const SOROBAN_RPC_URL = optionalClientEnv(
     ? "https://soroban-mainnet.stellar.org"
     : "https://soroban-testnet.stellar.org",
 );
-const CONTRACT_ID =
-  process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true"
-    ? ""
-    : requireClientEnv("NEXT_PUBLIC_CONTRACT_ID");
+const USE_CONTRACT_MOCK =
+  process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
+
+const CONTRACT_ID = USE_CONTRACT_MOCK
+  ? ""
+  : requireClientEnv("NEXT_PUBLIC_CONTRACT_ID");
 
 export const server = new Horizon.Server(HORIZON_URL, { allowHttp: false });
 
@@ -232,8 +234,71 @@ export async function signAndSubmitEscrowTx(
 export async function createEscrowOnChain(
   params: EscrowParams,
 ): Promise<EscrowResult> {
+  if (USE_CONTRACT_MOCK) {
+    const { mockCreateEscrow } = await import("./contractMock");
+    const txHash = await mockCreateEscrow({
+      jobId: params.jobId,
+      client: params.clientPublicKey,
+      freelancer: params.clientPublicKey,
+      token: "native",
+      amount: String(BigInt(Math.round(params.budgetXlm * 10_000_000))),
+    });
+    return { txHash };
+  }
+
   const preparedXdr = await buildCreateEscrowTx(params);
   return signAndSubmitEscrowTx(preparedXdr);
+}
+
+export async function buildReleaseEscrowTransaction(
+  _escrowContractId: string,
+  jobId: string,
+  clientPublicKey: string,
+): Promise<{ toXDR: () => string }> {
+  if (USE_CONTRACT_MOCK) {
+    const { mockReleaseEscrow } = await import("./contractMock");
+    await mockReleaseEscrow({ jobId, client: clientPublicKey });
+    return { toXDR: () => "MOCK_UNSIGNED_XDR" };
+  }
+
+  throw new Error(
+    "Release escrow requires NEXT_PUBLIC_USE_CONTRACT_MOCK=true or a deployed contract integration.",
+  );
+}
+
+export async function submitSignedSorobanTransaction(
+  _signedXDR: string,
+): Promise<{ hash: string }> {
+  if (USE_CONTRACT_MOCK) {
+    return { hash: `mock-${Date.now().toString(16)}` };
+  }
+
+  throw new Error(
+    "Soroban submission requires NEXT_PUBLIC_USE_CONTRACT_MOCK=true or RPC configuration.",
+  );
+}
+
+export const USDC_SAC_ADDRESS = "";
+export const XLM_SAC_ADDRESS = "";
+
+export async function getEscrowState(_jobId: string) {
+  return null;
+}
+
+export function subscribeToContractEvents(
+  _jobId: string,
+  _handler: (event: unknown) => void,
+) {
+  return () => {};
+}
+
+export async function buildPartialReleaseTransaction(
+  _contractId: string,
+  _jobId: string,
+  _clientPublicKey: string,
+  _index: number,
+) {
+  throw new Error("Partial release is not available in mock mode.");
 }
 
 // ---------------------------------------------------------------------------

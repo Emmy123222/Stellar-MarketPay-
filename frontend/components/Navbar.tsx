@@ -67,6 +67,16 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
     }
   }, [router.pathname]);
 
+  const balance: string | null = null;
+  const balanceLoading = false;
+
+  const switchLanguage = (lang: string) => {
+    i18n.changeLanguage(lang);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("preferredLocale", lang);
+    }
+  };
+
   return (
     <nav className="sticky top-0 z-50 border-b border-[rgba(251,191,36,0.10)] bg-ink-900/85 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">

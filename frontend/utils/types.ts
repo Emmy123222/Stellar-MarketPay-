@@ -239,3 +239,21 @@ export interface ReferralStats {
   referees: ReferralReferee[];
   payouts: ReferralPayout[];
 }
+
+export interface TimeEntry {
+  id: string;
+  jobId: string;
+  durationMinutes: number;
+  description?: string;
+  startedAt?: string;
+  createdAt: string;
+}
+
+export interface TimeInvoice {
+  id: string;
+  jobId: string;
+  status: "pending" | "approved" | "rejected";
+  totalMinutes: number;
+  amountXlm: string;
+  createdAt: string;
+}
