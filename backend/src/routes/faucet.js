@@ -8,8 +8,11 @@ const router = express.Router();
 const { createRateLimiter } = require("../middleware/rateLimiter");
 const { fundTestnetWallet, checkAccountNeedsFunding, isTestnet } = require("../services/faucetService");
 
-// Rate limiting: 1 request per minute per IP for faucet
-const faucetRateLimiter = createRateLimiter(1, 60);
+// Rate limiting: configurable via FAUCET_RATE_LIMIT env var
+// Development default: 20/min, Production default: 5/min
+const isDev = process.env.NODE_ENV !== 'production';
+const faucetMaxRequests = parseInt(process.env.FAUCET_RATE_LIMIT, 10) || (isDev ? 20 : 5);
+const faucetRateLimiter = createRateLimiter(faucetMaxRequests, 60);
 
 /**
  * POST /api/faucet/fund
@@ -90,7 +93,8 @@ router.get("/status", (req, res) => {
       enabled: isTestnet(),
       network: "testnet",
       amount: "10000",
-      asset: "XLM"
+      asset: "XLM",
+      rateLimitPerMinute: faucetMaxRequests
     }
   });
 });

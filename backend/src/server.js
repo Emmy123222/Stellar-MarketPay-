@@ -33,6 +33,8 @@ const adminRoutes     = require("./routes/admin");
 const admin2faRoutes  = require("./routes/admin2fa");
 const timeEntryRoutes = require("./routes/timeEntries");
 const referralRoutes  = require("./routes/referrals");
+const notificationRoutes = require("./routes/notifications");
+const certificateRoutes = require("./routes/certificates");
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
@@ -205,6 +207,7 @@ app.use("/api/admin/2fa",     admin2faRoutes);
 app.use("/api/admin",         adminRoutes);
 app.use("/api/time-entries",  timeEntryRoutes);
 app.use("/api/referrals",     referralRoutes);
+app.use("/api/certificates",  certificateRoutes);
 
 app.use((err, req, res, next) => {
   logError(req.logger || serviceLogger, err, {

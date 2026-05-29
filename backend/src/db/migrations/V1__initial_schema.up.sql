@@ -29,6 +29,27 @@ ALTER TABLE profiles
 ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS blocked_addresses TEXT[] NOT NULL DEFAULT '{}';
 
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS portfolio_files JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS email TEXT;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS email_notifications_enabled BOOLEAN NOT NULL DEFAULT true;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS webhook_url TEXT;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS webhook_secret TEXT;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS is_kyc_verified BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS did_hash TEXT;
+
 -- ─────────────────────────────────────────
 -- jobs
 -- ─────────────────────────────────────────
