@@ -1,6 +1,7 @@
 import TimeTracker from "@/components/TimeTracker";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
+import { recordViewedJob } from "@/lib/offlineJobs";
 import Link from "next/link";
 import Head from "next/head";
 import ApplicationForm from "@/components/ApplicationForm";
@@ -75,6 +76,8 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
         } catch {
           setClientReputation(null);
         }
+        // Persist to localStorage so the offline page can show last-viewed jobs
+        recordViewedJob(loadedJob);
       })
       .catch(() => router.push("/jobs"))
       .finally(() => setLoading(false));

@@ -8,17 +8,23 @@ const router = express.Router();
 
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
-const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per minute
-const generalJobRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for listing/getting jobs
-const suggestRateLimiter = createRateLimiter(60, 1); // 60 suggest requests per minute
+const jobCreationRateLimiter = createRateLimiter(10, 1);
+const generalJobRateLimiter = createRateLimiter(30, 1);
+const suggestRateLimiter = createRateLimiter(60, 1);
+const reportJobRateLimiter = createRateLimiter(5, 1);
 
 const {
   createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob,
   boostJob, incrementShareCount, raiseDispute, resolveDispute,
   getRecommendedJobs, getSuggestions, extendJobExpiry, incrementViewCount,
 } = require("../services/jobService");
+const { logContractInteraction } = require("../services/contractAuditService");
 const { verifyJWT } = require("../middleware/auth");
 const cache = require("../services/cacheService");
+const jobDraftService = require("../services/jobDraftService");
+const recommendationService = require("../services/recommendationService");
+
+const jobReports = new Map();
 
 // Feed Helpers
 
@@ -445,8 +451,7 @@ router.post("/:id/referral", generalJobRateLimiter, async (req, res, next) => {
       return res
         .status(400)
         .json({ success: false, error: "Referrer address is required" });
-    const ip = req.ip;
-    await trackReferral(req.params.id, referrer, ip);
+    await incrementShareCount(req.params.id);
     res.json({ success: true });
   } catch (e) {
     next(e);

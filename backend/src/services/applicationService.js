@@ -120,6 +120,7 @@ async function submitApplication({
   freelancerAddress,
   proposal,
   bidAmount,
+  // eslint-disable-next-line no-unused-vars
   currency = "XLM",
   screeningAnswers,
   referredBy,

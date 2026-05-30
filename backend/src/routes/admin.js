@@ -8,7 +8,7 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db/pool");
 const { verifyJWT, requireAdmin2FA } = require("../middleware/auth");
-const { getJob, updateJobStatus } = require("../services/jobService");
+const { updateJobStatus } = require("../services/jobService");
 const { logContractInteraction } = require("../services/contractAuditService");
 
 // ── Admin Role Guard ───────────────────────────────────────────────────────────
@@ -239,7 +239,7 @@ router.get("/reported-wallets", verifyJWT, requireAdmin, requireAdmin2FA, async 
 });
 
 // ── GET /api/admin/logs — admin action audit log ───────────────────────────────
-router.get("/logs", verifyJWT, requireAdmin, requireAdmin2FA, async (req, res, next) => {
+router.get("/logs", verifyJWT, requireAdmin, requireAdmin2FA, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, action, actor_address, target, reason, metadata, created_at
@@ -249,7 +249,6 @@ router.get("/logs", verifyJWT, requireAdmin, requireAdmin2FA, async (req, res, n
     );
     res.json({ success: true, data: rows });
   } catch (e) {
-    // If table doesn't exist, return empty
     res.json({ success: true, data: [] });
   }
 });
@@ -372,7 +371,7 @@ router.delete("/wallets/:address/freeze", verifyJWT, requireAdmin, requireAdmin2
 });
 
 // ── GET /api/admin/wallets/frozen — list frozen wallets ───────────────────────
-router.get("/wallets/frozen", verifyJWT, requireAdmin, requireAdmin2FA, async (req, res, next) => {
+router.get("/wallets/frozen", verifyJWT, requireAdmin, requireAdmin2FA, async (req, res) => {
   try {
     const { rows } = await pool.query(
       "SELECT address, reason, frozen_by, created_at FROM frozen_wallets ORDER BY created_at DESC"

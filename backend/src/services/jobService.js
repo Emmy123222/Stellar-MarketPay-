@@ -6,8 +6,6 @@
 "use strict";
 
 const pool = require("../db/pool");
-const { getTimezoneOffset } = require("date-fns-tz");
-const { isBlocked } = require("./profileService");
 
 /**
  * Camel-cased job record returned by this service.
@@ -96,32 +94,6 @@ function validatePublicKey(key) {
   }
 }
 
-/**
- * Check if a job's timezone is compatible with the user's timezone.
- * Compatible if the time difference is within +/-3 hours.
- *
- * @param {string} jobTimezone - IANA timezone string of the job (e.g., "America/New_York")
- * @param {string} userTimezone - IANA timezone string of the user (e.g., "Europe/London")
- * @returns {boolean} true if timezones are compatible or if job has no timezone restriction
- */
-function isTimezoneCompatible(jobTimezone, userTimezone) {
-  if (!jobTimezone) return true;
-  if (!userTimezone) return true;
-
-  try {
-    const now = new Date();
-    const userOffset = getTimezoneOffset(userTimezone, now);
-    const jobOffset = getTimezoneOffset(jobTimezone, now);
-
-    // Calculate the absolute difference in hours
-    const diffHours = Math.abs(userOffset - jobOffset) / (1000 * 60 * 60);
-
-    // Return true if within ±3 hour range
-    return diffHours <= 3;
-  } catch {
-    return true;
-  }
-}
 
 /**
  * Convert a snake_case `jobs` row into the camelCase API object.
@@ -380,6 +352,7 @@ async function listJobs({
   limit = 50,
   search,
   cursor,
+  // eslint-disable-next-line no-unused-vars
   timezone,
   includeExpired,
   viewerAddress,

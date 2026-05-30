@@ -95,7 +95,12 @@
           },
           "status": {
             "type": "string",
-            "enum": ["open", "in_progress", "completed", "cancelled"],
+            "enum": [
+              "open",
+              "in_progress",
+              "completed",
+              "cancelled"
+            ],
             "description": "Job status"
           },
           "createdAt": {
@@ -137,7 +142,11 @@
           },
           "status": {
             "type": "string",
-            "enum": ["pending", "accepted", "rejected"],
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected"
+            ],
             "description": "Application status"
           },
           "createdAt": {
@@ -150,155 +159,40 @@
     }
   },
   "paths": {
-    "/health": {
+    "/api/rate-limit": {
       "get": {
-        "summary": "Health check endpoint",
-        "description": "Returns the current health status of the API service",
-        "tags": ["Health"],
-        "responses": {
-          "200": {
-            "description": "Service is healthy",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "example": "ok",
-                      "description": "Health status"
-                    },
-                    "service": {
-                      "type": "string",
-                      "example": "stellar-marketpay-api",
-                      "description": "Service name"
-                    },
-                    "network": {
-                      "type": "string",
-                      "example": "testnet",
-                      "description": "Stellar network being used"
-                    },
-                    "timestamp": {
-                      "type": "string",
-                      "format": "date-time",
-                      "description": "Current timestamp"
-                    },
-                    "indexer": {
-                      "type": "object",
-                      "nullable": true,
-                      "description": "Indexer service health status"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth": {
-      "get": {
-        "summary": "Get authentication challenge transaction",
-        "description": "Returns a Stellar challenge transaction for web authentication",
-        "tags": ["Authentication"],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "account",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Stellar account address to challenge"
-          }
+        "summary": "Check current API rate limit status",
+        "description": "Returns the current rate limit usage for the caller's IP",
+        "tags": [
+          "Utility"
         ],
         "responses": {
           "200": {
-            "description": "Challenge transaction generated successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "transaction": {
-                      "type": "string",
-                      "description": "Base64-encoded Stellar transaction"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request - missing account or invalid format",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "summary": "Authenticate with signed challenge transaction",
-        "description": "Verifies a signed Stellar challenge transaction and issues a JWT token",
-        "tags": ["Authentication"],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["transaction"],
-                "properties": {
-                  "transaction": {
-                    "type": "string",
-                    "description": "Base64-encoded signed Stellar transaction"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Authentication successful",
+            "description": "Rate limit status retrieved successfully",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "success": {
-                      "type": "boolean",
-                      "example": true
+                      "type": "boolean"
                     },
-                    "token": {
-                      "type": "string",
-                      "description": "JWT authentication token"
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "remaining": {
+                          "type": "integer"
+                        },
+                        "reset": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
                     }
                   }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request - missing transaction or invalid format",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized - invalid signature or expired challenge",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -310,7 +204,9 @@
       "get": {
         "summary": "List jobs",
         "description": "Returns a paginated list of jobs with optional filtering",
-        "tags": ["Jobs"],
+        "tags": [
+          "Jobs"
+        ],
         "parameters": [
           {
             "in": "query",
@@ -325,7 +221,12 @@
             "name": "status",
             "schema": {
               "type": "string",
-              "enum": ["open", "in_progress", "completed", "cancelled"]
+              "enum": [
+                "open",
+                "in_progress",
+                "completed",
+                "cancelled"
+              ]
             },
             "description": "Filter by job status"
           },
@@ -406,7 +307,9 @@
       "post": {
         "summary": "Create a new job",
         "description": "Creates a new job posting in the marketplace",
-        "tags": ["Jobs"],
+        "tags": [
+          "Jobs"
+        ],
         "security": [
           {
             "bearerAuth": []
@@ -421,7 +324,12 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["title", "description", "budget", "clientId"],
+                "required": [
+                  "title",
+                  "description",
+                  "budget",
+                  "clientId"
+                ],
                 "properties": {
                   "title": {
                     "type": "string",
@@ -452,7 +360,10 @@
                   },
                   "visibility": {
                     "type": "string",
-                    "enum": ["public", "private"],
+                    "enum": [
+                      "public",
+                      "private"
+                    ],
                     "default": "public",
                     "description": "Job visibility"
                   }
@@ -504,11 +415,197 @@
         }
       }
     },
+    "/health": {
+      "get": {
+        "summary": "Enhanced health check",
+        "description": "Checks database connectivity (SELECT 1) and Stellar Horizon reachability. Returns 200 when healthy, 503 when any critical dependency is down.\n",
+        "tags": [
+          "Health"
+        ],
+        "responses": {
+          "200": {
+            "description": "All dependencies healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "healthy"
+                    },
+                    "database": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "example": "ok"
+                        },
+                        "latency_ms": {
+                          "type": "number",
+                          "example": 12
+                        }
+                      }
+                    },
+                    "stellar": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "example": "ok"
+                        },
+                        "network": {
+                          "type": "string",
+                          "example": "testnet"
+                        },
+                        "ledger": {
+                          "type": "number",
+                          "example": 12345678
+                        }
+                      }
+                    },
+                    "uptime_seconds": {
+                      "type": "number",
+                      "example": 3600
+                    },
+                    "version": {
+                      "type": "string",
+                      "example": "1.0.0"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "One or more dependencies are down"
+          }
+        }
+      }
+    },
+    "/api/auth": {
+      "get": {
+        "summary": "Get authentication challenge transaction",
+        "description": "Returns a Stellar challenge transaction for web authentication",
+        "tags": [
+          "Authentication"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stellar account address to challenge"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Challenge transaction generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "transaction": {
+                      "type": "string",
+                      "description": "Base64-encoded Stellar transaction"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing account or invalid format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Authenticate with signed challenge transaction",
+        "description": "Verifies a signed Stellar challenge transaction and issues a JWT token",
+        "tags": [
+          "Authentication"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "transaction"
+                ],
+                "properties": {
+                  "transaction": {
+                    "type": "string",
+                    "description": "Base64-encoded signed Stellar transaction"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "token": {
+                      "type": "string",
+                      "description": "JWT authentication token"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing transaction or invalid format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid signature or expired challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/applications/job/{jobId}": {
       "get": {
         "summary": "Get applications for a job",
         "description": "Returns all applications submitted for a specific job",
-        "tags": ["Applications"],
+        "tags": [
+          "Applications"
+        ],
         "parameters": [
           {
             "in": "path",
@@ -561,14 +658,21 @@
       "post": {
         "summary": "Submit a job application",
         "description": "Submit a proposal/application for a job",
-        "tags": ["Applications"],
+        "tags": [
+          "Applications"
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["jobId", "freelancerId", "proposal", "bidAmount"],
+                "required": [
+                  "jobId",
+                  "freelancerId",
+                  "proposal",
+                  "bidAmount"
+                ],
                 "properties": {
                   "jobId": {
                     "type": "string",
@@ -639,5 +743,6 @@
         }
       }
     }
-  }
+  },
+  "tags": []
 }

@@ -24,7 +24,7 @@ const { processReferralPayout } = require("../services/referralService");
 router.post("/:jobId/release", async (req, res, next) => {
   try {
     const { jobId } = req.params;
-    const { clientAddress, contractTxHash, releaseCurrency } = req.body;
+    const { clientAddress, contractTxHash } = req.body;
 
     if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
       const e = new Error("Invalid client address");
@@ -87,7 +87,7 @@ router.post(
   async (req, res, next) => {
     try {
       const { jobId } = req.params;
-      const { clientAddress, contractTxHash, milestoneIndex } = req.body;
+      const { clientAddress, contractTxHash } = req.body;
 
       if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
         const e = new Error("Invalid client address");

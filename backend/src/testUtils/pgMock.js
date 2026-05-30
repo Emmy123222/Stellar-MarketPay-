@@ -1,3 +1,4 @@
+/* global jest */
 "use strict";
 
 function defaultJobRow(overrides = {}) {
