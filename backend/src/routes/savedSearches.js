@@ -7,7 +7,7 @@
 const express = require("express");
 const router = express.Router();
 const pool = require("../db/pool");
-const { authenticate } = require("../middleware/auth");
+const { verifyJWT } = require("../middleware/auth");
 const { createServiceLogger } = require("../utils/logger");
 
 const logger = createServiceLogger("saved-searches");
@@ -17,7 +17,7 @@ const MAX_SAVED_SEARCHES = 10;
  * GET /api/saved-searches
  * List the authenticated user's saved searches.
  */
-router.get("/", authenticate, async (req, res, next) => {
+router.get("/", verifyJWT, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, user_address, query_params, notify_in_app, notify_email, last_notified_at, created_at, updated_at
@@ -36,7 +36,7 @@ router.get("/", authenticate, async (req, res, next) => {
  * POST /api/saved-searches
  * Save a new search query. Enforces a 10-search limit per user.
  */
-router.post("/", authenticate, async (req, res, next) => {
+router.post("/", verifyJWT, async (req, res, next) => {
   try {
     const { query_params, notify_in_app, notify_email } = req.body;
 
@@ -79,7 +79,7 @@ router.post("/", authenticate, async (req, res, next) => {
  * PATCH /api/saved-searches/:id
  * Update notification preferences for a saved search.
  */
-router.patch("/:id", authenticate, async (req, res, next) => {
+router.patch("/:id", verifyJWT, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { notify_in_app, notify_email } = req.body;
@@ -108,7 +108,7 @@ router.patch("/:id", authenticate, async (req, res, next) => {
  * DELETE /api/saved-searches/:id
  * Remove a saved search.
  */
-router.delete("/:id", authenticate, async (req, res, next) => {
+router.delete("/:id", verifyJWT, async (req, res, next) => {
   try {
     const { id } = req.params;
     const result = await pool.query(
