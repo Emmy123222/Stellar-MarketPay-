@@ -13,26 +13,22 @@ const resources = {
   pt: { common: require("../public/locales/pt/common.json") },
 };
 
-if (typeof window !== "undefined") {
-  const stored = localStorage.getItem("preferredLocale");
-  if (stored && resources[stored]) {
-    i18next.changeLanguage(stored);
-  }
-}
-
-i18next.use(LanguageDetector).init({
-  resources,
-  fallbackLng: "en",
-  supportedLngs: ["en", "es", "fr", "pt"],
-  ns: ["common"],
-  defaultNS: "common",
-  detection: {
-    order: ["localStorage", "navigator"],
-    lookupLocalStorage: "preferredLocale",
-    caches: ["localStorage"],
-  },
-  interpolation: { escapeValue: false },
-});
+i18next
+  .use(LanguageDetector)
+  .use(initReactI18next)
+  .init({
+    resources,
+    fallbackLng: "en",
+    supportedLngs: ["en", "es", "fr", "pt"],
+    ns: ["common"],
+    defaultNS: "common",
+    detection: {
+      order: ["localStorage", "navigator"],
+      lookupLocalStorage: "preferredLocale",
+      caches: ["localStorage"],
+    },
+    interpolation: { escapeValue: false },
+  });
 
 i18next.on("languageChanged", (lng) => {
   if (typeof window !== "undefined") {
@@ -44,9 +40,12 @@ export default i18next;
 
 export function useTranslation(ns = "common") {
   const i18n = i18next;
-
-  const t = (key, options) => i18n.getFixedT(null, ns)(key, options);
-
+  const t = (key, options) => {
+      if (typeof i18n.getFixedT === 'function') {
+          return i18n.getFixedT(null, ns)(key, options);
+      }
+      return key;
+  };
   return { t, i18n, ready: i18n.isInitialized };
 }
 

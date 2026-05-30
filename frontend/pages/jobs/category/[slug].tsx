@@ -83,6 +83,17 @@ export const getStaticProps: GetStaticProps = async ({ params }) => {
     };
   }
 
+  if (process.env.SKIP_API_CALLS === "true") {
+    return {
+      props: {
+        category,
+        jobs: [],
+        slug,
+      },
+      revalidate: 60,
+    };
+  }
+
   try {
     const result = await fetchJobs({ category, status: "open", limit: 50 });
     return {

@@ -31,6 +31,7 @@ jobs:
           NEXT_PUBLIC_API_URL: http://localhost:4000
           NEXT_PUBLIC_USE_CONTRACT_MOCK: "true"
           NEXT_PUBLIC_CONTRACT_ID: "CMOCKCONTRACTID"
+          SKIP_API_CALLS: "true"
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
         env:

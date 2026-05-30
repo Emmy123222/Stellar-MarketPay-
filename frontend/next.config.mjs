@@ -19,5 +19,8 @@ const nextConfig = {
     config.resolve.fallback = { ...config.resolve.fallback, fs: false, net: false, tls: false };
     return config;
   },
+  env: {
+    SKIP_API_CALLS: process.env.SKIP_API_CALLS || "false",
+  },
 };
 export default nextConfig;

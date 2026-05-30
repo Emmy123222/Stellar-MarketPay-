@@ -247,6 +247,13 @@ export default function Home({ publicKey, onConnect, completedJobs }: HomeProps)
 }
 
 export const getStaticProps: GetStaticProps = async () => {
+  if (process.env.SKIP_API_CALLS === "true") {
+    return {
+      props: { completedJobs: [] },
+      revalidate: 60,
+    };
+  }
+
   let completedJobs: Job[] = [];
   try {
     completedJobs = await fetchRecentlyCompletedJobs(3);

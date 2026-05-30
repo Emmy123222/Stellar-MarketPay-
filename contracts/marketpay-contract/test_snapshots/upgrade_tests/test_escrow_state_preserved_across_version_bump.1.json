@@ -77,6 +77,8 @@
                     "lo": 500
                   }
                 },
+                "void",
+                "void",
                 "void"
               ]
             }
@@ -223,6 +225,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "DefaultTimeoutSeconds"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 604800
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Escrow"
                             },
                             {
@@ -285,6 +299,12 @@
                             },
                             {
                               "key": {
+                                "symbol": "referrer"
+                              },
+                              "val": "void"
+                            },
+                            {
+                              "key": {
                                 "symbol": "status"
                               },
                               "val": {
@@ -293,6 +313,14 @@
                                     "symbol": "Locked"
                                   }
                                 ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "timeout_ledger"
+                              },
+                              "val": {
+                                "u32": 120960
                               }
                             },
                             {
@@ -316,6 +344,21 @@
                         },
                         "val": {
                           "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "TimeoutTimestamp"
+                            },
+                            {
+                              "string": "upgrade_job_1"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 604800
                         }
                       },
                       {

@@ -92,7 +92,9 @@
                       }
                     }
                   ]
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },
@@ -363,6 +365,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "DefaultTimeoutSeconds"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 604800
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Escrow"
                             },
                             {
@@ -472,6 +486,12 @@
                             },
                             {
                               "key": {
+                                "symbol": "referrer"
+                              },
+                              "val": "void"
+                            },
+                            {
+                              "key": {
                                 "symbol": "status"
                               },
                               "val": {
@@ -480,6 +500,14 @@
                                     "symbol": "Released"
                                   }
                                 ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "timeout_ledger"
+                              },
+                              "val": {
+                                "u32": 120960
                               }
                             },
                             {
@@ -498,6 +526,18 @@
                           "vec": [
                             {
                               "symbol": "EscrowCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "Version"
                             }
                           ]
                         },
