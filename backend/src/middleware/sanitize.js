@@ -70,9 +70,10 @@ function sanitizeString(value, options = {}) {
  *
  * @param {*} obj - Object, array, or primitive to sanitize
  * @param {Object} options - Sanitization options
+ * @param {WeakSet} visited - Tracks visited objects/arrays to prevent circular references
  * @returns {*} Sanitized object/array/primitive
  */
-function sanitizeObject(obj, options = {}) {
+function sanitizeObject(obj, options = {}, visited = new WeakSet()) {
   if (obj === null || obj === undefined) {
     return obj;
   }
@@ -82,10 +83,19 @@ function sanitizeObject(obj, options = {}) {
   }
 
   if (Array.isArray(obj)) {
-    return obj.map((item) => sanitizeObject(item, options));
+    if (visited.has(obj)) {
+      return [];
+    }
+    visited.add(obj);
+    return obj.map((item) => sanitizeObject(item, options, visited));
   }
 
   if (typeof obj === "object") {
+    if (visited.has(obj)) {
+      return {};
+    }
+    visited.add(obj);
+
     const sanitized = {};
     for (const [key, value] of Object.entries(obj)) {
       // Sanitize the key as well to prevent prototype pollution
@@ -97,7 +107,7 @@ function sanitizeObject(obj, options = {}) {
         continue;
       }
 
-      sanitized[sanitizedKey] = sanitizeObject(value, options);
+      sanitized[sanitizedKey] = sanitizeObject(value, options, visited);
     }
     return sanitized;
   }
