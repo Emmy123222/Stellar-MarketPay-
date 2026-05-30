@@ -145,6 +145,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
     job.status === "cancelled" || job.status === "completed";
   const showClosedBadge = isStatusClosed || deadlineState === "closed";
   const showClosingSoonBadge = !showClosedBadge && deadlineState === "closing_soon";
+  const clientRepBadge = getClientReputationBadge(job.clientReputation);
 
   // Helper to get monthly estimate (keeping original logic intact)
   const getMonthlyEstimate = (budget: string, price: number | null, cur: string) => {
