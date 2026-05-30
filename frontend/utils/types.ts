@@ -284,7 +284,7 @@ export interface JobAnalytics {
 export interface BulkActionResponse {
   succeeded: number;
   failed: number;
-  results: { success: boolean; id: string; error?: string }[];
+  results: { success: boolean; id: string; error?: string; boostedUntil?: string }[];
 }
 
 // ─── Job Invitations ─────────────────────────────────────────────────────────

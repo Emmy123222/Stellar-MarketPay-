@@ -207,16 +207,16 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
           {!isExpired && job.status === "open" && (
             <button
               onClick={handleExtend}
-              disabled={extending || job.extendedCount >= 3}
+              disabled={extending || (job.extendedCount ?? 0) >= 3}
               className={clsx(
                 "btn-secondary text-sm py-2 px-4 flex items-center gap-2",
-                (extending || job.extendedCount >= 3) && "opacity-50 cursor-not-allowed"
+                (extending || (job.extendedCount ?? 0) >= 3) && "opacity-50 cursor-not-allowed"
               )}
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              {extending ? "Extending..." : `Extend 30 days (${3 - job.extendedCount} left)`}
+              {extending ? "Extending..." : `Extend 30 days (${3 - (job.extendedCount ?? 0)} left)`}
             </button>
           )}
         </div>
@@ -236,7 +236,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
               "font-mono text-sm",
               isExpired ? "text-red-400" : isExpiringSoon ? "text-amber-400" : "text-amber-400"
             )}>
-              {new Date(job.expiresAt).toLocaleDateString()}
+              {new Date(job.expiresAt ?? "").toLocaleDateString()}
             </p>
           </div>
           <div>
@@ -314,7 +314,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
                 {analytics?.daysToHire !== null ? (
                   <>
                     <p className="font-display text-4xl font-bold text-emerald-400">
-                      {analytics.daysToHire?.toFixed(1)}
+                      {analytics?.daysToHire?.toFixed(1)}
                     </p>
                     <p className="text-xs text-amber-700 mt-1">days until hired</p>
                   </>
@@ -336,7 +336,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
               </div>
             ) : (
               <div className="flex items-center justify-center">
-                <StatusBreakdown data={analytics?.applicationStatusCounts || {}} />
+                <StatusBreakdown data={analytics?.applicationStatusCounts ?? { pending: 0, accepted: 0, rejected: 0 }} />
               </div>
             )}
           </div>

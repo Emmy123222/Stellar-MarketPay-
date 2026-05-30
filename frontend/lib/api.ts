@@ -20,6 +20,7 @@ import type {
   Message,
   AssessmentQuestion,
   SkillBadge,
+  BulkActionResponse,
 } from "@/utils/types";
 
 const api = axios.create({
@@ -1458,6 +1459,40 @@ export async function acceptInvitation(
   const { data } = await api.post<{ success: boolean; data: Application }>(
     `/api/invitations/${invitationId}/accept`,
     { proposal, bidAmount },
+  );
+  return data.data;
+}
+
+// ─── Bulk Job Actions ─────────────────────────────────────────────────────────
+
+export async function bulkCancelJobs(
+  jobIds: string[]
+): Promise<BulkActionResponse> {
+  const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
+    "/api/jobs/bulk/cancel",
+    { jobIds }
+  );
+  return data.data;
+}
+
+export async function bulkExtendJobs(
+  jobIds: string[],
+  days: number
+): Promise<BulkActionResponse> {
+  const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
+    "/api/jobs/bulk/extend",
+    { jobIds, days }
+  );
+  return data.data;
+}
+
+export async function bulkBoostJobs(
+  jobIds: string[],
+  amountXlm: number | string
+): Promise<BulkActionResponse> {
+  const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
+    "/api/jobs/bulk/boost",
+    { jobIds, amountXlm }
   );
   return data.data;
 }
