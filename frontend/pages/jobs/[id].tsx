@@ -176,24 +176,26 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
 
         <div className="card mb-6">
           <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-5">
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2 flex-wrap">
                 <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
                 <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">
                   {job.category}
                 </span>
+                {job.boosted && new Date(job.boostedUntil || "") > new Date() && (
+                  <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                    Featured
+                  </span>
+                )}
               </div>
 
-              <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug">
+              <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug break-words">
                 {job.title}
               </h1>
 
               <div className="mt-4 flex flex-wrap gap-3 text-sm text-amber-700">
                 <span>Posted {timeAgo(job.createdAt)}</span>
-                <span>
-                  {applications.length} application
-                  {applications.length === 1 ? "" : "s"}
-                </span>
+                <span>{applications.length} application{applications.length === 1 ? "" : "s"}</span>
                 {job.deadline && <span>Deadline: {formatDate(job.deadline)}</span>}
               </div>
             </div>
@@ -218,7 +220,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             <h3 className="font-display text-base font-semibold text-amber-300 mb-3">
               Description
             </h3>
-            <p className="text-amber-700/90 leading-relaxed whitespace-pre-wrap font-body text-sm">
+            <p className="text-amber-700/90 leading-relaxed whitespace-pre-wrap break-words font-body text-sm">
               {job.description}
             </p>
           </div>
@@ -268,7 +270,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           <div className="mt-5">
             <button
               onClick={() => setShowShareModal(true)}
-              className="text-xs text-market-400 hover:text-market-300 underline"
+              className="text-xs text-market-400 hover:text-market-300 underline min-h-[44px] min-w-[44px] inline-flex items-center"
             >
               Share job
             </button>
@@ -329,7 +331,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               <div className="text-center mb-6">
                 <button
                   onClick={() => setShowApplyForm(true)}
-                  className="btn-primary text-base px-10 py-3.5"
+                  className="btn-primary text-base px-10 py-3.5 min-h-[44px]"
                 >
                   Apply for this Job
                 </button>
@@ -344,7 +346,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             <button
               onClick={handleReleaseEscrow}
               disabled={releasingEscrow}
-              className="btn-primary"
+              className="btn-primary min-h-[44px]"
             >
               {releasingEscrow ? "Releasing..." : "Release Escrow"}
             </button>
@@ -378,6 +380,73 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
 
       {showShareModal && (
         <ShareJobModal job={job} onClose={() => setShowShareModal(false)} />
+      )}
+
+      {pendingTimeoutRefund && publicKey && (
+        <FeeEstimationModal
+          transaction={pendingTimeoutRefund}
+          functionName="timeout_refund"
+          payerPublicKey={publicKey}
+          onConfirm={handleConfirmTimeoutRefundFee}
+          onCancel={handleCancelTimeoutRefundFee}
+        />
+      )}
+
+      {/* Dispute Modal */}
+      {showDisputeModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6">
+          <div className="absolute inset-0 bg-ink-950/80 backdrop-blur-sm" onClick={() => setShowDisputeModal(false)} />
+          <div className="relative w-full max-w-md bg-ink-900 border border-market-500/20 rounded-2xl p-6 shadow-2xl animate-scale-in">
+            <h3 className="font-display text-xl font-bold text-amber-100 mb-2">Raise a Dispute</h3>
+            <p className="text-sm text-amber-800 mb-6">Flag this job for admin review. This will block escrow release until resolved.</p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="label">Reason</label>
+                <select
+                  value={disputeReason}
+                  onChange={(e) => setDisputeReason(e.target.value)}
+                  className="input-field"
+                >
+                  <option value="">Select a reason</option>
+                  <option value="Quality of work">Quality of work</option>
+                  <option value="Non-delivery">Non-delivery</option>
+                  <option value="Communication issues">Communication issues</option>
+                  <option value="Unfair terms">Unfair terms</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Description</label>
+                <textarea
+                  value={disputeDescription}
+                  onChange={(e) => setDisputeDescription(e.target.value)}
+                  placeholder="Explain the issue in detail..."
+                  rows={4}
+                  className="textarea-field"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-8">
+              <button
+                onClick={() => setShowDisputeModal(false)}
+                className="flex-1 btn-secondary py-2.5 min-h-[44px]"
+                disabled={raisingDispute}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRaiseDispute}
+                className="flex-1 btn-primary py-2.5 min-h-[44px] flex items-center justify-center gap-2"
+                disabled={raisingDispute || !disputeReason || !disputeDescription}
+              >
+                {raisingDispute ? <Spinner /> : "Raise Dispute"}
+              </button>
+            </div>
+            {actionError && <p className="mt-3 text-red-400 text-sm text-center">{actionError}</p>}
+          </div>
+        </div>
       )}
     </>
   );

@@ -322,6 +322,13 @@ async function listJobs({
   timezone,
   includeExpired,
   viewerAddress,
+  min_budget,
+  max_budget,
+  skills,
+  min_client_rating,
+  duration,
+  posted_since,
+  max_applications,
 } = {}) {
   const conditions = [];
   const params = [];
@@ -336,6 +343,67 @@ async function listJobs({
   if (category) {
     params.push(category);
     conditions.push(`category = $${params.length}`);
+  }
+
+  const minBudget = parseFloat(min_budget);
+  if (!Number.isNaN(minBudget)) {
+    params.push(minBudget);
+    conditions.push(`budget >= $${params.length}`);
+  }
+
+  const maxBudget = parseFloat(max_budget);
+  if (!Number.isNaN(maxBudget)) {
+    params.push(maxBudget);
+    conditions.push(`budget <= $${params.length}`);
+  }
+
+  const skillList = String(skills || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (skillList.length > 0) {
+    params.push(skillList);
+    conditions.push(`skills && $${params.length}::text[]`);
+  }
+
+  const minRating = parseFloat(min_client_rating);
+  if (!Number.isNaN(minRating)) {
+    params.push(minRating);
+    conditions.push(
+      `EXISTS (
+         SELECT 1 FROM profiles p
+         WHERE p.public_key = jobs.client_address
+           AND COALESCE(p.rating, 0) >= $${params.length}
+       )`,
+    );
+  }
+
+  if (duration === "short") {
+    conditions.push(
+      "deadline IS NOT NULL AND deadline <= created_at + INTERVAL '7 days'",
+    );
+  } else if (duration === "medium") {
+    conditions.push(
+      "deadline IS NOT NULL AND deadline > created_at + INTERVAL '7 days' AND deadline <= created_at + INTERVAL '28 days'",
+    );
+  } else if (duration === "long") {
+    conditions.push(
+      "deadline IS NOT NULL AND deadline > created_at + INTERVAL '28 days'",
+    );
+  }
+
+  if (posted_since === "today") {
+    conditions.push("created_at >= date_trunc('day', NOW())");
+  } else if (posted_since === "week") {
+    conditions.push("created_at >= NOW() - INTERVAL '7 days'");
+  } else if (posted_since === "month") {
+    conditions.push("created_at >= NOW() - INTERVAL '30 days'");
+  }
+
+  const maxApps = parseInt(max_applications, 10);
+  if (!Number.isNaN(maxApps)) {
+    params.push(maxApps);
+    conditions.push(`applicant_count <= $${params.length}`);
   }
 
   if (search) {

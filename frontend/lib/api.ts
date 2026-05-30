@@ -1069,6 +1069,7 @@ export interface MonthlyEarning {
 
 export interface EarningsData {
   totalXlm: string;
+  totalUsdc?: string;
   payments: EarningPayment[];
   monthly: MonthlyEarning[];
 }
@@ -1466,6 +1467,53 @@ export async function registerReferral(
   });
 }
 
+// ─── Saved Searches (Issue #284) ─────────────────────────────────────────────
+
+export interface SavedSearch {
+  id: string;
+  user_address: string;
+  query_params: Record<string, string>;
+  notify_in_app: boolean;
+  notify_email: boolean;
+  last_notified_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchSavedSearches(): Promise<SavedSearch[]> {
+  const { data } = await api.get<{ success: boolean; data: SavedSearch[] }>(
+    "/api/saved-searches"
+  );
+  return data.data;
+}
+
+export async function createSavedSearch(payload: {
+  query_params: Record<string, string>;
+  notify_in_app?: boolean;
+  notify_email?: boolean;
+}): Promise<SavedSearch> {
+  const { data } = await api.post<{ success: boolean; data: SavedSearch }>(
+    "/api/saved-searches",
+    payload
+  );
+  return data.data;
+}
+
+export async function updateSavedSearch(
+  id: string,
+  payload: { notify_in_app?: boolean; notify_email?: boolean }
+): Promise<SavedSearch> {
+  const { data } = await api.patch<{ success: boolean; data: SavedSearch }>(
+    `/api/saved-searches/${id}`,
+    payload
+  );
+  return data.data;
+}
+
+export async function deleteSavedSearch(id: string): Promise<void> {
+  await api.delete(`/api/saved-searches/${id}`);
+}
+
 // ─── Job Boost (Issue #344) ───────────────────────────────────────────────────
 
 /**
@@ -1514,6 +1562,115 @@ export async function fetchMyInvitations(): Promise<JobInvitation[]> {
  */
 export async function declineInvitation(invitationId: string): Promise<void> {
   await api.patch(`/api/invitations/${invitationId}/decline`);
+}
+
+// ─── DAO Governance (#278) ───────────────────────────────────────────────────
+
+export interface DaoProposal {
+  id: string;
+  title: string;
+  description: string;
+  type: "treasury" | "platform" | "parameter" | "arbitration";
+  proposer: string;
+  amount?: string;
+  recipient?: string;
+  votesFor: number;
+  votesAgainst: number;
+  status: "active" | "passed" | "rejected" | "executed";
+  createdAt: string;
+  votingEndsAt: string;
+  quorumPercent?: number;
+  quorumReached?: boolean;
+}
+
+export interface DaoArbitrator {
+  publicKey: string;
+  displayName?: string | null;
+  bio?: string | null;
+  votesReceived: number;
+  disputesResolved: number;
+  electedAt?: string | null;
+}
+
+export async function fetchDaoProposals(status?: string): Promise<DaoProposal[]> {
+  const { data } = await api.get<{ success: boolean; data: DaoProposal[] }>(
+    "/api/dao/proposals",
+    { params: status ? { status } : {} },
+  );
+  return data.data;
+}
+
+export async function createDaoProposal(body: {
+  title: string;
+  description: string;
+  type: DaoProposal["type"];
+  amount?: string;
+  recipient?: string;
+  votingDays?: number;
+}): Promise<DaoProposal> {
+  const { data } = await api.post<{ success: boolean; data: DaoProposal }>(
+    "/api/dao/proposals",
+    body,
+  );
+  return data.data;
+}
+
+export async function voteDaoProposal(
+  proposalId: string,
+  support: boolean,
+  weight: number,
+  txHash?: string,
+): Promise<DaoProposal> {
+  const { data } = await api.post<{ success: boolean; data: DaoProposal }>(
+    `/api/dao/proposals/${proposalId}/vote`,
+    { support, weight, txHash },
+  );
+  return data.data;
+}
+
+export async function fetchDaoTreasury(): Promise<{
+  allocatedXlm: string;
+  activeProposals: number;
+  quorumPercent: number;
+}> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: { allocatedXlm: string; activeProposals: number; quorumPercent: number };
+  }>("/api/dao/treasury");
+  return data.data;
+}
+
+export async function fetchDaoArbitrators(): Promise<{
+  arbitrators: DaoArbitrator[];
+  disputePanel: DaoArbitrator[];
+}> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: { arbitrators: DaoArbitrator[]; disputePanel: DaoArbitrator[] };
+  }>("/api/dao/arbitrators");
+  return data.data;
+}
+
+export async function registerDaoArbitrator(body: {
+  displayName?: string;
+  bio?: string;
+}): Promise<DaoArbitrator> {
+  const { data } = await api.post<{ success: boolean; data: DaoArbitrator }>(
+    "/api/dao/arbitrators",
+    body,
+  );
+  return data.data;
+}
+
+export async function voteDaoArbitrator(
+  arbitratorKey: string,
+  weight: number,
+): Promise<DaoArbitrator[]> {
+  const { data } = await api.post<{ success: boolean; data: DaoArbitrator[] }>(
+    `/api/dao/arbitrators/${arbitratorKey}/vote`,
+    { weight },
+  );
+  return data.data;
 }
 
 /**

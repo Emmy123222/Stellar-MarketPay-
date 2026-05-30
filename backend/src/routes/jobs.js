@@ -189,6 +189,13 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       viewerAddress,
       include_expired,
       page,
+      min_budget,
+      max_budget,
+      skills,
+      min_client_rating,
+      duration,
+      posted_since,
+      max_applications,
     } = req.query;
     const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
     const includeExpired = include_expired === "true";
@@ -200,7 +207,23 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       res.set("Sunset", "2025-12-31");
     }
 
-    const cacheKey = cache.jobListKey({ category, status, limit: String(safeLimit), search, cursor, timezone, viewerAddress, include_expired: String(includeExpired) });
+    const cacheKey = cache.jobListKey({
+      category,
+      status,
+      limit: String(safeLimit),
+      search,
+      cursor,
+      timezone,
+      viewerAddress,
+      include_expired: String(includeExpired),
+      min_budget,
+      max_budget,
+      skills,
+      min_client_rating,
+      duration,
+      posted_since,
+      max_applications,
+    });
     const cached = await cache.get(cacheKey);
     if (cached) {
       res.set("X-Cache", "HIT");
@@ -216,6 +239,13 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       timezone,
       viewerAddress,
       includeExpired,
+      min_budget,
+      max_budget,
+      skills,
+      min_client_rating,
+      duration,
+      posted_since,
+      max_applications,
     });
 
     const jobsWithRep = await enrichJobsWithClientReputation(result.jobs);
