@@ -298,3 +298,10 @@ export function calculateJobProgress(job: Job): ProgressData | null {
 
   return { percentage, daysRemaining, colorClass };
 }
+
+export const POPULAR_SKILLS: string[] = [
+  "JavaScript", "TypeScript", "Python", "React", "Node.js",
+  "Solidity", "Rust", "Go", "AWS", "Docker",
+  "Stellar", "Soroban", "Smart Contracts", "DeFi", "Web3",
+  "PostgreSQL", "MongoDB", "GraphQL", "Next.js", "Tailwind CSS",
+];

@@ -20,20 +20,6 @@ if (typeof window !== "undefined") {
   }
 }
 
-const resources = {
-  en: { common: require("../public/locales/en/common.json") },
-  es: { common: require("../public/locales/es/common.json") },
-  fr: { common: require("../public/locales/fr/common.json") },
-  pt: { common: require("../public/locales/pt/common.json") },
-};
-
-if (typeof window !== "undefined") {
-  const stored = localStorage.getItem("preferredLocale");
-  if (stored && resources[stored]) {
-    i18next.changeLanguage(stored);
-  }
-}
-
 i18next.use(LanguageDetector).init({
   resources,
   fallbackLng: "en",

@@ -6,6 +6,16 @@ import {
   type MarketplaceState,
 } from "./helpers/marketplaceState";
 
+declare global {
+  interface Window {
+    __MOCK__?: any;
+  }
+  interface XMLHttpRequest {
+    __url?: string;
+    __method?: string;
+  }
+}
+
 const PROPOSAL_TEXT =
   "I am an experienced Stellar and Soroban engineer with many completed marketplace integrations escrow flows and Playwright test suites delivered for production teams I have deep expertise in building decentralized applications on the Stellar network and writing comprehensive end to end tests that ensure reliability and correctness My experience includes multiple successful escrow implementations where I designed secure multi signature release mechanisms and automated dispute resolution workflows I have also contributed to open source projects and mentored junior developers in blockchain development best practices I am confident I can deliver this project on time and to the highest quality standards Thank you for considering my application I look forward to the opportunity to work together on this exciting project";
 
@@ -404,7 +414,7 @@ test("full marketplace flow with two wallets and contract mock", async ({ page }
       return origOpen.call(this, m, u, true);
     };
 
-    function respond(xhr, status, body) {
+    function respond(xhr: any, status: number, body: string) {
       Object.defineProperty(xhr, 'readyState', { value: 4, configurable: true });
       Object.defineProperty(xhr, 'status', { value: status, configurable: true });
       Object.defineProperty(xhr, 'responseText', { value: body, configurable: true, writable: true });
@@ -427,7 +437,7 @@ test("full marketplace flow with two wallets and contract mock", async ({ page }
           data = m.job;
         } else if (url.includes('/applications/')) {
           const m2 = url.match(/\/applications\/job\/([^/?]+)/);
-          data = m2 ? ((m.applications || []).filter(a => a.jobId === m2[1])) : (m.applications || []);
+          data = m2 ? ((m.applications || []).filter((a: any) => a.jobId === m2[1])) : (m.applications || []);
         } else if (url.includes('/proposal-templates')) {
           data = m.templates || [];
         } else if (url.includes('/api/time-entries/') || url.includes('/api/time-invoices/')) {
@@ -441,7 +451,7 @@ test("full marketplace flow with two wallets and contract mock", async ({ page }
 
       if (method === 'POST' && url.includes('/api/applications') && !url.includes('/accept')) {
         try {
-          const p = JSON.parse(body);
+          const p = JSON.parse(body as string);
           const apps = m.applications = m.applications || [];
           const a = { id: 'app-' + (apps.length + 1), jobId: p.jobId, freelancerAddress: p.freelancerAddress, proposal: p.proposal, bidAmount: p.bidAmount, currency: p.currency || 'XLM', status: 'pending', createdAt: new Date().toISOString() };
           apps.push(a);
@@ -453,7 +463,7 @@ test("full marketplace flow with two wallets and contract mock", async ({ page }
 
       const acceptRx = url.match(/\/api\/applications\/([^/]+)\/accept$/);
       if (acceptRx) {
-        const app = (m.applications || []).find(x => x.id === acceptRx[1]);
+        const app = (m.applications || []).find((x: any) => x.id === acceptRx[1]);
         if (app) { app.status = 'accepted'; if (m.job) { m.job.status = 'in_progress'; m.job.freelancerAddress = app.freelancerAddress; } }
         setTimeout(() => { respond(this, 200, JSON.stringify({ success: true, data: app || null })); persist(); }, 20);
         return;
@@ -470,7 +480,7 @@ test("full marketplace flow with two wallets and contract mock", async ({ page }
       if (url.includes('/api/time-entries') || url.includes('/api/time-invoices')) {
         if (method === 'POST' && url.endsWith('/api/time-entries')) {
           try {
-            const p = JSON.parse(body);
+            const p = JSON.parse(body as string);
             const te = m.timeEntries = m.timeEntries || [];
             const entry = { id: 'time-' + (te.length + 1), jobId: p.jobId, durationMinutes: p.durationMinutes, description: p.description, createdAt: new Date().toISOString() };
             te.push(entry);

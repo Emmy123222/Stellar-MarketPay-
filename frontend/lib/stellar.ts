@@ -141,7 +141,7 @@ export async function buildCreateEscrowTx(
     .setTimeout(300)
     .build();
 
-  const simResponse = await server.simulateTransaction(tx);
+  const simResponse = await sorobanServer.simulateTransaction(tx);
 
   if (SorobanRpc.Api.isSimulationError(simResponse)) {
     throw new Error(`Soroban simulation failed: ${simResponse.error}`);
@@ -182,7 +182,7 @@ export async function signAndSubmitEscrowTx(
 
   const txHash = sendResponse.hash;
 
-  let getResponse = await server.getTransaction(txHash);
+  let getResponse = await sorobanServer.getTransaction(txHash);
   const MAX_POLLS = 20;
   let polls = 0;
 
@@ -310,7 +310,7 @@ async function signAndSubmitToSoroban(
     polls < MAX_POLLS
   ) {
     await new Promise((r) => setTimeout(r, 1500));
-    getResponse = await server.getTransaction(txHash);
+    getResponse = await sorobanServer.getTransaction(txHash);
     polls++;
   }
 
@@ -329,14 +329,6 @@ export async function publishMessageOnChain(
   const preparedXdr = await buildPublishMessageTx(params);
   return signAndSubmitToSoroban(preparedXdr);
 }
-
-// ---------------------------------------------------------------------------
-// Shared Soroban RPC server instance (used by sorobanFees.ts)
-// ---------------------------------------------------------------------------
-
-export const sorobanServer = new SorobanRpc.Server(SOROBAN_RPC_URL, {
-  allowHttp: false,
-});
 
 // ---------------------------------------------------------------------------
 // XLM balance helper
@@ -396,7 +388,7 @@ export async function buildBoostJobTx(params: BoostParams): Promise<string> {
     .setTimeout(300)
     .build();
 
-  const simResponse = await server.simulateTransaction(tx);
+  const simResponse = await sorobanServer.simulateTransaction(tx);
   if (SorobanRpc.Api.isSimulationError(simResponse)) {
     throw new Error(`Soroban simulation failed: ${simResponse.error}`);
   }
@@ -429,7 +421,7 @@ export async function signAndSubmitSorobanTx(xdrString: string): Promise<string>
   }
 
   const txHash = sendResponse.hash;
-  let getResponse = await server.getTransaction(txHash);
+  let getResponse = await sorobanServer.getTransaction(txHash);
   let polls = 0;
 
   while (
@@ -437,7 +429,7 @@ export async function signAndSubmitSorobanTx(xdrString: string): Promise<string>
     polls < 20
   ) {
     await new Promise((r) => setTimeout(r, 1500));
-    getResponse = await server.getTransaction(txHash);
+    getResponse = await sorobanServer.getTransaction(txHash);
     polls++;
   }
 
@@ -478,7 +470,7 @@ export async function buildReleaseEscrowTransaction(
     .setTimeout(300)
     .build();
 
-  const sim = await server.simulateTransaction(tx);
+  const sim = await sorobanServer.simulateTransaction(tx);
   if (SorobanRpc.Api.isSimulationError(sim)) {
     throw new Error(`Simulation failed: ${sim.error}`);
   }
@@ -510,7 +502,7 @@ export async function buildPartialReleaseTransaction(
     .setTimeout(300)
     .build();
 
-  const sim = await server.simulateTransaction(tx);
+  const sim = await sorobanServer.simulateTransaction(tx);
   if (SorobanRpc.Api.isSimulationError(sim)) {
     throw new Error(`Simulation failed: ${sim.error}`);
   }

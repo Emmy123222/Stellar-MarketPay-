@@ -206,7 +206,7 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
         <div className="hidden md:flex items-center">
           <select
             value={i18n.language}
-            onChange={(e) => switchLanguage(e.target.value)}
+            onChange={(e) => i18n.changeLanguage(e.target.value)}
             className="bg-market-900/40 border border-amber-900/30 rounded px-2 py-1 text-xs text-amber-100 cursor-pointer"
             aria-label={t("language.switch") as string}
           >

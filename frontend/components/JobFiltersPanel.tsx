@@ -160,7 +160,7 @@ export default function JobFiltersPanel({
           className="input-field text-xs mb-2"
         />
         <div className="flex flex-wrap gap-1">
-          {POPULAR_SKILLS.slice(0, 12).map((skill) => (
+          {POPULAR_SKILLS.slice(0, 12).map((skill: string) => (
             <button
               key={skill}
               type="button"

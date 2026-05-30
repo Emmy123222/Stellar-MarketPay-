@@ -150,6 +150,12 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     }
   };
 
+  const category = (router.query.category as string) || "";
+  const status = (router.query.status as string) || "open";
+  const minBudget = (router.query.minBudget as string) || "";
+  const maxBudget = (router.query.maxBudget as string) || "";
+  let activeTimezone = "";
+
   const hasActiveFilters = Boolean(
     search.trim() || category || (status && status !== "open") || minBudget || maxBudget || activeTimezone
   );
@@ -195,11 +201,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     }
   };
 
-  const category = (router.query.category as string) || "";
-  const status = (router.query.status as string) || "open";
   const pageFromQuery = Math.max(1, Number(router.query.page) || 1);
-  const minBudget = (router.query.minBudget as string) || "";
-  const maxBudget = (router.query.maxBudget as string) || "";
   const filterQuery: JobFilterQuery = {
     minBudget: minBudget || undefined,
     maxBudget: maxBudget || undefined,
@@ -214,7 +216,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     patch: Partial<JobFilterQuery>,
     removeKeys?: string[],
   ) => {
-    const next = { ...router.query, ...patch, page: undefined };
+    const next: Record<string, string | undefined> = { ...router.query, ...patch, page: undefined };
     for (const key of removeKeys || []) {
       delete next[key];
     }
@@ -285,7 +287,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
         let pagesLoaded = 0;
         let allJobs: Job[] = [];
 
-        const activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
+        activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
 
         for (let page = 1; page <= pageFromQuery; page += 1) {
           const result = await fetchJobs({
@@ -440,7 +442,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     )
     : jobs;
 
-  const activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
+  activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
   const filtered = activeTimezone
     ? searchFiltered.filter((j) => isTimezoneCompatible(j.timezone))
     : searchFiltered;
@@ -460,7 +462,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     setError(null);
 
     try {
-      const activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
+      activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
 
       const result = await fetchJobs({
         category: category || undefined,

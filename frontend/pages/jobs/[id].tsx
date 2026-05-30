@@ -10,13 +10,15 @@ import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
 import RealtimeBidComparison from "@/components/RealtimeBidComparison";
 import { fetchJob, fetchApplications, acceptApplication, releaseEscrow, fetchClientReputation } from "@/lib/api";
-import { formatXLM, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
+import { formatXLM, formatDate, shortenAddress, statusLabel, statusClass, timeAgo } from "@/utils/format";
 import {
   accountUrl,
   buildReleaseEscrowTransaction,
   submitSignedSorobanTransaction,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
+import FeeEstimationModal from "@/components/FeeEstimationModal";
+import Spinner from "@/components/Spinner";
 import type { Application, Job, ClientReputation } from "@/utils/types";
 
 interface JobDetailProps {
@@ -44,6 +46,28 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [raisingDispute, setRaisingDispute] = useState(false);
   const [resolvingDispute, setResolvingDispute] = useState(false);
   const [clientReputation, setClientReputation] = useState<ClientReputation | null>(null);
+  const [pendingTimeoutRefund, setPendingTimeoutRefund] = useState<any>(null);
+
+  const handleConfirmTimeoutRefundFee = async () => {
+    setPendingTimeoutRefund(null);
+  };
+
+  const handleCancelTimeoutRefundFee = () => {
+    setPendingTimeoutRefund(null);
+  };
+
+  const handleRaiseDispute = async () => {
+    if (!publicKey || !jobId || !disputeReason || !disputeDescription) return;
+    setRaisingDispute(true);
+    setActionError(null);
+    try {
+      setShowDisputeModal(false);
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : "Failed to raise dispute.");
+    } finally {
+      setRaisingDispute(false);
+    }
+  };
 
   const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
   const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
@@ -66,7 +90,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
       }
     }
 
-    Promise.all([fetchJob(id as string), fetchApplications(id as string)])
+    Promise.all([fetchJob(jobId as string), fetchApplications(jobId as string)])
       .then(async ([loadedJob, loadedApplications]) => {
         setJob(loadedJob);
         setApplications(loadedApplications);
@@ -241,7 +265,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                 ))}
               </div>
             </div>
-          </section>
+          )}
 
           {clientReputation && (
             <div className="mt-6 rounded-xl border border-market-500/20 bg-ink-900/40 p-4">
