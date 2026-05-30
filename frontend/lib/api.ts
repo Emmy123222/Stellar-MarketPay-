@@ -18,6 +18,8 @@ import type {
   TimeEntry,
   TimeInvoice,
   Message,
+  AssessmentQuestion,
+  SkillBadge,
 } from "@/utils/types";
 
 const api = axios.create({
@@ -672,6 +674,26 @@ export async function deleteDraft(draftId: string) {
   await api.delete(`/api/jobs/drafts/${draftId}`);
 }
 
+// ─── Skill Assessments ─────────────────────────────────────────────────────────
+
+export async function fetchAssessment(skill: string) {
+  const { data } = await api.get<{ success: boolean; data: AssessmentQuestion[] }>(
+    `/api/assessments/${skill}`
+  );
+  return data.data;
+}
+
+export async function submitAssessment(payload: {
+  skill: string;
+  answers: Record<number, string>;
+}) {
+  const { data } = await api.post<{ success: boolean; data: SkillBadge }>(
+    "/api/assessments/submit",
+    payload
+  );
+  return data.data;
+}
+
 // ─── Admin 2FA ────────────────────────────────────────────────────────────────
 
 export async function fetchAdmin2FAStatus() {
@@ -1230,13 +1252,6 @@ export async function endorseSkill(
   await api.post(`/api/profiles/${encodeURIComponent(publicKey)}/endorse`, {
     skill,
   });
-}
-
-export interface SkillBadge {
-  skill: string;
-  score: number;
-  passed: boolean;
-  taken_at: string;
 }
 
 export async function fetchSkillBadges(

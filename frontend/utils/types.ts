@@ -18,7 +18,7 @@ export type FreelancerTier =
   | "Expert"
   | "Top Talent";
 export type AvailabilityStatus = "available" | "busy" | "unavailable";
-export type PortfolioItemType = "link" | "image" | "pdf";
+export type PortfolioItemType = "link" | "image" | "pdf" | "file" | "github" | "live" | "stellar_tx";
 
 export interface PortfolioItem {
   title: string;
@@ -65,10 +65,11 @@ export interface Application {
   freelancerAddress: string;
   freelancerTier?: FreelancerTier;
   proposal: string;
-  bidAmount: string; // Amount as string
-  currency: Currency; // XLM or USDC
+  bidAmount: string;
+  currency: Currency;
   status: "pending" | "accepted" | "rejected";
-  screeningAnswers?: Record<string, string>; // Question -> Answer mapping
+  screeningAnswers?: Record<string, string>;
+  estimatedDuration?: string;
   createdAt: string;
 }
 
@@ -85,8 +86,9 @@ export interface UserProfile {
   totalEarnedXLM: string;
   rating?: number;
   tier?: FreelancerTier;
-  /** Number of ratings received (when returned by profile API). */
   ratingCount?: number;
+  referralCount?: number;
+  reputationPoints?: number;
   didHash?: string;
   isKycVerified?: boolean;
   createdAt: string;
@@ -257,6 +259,8 @@ export interface TimeInvoice {
   status: "pending" | "approved" | "rejected";
   totalMinutes: number;
   amountXlm: string;
+  hourlyRateXlm?: number;
+  totalAmountXlm?: string;
   createdAt: string;
 }
 
@@ -271,6 +275,7 @@ export interface JobAnalytics {
     pending: number;
     accepted: number;
     rejected: number;
+    [key: string]: number;
   };
 }
 

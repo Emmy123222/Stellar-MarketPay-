@@ -7,6 +7,9 @@ import {
   nativeToScVal,
   xdr,
   Horizon,
+  Operation,
+  Asset,
+  Transaction,
 } from "@stellar/stellar-sdk";
 import * as SorobanRpc from "@stellar/stellar-sdk/rpc";
 import { optionalClientEnv, requireClientEnv } from "./env";
@@ -543,6 +546,61 @@ export const USDC_SAC_ADDRESS = "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USC
 
 export function accountUrl(publicKey: string): string {
   return `https://stellar.expert/explorer/testnet/account/${publicKey}`;
+}
+
+export function isValidStellarAddress(address: string): boolean {
+  try {
+    Address.fromString(address);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function explorerUrl(txHash: string): string {
+  const explorer = NETWORK_NAME === "mainnet"
+    ? "https://stellar.expert/explorer/public"
+    : "https://stellar.expert/explorer/testnet";
+  return `${explorer}/tx/${txHash}`;
+}
+
+export async function buildPaymentTransaction(params: {
+  fromPublicKey: string;
+  toPublicKey: string;
+  amount: string;
+  memo?: string;
+  asset?: string;
+}) {
+  const server = sorobanServer;
+  const account = await server.getAccount(params.fromPublicKey);
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.payment({
+        destination: params.toPublicKey,
+        asset: Asset.native(),
+        amount: params.amount,
+      })
+    )
+    .setTimeout(300)
+    .build();
+
+  return tx;
+}
+
+export async function submitTransaction(_xdr: string): Promise<string> {
+  throw new Error("Transaction submission not yet implemented");
+}
+
+export async function fetchMarketPayTransactions(
+  _publicKey: string,
+  _limit?: number,
+  _cursor?: string,
+): Promise<{ transactions: MarketPayTransaction[]; hasMore: boolean }> {
+  return { transactions: [], hasMore: false };
 }
 
 export async function signTransactionWithWallet(

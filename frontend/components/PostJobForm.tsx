@@ -36,6 +36,7 @@ interface JobFormData {
   skills: string;
   deadline: string;
   visibility: "public" | "private" | "invite_only";
+  budgetXlm?: number;
 }
 
 type Step = "idle" | "posting" | "fee_modal" | "signing" | "complete" | "error";
