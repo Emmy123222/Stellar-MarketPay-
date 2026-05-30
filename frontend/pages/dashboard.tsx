@@ -47,6 +47,9 @@ import { useOnboarding } from "@/hooks/useOnboarding";
 import ReferralDashboard from "@/components/ReferralDashboard";
 
 const LOW_BALANCE_THRESHOLD_XLM = 5;
+const IS_CONTRACT_MOCK_DEV_MODE =
+  process.env.NODE_ENV !== "production" &&
+  process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
 const CATEGORY_ICONS: Record<string, string> = {
   web: "Web",
   mobile: "Mobile",
@@ -121,6 +124,12 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const { success } = useToast();
   const { xlmPriceUsd } = usePriceContext();
   const { progress, checklistItems } = useOnboarding(publicKey);
+
+  const handleResetContractMock = async () => {
+    const { clearMockData } = await import("@/lib/contractMock");
+    clearMockData();
+    success("Mock contract escrow state reset");
+  };
 
   // ── Saved searches state (Issue #284) ──────────────────────────────────────
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
@@ -414,7 +423,22 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             >
               Withdraw to Bank
             </button>
+            {IS_CONTRACT_MOCK_DEV_MODE && (
+              <button
+                onClick={handleResetContractMock}
+                className="btn-secondary text-xs py-1.5 px-3 border-red-400/30 text-red-300 hover:bg-red-400/10"
+                title="Mock-only: clears locally persisted escrow test data"
+              >
+                Reset Mock
+              </button>
+            )}
           </div>
+          {IS_CONTRACT_MOCK_DEV_MODE && (
+            <p className="mt-2 text-xs text-amber-700">
+              Mock-only contract escrow state is persisted in this browser for
+              local development and can be cleared with Reset Mock.
+            </p>
+          )}
         </div>
 
         {usdcBalance !== null && (
