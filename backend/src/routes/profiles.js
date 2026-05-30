@@ -22,6 +22,8 @@ const {
   endorseSkill,
   getClientSpendingAnalytics,
   getClientReputation,
+  getProfileStats,
+  getResponseTime,
 } = require("../services/profileService");
 const {
   upsertPriceAlertPreference,

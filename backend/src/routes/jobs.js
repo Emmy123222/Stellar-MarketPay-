@@ -23,6 +23,7 @@ const { verifyJWT } = require("../middleware/auth");
 const cache = require("../services/cacheService");
 const jobDraftService = require("../services/jobDraftService");
 const recommendationService = require("../services/recommendationService");
+const { getClientReputation } = require("../services/profileService");
 
 const jobReports = new Map();
 
@@ -87,6 +88,24 @@ function normalizeAddress(address) {
 function isValidReportCategory(category) {
   return ["fraud", "suspicious", "spam", "inappropriate", "other"].includes(
     category,
+  );
+}
+
+async function enrichJobsWithClientReputation(jobs) {
+  const scoreCache = new Map();
+  return Promise.all(
+    jobs.map(async (job) => {
+      if (!job?.clientAddress) return job;
+      if (!scoreCache.has(job.clientAddress)) {
+        try {
+          const rep = await getClientReputation(job.clientAddress);
+          scoreCache.set(job.clientAddress, rep.score);
+        } catch {
+          scoreCache.set(job.clientAddress, null);
+        }
+      }
+      return { ...job, clientReputationScore: scoreCache.get(job.clientAddress) };
+    }),
   );
 }
 
@@ -199,11 +218,12 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       includeExpired,
     });
 
-    await cache.set(cacheKey, { data: result.jobs, nextCursor: result.nextCursor }, cache.TTL.JOBS_LIST);
+    const jobsWithRep = await enrichJobsWithClientReputation(result.jobs);
+    await cache.set(cacheKey, { data: jobsWithRep, nextCursor: result.nextCursor }, cache.TTL.JOBS_LIST);
     res.set("X-Cache", "MISS");
     res.json({
       success: true,
-      data: result.jobs,
+      data: jobsWithRep,
       nextCursor: result.nextCursor,
       ...(page !== undefined && cursor === undefined && {
         _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `nextCursor`.",
@@ -220,10 +240,9 @@ router.get(
   generalJobRateLimiter,
   async (req, res, next) => {
     try {
-      res.json({
-        success: true,
-        data: await listJobsByClient(req.params.publicKey),
-      });
+      const jobs = await listJobsByClient(req.params.publicKey);
+      const jobsWithRep = await enrichJobsWithClientReputation(jobs);
+      res.json({ success: true, data: jobsWithRep });
     } catch (e) {
       next(e);
     }
@@ -247,7 +266,9 @@ router.get(
 // GET /api/jobs/:id — get single job
 router.get("/:id", generalJobRateLimiter, async (req, res, next) => {
   try {
-    res.json({ success: true, data: await getJob(req.params.id) });
+    const job = await getJob(req.params.id);
+    const [jobWithRep] = await enrichJobsWithClientReputation([job]);
+    res.json({ success: true, data: jobWithRep });
   } catch (e) {
     next(e);
   }

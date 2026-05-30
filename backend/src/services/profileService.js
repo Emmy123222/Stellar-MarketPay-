@@ -718,6 +718,51 @@ async function getClientReputation(publicKey) {
   };
 }
 
+async function getProfileStats(publicKey) {
+  validatePublicKey(publicKey);
+
+  const { rows } = await pool.query(
+    `
+    SELECT
+      COUNT(*)::int AS total_applications,
+      COUNT(*) FILTER (WHERE a.status = 'accepted')::int AS accepted_applications
+    FROM applications a
+    JOIN jobs j ON j.id = a.job_id
+    WHERE a.freelancer_address = $1
+    `,
+    [publicKey],
+  );
+
+  const totalApplications = Number(rows[0]?.total_applications || 0);
+  const acceptedApplications = Number(rows[0]?.accepted_applications || 0);
+  const successRate =
+    totalApplications > 0
+      ? Math.round((acceptedApplications / totalApplications) * 100)
+      : 0;
+
+  return { totalApplications, acceptedApplications, successRate };
+}
+
+async function getResponseTime(publicKey) {
+  validatePublicKey(publicKey);
+
+  const { rows } = await pool.query(
+    `
+    SELECT
+      AVG(EXTRACT(EPOCH FROM (e.released_at - e.created_at)) / 86400.0) AS average_days
+    FROM escrows e
+    JOIN jobs j ON j.id = e.job_id
+    WHERE j.freelancer_address = $1
+      AND e.status = 'released'
+      AND e.released_at IS NOT NULL
+    `,
+    [publicKey],
+  );
+
+  const value = rows[0]?.average_days;
+  return { averageDays: value == null ? null : Number(value) };
+}
+
 module.exports = {
   getProfile,
   upsertProfile,

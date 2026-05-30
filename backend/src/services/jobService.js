@@ -121,8 +121,6 @@ function rowToJob(row) {
     deadline: row.deadline,
     timezone: row.timezone,
     screeningQuestions: row.screening_questions || [],
-    clientReputationScore:
-      row.client_reputation_score != null ? Number(row.client_reputation_score) : null,
     disputeReason:      row.dispute_reason,
     disputeDescription: row.dispute_description,
     disputedBy: row.disputed_by,
@@ -252,39 +250,7 @@ async function createJob({
  * @throws {Error} If the job is not found.
  */
 async function getJob(id) {
-  const { rows } = await pool.query(
-    `SELECT j.*,
-      (
-        SELECT ROUND((
-          (
-            COALESCE(
-              (SELECT (COUNT(*) FILTER (WHERE e.released_at <= e.created_at + INTERVAL '7 days'))::numeric
-                / NULLIF(COUNT(*), 0)
-               FROM escrows e
-               JOIN jobs jj ON jj.id = e.job_id
-               WHERE jj.client_address = j.client_address
-                 AND e.status = 'released'
-              ), 0
-            ) * 35
-          ) +
-          ((1 - COALESCE(
-              (SELECT (COUNT(*) FILTER (WHERE jj.status = 'disputed'))::numeric / NULLIF(COUNT(*),0)
-               FROM jobs jj
-               WHERE jj.client_address = j.client_address
-              ), 0
-            )) * 25) +
-          (COALESCE(
-              (SELECT (COUNT(*) FILTER (WHERE jj.status = 'completed'))::numeric / NULLIF(COUNT(*),0)
-               FROM jobs jj
-               WHERE jj.client_address = j.client_address
-              ), 0
-            ) * 25)
-        ) / 100 * 5, 2)
-      ) AS client_reputation_score
-     FROM jobs j
-     WHERE j.id = $1`,
-    [id]
-  );
+  const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [id]);
   if (!rows.length) {
     const e = new Error("Job not found");
     e.status = 404;
@@ -412,35 +378,7 @@ async function listJobs({
   params.push(limit);
 
   const { rows } = await pool.query(
-    `SELECT jobs.*,
-      (
-        SELECT ROUND((
-          (
-            COALESCE(
-              (SELECT (COUNT(*) FILTER (WHERE e.released_at <= e.created_at + INTERVAL '7 days'))::numeric
-                / NULLIF(COUNT(*), 0)
-               FROM escrows e
-               JOIN jobs jj ON jj.id = e.job_id
-               WHERE jj.client_address = jobs.client_address
-                 AND e.status = 'released'
-              ), 0
-            ) * 35
-          ) +
-          ((1 - COALESCE(
-              (SELECT (COUNT(*) FILTER (WHERE jj.status = 'disputed'))::numeric / NULLIF(COUNT(*),0)
-               FROM jobs jj
-               WHERE jj.client_address = jobs.client_address
-              ), 0
-            )) * 25) +
-          (COALESCE(
-              (SELECT (COUNT(*) FILTER (WHERE jj.status = 'completed'))::numeric / NULLIF(COUNT(*),0)
-               FROM jobs jj
-               WHERE jj.client_address = jobs.client_address
-              ), 0
-            ) * 25)
-        ) / 100 * 5, 2)
-      ) AS client_reputation_score
-      FROM jobs ${where} ORDER BY
+    `SELECT * FROM jobs ${where} ORDER BY
        CASE WHEN boosted = true AND (boosted_until IS NULL OR boosted_until > NOW()) THEN 0 ELSE 1 END,
        created_at DESC, id DESC LIMIT $${params.length}`,
     params,
@@ -466,37 +404,7 @@ async function listJobs({
 async function listJobsByClient(clientAddress) {
   validatePublicKey(clientAddress);
   const { rows } = await pool.query(
-    `SELECT j.*,
-      (
-        SELECT ROUND((
-          (
-            COALESCE(
-              (SELECT (COUNT(*) FILTER (WHERE e.released_at <= e.created_at + INTERVAL '7 days'))::numeric
-                / NULLIF(COUNT(*), 0)
-               FROM escrows e
-               JOIN jobs jj ON jj.id = e.job_id
-               WHERE jj.client_address = j.client_address
-                 AND e.status = 'released'
-              ), 0
-            ) * 35
-          ) +
-          ((1 - COALESCE(
-              (SELECT (COUNT(*) FILTER (WHERE jj.status = 'disputed'))::numeric / NULLIF(COUNT(*),0)
-               FROM jobs jj
-               WHERE jj.client_address = j.client_address
-              ), 0
-            )) * 25) +
-          (COALESCE(
-              (SELECT (COUNT(*) FILTER (WHERE jj.status = 'completed'))::numeric / NULLIF(COUNT(*),0)
-               FROM jobs jj
-               WHERE jj.client_address = j.client_address
-              ), 0
-            ) * 25)
-        ) / 100 * 5, 2)
-      ) AS client_reputation_score
-      FROM jobs j
-      WHERE j.client_address = $1
-      ORDER BY j.created_at DESC`,
+    "SELECT * FROM jobs WHERE client_address = $1 ORDER BY created_at DESC",
     [clientAddress]
   );
   return rows.map(rowToJob);
