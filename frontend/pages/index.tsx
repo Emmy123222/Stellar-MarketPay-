@@ -50,6 +50,23 @@ const CATEGORIES = [
   "DevOps", "Data Analysis",
 ];
 
+function StatCard({ stat, index }: { stat: typeof STATS[0]; index: number }) {
+  const { animatedValue, elementRef } = useCountUp(stat.value, {
+    duration: stat.duration,
+    suffix: stat.suffix,
+    delay: index * 200,
+  });
+
+  return (
+    <div ref={elementRef as RefObject<HTMLDivElement>} className="bg-ink-900 text-center py-8 px-4">
+      <div className="font-display text-4xl font-bold text-gradient-gold mb-1 font-mono">
+        {stat.prefix}{animatedValue}
+      </div>
+      <div className="text-amber-800 text-sm font-body">{stat.label}</div>
+    </div>
+  );
+}
+
 export default function Home({ publicKey, onConnect, completedJobs }: HomeProps) {
   const [showConnect, setShowConnect] = useState(false);
 
@@ -95,26 +112,9 @@ export default function Home({ publicKey, onConnect, completedJobs }: HomeProps)
 
         {/* ── Stats ───────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-3 gap-px bg-market-500/8 rounded-2xl overflow-hidden border border-market-500/12 mb-20">
-          {STATS.map((stat, index) => {
-            const { animatedValue, elementRef } = useCountUp(stat.value, {
-              duration: stat.duration,
-              suffix: stat.suffix,
-              delay: index * 200, // Stagger effect
-            });
-
-            return (
-              <div
-                key={stat.label}
-                ref={elementRef as RefObject<HTMLDivElement>}
-                className="bg-ink-900 text-center py-8 px-4"
-              >
-                <div className="font-display text-4xl font-bold text-gradient-gold mb-1 font-mono">
-                  {stat.prefix}{animatedValue}
-                </div>
-                <div className="text-amber-800 text-sm font-body">{stat.label}</div>
-              </div>
-            );
-          })}
+          {STATS.map((stat, index) => (
+            <StatCard key={stat.label} stat={stat} index={index} />
+          ))}
         </div>
 
         {/* ── How it works ────────────────────────────────────────────────── */}

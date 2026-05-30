@@ -142,7 +142,7 @@ export default function BuyXLMModal({ publicKey, onClose, onComplete }: BuyXLMMo
               </select>
             </label>
             <p className="text-xs text-amber-700">
-              You'll be redirected to the anchor's secure deposit page to enter your fiat
+              You&apos;ll be redirected to the anchor&apos;s secure deposit page to enter your fiat
               payment details. The funds arrive in this wallet ({publicKey.slice(0, 6)}…
               {publicKey.slice(-4)}) once the anchor confirms the deposit.
             </p>
