@@ -10,6 +10,8 @@ import FreelancerTierBadge from "@/components/FreelancerTierBadge";
 import FreelancerProfileSkeleton from "@/components/FreelancerProfileSkeleton";
 import {
   fetchPublicProfile,
+  fetchProfileStats,
+  fetchProfileResponseTime,
   verifyIdentity,
   fetchSkillEndorsements,
   endorseSkill,
@@ -85,6 +87,8 @@ export default function PublicFreelancerProfilePage({
   const [endorsingSkill, setEndorsingSkill] = useState<string | null>(null);
   const [badges, setBadges] = useState<SkillBadge[]>([]);
   const [certificates, setCertificates] = useState<CertificateData[]>([]);
+  const [stats, setStats] = useState<{ totalApplications: number; acceptedApplications: number } | null>(null);
+  const [responseTime, setResponseTime] = useState<{ averageDays: number | null } | null>(null);
 
   const isOwner = publicKey && rawKey === publicKey;
 
@@ -181,6 +185,14 @@ export default function PublicFreelancerProfilePage({
     // Fetch certificates separately (non-blocking)
     fetchUserCertificates(rawKey)
       .then((data) => { if (!cancelled) setCertificates(data); })
+      .catch(() => {});
+
+    // Fetch profile stats and response time separately (non-blocking)
+    fetchProfileStats(rawKey)
+      .then((data) => { if (!cancelled) setStats(data); })
+      .catch(() => {});
+    fetchProfileResponseTime(rawKey)
+      .then((data) => { if (!cancelled) setResponseTime(data); })
       .catch(() => {});
 
     return () => {

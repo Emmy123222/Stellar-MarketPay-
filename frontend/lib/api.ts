@@ -73,6 +73,7 @@ export async function fetchJobs(params?: {
   search?: string;
   cursor?: string;
   timezone?: string;
+  viewerAddress?: string;
 }) {
   const { data } = await api.get<{
     success: boolean;
@@ -342,6 +343,22 @@ export async function fetchProfile(publicKey: string) {
   return data.data;
 }
 
+export async function fetchProfileStats(publicKey: string) {
+  const { data } = await api.get<{
+    success: boolean;
+    data: { totalApplications: number; acceptedApplications: number; successRate: number };
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/stats`);
+  return data.data;
+}
+
+export async function fetchProfileResponseTime(publicKey: string) {
+  const { data } = await api.get<{
+    success: boolean;
+    data: { averageDays: number | null };
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/response-time`);
+  return data.data;
+}
+
 export async function fetchPublicProfile(
   publicKey: string,
 ): Promise<UserProfile | null> {
@@ -550,11 +567,14 @@ export async function raiseDispute(
  * Resolves a dispute for a job (Admin only).
  *
  * @param jobId Job identifier.
+ * @param note Resolution note.
+ * @param releaseTo Release funds to "client" or "freelancer".
  * @returns The updated job record.
  */
-export async function resolveDispute(jobId: string) {
+export async function resolveDispute(jobId: string, note?: string, releaseTo?: string) {
   const { data } = await api.post<{ success: boolean; data: Job }>(
     `/api/jobs/${jobId}/resolve`,
+    { note, releaseTo },
   );
   return data.data;
 }

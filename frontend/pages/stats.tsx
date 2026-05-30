@@ -100,7 +100,7 @@ export default function StatsPage() {
 
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-sm font-medium text-gray-500 mb-2">Total Escrow Value</h3>
-                <p className="text-3xl font-bold text-gray-900">{parseFloat(stats.total_escrow_xlm).toFixed(2)} XLM</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.total_escrow_xlm.toFixed(2)} XLM</p>
               </div>
 
               <div className="bg-white rounded-lg shadow p-6">
@@ -110,12 +110,12 @@ export default function StatsPage() {
 
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-sm font-medium text-gray-500 mb-2">Completion Rate</h3>
-                <p className="text-3xl font-bold text-gray-900">{parseFloat(stats.completion_rate).toFixed(1)}%</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.completion_rate.toFixed(1)}%</p>
               </div>
 
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-sm font-medium text-gray-500 mb-2">Avg Job Budget</h3>
-                <p className="text-3xl font-bold text-gray-900">{parseFloat(stats.avg_job_budget).toFixed(2)} XLM</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.avg_job_budget.toFixed(2)} XLM</p>
               </div>
 
               <div className="bg-white rounded-lg shadow p-6">
@@ -154,7 +154,7 @@ export default function StatsPage() {
                 {categories.slice(0, 5).map((cat) => (
                   <div key={`budget-${cat.category}`} className="flex items-center justify-between">
                     <span className="text-gray-700">{cat.category}</span>
-                    <span className="text-gray-900 font-semibold">{parseFloat(cat.avg_budget).toFixed(1)} XLM</span>
+                    <span className="text-gray-900 font-semibold">{cat.avg_budget.toFixed(1)} XLM</span>
                   </div>
                 ))}
               </div>
@@ -178,7 +178,7 @@ export default function StatsPage() {
                       <tr key={trend.date} className="border-b hover:bg-gray-50">
                         <td className="py-2 px-4 text-gray-900">{new Date(trend.date).toLocaleDateString()}</td>
                         <td className="text-right py-2 px-4 text-gray-900">{trend.jobs_posted}</td>
-                        <td className="text-right py-2 px-4 text-gray-900">{parseFloat(trend.avg_budget || "0").toFixed(2)} XLM</td>
+                        <td className="text-right py-2 px-4 text-gray-900">{(trend.avg_budget ?? 0).toFixed(2)} XLM</td>
                       </tr>
                     ))}
                   </tbody>
