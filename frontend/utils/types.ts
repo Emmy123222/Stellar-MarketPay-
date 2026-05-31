@@ -277,3 +277,10 @@ export interface TimeInvoice {
   amountXlm: string;
   createdAt: string;
 }
+
+export interface BulkActionResponse {
+  success: boolean;
+  message?: string;
+  processedCount: number;
+  failedCount: number;
+}
