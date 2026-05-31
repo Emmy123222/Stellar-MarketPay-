@@ -149,7 +149,7 @@ export default function ReferralDashboard({
                 <span className="text-market-400 font-semibold">
                   {bonusPercent}%
                 </span>{" "}
-                of your referee's first job earnings — paid automatically
+                of your referee&apos;s first job earnings — paid automatically
                 on-chain.
               </p>
             </div>
@@ -295,7 +295,7 @@ export default function ReferralDashboard({
               <div className="text-center py-10">
                 <p className="text-amber-700 text-sm">No payouts yet.</p>
                 <p className="text-amber-800 text-xs mt-1">
-                  You'll earn {bonusPercent}% when a referee completes their
+                  You&apos;ll earn {bonusPercent}% when a referee completes their
                   first job.
                 </p>
               </div>
@@ -344,7 +344,7 @@ export default function ReferralDashboard({
           </p>
           <p className="text-sm text-amber-700 max-w-xs mx-auto">
             Share your referral link above. When someone signs up and completes
-            their first job, you'll automatically receive {bonusPercent}% of
+            their first job, you&apos;ll automatically receive {bonusPercent}% of
             their earnings.
           </p>
         </div>
