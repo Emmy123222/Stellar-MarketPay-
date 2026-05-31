@@ -2,6 +2,7 @@
  * Test suite for job recommendations filtering
  * Verifies that applied jobs are excluded from recommendations
  */
+/* eslint-env jest */
 "use strict";
 
 const pool = require("../db/pool");
