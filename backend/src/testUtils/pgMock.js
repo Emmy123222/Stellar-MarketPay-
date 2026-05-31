@@ -23,6 +23,7 @@ function defaultJobRow(overrides = {}) {
     deadline: overrides.deadline || null,
     timezone: overrides.timezone || null,
     screening_questions: overrides.screening_questions || [],
+    milestones: overrides.milestones || [],
     visibility: overrides.visibility || "public",
     created_at: overrides.created_at || new Date().toISOString(),
     updated_at: overrides.updated_at || new Date().toISOString(),
@@ -65,7 +66,8 @@ function createPgMock() {
         deadline: params[7],
         timezone: params[8],
         screening_questions: params[9],
-        visibility: params[10],
+        milestones: typeof params[10] === "string" ? JSON.parse(params[10]) : params[10],
+        visibility: params[11],
       });
       jobs.set(row.id, row);
       return { rows: [row] };
@@ -83,6 +85,19 @@ function createPgMock() {
       return { rows };
     }
 
+
+    if (text.startsWith("UPDATE jobs SET escrow_contract_id")) {
+      const row = jobs.get(params[1]);
+      if (!row) return { rows: [] };
+      row.escrow_contract_id = params[0];
+      row.updated_at = new Date().toISOString();
+      jobs.set(row.id, row);
+      return { rows: [row] };
+    }
+
+    if (text.startsWith("INSERT INTO escrows")) {
+      return { rows: [] };
+    }
     if (text.startsWith("UPDATE jobs SET status")) {
       const row = jobs.get(params[1]);
       if (!row) return { rows: [] };

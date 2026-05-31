@@ -47,6 +47,7 @@ const pool = require("../db/pool");
  * @property {string}   [deadline]            ISO timestamp.
  * @property {string}   [timezone]            IANA timezone name.
  * @property {string[]} [screeningQuestions]  Up to 5 questions; non-empty entries are kept.
+ * @property {{description:string,amount:string|number}[]} [milestones] Up to 10 milestone payouts; amounts must total budget.
  * @property {string}   clientAddress         Stellar G-address of the posting client.
  */
 
@@ -86,6 +87,78 @@ const VALID_CATEGORIES = [
  * @returns {void}
  * @throws {Error}      `status === 400` if the key fails the G-address regex.
  */
+function normalizeMilestoneRows(milestones, budget) {
+  const fallbackAmount = parseFloat(budget || 0).toFixed(7);
+  if (!Array.isArray(milestones) || milestones.length === 0) {
+    return [
+      {
+        description: "Final delivery",
+        amount: fallbackAmount,
+        status: "pending",
+        releasedAt: null,
+        disputedAt: null,
+      },
+    ];
+  }
+
+  return milestones.map((milestone) => ({
+    description: String(milestone.description || "").trim(),
+    amount: parseFloat(milestone.amount || 0).toFixed(7),
+    status: milestone.status || "pending",
+    releasedAt: milestone.releasedAt || milestone.released_at || null,
+    disputedAt: milestone.disputedAt || milestone.disputed_at || null,
+  }));
+}
+
+function validateMilestones(milestones, budget) {
+  const numericBudget = parseFloat(budget);
+  if (!Array.isArray(milestones) || milestones.length === 0) {
+    return normalizeMilestoneRows([], numericBudget);
+  }
+
+  if (milestones.length > 10) {
+    const e = new Error("Jobs can have at most 10 milestones");
+    e.status = 400;
+    throw e;
+  }
+
+  const safeMilestones = milestones.map((milestone, index) => {
+    const description = String(milestone.description || "").trim();
+    const amount = parseFloat(milestone.amount);
+
+    if (!description) {
+      const e = new Error(`Milestone ${index + 1} needs a description`);
+      e.status = 400;
+      throw e;
+    }
+    if (Number.isNaN(amount) || amount <= 0) {
+      const e = new Error(`Milestone ${index + 1} needs a positive amount`);
+      e.status = 400;
+      throw e;
+    }
+
+    return {
+      description,
+      amount: amount.toFixed(7),
+      status: "pending",
+      releasedAt: null,
+      disputedAt: null,
+    };
+  });
+
+  const milestoneTotal = safeMilestones.reduce(
+    (sum, milestone) => sum + parseFloat(milestone.amount),
+    0,
+  );
+  if (Math.abs(milestoneTotal - numericBudget) > 0.0000001) {
+    const e = new Error("Milestone amounts must equal the job budget");
+    e.status = 400;
+    throw e;
+  }
+
+  return safeMilestones;
+}
+
 function validatePublicKey(key) {
   if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
     const e = new Error("Invalid Stellar public key");
@@ -121,6 +194,7 @@ function rowToJob(row) {
     deadline: row.deadline,
     timezone: row.timezone,
     screeningQuestions: row.screening_questions || [],
+    milestones: normalizeMilestoneRows(row.milestones, row.budget),
     disputeReason:      row.dispute_reason,
     disputeDescription: row.dispute_description,
     disputedBy: row.disputed_by,
@@ -176,6 +250,7 @@ async function createJob({
   timezone,
   clientAddress,
   screeningQuestions,
+  milestones,
   visibility,
 }) {
   validatePublicKey(clientAddress);
@@ -216,12 +291,13 @@ async function createJob({
   const safeScreeningQuestions = Array.isArray(screeningQuestions)
     ? screeningQuestions.slice(0, 5).filter((q) => q && q.trim().length > 0)
     : [];
+  const safeMilestones = validateMilestones(milestones, budget);
 
   const { rows } = await pool.query(
     `
     INSERT INTO jobs
-      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, visibility, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, $11, NOW(), NOW())
+      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, milestones, visibility, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, $11, $12, NOW(), NOW())
     RETURNING *
     `,
     [
@@ -235,6 +311,7 @@ async function createJob({
       deadline || null,
       timezone || null,
       safeScreeningQuestions,
+      JSON.stringify(safeMilestones),
       jobVisibility,
     ],
   );
@@ -532,7 +609,7 @@ async function assignFreelancer(jobId, freelancerAddress) {
     throw e;
   }
 
-  return rows.map(rowToJob);
+  return rowToJob(rows[0]);
 }
 
 /**
@@ -555,13 +632,24 @@ async function updateJobEscrowId(jobId, escrowContractId) {
     [escrowContractId, jobId],
   );
 
-  if (!rows.length) {
-    const e = new Error("Job not found");
-    e.status = 404;
-    throw e;
+  if (rows.length) {
+    const job = rowToJob(rows[0]);
+    await pool.query(
+      `INSERT INTO escrows (job_id, contract_id, amount_xlm, milestones, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'funded', NOW(), NOW())
+       ON CONFLICT (job_id) DO UPDATE
+       SET contract_id = EXCLUDED.contract_id,
+           amount_xlm = EXCLUDED.amount_xlm,
+           milestones = EXCLUDED.milestones,
+           updated_at = NOW()`,
+      [job.id, escrowContractId, job.budget, JSON.stringify(job.milestones)],
+    );
+    return job;
   }
 
-  return rowToJob(rows[0]);
+  const e = new Error("Job not found");
+  e.status = 404;
+  throw e;
 }
 
 /**
@@ -632,13 +720,9 @@ async function incrementShareCount(jobId) {
     [jobId],
   );
 
-  if (!rows.length) {
-    const e = new Error("Job not found");
-    e.status = 404;
-    throw e;
-  }
-
-  return rowToJob(rows[0]);
+  const e = new Error("Job not found");
+  e.status = 404;
+  throw e;
 }
 
 async function raiseDispute(jobId, { reason, description, raisedBy }) {

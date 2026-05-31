@@ -34,6 +34,8 @@ const {
   timeoutRefund,
   markDisputed,
   partialRelease,
+  releaseMilestone,
+  disputeMilestone,
   getEscrow,
   ESCROW_TIMEOUT_DAYS,
 } = require("./escrowService");
@@ -228,7 +230,7 @@ describe("escrowService", () => {
       const result = await partialRelease(JOB_ID, CLIENT_ADDRESS, TX_HASH);
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain("Escrow released");
+      expect(result.message).toContain("Milestone 1 released");
     });
 
     it("rejects partial release by non-client", async () => {
@@ -243,11 +245,44 @@ describe("escrowService", () => {
       getJob.mockResolvedValue(makeJob());
       mockQuery
         .mockReset()
-        .mockResolvedValueOnce({ rows: [{ status: "partial" }] });
+        .mockResolvedValueOnce({ rows: [{ milestones: [{ description: "Final delivery", amount: "500", status: "released" }] }] });
 
       await expect(
         partialRelease(JOB_ID, CLIENT_ADDRESS, TX_HASH),
-      ).rejects.toThrow("Partial release already processed for this escrow");
+      ).rejects.toThrow("Milestone already released");
+    });
+
+    it("releases a selected milestone", async () => {
+      getJob.mockResolvedValue(makeJob({
+        milestones: [
+          { description: "Design", amount: "200", status: "pending" },
+          { description: "Build", amount: "300", status: "pending" },
+        ],
+      }));
+
+      const result = await releaseMilestone(JOB_ID, 1, CLIENT_ADDRESS, TX_HASH);
+
+      expect(result.success).toBe(true);
+      expect(result.milestone.description).toBe("Build");
+      expect(result.milestone.status).toBe("released");
+    });
+
+    it("disputes a selected milestone", async () => {
+      getJob.mockResolvedValue(makeJob({
+        milestones: [{ description: "Design", amount: "500", status: "pending" }],
+      }));
+      mockQuery.mockImplementation(async (sql) => {
+        const text = sql.replace(/\s+/g, " ").trim();
+        if (text.startsWith("INSERT INTO disputes")) {
+          return { rows: [{ id: "dispute-1", job_id: JOB_ID, status: "open" }] };
+        }
+        return { rows: [] };
+      });
+
+      const result = await disputeMilestone(JOB_ID, 0, FREELANCER_ADDRESS);
+
+      expect(result.success).toBe(true);
+      expect(result.milestone.status).toBe("disputed");
     });
   });
 

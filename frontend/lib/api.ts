@@ -237,6 +237,7 @@ export async function createJob(payload: {
   clientAddress: string;
   screeningQuestions?: string[];
   visibility?: "public" | "private" | "invite_only";
+  milestones?: { description: string; amount: string }[];
 }) {
   const { data } = await api.post<{ success: boolean; data: Job }>(
     "/api/jobs",
@@ -456,6 +457,32 @@ export async function releaseEscrow(
     clientAddress,
     ...(contractTxHash ? { contractTxHash } : {}),
     ...(releaseCurrency ? { releaseCurrency } : {}),
+  });
+  return data.data;
+}
+
+export async function releaseMilestone(
+  jobId: string,
+  clientAddress: string,
+  milestoneIndex: number,
+  contractTxHash?: string,
+) {
+  const { data } = await api.post(`/api/escrow/${jobId}/release-milestone`, {
+    clientAddress,
+    milestoneIndex,
+    ...(contractTxHash ? { contractTxHash } : {}),
+  });
+  return data.data;
+}
+
+export async function disputeMilestone(
+  jobId: string,
+  raisedBy: string,
+  milestoneIndex: number,
+) {
+  const { data } = await api.post(`/api/escrow/${jobId}/dispute-milestone`, {
+    raisedBy,
+    milestoneIndex,
   });
   return data.data;
 }

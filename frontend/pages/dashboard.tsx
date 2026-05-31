@@ -266,6 +266,13 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setMyJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
   };
 
+  async function handleResetContractMock() {
+    if (!IS_CONTRACT_MOCK_DEV_MODE) return;
+    const { clearMockData } = await import("@/lib/contractMock");
+    clearMockData();
+    success("Mock escrow state reset.");
+  }
+
   useEffect(() => {
     if (!publicKey) return;
     Promise.all([

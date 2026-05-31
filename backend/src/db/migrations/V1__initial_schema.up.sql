@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   deadline            TIMESTAMPTZ,
   timezone            TEXT,
   screening_questions TEXT[]      NOT NULL DEFAULT '{}',
+  milestones          JSONB       NOT NULL DEFAULT '[]'::jsonb,
   dispute_reason      TEXT,
   dispute_description TEXT,
   disputed_by         TEXT        REFERENCES profiles(public_key),
@@ -180,6 +181,7 @@ CREATE TABLE IF NOT EXISTS escrows (
   job_id              UUID        NOT NULL UNIQUE REFERENCES jobs(id),
   contract_id         TEXT        NOT NULL,
   amount_xlm          NUMERIC(20,7) NOT NULL,
+  milestones          JSONB       NOT NULL DEFAULT '[]'::jsonb,
   status              TEXT        NOT NULL DEFAULT 'funded',   -- funded | released | refunded | timeout_refunded
   released_at         TIMESTAMPTZ,                 -- When the escrow was released
   timeout_at          TIMESTAMPTZ,                 -- Issue #175: Ledger timeout mapped to wall-clock (approx)

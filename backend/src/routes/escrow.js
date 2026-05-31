@@ -17,6 +17,7 @@ const {
   EVENT_TYPES,
 } = require("../services/notificationService");
 const { processReferralPayout } = require("../services/referralService");
+const { releaseMilestone, disputeMilestone } = require("../services/escrowService");
 
 /**
  * POST /api/escrow/:jobId/release
@@ -125,6 +126,61 @@ router.post(
       });
 
       res.json({ success: true, message: "Escrow released and job completed" });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+/**
+ * POST /api/escrow/:jobId/release-milestone
+ */
+router.post(
+  "/:jobId/release-milestone",
+  escrowActionRateLimiter,
+  async (req, res, next) => {
+    try {
+      const { jobId } = req.params;
+      const { clientAddress, contractTxHash, milestoneIndex } = req.body;
+
+      if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
+        const e = new Error("Invalid client address");
+        e.status = 400;
+        throw e;
+      }
+
+      const result = await releaseMilestone(
+        jobId,
+        milestoneIndex,
+        clientAddress,
+        contractTxHash,
+      );
+      res.json({ success: true, data: result });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+/**
+ * POST /api/escrow/:jobId/dispute-milestone
+ */
+router.post(
+  "/:jobId/dispute-milestone",
+  escrowActionRateLimiter,
+  async (req, res, next) => {
+    try {
+      const { jobId } = req.params;
+      const { raisedBy, milestoneIndex } = req.body;
+
+      if (!raisedBy || !/^G[A-Z0-9]{55}$/.test(raisedBy)) {
+        const e = new Error("Invalid wallet address");
+        e.status = 400;
+        throw e;
+      }
+
+      const result = await disputeMilestone(jobId, milestoneIndex, raisedBy);
+      res.json({ success: true, data: result });
     } catch (e) {
       next(e);
     }

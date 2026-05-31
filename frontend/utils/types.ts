@@ -32,6 +32,14 @@ export interface Availability {
   availableUntil?: string;
 }
 
+export interface JobMilestone {
+  description: string;
+  amount: string;
+  status: "pending" | "released" | "disputed";
+  releasedAt?: string | null;
+  disputedAt?: string | null;
+}
+
 export interface Job {
   id: string;
   title: string;
@@ -54,6 +62,7 @@ export interface Job {
   deadline?: string;
   timezone?: string; // IANA timezone string (e.g., "America/New_York")
   screeningQuestions?: string[]; // Up to 5 screening questions
+  milestones?: JobMilestone[]; // Up to 10 milestone payments
   expiresAt?: string; // ISO date when job expires if not hired
   extendedCount?: number; // Number of times expiry has been extended
   extendedUntil?: string; // Final expiry after all extensions

@@ -9,7 +9,7 @@ import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
 import RealtimeBidComparison from "@/components/RealtimeBidComparison";
-import { fetchJob, fetchApplications, acceptApplication, releaseEscrow, fetchClientReputation } from "@/lib/api";
+import { fetchJob, fetchApplications, acceptApplication, releaseEscrow, releaseMilestone, disputeMilestone, fetchClientReputation } from "@/lib/api";
 import { formatXLM, formatDate, shortenAddress, statusLabel, statusClass, timeAgo } from "@/utils/format";
 import {
   accountUrl,
@@ -38,6 +38,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [releasingEscrow, setReleasingEscrow] = useState(false);
+  const [activeMilestoneIndex, setActiveMilestoneIndex] = useState<number | null>(null);
   const [releaseSuccess, setReleaseSuccess] = useState(false);
   const [prefillData, setPrefillData] = useState<any>(null);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
@@ -123,6 +124,35 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
       setApplications(updatedApplications);
     } catch {
       setActionError("Failed to accept application.");
+    }
+  };
+
+  const handleReleaseMilestone = async (milestoneIndex: number) => {
+    if (!publicKey || !job) return;
+    setActiveMilestoneIndex(milestoneIndex);
+    setActionError(null);
+    try {
+      await releaseMilestone(job.id, publicKey, milestoneIndex, `offchain-${Date.now()}`);
+      setJob(await fetchJob(job.id));
+      setReleaseSuccess(true);
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : "Could not release milestone.");
+    } finally {
+      setActiveMilestoneIndex(null);
+    }
+  };
+
+  const handleDisputeMilestone = async (milestoneIndex: number) => {
+    if (!publicKey || !job) return;
+    setActiveMilestoneIndex(milestoneIndex);
+    setActionError(null);
+    try {
+      await disputeMilestone(job.id, publicKey, milestoneIndex);
+      setJob(await fetchJob(job.id));
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : "Could not dispute milestone.");
+    } finally {
+      setActiveMilestoneIndex(null);
     }
   };
 
@@ -285,6 +315,37 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             </div>
           )}
 
+
+          {job.milestones && job.milestones.length > 0 && (
+            <div className="mt-6 rounded-xl border border-market-500/20 bg-ink-900/40 p-4">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h3 className="font-display text-base font-semibold text-amber-100">Milestone Progress</h3>
+                <span className="text-xs text-amber-700">{job.milestones.filter((m) => m.status === "released").length}/{job.milestones.length} released</span>
+              </div>
+              <div className="space-y-3">
+                {job.milestones.map((milestone, index) => (
+                  <div key={`${milestone.description}-${index}`} className="rounded-lg border border-market-500/10 bg-ink-950/40 p-3">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-amber-100">{index + 1}. {milestone.description}</p>
+                        <p className="text-xs text-amber-700 mt-1">{formatXLM(milestone.amount)} {job.currency}{milestone.releasedAt ? ` · released ${formatDate(milestone.releasedAt)}` : ""}</p>
+                      </div>
+                      <span className={["text-xs rounded-full px-2.5 py-1 border capitalize", milestone.status === "released" ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/20" : milestone.status === "disputed" ? "text-red-300 bg-red-500/10 border-red-500/20" : "text-amber-300 bg-amber-500/10 border-amber-500/20"].join(" ")}>{milestone.status}</span>
+                    </div>
+                    {job.status === "in_progress" && milestone.status === "pending" && (isClient || isFreelancer) && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {isClient && (
+                          <button onClick={() => handleReleaseMilestone(index)} disabled={activeMilestoneIndex === index} className="btn-primary text-xs px-3 py-2 min-h-[36px]">{activeMilestoneIndex === index ? "Processing…" : "Release milestone"}</button>
+                        )}
+                        <button onClick={() => handleDisputeMilestone(index)} disabled={activeMilestoneIndex === index} className="btn-secondary text-xs px-3 py-2 min-h-[36px]">Dispute milestone</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {actionError && (
             <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
               {actionError}
@@ -364,7 +425,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           </>
         )}
 
-        {isClient && job.status === "in_progress" && (
+        {isClient && job.status === "in_progress" && (!job.milestones || job.milestones.length === 0) && (
           <div className="card mb-6">
             <h2 className="font-display text-xl font-bold text-amber-100 mb-3">Escrow</h2>
             <button
