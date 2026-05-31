@@ -975,13 +975,11 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
               onCta={() => window.location.reload()}
             />
           ) : filtered.length === 0 ? (
-            <StateMessage
-              type="empty"
-              title={t("jobs.emptyTitle")}
-              description={t("jobs.emptyDescription")}
-              ctaLabel={t("nav.postJob")}
-              onCta={() => router.push('/post-job')}
-            />
+            <div className="card text-center py-16 border border-amber-500 bg-amber-500/10">
+              <h2 className="font-display text-xl mb-2 text-amber-100">No jobs found</h2>
+              <p className="text-sm text-amber-800 mb-6 max-w-xs mx-auto">No jobs are currently available.</p>
+              <Link href="/post-job" className="btn-primary text-sm">Post the first job</Link>
+            </div>
           ) : (
             <>
               <div className="grid sm:grid-cols-2 gap-4">

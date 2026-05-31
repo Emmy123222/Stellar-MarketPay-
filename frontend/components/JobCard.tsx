@@ -171,7 +171,9 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
         {/* Header row */}
         <div className="flex items-start justify-between gap-3 mb-3">
           <h3 className="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2">
-            {job.title}
+            <Link href={`/jobs/${job.id}`}>
+              {job.title}
+            </Link>
           </h3>
           <div className="flex items-center gap-2">
             {clientRepBadge && (
