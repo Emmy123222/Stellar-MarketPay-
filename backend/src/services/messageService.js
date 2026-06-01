@@ -1,11 +1,18 @@
 /**
  * src/services/messageService.js
  * Business logic for private messaging between job participants.
+ *
+ * Architecture (on-chain message notarization):
+ *   1. Client encrypts message and uploads to IPFS
+ *   2. IPFS CID is recorded on-chain via Soroban `publish_message` event
+ *   3. Backend indexes the event for fast retrieval
+ *   4. Recipients verify authenticity from Stellar Explorer
  */
 
 "use strict";
 
 const pool = require("../db/pool");
+const { uploadMessage } = require("./ipfsService");
 
 /* ─── helpers ────────────────────────────────────────────────────────────────── */
 
@@ -45,6 +52,8 @@ function rowToMessage(row) {
     senderAddress:  row.sender_address,
     receiverAddress: row.receiver_address,
     content:        row.content,
+    ipfsCid:        row.ipfs_cid,
+    txHash:         row.tx_hash,
     read:           row.read,
     createdAt:      row.created_at,
   };
@@ -82,13 +91,14 @@ async function verifyJobParticipant(jobId, userAddress) {
 }
 
 /**
- * Create a new message.
- * Validates:
- * - Job exists and user is a participant (client or freelancer)
- * - Message content is non-empty and within length limits
- * - Sender is either client or freelancer of the job
+ * Create a new message with on-chain notarization.
+ *
+ * Flow:
+ *  1. Upload encrypted message content to IPFS
+ *  2. Emit on-chain Soroban event with IPFS CID
+ *  3. Store message reference + CID in PostgreSQL for fast retrieval
  */
-async function createMessage({ jobId, senderAddress, content }) {
+async function createMessage({ jobId, senderAddress, content, contractTxHash }) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -120,12 +130,28 @@ async function createMessage({ jobId, senderAddress, content }) {
       throw e;
     }
 
-    // Insert message
+    // ── Step 1: Upload message to IPFS ──────────────────────────────────────
+    let ipfsCid = null;
+    try {
+      const ipfsResult = await uploadMessage({
+        jobId,
+        senderAddress,
+        recipientAddress: receiverAddress,
+        content: trimmedContent,
+        encrypted: false, // Set to true when client-side encryption is enabled
+      });
+      ipfsCid = ipfsResult.cid;
+    } catch (ipfsError) {
+      console.error("[MessageService] IPFS upload failed, falling back to off-chain:", ipfsError.message);
+      // Continue without IPFS — the message will still be stored in Postgres
+    }
+
+    // ── Step 2: Store in PostgreSQL ─────────────────────────────────────────
     const { rows: messageRows } = await client.query(
-      `INSERT INTO messages (job_id, sender_address, receiver_address, content)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO messages (job_id, sender_address, receiver_address, content, ipfs_cid, tx_hash)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [jobId, senderAddress, receiverAddress, trimmedContent]
+      [jobId, senderAddress, receiverAddress, trimmedContent, ipfsCid, contractTxHash || null]
     );
 
     await client.query("COMMIT");
@@ -140,22 +166,19 @@ async function createMessage({ jobId, senderAddress, content }) {
 
 /**
  * Get all messages for a job.
- * Only job participants (client or freelancer) can view messages.
- * Only allowed for in-progress jobs.
- * Marks messages as read for the current user.
+ * Merges off-chain DB messages with on-chain event records.
  */
 async function getMessagesByJob(jobId, userAddress) {
   // Verify user is participant and fetch job details
   const job = await verifyJobParticipant(jobId, userAddress);
 
-  // Only allow viewing messages on in-progress jobs
   if (job.status !== "in_progress") {
     const e = new Error("Messaging is only allowed for in-progress jobs");
     e.status = 403;
     throw e;
   }
 
-  // Fetch all messages for this job, newest last
+  // Fetch DB messages (includes both IPFS-backed and legacy off-chain messages)
   const { rows } = await pool.query(
     `SELECT * FROM messages
      WHERE job_id = $1
@@ -164,14 +187,16 @@ async function getMessagesByJob(jobId, userAddress) {
   );
 
   // Mark messages where receiver = userAddress and read = false as read
-  await pool.query(
-    `UPDATE messages
-     SET read = TRUE
-     WHERE job_id = $1
-       AND receiver_address = $2
-       AND read = FALSE`,
-    [jobId, userAddress]
-  );
+  if (rows.length > 0) {
+    await pool.query(
+      `UPDATE messages
+       SET read = TRUE
+       WHERE job_id = $1
+         AND receiver_address = $2
+         AND read = FALSE`,
+      [jobId, userAddress]
+    );
+  }
 
   return rows.map(rowToMessage);
 }
@@ -204,10 +229,31 @@ async function getUnreadCount(userAddress) {
   return parseInt(rows[0].count, 10);
 }
 
+/**
+ * Attach an on-chain Soroban transaction hash to a message record.
+ * This is called after the frontend signs and submits the publish_message event.
+ */
+async function attachTxHash(messageId, txHash) {
+  const { rows } = await pool.query(
+    `UPDATE messages
+     SET tx_hash = $1
+     WHERE id = $2
+     RETURNING *`,
+    [txHash, messageId]
+  );
+  if (!rows.length) {
+    const e = new Error("Message not found");
+    e.status = 404;
+    throw e;
+  }
+  return rowToMessage(rows[0]);
+}
+
 module.exports = {
   createMessage,
   getMessagesByJob,
   markMessagesAsRead,
   getUnreadCount,
+  attachTxHash,
   verifyJobParticipant,
 };

@@ -14,7 +14,13 @@ import type {
   PortfolioFile,
   TokenInfo,
   TokenBalance,
+  ClientReputation,
+  TimeEntry,
+  TimeInvoice,
+  Message,
   ReferralStats,
+  AssessmentQuestion,
+  BulkActionResponse,
 } from "@/utils/types";
 
 const api = axios.create({
@@ -67,12 +73,40 @@ export async function fetchJobs(params?: {
   search?: string;
   cursor?: string;
   timezone?: string;
+  viewerAddress?: string;
+  minBudget?: string;
+  maxBudget?: string;
+  skills?: string;
+  minClientRating?: string;
+  duration?: string;
+  postedSince?: string;
+  maxApplications?: string;
 }) {
+  const {
+    minBudget,
+    maxBudget,
+    minClientRating,
+    postedSince,
+    maxApplications,
+    ...rest
+  } = params || {};
+
   const { data } = await api.get<{
     success: boolean;
     data: Job[];
     nextCursor: string | null;
-  }>("/api/jobs", { params });
+  }>("/api/jobs", {
+    params: {
+      ...rest,
+      min_budget: minBudget,
+      max_budget: maxBudget,
+      skills: params?.skills,
+      min_client_rating: minClientRating,
+      duration: params?.duration,
+      posted_since: postedSince,
+      max_applications: maxApplications,
+    },
+  });
 
   return {
     jobs: data.data,
@@ -484,6 +518,13 @@ export async function fetchClientSpendingAnalytics(publicKey: string) {
   return data.data;
 }
 
+export async function fetchClientReputation(publicKey: string): Promise<ClientReputation> {
+  const { data } = await api.get<{ success: boolean; data: ClientReputation }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/client-reputation`
+  );
+  return data.data;
+}
+
 export async function upsertPriceAlertPreference(
   publicKey: string,
   payload: {
@@ -549,6 +590,57 @@ export async function raiseDispute(
 export async function resolveDispute(jobId: string) {
   const { data } = await api.post<{ success: boolean; data: Job }>(
     `/api/jobs/${jobId}/resolve`,
+  );
+  return data.data;
+}
+
+// ─── Time entries ─────────────────────────────────────────────────────────────
+
+export async function logTimeEntry(payload: {
+  jobId: string;
+  durationMinutes: number;
+  description?: string;
+  startedAt?: string;
+}) {
+  const { data } = await api.post<{ success: boolean; data: TimeEntry }>(
+    "/api/time-entries",
+    payload,
+  );
+  return data.data;
+}
+
+export async function fetchTimeEntries(jobId: string): Promise<TimeEntry[]> {
+  const { data } = await api.get<{ success: boolean; data: TimeEntry[] }>(
+    `/api/time-entries/job/${jobId}`,
+  );
+  return data.data;
+}
+
+export async function fetchTimeInvoices(jobId: string): Promise<TimeInvoice[]> {
+  const { data } = await api.get<{ success: boolean; data: TimeInvoice[] }>(
+    `/api/time-entries/job/${jobId}/invoices`,
+  );
+  return data.data;
+}
+
+export async function generateTimeInvoice(payload: {
+  jobId: string;
+  hourlyRateXlm: number;
+}) {
+  const { data } = await api.post<{ success: boolean; data: TimeInvoice }>(
+    "/api/time-entries/invoice",
+    payload,
+  );
+  return data.data;
+}
+
+export async function reviewTimeInvoice(
+  invoiceId: string,
+  decision: "approved" | "rejected",
+) {
+  const { data } = await api.patch<{ success: boolean; data: TimeInvoice }>(
+    `/api/time-entries/invoice/${invoiceId}/review`,
+    { decision },
   );
   return data.data;
 }
@@ -645,12 +737,28 @@ export async function verifyAdmin2FA(token: string, setup = false) {
   return { token: data.token, backupCodes: data.data?.backupCodes, message: data.data?.message };
 }
 
-// ─── Job Recommendations (Issue #221) ───────────────────────────────────
+// ─── Bulk Job Actions ───────────────────────────────────────────────────────
 
-export async function fetchRecommendedJobs(limit = 10) {
-  const { data } = await api.get<{ success: boolean; data: Job[] }>(
-    "/api/jobs/recommended",
-    { params: { limit } },
+export async function bulkCancelJobs(jobIds: string[]): Promise<BulkActionResponse> {
+  const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
+    "/api/jobs/bulk/cancel",
+    { jobIds },
+  );
+  return data.data;
+}
+
+export async function bulkExtendJobs(jobIds: string[], days: number): Promise<BulkActionResponse> {
+  const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
+    "/api/jobs/bulk/extend",
+    { jobIds, days },
+  );
+  return data.data;
+}
+
+export async function bulkBoostJobs(jobIds: string[], txHash: string): Promise<BulkActionResponse> {
+  const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
+    "/api/jobs/bulk/boost",
+    { jobIds, txHash },
   );
   return data.data;
 }
@@ -877,10 +985,11 @@ export async function fetchMessages(jobId: string): Promise<Message[]> {
 export async function sendMessage(
   jobId: string,
   content: string,
+  contractTxHash?: string,
 ): Promise<Message> {
   const { data } = await api.post<{ success: boolean; data: Message }>(
     `/api/messages/job/${jobId}`,
-    { content },
+    { content, contractTxHash },
   );
   return data.data;
 }
@@ -898,6 +1007,21 @@ export async function fetchUnreadCount(): Promise<number> {
     data: { unreadCount: number };
   }>("/api/messages/unread-count");
   return data.data.unreadCount;
+}
+
+/**
+ * Attaches an on-chain Soroban transaction hash to a message record.
+ * Called after the frontend signs and submits the publish_message event.
+ */
+export async function attachMessageTxHash(
+  messageId: string,
+  txHash: string,
+): Promise<Message> {
+  const { data } = await api.patch<{ success: boolean; data: Message }>(
+    `/api/messages/${messageId}/tx-hash`,
+    { txHash },
+  );
+  return data.data;
 }
 
 // ─── Earnings (Issue #181) ────────────────────────────────────────────────────
@@ -918,6 +1042,7 @@ export interface MonthlyEarning {
 
 export interface EarningsData {
   totalXlm: string;
+  totalUsdc?: string;
   payments: EarningPayment[];
   monthly: MonthlyEarning[];
 }
@@ -1145,6 +1270,31 @@ export async function fetchUserCertificates(
   return data.data;
 }
 
+// ─── Skill Assessments ──────────────────────────────────────────
+
+export async function fetchAssessment(skill: string) {
+  const { data } = await api.get<{
+    success: boolean;
+    data: {
+      canRetake: boolean;
+      retakeAvailableAt?: string;
+      lastAttempt?: { score: number; passed: boolean };
+      label: string;
+      questions: AssessmentQuestion[];
+      durationSeconds: number;
+    };
+  }>(`/api/assessments/${encodeURIComponent(skill)}`);
+  return data.data;
+}
+
+export async function submitAssessment(skill: string, answers: Record<number, number>) {
+  const { data } = await api.post<{
+    success: boolean;
+    data: { score: number; passed: boolean; correct: number; total: number };
+  }>(`/api/assessments/${encodeURIComponent(skill)}/submit`, { answers });
+  return data.data;
+}
+
 // ─── Skill Endorsements ─────────────────────────────────────────
 
 export interface SkillEndorsementData {
@@ -1322,6 +1472,53 @@ export async function registerReferral(
   });
 }
 
+// ─── Saved Searches (Issue #284) ─────────────────────────────────────────────
+
+export interface SavedSearch {
+  id: string;
+  user_address: string;
+  query_params: Record<string, string>;
+  notify_in_app: boolean;
+  notify_email: boolean;
+  last_notified_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchSavedSearches(): Promise<SavedSearch[]> {
+  const { data } = await api.get<{ success: boolean; data: SavedSearch[] }>(
+    "/api/saved-searches"
+  );
+  return data.data;
+}
+
+export async function createSavedSearch(payload: {
+  query_params: Record<string, string>;
+  notify_in_app?: boolean;
+  notify_email?: boolean;
+}): Promise<SavedSearch> {
+  const { data } = await api.post<{ success: boolean; data: SavedSearch }>(
+    "/api/saved-searches",
+    payload
+  );
+  return data.data;
+}
+
+export async function updateSavedSearch(
+  id: string,
+  payload: { notify_in_app?: boolean; notify_email?: boolean }
+): Promise<SavedSearch> {
+  const { data } = await api.patch<{ success: boolean; data: SavedSearch }>(
+    `/api/saved-searches/${id}`,
+    payload
+  );
+  return data.data;
+}
+
+export async function deleteSavedSearch(id: string): Promise<void> {
+  await api.delete(`/api/saved-searches/${id}`);
+}
+
 // ─── Job Boost (Issue #344) ───────────────────────────────────────────────────
 
 /**
@@ -1370,6 +1567,115 @@ export async function fetchMyInvitations(): Promise<JobInvitation[]> {
  */
 export async function declineInvitation(invitationId: string): Promise<void> {
   await api.patch(`/api/invitations/${invitationId}/decline`);
+}
+
+// ─── DAO Governance (#278) ───────────────────────────────────────────────────
+
+export interface DaoProposal {
+  id: string;
+  title: string;
+  description: string;
+  type: "treasury" | "platform" | "parameter" | "arbitration";
+  proposer: string;
+  amount?: string;
+  recipient?: string;
+  votesFor: number;
+  votesAgainst: number;
+  status: "active" | "passed" | "rejected" | "executed";
+  createdAt: string;
+  votingEndsAt: string;
+  quorumPercent?: number;
+  quorumReached?: boolean;
+}
+
+export interface DaoArbitrator {
+  publicKey: string;
+  displayName?: string | null;
+  bio?: string | null;
+  votesReceived: number;
+  disputesResolved: number;
+  electedAt?: string | null;
+}
+
+export async function fetchDaoProposals(status?: string): Promise<DaoProposal[]> {
+  const { data } = await api.get<{ success: boolean; data: DaoProposal[] }>(
+    "/api/dao/proposals",
+    { params: status ? { status } : {} },
+  );
+  return data.data;
+}
+
+export async function createDaoProposal(body: {
+  title: string;
+  description: string;
+  type: DaoProposal["type"];
+  amount?: string;
+  recipient?: string;
+  votingDays?: number;
+}): Promise<DaoProposal> {
+  const { data } = await api.post<{ success: boolean; data: DaoProposal }>(
+    "/api/dao/proposals",
+    body,
+  );
+  return data.data;
+}
+
+export async function voteDaoProposal(
+  proposalId: string,
+  support: boolean,
+  weight: number,
+  txHash?: string,
+): Promise<DaoProposal> {
+  const { data } = await api.post<{ success: boolean; data: DaoProposal }>(
+    `/api/dao/proposals/${proposalId}/vote`,
+    { support, weight, txHash },
+  );
+  return data.data;
+}
+
+export async function fetchDaoTreasury(): Promise<{
+  allocatedXlm: string;
+  activeProposals: number;
+  quorumPercent: number;
+}> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: { allocatedXlm: string; activeProposals: number; quorumPercent: number };
+  }>("/api/dao/treasury");
+  return data.data;
+}
+
+export async function fetchDaoArbitrators(): Promise<{
+  arbitrators: DaoArbitrator[];
+  disputePanel: DaoArbitrator[];
+}> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: { arbitrators: DaoArbitrator[]; disputePanel: DaoArbitrator[] };
+  }>("/api/dao/arbitrators");
+  return data.data;
+}
+
+export async function registerDaoArbitrator(body: {
+  displayName?: string;
+  bio?: string;
+}): Promise<DaoArbitrator> {
+  const { data } = await api.post<{ success: boolean; data: DaoArbitrator }>(
+    "/api/dao/arbitrators",
+    body,
+  );
+  return data.data;
+}
+
+export async function voteDaoArbitrator(
+  arbitratorKey: string,
+  weight: number,
+): Promise<DaoArbitrator[]> {
+  const { data } = await api.post<{ success: boolean; data: DaoArbitrator[] }>(
+    `/api/dao/arbitrators/${arbitratorKey}/vote`,
+    { weight },
+  );
+  return data.data;
 }
 
 /**

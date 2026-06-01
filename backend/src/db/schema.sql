@@ -29,6 +29,15 @@ ALTER TABLE profiles
 ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS blocked_addresses TEXT[] NOT NULL DEFAULT '{}';
 
+-- Weekly digest fields (V5)
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS email                   TEXT,
+  ADD COLUMN IF NOT EXISTS last_login_at           TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS digest_unsubscribe_token UUID NOT NULL DEFAULT gen_random_uuid();
+
+CREATE UNIQUE INDEX IF NOT EXISTS profiles_digest_unsubscribe_token_idx
+  ON profiles(digest_unsubscribe_token);
+
 -- ─────────────────────────────────────────
 -- jobs
 -- ─────────────────────────────────────────

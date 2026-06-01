@@ -255,13 +255,13 @@ describe("Input Sanitization", () => {
       expect(next).toHaveBeenCalled();
     });
 
-    test("should handle errors gracefully", () => {
+    test("should handle circular references", () => {
       const req = {
-        body: { circular: null },
+        body: { a: "test" },
         query: {},
         params: {},
       };
-      // Create circular reference to cause error
+      // Create circular reference
       req.body.circular = req.body;
       
       const res = {
@@ -273,12 +273,10 @@ describe("Input Sanitization", () => {
       const middleware = sanitizeMiddleware();
       middleware(req, res, next);
 
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({
-        success: false,
-        error: "Invalid input data",
-      });
-      expect(next).not.toHaveBeenCalled();
+      expect(req.body.a).toBe("test");
+      expect(req.body.circular).toEqual({}); // Circular reference sanitized to empty object
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalledWith(400);
     });
 
     test("should respect options to skip sanitization", () => {

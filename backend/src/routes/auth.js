@@ -7,6 +7,7 @@ const jwt = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
 const { JWT_SECRET } = require("../middleware/auth");
 const { ensureAdminProfile, get2FAStatus } = require("../services/twoFactorService");
+const pool = require("../db/pool");
 
 const router = express.Router();
 
@@ -152,6 +153,19 @@ router.post("/", async (req, res) => {
       payload.role = "admin";
       const status = await get2FAStatus(accountId);
       payload["2fa_verified"] = !status.totp_enabled;
+    }
+
+    // Stamp last_login_at so the weekly digest knows this user is active.
+    // Uses ON CONFLICT to handle the case where the profile row may not yet
+    // exist (it will be created by profileService on first access).
+    try {
+      await pool.query(
+        `UPDATE profiles SET last_login_at = NOW() WHERE public_key = $1`,
+        [accountId]
+      );
+    } catch (stampErr) {
+      // Non-fatal: log and continue issuing the token
+      console.warn("[auth] Could not stamp last_login_at:", stampErr.message);
     }
 
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });

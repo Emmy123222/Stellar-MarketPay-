@@ -21,6 +21,7 @@ const {
   getSkillEndorsements,
   endorseSkill,
   getClientSpendingAnalytics,
+  getClientReputation,
   getProfileStats,
   getResponseTime,
   blockFreelancer,
@@ -162,6 +163,15 @@ router.get("/:publicKey/spending", generalProfileRateLimiter, async (req, res, n
   }
 });
 
+router.get("/:publicKey/client-reputation", generalProfileRateLimiter, async (req, res, next) => {
+  try {
+    const data = await getClientReputation(req.params.publicKey);
+    res.json({ success: true, data });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // POST /api/profiles/:publicKey/block — block a freelancer
 router.post("/:publicKey/block", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
   try {
@@ -197,7 +207,8 @@ router.get("/:publicKey/earnings", generalProfileRateLimiter, async (req, res, n
          e.amount_xlm,
          e.released_at,
          j.title  AS job_title,
-         j.client_address
+         j.client_address,
+         j.currency
        FROM escrows e
        JOIN jobs j ON e.job_id = j.id
        WHERE j.freelancer_address = $1
@@ -220,17 +231,28 @@ router.get("/:publicKey/earnings", generalProfileRateLimiter, async (req, res, n
       [publicKey]
     );
 
-    const totalXlm = payments.reduce((sum, p) => sum + parseFloat(p.amount_xlm || 0), 0);
+    let totalXlm = 0;
+    let totalUsdc = 0;
+    for (const p of payments) {
+      const amt = parseFloat(p.amount_xlm || 0);
+      if ((p.currency || "XLM").toUpperCase() === "USDC") {
+        totalUsdc += amt;
+      } else {
+        totalXlm += amt;
+      }
+    }
 
     res.json({
       success: true,
       data: {
         totalXlm: totalXlm.toFixed(7),
+        totalUsdc: totalUsdc.toFixed(7),
         payments: payments.map((p) => ({
           id: p.id,
           jobId: p.job_id,
           jobTitle: p.job_title,
           amountXlm: p.amount_xlm,
+          currency: p.currency || "XLM",
           releasedAt: p.released_at,
           clientAddress: p.client_address,
         })),

@@ -10,7 +10,7 @@ const escrowActionRateLimiter = createRateLimiter(30, 1);
 
 const router = express.Router();
 const pool = require("../db/pool");
-const { getJob, updateJobStatus } = require("../services/jobService");
+const { getJob } = require("../services/jobService");
 const { logContractInteraction } = require("../services/contractAuditService");
 const {
   notifyEscrowEvent,
@@ -24,7 +24,7 @@ const { processReferralPayout } = require("../services/referralService");
 router.post("/:jobId/release", async (req, res, next) => {
   try {
     const { jobId } = req.params;
-    const { clientAddress, contractTxHash, releaseCurrency } = req.body;
+    const { clientAddress, contractTxHash } = req.body;
 
     if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
       const e = new Error("Invalid client address");
@@ -45,17 +45,12 @@ router.post("/:jobId/release", async (req, res, next) => {
       throw e;
     }
 
-    // Update escrow and fetch amount for bonus calculation
+    // Fetch escrow amount for referral bonus calculation.
+    // DB status is updated asynchronously by the indexer when it processes the on-chain event.
     const { rows: escrowRows } = await pool.query(
-      `UPDATE escrows
-       SET status = 'released', released_at = NOW(), updated_at = NOW()
-       WHERE job_id = $1
-       RETURNING amount_xlm`,
+      `SELECT amount_xlm FROM escrows WHERE job_id = $1`,
       [jobId],
     );
-
-    // Update job
-    await updateJobStatus(jobId, "completed");
 
     // Process referral bonus payout (2% of earnings to referrer on referee's first job).
     // The on-chain transfer is handled by the Soroban contract's release_escrow();
@@ -92,7 +87,7 @@ router.post(
   async (req, res, next) => {
     try {
       const { jobId } = req.params;
-      const { clientAddress, contractTxHash, milestoneIndex } = req.body;
+      const { clientAddress, contractTxHash } = req.body;
 
       if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
         const e = new Error("Invalid client address");
@@ -151,13 +146,7 @@ router.post("/:jobId/refund", async (req, res, next) => {
       throw e;
     }
 
-    await pool.query(
-      `UPDATE escrows
-       SET status = 'refunded', updated_at = NOW()
-       WHERE job_id = $1`,
-      [jobId],
-    );
-    await updateJobStatus(jobId, "cancelled");
+    // DB status is updated asynchronously by the indexer when it processes the on-chain event.
 
     await logContractInteraction({
       functionName: "refund_escrow",
@@ -201,13 +190,7 @@ router.post("/:jobId/timeout-refund", async (req, res, next) => {
       throw e;
     }
 
-    await pool.query(
-      `UPDATE escrows
-       SET status = 'timeout_refunded', updated_at = NOW()
-       WHERE job_id = $1`,
-      [jobId],
-    );
-    await updateJobStatus(jobId, "cancelled");
+    // DB status is updated asynchronously by the indexer when it processes the on-chain event.
 
     await logContractInteraction({
       functionName: "timeout_refund",

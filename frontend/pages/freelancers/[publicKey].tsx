@@ -402,13 +402,13 @@ export default function PublicFreelancerProfilePage({
               <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
                 <p className="label mb-1">Success rate</p>
                 <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
-                  {stats?.acceptedApplications || 0} / {stats?.totalApplications || 0} accepted
+                  {state.profile.completedJobs || 0} completed
                 </p>
               </div>
               <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
                 <p className="label mb-1">Avg. completion</p>
                 <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
-                  {responseTime?.averageDays !== null ? `${responseTime?.averageDays}d` : "—"}
+                  —
                 </p>
                 <p className="text-[10px] uppercase tracking-wider text-amber-800 mt-1">
                   Acceptance to release

@@ -150,7 +150,7 @@ function hasFormContent(form: JobFormData): boolean {
       form.description.trim() ||
       form.skills.trim() ||
       form.deadline ||
-      form.budgetXlm !== 50
+      form.budget !== "50"
   );
 }
 
@@ -237,7 +237,8 @@ export default function PostJobForm({
       const xdr = await buildCreateEscrowTx({
         clientPublicKey: publicKey,
         jobId: job.id,
-        budgetXlm: parseFloat(form.budget),
+        budget: parseFloat(form.budget),
+        currency: form.currency,
       });
       const tx = new Transaction(xdr, process.env.NEXT_PUBLIC_STELLAR_NETWORK === "mainnet"
         ? "Public Global Stellar Network ; September 2015"
@@ -355,7 +356,7 @@ export default function PostJobForm({
       <div className="card max-w-2xl mx-auto">
         <h1 className="font-display text-2xl font-bold text-amber-100 mb-1">Post a Job</h1>
         <p className="text-amber-800 text-sm mb-5">
-          Your XLM budget will be locked in a Soroban escrow contract.
+          Your {form.currency} budget will be locked in a Soroban escrow contract.
           {isMockMode && (
             <span className="ml-2 text-xs text-amber-600 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
               Mock mode — no real XLM charged
@@ -381,23 +382,25 @@ export default function PostJobForm({
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Title */}
           <div>
-            <label className="label">Job Title</label>
+            <label htmlFor="job-title" className="label">Job Title</label>
             <input
+              id="job-title"
               name="title"
               value={form.title}
               onChange={handleChange}
               required
               minLength={10}
               disabled={isInProgress}
-              placeholder="e.g. Build a Soroban DEX interface"
+              placeholder="e.g. Build a Soroban escrow contract for NFT marketplace"
               className="input-field"
             />
           </div>
 
           {/* Description */}
           <div>
-            <label className="label">Description</label>
+            <label htmlFor="job-description" className="label">Description</label>
             <textarea
+              id="job-description"
               name="description"
               value={form.description}
               onChange={handleChange}
@@ -405,7 +408,7 @@ export default function PostJobForm({
               minLength={30}
               rows={4}
               disabled={isInProgress}
-              placeholder="Describe the work, deliverables, and any context…"
+              placeholder="Describe the work in detail — requirements, deliverables, acceptance criteria..."
               className="textarea-field"
             />
           </div>
@@ -425,6 +428,11 @@ export default function PostJobForm({
                 disabled={isInProgress}
                 className="input-field"
               />
+              {xlmPriceUsd !== null && form.budget && !isNaN(parseFloat(form.budget)) && (
+                <p className="text-xs text-amber-700 mt-1">
+                  ≈ ${(parseFloat(form.budget) * xlmPriceUsd).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                </p>
+              )}
             </div>
             <div>
               <label className="label">Currency</label>
@@ -507,7 +515,7 @@ export default function PostJobForm({
             {step === "posting" ? "Creating job…" :
              step === "fee_modal" ? "Estimating fees…" :
              step === "signing" ? "Waiting for signature…" :
-             `Post Job & Lock ${form.budget} ${form.currency} Escrow`}
+             `Post Job & Lock Budget in Escrow`}
           </button>
 
           {isInProgress && (

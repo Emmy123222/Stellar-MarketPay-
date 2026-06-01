@@ -1,6 +1,7 @@
 import TimeTracker from "@/components/TimeTracker";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
+import { recordViewedJob } from "@/lib/offlineJobs";
 import Link from "next/link";
 import Head from "next/head";
 import ApplicationForm from "@/components/ApplicationForm";
@@ -8,37 +9,25 @@ import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
 import RealtimeBidComparison from "@/components/RealtimeBidComparison";
-import { fetchJob, fetchApplications, acceptApplication, releaseEscrow } from "@/lib/api";
-import { formatXLM, formatDate, shortenAddress, statusLabel, statusClass } from "@/utils/format";
+import FeeEstimationModal from "@/components/FeeEstimationModal";
+import { fetchJob, fetchApplications, acceptApplication, releaseEscrow, fetchClientReputation, raiseDispute, resolveDispute, timeoutRefund } from "@/lib/api";
+import { formatXLM, formatDate, shortenAddress, statusLabel, statusClass, timeAgo } from "@/utils/format";
 import {
   accountUrl,
   buildReleaseEscrowTransaction,
   submitSignedSorobanTransaction,
-  USDC_SAC_ADDRESS,
-  XLM_SAC_ADDRESS,
-  subscribeToContractEvents,
-  getEscrowState,
-  buildPartialReleaseTransaction,
 } from "@/lib/stellar";
-import { Asset, type Transaction } from "@stellar/stellar-sdk";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import type { Application, Job } from "@/utils/types";
+import type { Application, Job, ClientReputation } from "@/utils/types";
 
 interface JobDetailProps {
   publicKey: string | null;
   onConnect: (pk: string) => void;
 }
 
-function badgeClass(status: string) {
-  if (status === "accepted") return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-  if (status === "rejected") return "bg-red-500/10 text-red-400 border-red-500/20";
-  return "bg-market-500/10 text-market-400 border-market-500/20";
-}
-
 export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const router = useRouter();
   const jobId = typeof router.query.id === "string" ? router.query.id : null;
-  const prefill = typeof router.query.prefill === "string" ? router.query.prefill : null;
 
   const [job, setJob] = useState<Job | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
@@ -55,43 +44,57 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   const [disputeDescription, setDisputeDescription] = useState("");
   const [raisingDispute, setRaisingDispute] = useState(false);
   const [resolvingDispute, setResolvingDispute] = useState(false);
+  const [clientReputation, setClientReputation] = useState<ClientReputation | null>(null);
+  const [pendingTimeoutRefund, setPendingTimeoutRefund] = useState<any>(null);
 
   const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
   const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
-  const hasApplied = applications.some((application) => application.freelancerAddress === publicKey);
+  const hasApplied = applications.some(
+    (application) => application.freelancerAddress === publicKey,
+  );
 
   useEffect(() => {
-    if (!id || !router.isReady) return;
+    if (!jobId || !router.isReady) return;
 
     const { prefill } = router.query;
 
     if (typeof prefill === "string") {
       try {
-        setPrefillData(JSON.parse(Buffer.from(prefill, "base64").toString("utf8")));
+        setPrefillData(
+          JSON.parse(Buffer.from(prefill, "base64").toString("utf8")),
+        );
       } catch {
         setPrefillData(null);
       }
     }
 
-    Promise.all([fetchJob(id as string), fetchApplications(id as string)])
-      .then(([loadedJob, loadedApplications]) => {
+    Promise.all([fetchJob(jobId as string), fetchApplications(jobId as string)])
+      .then(async ([loadedJob, loadedApplications]) => {
         setJob(loadedJob);
         setApplications(loadedApplications);
+        try {
+          const rep = await fetchClientReputation(loadedJob.clientAddress);
+          setClientReputation(rep);
+        } catch {
+          setClientReputation(null);
+        }
+        // Persist to localStorage so the offline page can show last-viewed jobs
+        recordViewedJob(loadedJob);
       })
       .catch(() => router.push("/jobs"))
       .finally(() => setLoading(false));
-  }, [id, router, router.isReady, router.query]);
+  }, [jobId, router, router.isReady, router.query]);
 
   const handleAcceptApplication = async (applicationId: string) => {
-    if (!publicKey || !id) return;
+    if (!publicKey || !jobId) return;
 
     try {
       setActionError(null);
       await acceptApplication(applicationId, publicKey);
 
       const [updatedJob, updatedApplications] = await Promise.all([
-        fetchJob(id as string),
-        fetchApplications(id as string),
+        fetchJob(jobId),
+        fetchApplications(jobId),
       ]);
 
       setJob(updatedJob);
@@ -113,8 +116,14 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     setActionError(null);
 
     try {
-      const prepared = await buildReleaseEscrowTransaction(job.escrowContractId, job.id, publicKey);
-      const { signedXDR, error: signError } = await signTransactionWithWallet(prepared.toXDR());
+      const prepared = await buildReleaseEscrowTransaction(
+        job.escrowContractId,
+        job.id,
+        publicKey,
+      );
+      const { signedXDR, error: signError } = await signTransactionWithWallet(
+        prepared.toXDR(),
+      );
 
       if (signError || !signedXDR) {
         setActionError(signError || "Signing was cancelled.");
@@ -128,49 +137,41 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
       setJob(refreshedJob);
       setReleaseSuccess(true);
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : "Could not complete escrow release.");
+      setActionError(
+        error instanceof Error ? error.message : "Could not complete escrow release.",
+      );
     } finally {
       setReleasingEscrow(false);
-    }
-  };
-  
-  const handlePartialRelease = async (index: number) => {
-    if (!publicKey || !job) return;
-    setActionError(null);
-    setReleasingMilestoneIndex(index);
-    setReleasingEscrow(true);
-    try {
-      const contractId = process.env.NEXT_PUBLIC_CONTRACT_ID;
-      if (!contractId) throw new Error("Contract ID not configured");
-      const tx = await buildPartialReleaseTransaction(contractId, job.id, publicKey, index);
-      setPendingRelease({ transaction: tx, fnName: "release_escrow" as any });
-    } catch (err: unknown) {
-      setActionError(err instanceof Error ? err.message : String(err));
-      setReleasingEscrow(false);
-      setReleasingMilestoneIndex(null);
     }
   };
 
   const handleRaiseDispute = async () => {
-    if (!publicKey || !job) return;
-    if (!disputeReason || !disputeDescription) {
-      setActionError("Please provide both a reason and a description.");
-      return;
-    }
-
+    if (!publicKey || !jobId) return;
     setRaisingDispute(true);
-    setActionError(null);
-
     try {
-      await raiseDispute(job.id, { reason: disputeReason, description: disputeDescription });
-      const refreshedJob = await fetchJob(job.id);
-      setJob(refreshedJob);
+      await raiseDispute(jobId, { reason: disputeReason, description: disputeDescription });
       setShowDisputeModal(false);
-    } catch (e: any) {
-      setActionError(e.response?.data?.error || "Failed to raise dispute.");
+      setDisputeReason("");
+      setDisputeDescription("");
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Failed to raise dispute.");
     } finally {
       setRaisingDispute(false);
     }
+  };
+
+  const handleConfirmTimeoutRefundFee = async () => {
+    if (!publicKey || !jobId) return;
+    setPendingTimeoutRefund(null);
+    try {
+      await timeoutRefund(jobId, publicKey);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Timeout refund failed.");
+    }
+  };
+
+  const handleCancelTimeoutRefundFee = () => {
+    setPendingTimeoutRefund(null);
   };
 
   if (loading) {
@@ -206,7 +207,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
 
         <div className="card mb-6">
           <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-5">
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2 flex-wrap">
                 <span className={statusClass(job.status)}>{statusLabel(job.status)}</span>
                 <span className="text-xs text-amber-800 bg-ink-700 px-2.5 py-1 rounded-full border border-market-500/10">
@@ -216,40 +217,18 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                   <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
                     Featured
                   </span>
-                  {job.boosted && new Date(job.boostedUntil || "") > new Date() && (
-                    <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                      Featured
-                    </span>
-                  )}
-                </div>
-
-                <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug">
-                  {job.title}
-                </h1>
-
-                <div className="mt-4 flex flex-wrap gap-3 text-sm text-amber-700">
-                  <span>Posted {timeAgo(job.createdAt)}</span>
-                  <span>{applications.length} application{applications.length === 1 ? "" : "s"}</span>
-                  {job.deadline && <span>Deadline: {formatDate(job.deadline)}</span>}
-                </div>
+                )}
               </div>
 
-              <div className="sm:text-right">
-                <p className="text-xs text-amber-800 mb-1">Budget</p>
-                <p className="font-mono font-bold text-2xl text-market-400">{printableBudget}</p>
-                <a
-                  href={accountUrl(job.clientAddress)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 mt-3 text-sm text-amber-700 hover:text-market-400 transition-colors"
-                >
-                  Client: {shortenAddress(job.clientAddress)}
-                </a>
-              </div>
-
-              <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug">
+              <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 leading-snug break-words">
                 {job.title}
               </h1>
+
+              <div className="mt-4 flex flex-wrap gap-3 text-sm text-amber-700">
+                <span>Posted {timeAgo(job.createdAt)}</span>
+                <span>{applications.length} application{applications.length === 1 ? "" : "s"}</span>
+                {job.deadline && <span>Deadline: {formatDate(job.deadline)}</span>}
+              </div>
             </div>
 
             <div className="flex-shrink-0 sm:text-right">
@@ -257,13 +236,6 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               <p className="font-mono font-bold text-2xl text-market-400">
                 {formatXLM(job.budget)} {job.currency}
               </p>
-
-              {job.deadline && (
-                <p className="text-xs text-amber-700 mt-2">
-                  Deadline: {formatDate(job.deadline)}
-                </p>
-              )}
-
               <a
                 href={accountUrl(job.clientAddress)}
                 target="_blank"
@@ -279,7 +251,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             <h3 className="font-display text-base font-semibold text-amber-300 mb-3">
               Description
             </h3>
-            <p className="text-amber-700/90 leading-relaxed whitespace-pre-wrap font-body text-sm">
+            <p className="text-amber-700/90 leading-relaxed whitespace-pre-wrap break-words font-body text-sm">
               {job.description}
             </p>
           </div>
@@ -289,7 +261,6 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               <h3 className="font-display text-base font-semibold text-amber-300 mb-3">
                 Required Skills
               </h3>
-
               <div className="flex flex-wrap gap-2">
                 {job.skills.map((skill) => (
                   <span
@@ -301,7 +272,25 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                 ))}
               </div>
             </div>
-          </section>
+          )}
+
+          {clientReputation && (
+            <div className="mt-6 rounded-xl border border-market-500/20 bg-ink-900/40 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-display text-base font-semibold text-amber-100">Client Reputation</h3>
+                <span className="inline-flex items-center rounded-full border border-market-500/30 bg-market-500/10 px-2.5 py-1 text-xs font-semibold text-market-300">
+                  ★ {clientReputation.score.toFixed(1)} / 5.0
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-amber-700">
+                <p>Payment release rate: {clientReputation.paymentReleaseRate}%</p>
+                <p>Dispute rate: {clientReputation.disputeRate}%</p>
+                <p>Completion rate: {clientReputation.completionRate}%</p>
+                <p>Avg payment release time: {clientReputation.avgTimeToReleaseHours}h</p>
+                <p>Response time to applications: {clientReputation.responseTimeToApplicationsHours}h</p>
+              </div>
+            </div>
+          )}
 
           {actionError && (
             <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
@@ -312,12 +301,18 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           <div className="mt-5">
             <button
               onClick={() => setShowShareModal(true)}
-              className="text-xs text-market-400 hover:text-market-300 underline"
+              className="text-xs text-market-400 hover:text-market-300 underline min-h-[44px] min-w-[44px] inline-flex items-center"
             >
               Share job
             </button>
           </div>
         </div>
+
+        {actionError && (
+          <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+            {actionError}
+          </div>
+        )}
 
         {(isFreelancer || isClient) && job.status === "in_progress" && (
           <TimeTracker
@@ -327,7 +322,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           />
         )}
 
-        {isClient && (
+        {isClient && job.status === "open" && (
           <div className="mb-6">
             <RealtimeBidComparison
               jobId={job.id}
@@ -338,34 +333,16 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           </div>
         )}
 
+        {job.status === "open" && !publicKey && !isClient && (
+          <div className="mb-6">
+            <WalletConnect onConnect={onConnect} />
+          </div>
+        )}
 
-        {/* Issue #175 — Escrow timeout countdown + refund UI */}
-        {job.escrowContractId && timeoutLedger && job.status !== "completed" && job.status !== "cancelled" && (
-          <div className="card mb-6">
-            <h2 className="font-display text-lg font-bold text-amber-100 mb-3">Escrow Timeout</h2>
-
-            {timeoutRefundSuccess ? (
-              <div>
-                <p className="text-market-400 font-medium">Timeout refund processed successfully.</p>
-              </div>
-            ) : timeoutCountdown && currentLedger < timeoutLedger ? (
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-amber-700">
-                  Auto-refund available in:
-                </span>
-                <span className="font-mono text-sm text-market-400 bg-market-500/8 px-3 py-1 rounded border border-market-500/15">
-                  {timeoutCountdown}
-                </span>
-              </div>
-            ) : isClient && currentLedger >= timeoutLedger ? (
-              <div>
-                <p className="text-sm text-red-400 mb-3">
-                  The freelancer did not start work within the timeout period. You can claim a refund.
-                </p>
-                <WalletConnect onConnect={onConnect} />
-              </div>
-            ) : hasApplied ? (
-              <div className="card text-center py-8 border-market-500/20">
+        {job.status === "open" && publicKey && !isClient && (
+          <>
+            {hasApplied ? (
+              <div className="card text-center py-8 border-market-500/20 mb-6">
                 <p className="text-market-400 font-medium mb-1">Application submitted</p>
                 <p className="text-amber-800 text-sm">
                   The client will review your proposal shortly.
@@ -375,53 +352,39 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               <ApplicationForm
                 job={job}
                 publicKey={publicKey}
-                prefillData={prefillData}
+                prefillData={prefillData || undefined}
                 onSuccess={() => {
                   setShowApplyForm(false);
                   fetchApplications(job.id).then(setApplications);
                 }}
               />
             ) : (
-              <div className="text-center">
+              <div className="text-center mb-6">
                 <button
                   onClick={() => setShowApplyForm(true)}
-                  className="btn-primary text-base px-10 py-3.5"
+                  className="btn-primary text-base px-10 py-3.5 min-h-[44px]"
                 >
                   Apply for this Job
                 </button>
               </div>
-            ) : (
-              <p className="text-sm text-amber-700">
-                Timeout period has expired. Only the client can claim a refund.
-              </p>
             )}
-          </div>
+          </>
         )}
 
         {isClient && job.status === "in_progress" && (
           <div className="card mb-6">
-            <h2 className="font-display text-xl font-bold text-amber-100 mb-3">
-              Escrow
-            </h2>
-
+            <h2 className="font-display text-xl font-bold text-amber-100 mb-3">Escrow</h2>
             <button
               onClick={handleReleaseEscrow}
               disabled={releasingEscrow}
-              className="btn-primary"
+              className="btn-primary min-h-[44px]"
             >
               {releasingEscrow ? "Releasing..." : "Release Escrow"}
             </button>
-
             {releaseSuccess && (
-              <p className="mt-3 text-emerald-400 text-sm">
-                Escrow released successfully.
-              </p>
+              <p className="mt-3 text-emerald-400 text-sm">Escrow released successfully.</p>
             )}
           </div>
-        )}
-
-        {actionError && (
-          <p className="mt-3 mb-6 text-red-400 text-sm">{actionError}</p>
         )}
 
         {job.status === "completed" && publicKey && !ratingSubmitted && (
@@ -434,7 +397,6 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
                 onSuccess={() => setRatingSubmitted(true)}
               />
             )}
-
             {isFreelancer && (
               <RatingForm
                 jobId={job.id}
@@ -468,12 +430,12 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
           <div className="relative w-full max-w-md bg-ink-900 border border-market-500/20 rounded-2xl p-6 shadow-2xl animate-scale-in">
             <h3 className="font-display text-xl font-bold text-amber-100 mb-2">Raise a Dispute</h3>
             <p className="text-sm text-amber-800 mb-6">Flag this job for admin review. This will block escrow release until resolved.</p>
-            
+
             <div className="space-y-4">
               <div>
                 <label className="label">Reason</label>
-                <select 
-                  value={disputeReason} 
+                <select
+                  value={disputeReason}
                   onChange={(e) => setDisputeReason(e.target.value)}
                   className="input-field"
                 >
@@ -487,7 +449,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               </div>
               <div>
                 <label className="label">Description</label>
-                <textarea 
+                <textarea
                   value={disputeDescription}
                   onChange={(e) => setDisputeDescription(e.target.value)}
                   placeholder="Explain the issue in detail..."
@@ -498,19 +460,19 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
             </div>
 
             <div className="flex gap-3 mt-8">
-              <button 
-                onClick={() => setShowDisputeModal(false)} 
-                className="flex-1 btn-secondary py-2.5"
+              <button
+                onClick={() => setShowDisputeModal(false)}
+                className="flex-1 btn-secondary py-2.5 min-h-[44px]"
                 disabled={raisingDispute}
               >
                 Cancel
               </button>
-              <button 
-                onClick={handleRaiseDispute} 
-                className="flex-1 btn-primary py-2.5 flex items-center justify-center gap-2"
+              <button
+                onClick={handleRaiseDispute}
+                className="flex-1 btn-primary py-2.5 min-h-[44px] flex items-center justify-center gap-2"
                 disabled={raisingDispute || !disputeReason || !disputeDescription}
               >
-                {raisingDispute ? <Spinner /> : "Raise Dispute"}
+                {raisingDispute ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin inline-block" /> : "Raise Dispute"}
               </button>
             </div>
             {actionError && <p className="mt-3 text-red-400 text-sm text-center">{actionError}</p>}

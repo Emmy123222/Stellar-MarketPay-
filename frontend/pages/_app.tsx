@@ -22,6 +22,7 @@ import { ToastProvider } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
 import OfflineBanner from "@/components/OfflineBanner";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useBackgroundSync } from "@/hooks/useBackgroundSync";
 import "../lib/i18n";
 
 const REF_STORAGE_KEY = "marketpay_pending_referrer";
@@ -35,6 +36,11 @@ function App({ Component, pageProps }: AppProps) {
   } | null>(null);
   const [installDismissed, setInstallDismissed] = useState(false);
   const router = useRouter();
+
+  // Background sync: refresh the current page when the SW replays queued requests
+  useBackgroundSync({
+    onSyncComplete: () => router.replace(router.asPath),
+  });
 
   // Capture ?ref= query param and persist it until the user connects a wallet
   useEffect(() => {

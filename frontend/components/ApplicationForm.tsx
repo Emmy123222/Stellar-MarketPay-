@@ -75,6 +75,7 @@ export default function ApplicationForm({ job, publicKey, prefillData, onSuccess
         freelancerAddress: publicKey,
         proposal: proposal.trim(),
         bidAmount: parseFloat(bidAmount).toFixed(7),
+        currency: "XLM",
         screeningAnswers: job.screeningQuestions && job.screeningQuestions.length > 0 ? screeningAnswers : undefined,
         referredBy: referredBy || undefined,
       });

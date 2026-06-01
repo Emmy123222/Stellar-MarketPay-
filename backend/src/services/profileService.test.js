@@ -231,7 +231,7 @@ describe("profileService", () => {
   describe("getResponseTime", () => {
     it("returns null when no data is available", async () => {
       pool.query.mockResolvedValueOnce({
-        rows: [{ avg_days: null }],
+        rows: [{ average_days: null }],
       });
 
       const result = await getResponseTime(publicKey);
@@ -240,7 +240,7 @@ describe("profileService", () => {
 
     it("returns formatted average days", async () => {
       pool.query.mockResolvedValueOnce({
-        rows: [{ avg_days: "2.4567" }],
+        rows: [{ average_days: "2.5" }],
       });
 
       const result = await getResponseTime(publicKey);

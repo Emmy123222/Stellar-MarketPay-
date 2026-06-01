@@ -194,8 +194,8 @@ export default function PostJobForm() {
 
       const { txHash } = await createEscrowOnChain({
         clientPublicKey,
-        jobId,
-        budgetXlm: form.budgetXlm,
+        jobId: jobId,
+        budget: form.budgetXlm,
       });
 
       // ── Step 2b: Store the contract tx hash in the job record ────────────

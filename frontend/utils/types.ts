@@ -18,7 +18,7 @@ export type FreelancerTier =
   | "Expert"
   | "Top Talent";
 export type AvailabilityStatus = "available" | "busy" | "unavailable";
-export type PortfolioItemType = "link" | "image" | "pdf";
+export type PortfolioItemType = "link" | "image" | "pdf" | "github" | "live" | "stellar_tx" | "file";
 
 export interface PortfolioItem {
   title: string;
@@ -57,6 +57,24 @@ export interface Job {
   expiresAt?: string; // ISO date when job expires if not hired
   extendedCount?: number; // Number of times expiry has been extended
   extendedUntil?: string; // Final expiry after all extensions
+  clientReputationScore?: number | null;
+}
+
+export interface ClientReputation {
+  publicKey: string;
+  score: number;
+  paymentReleaseRate: number;
+  disputeRate: number;
+  completionRate: number;
+  avgTimeToReleaseHours: number;
+  responseTimeToApplicationsHours: number;
+  totals: {
+    totalJobs: number;
+    completedJobs: number;
+    disputedJobs: number;
+    totalReleased: number;
+    releasedOnTime: number;
+  };
 }
 
 export interface Application {
@@ -70,6 +88,7 @@ export interface Application {
   status: "pending" | "accepted" | "rejected";
   screeningAnswers?: Record<string, string>; // Question -> Answer mapping
   createdAt: string;
+  estimatedDuration?: string;
 }
 
 export interface UserProfile {
@@ -91,6 +110,8 @@ export interface UserProfile {
   isKycVerified?: boolean;
   createdAt: string;
   updatedAt?: string;
+  referralCount?: number;
+  reputationPoints?: number;
 }
 
 export interface Rating {
@@ -160,6 +181,8 @@ export interface Message {
   content: string;
   read: boolean;
   createdAt: string;
+  ipfsCid?: string;
+  txHash?: string;
 }
 
 export interface PortfolioFile {
@@ -240,17 +263,63 @@ export interface ReferralStats {
   payouts: ReferralPayout[];
 }
 
-// ─── Job Invitations (Issue #342) ─────────────────────────────────────────────
+export interface TimeEntry {
+  id: string;
+  jobId: string;
+  durationMinutes: number;
+  description?: string;
+  startedAt?: string;
+  createdAt: string;
+}
+
+export interface TimeInvoice {
+  id: string;
+  jobId: string;
+  status: "pending" | "approved" | "rejected";
+  totalMinutes: number;
+  amountXlm: string;
+  hourlyRateXlm: string;
+  totalAmountXlm: string;
+  createdAt: string;
+}
+
+export interface BulkActionResponse {
+  success: boolean;
+  message?: string;
+  succeeded: number;
+  failed: number;
+  processedCount: number;
+  failedCount: number;
+  results: { id: string; success: boolean; error?: string; boostedUntil?: string }[];
+}
+
+export interface JobAnalytics {
+  jobId: string;
+  title: string;
+  applicantCount: number;
+  averageBid: string;
+  minBid: string;
+  maxBid: string;
+  views?: number;
+  applications: Array<{
+    freelancerAddress: string;
+    bidAmount: string;
+    createdAt: string;
+  }>;
+  applicationsPerDay: Array<{ day: string; count: number }>;
+  averageBidAmount: Array<{ currency: string; avgBid: number; count: number }>;
+  skillDistribution: Record<string, number>;
+  daysToHire: number | null;
+  applicationStatusCounts: Record<string, number>;
+}
 
 export interface JobInvitation {
   id: string;
   jobId: string;
+  clientAddress: string;
+  clientName?: string;
   jobTitle: string;
   jobBudget: string;
   jobCurrency: Currency;
-  clientAddress: string;
-  clientName?: string;
-  freelancerAddress: string;
-  status: "pending" | "accepted" | "declined";
   createdAt: string;
 }

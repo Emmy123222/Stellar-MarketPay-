@@ -8,7 +8,7 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db/pool");
 const { verifyJWT, requireAdmin2FA } = require("../middleware/auth");
-const { getJob, updateJobStatus } = require("../services/jobService");
+const { updateJobStatus } = require("../services/jobService");
 const { logContractInteraction } = require("../services/contractAuditService");
 
 // ── Admin Role Guard ───────────────────────────────────────────────────────────
@@ -239,7 +239,7 @@ router.get("/reported-wallets", verifyJWT, requireAdmin, requireAdmin2FA, async 
 });
 
 // ── GET /api/admin/logs — admin action audit log ───────────────────────────────
-router.get("/logs", verifyJWT, requireAdmin, requireAdmin2FA, async (req, res, next) => {
+router.get("/logs", verifyJWT, requireAdmin, requireAdmin2FA, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, action, actor_address, target, reason, metadata, created_at
@@ -249,7 +249,6 @@ router.get("/logs", verifyJWT, requireAdmin, requireAdmin2FA, async (req, res, n
     );
     res.json({ success: true, data: rows });
   } catch (e) {
-    // If table doesn't exist, return empty
     res.json({ success: true, data: [] });
   }
 });
@@ -372,7 +371,7 @@ router.delete("/wallets/:address/freeze", verifyJWT, requireAdmin, requireAdmin2
 });
 
 // ── GET /api/admin/wallets/frozen — list frozen wallets ───────────────────────
-router.get("/wallets/frozen", verifyJWT, requireAdmin, requireAdmin2FA, async (req, res, next) => {
+router.get("/wallets/frozen", verifyJWT, requireAdmin, requireAdmin2FA, async (req, res) => {
   try {
     const { rows } = await pool.query(
       "SELECT address, reason, frozen_by, created_at FROM frozen_wallets ORDER BY created_at DESC"
@@ -380,6 +379,56 @@ router.get("/wallets/frozen", verifyJWT, requireAdmin, requireAdmin2FA, async (r
     res.json({ success: true, data: rows });
   } catch (e) {
     res.json({ success: true, data: [] });
+  }
+});
+
+// ── GET /api/admin/jobs/expired — list expired jobs ───────────────────────────
+router.get("/jobs/expired", verifyJWT, requireAdmin, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, title, client_address, budget, currency, status, expires_at, created_at
+       FROM jobs
+       WHERE status = 'expired'
+       ORDER BY expires_at DESC
+       LIMIT 100`
+    );
+    res.json({ success: true, data: rows });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── POST /api/admin/jobs/:jobId/reactivate — reactivate expired job ───────────
+router.post("/jobs/:jobId/reactivate", verifyJWT, requireAdmin, requireAdmin2FA, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { rows } = await pool.query(
+      `UPDATE jobs
+       SET status = 'open',
+           expires_at = NOW() + INTERVAL '30 days',
+           updated_at = NOW()
+       WHERE id = $1 AND status = 'expired'
+       RETURNING id, title, status, expires_at`,
+      [jobId]
+    );
+
+    if (!rows.length) {
+      const e = new Error("Job not found or not expired");
+      e.status = 404;
+      throw e;
+    }
+
+    await logAdminAction({
+      action: "job_reactivated",
+      adminAddress: req.user.publicKey,
+      targetId: jobId,
+      targetType: "job",
+      details: { reason: "Admin reactivation" },
+    });
+
+    res.json({ success: true, data: rows[0] });
+  } catch (e) {
+    next(e);
   }
 });
 

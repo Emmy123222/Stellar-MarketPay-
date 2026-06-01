@@ -214,20 +214,20 @@ export default function RealtimeBidComparison({
             const bidPercentage = averageBid > 0 ? (parseFloat(application.bidAmount) / averageBid) * 100 : 100;
             
             return (
-              <div 
-                key={application.id} 
+              <div
+                key={application.id}
                 className={`card transition-all duration-500 ${
-                  isHighlighted 
-                    ? 'ring-2 ring-amber-400 bg-amber-500/5 animate-pulse' 
+                  isHighlighted
+                    ? 'ring-2 ring-amber-400 bg-amber-500/5 animate-pulse'
                     : ''
                 } ${
-                  isLowestBid 
-                    ? 'border-green-500/30 bg-green-500/5' 
+                  isLowestBid
+                    ? 'border-green-500/30 bg-green-500/5'
                     : ''
                 }`}
               >
-                <div className="flex items-start justify-between gap-4 mb-3">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+                  <div className="flex flex-wrap items-center gap-2">
                     <a
                       href={accountUrl(application.freelancerAddress)}
                       target="_blank"
@@ -236,13 +236,13 @@ export default function RealtimeBidComparison({
                     >
                       {shortenAddress(application.freelancerAddress)} ↗
                     </a>
-                    
+
                     {index === 0 && (
                       <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded-full border border-green-500/30">
                         Lowest Bid
                       </span>
                     )}
-                    
+
                     {isHighlighted && (
                       <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-1 rounded-full border border-amber-500/30 animate-pulse">
                         New!
@@ -250,13 +250,13 @@ export default function RealtimeBidComparison({
                     )}
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
+                  <div className="flex items-center gap-3 sm:flex-shrink-0">
+                    <div className="text-left sm:text-right">
                       <div className="font-mono text-market-400 font-semibold text-sm">
                         {formatXLM(application.bidAmount)}
                       </div>
                       <div className="text-xs text-amber-800">
-                        {bidPercentage < 90 ? '🟢' : bidPercentage > 110 ? '🔴' : '🟡'} 
+                        {bidPercentage < 90 ? '🟢' : bidPercentage > 110 ? '🔴' : '🟡'}
                         {bidPercentage.toFixed(0)}% of avg
                       </div>
                     </div>
@@ -285,7 +285,7 @@ export default function RealtimeBidComparison({
                   {isClient && application.status === "pending" && onAcceptApplication && (
                     <button
                       onClick={() => onAcceptApplication(application.id)}
-                      className="btn-secondary text-sm py-2 px-4 hover:bg-market-500/20 transition-colors"
+                      className="btn-secondary text-sm py-2 px-4 min-h-[44px] min-w-[44px] hover:bg-market-500/20 transition-colors"
                     >
                       Accept Proposal
                     </button>

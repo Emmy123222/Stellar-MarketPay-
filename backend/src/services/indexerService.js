@@ -46,7 +46,6 @@ class IndexerService {
       lastError: null,
     };
     this.closeStream = null;
-    this.closeEventStream = null;
     this.contractId = requireEnv("CONTRACT_ID", { fallback: contractId || process.env.ESCROW_CONTRACT_ID });
   }
 
@@ -185,44 +184,7 @@ class IndexerService {
   }
 
   async processEvent(event) {
-    // Soroban events from Horizon have: type, id, paging_token, ledger, ledger_closed_at, contract_id, topic, value, etc.
-    if (this.contractId && event.contract_id !== this.contractId) return;
-
-    const eventTypeRaw = event.topic?.[0];
-    if (!eventTypeRaw) return;
-
-    // Map contract symbols to DB event types
-    const typeMap = {
-      "created": "escrow_created",
-      "started": "work_started",
-      "released": "escrow_released",
-      "conv_rel": "escrow_released",
-      "refunded": "escrow_refunded",
-      "torefnd": "escrow_timeout_refunded",
-      "disputed": "dispute_opened"
-    };
-
-    const eventType = typeMap[eventTypeRaw];
-    if (!eventType) return;
-
-    const jobId = event.value?.job_id || event.value; // Simplification: depends on event structure
-    if (!jobId) return;
-
-    await pool.query(
-      `INSERT INTO contract_events (job_id, event_type, contract_id, tx_hash, ledger, data, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [
-        jobId,
-        eventType,
-        event.contract_id,
-        event.transaction_hash,
-        event.ledger,
-        JSON.stringify(event.value || {}),
-        event.ledger_closed_at
-      ]
-    );
-
-    this.broadcast("contract:event", { jobId, eventType, txHash: event.transaction_hash });
+    // Stub — event processing will be implemented in the next commit
   }
 
   async start() {
@@ -257,34 +219,6 @@ class IndexerService {
         },
       });
 
-    // Start event stream
-    this.startEventStream();
-  }
-
-  startEventStream() {
-    const cursor = "now";
-    this.closeEventStream = this.horizon
-      .events()
-      .cursor(cursor)
-      .stream({
-        onmessage: async (event) => {
-          try {
-            await this.processEvent(event);
-          } catch (error) {
-            console.error("[Indexer] failed to process event:", error.message);
-          }
-        },
-        onerror: (error) => {
-          console.error("[Indexer] event stream error:", error?.message);
-          // Auto-reconnect logic
-          setTimeout(() => {
-            if (this.syncState.running) {
-              console.log("[Indexer] attempting to reconnect event stream...");
-              this.startEventStream();
-            }
-          }, 5000);
-        },
-      });
   }
 
   async getEventsForJob(jobId) {
@@ -298,9 +232,7 @@ class IndexerService {
 
   stop() {
     if (typeof this.closeStream === "function") this.closeStream();
-    if (typeof this.closeEventStream === "function") this.closeEventStream();
     this.closeStream = null;
-    this.closeEventStream = null;
     this.syncState.running = false;
   }
 

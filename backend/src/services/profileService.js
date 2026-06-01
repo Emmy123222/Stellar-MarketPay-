@@ -635,41 +635,132 @@ async function getClientSpendingAnalytics(publicKey) {
   };
 }
 
-/**
- * Get profile stats (application counts).
- * @param {string} publicKey
- * @returns {Promise<Object>}
- */
-async function getProfileStats(publicKey) {
+async function getClientReputation(publicKey) {
   validatePublicKey(publicKey);
+
   const { rows } = await pool.query(
-    `SELECT
-       COUNT(*)::int AS total_applications,
-       COUNT(*) FILTER (WHERE status = 'accepted')::int AS accepted_applications
-     FROM applications WHERE freelancer_address = $1`,
+    `
+    WITH client_jobs AS (
+      SELECT id, status, created_at, updated_at
+      FROM jobs
+      WHERE client_address = $1
+    ),
+    completed_jobs AS (
+      SELECT id, created_at, updated_at
+      FROM client_jobs
+      WHERE status = 'completed'
+    ),
+    dispute_jobs AS (
+      SELECT id FROM client_jobs WHERE status = 'disputed'
+    ),
+    release_metrics AS (
+      SELECT
+        COUNT(*)::int AS total_released,
+        COUNT(*) FILTER (WHERE e.released_at <= e.created_at + INTERVAL '7 days')::int AS released_on_time,
+        AVG(EXTRACT(EPOCH FROM (e.released_at - e.created_at)) / 3600.0) AS avg_release_hours
+      FROM escrows e
+      JOIN completed_jobs cj ON cj.id = e.job_id
+      WHERE e.status = 'released' AND e.released_at IS NOT NULL
+    ),
+    response_metrics AS (
+      SELECT AVG(EXTRACT(EPOCH FROM (a.accepted_at - j.created_at)) / 3600.0) AS avg_response_hours
+      FROM jobs j
+      JOIN applications a ON a.job_id = j.id
+      WHERE j.client_address = $1
+        AND a.status = 'accepted'
+        AND a.accepted_at IS NOT NULL
+    )
+    SELECT
+      (SELECT COUNT(*)::int FROM client_jobs) AS total_jobs,
+      (SELECT COUNT(*)::int FROM completed_jobs) AS completed_jobs,
+      (SELECT COUNT(*)::int FROM dispute_jobs) AS disputed_jobs,
+      COALESCE((SELECT total_released FROM release_metrics), 0) AS total_released,
+      COALESCE((SELECT released_on_time FROM release_metrics), 0) AS released_on_time,
+      COALESCE((SELECT avg_release_hours FROM release_metrics), 0) AS avg_release_hours,
+      COALESCE((SELECT avg_response_hours FROM response_metrics), 0) AS avg_response_hours
+    `,
     [publicKey]
   );
-  return rows[0] || { totalApplications: 0, acceptedApplications: 0 };
+
+  const row = rows[0];
+  const totalJobs = Number(row.total_jobs) || 0;
+  const completedJobs = Number(row.completed_jobs) || 0;
+  const disputedJobs = Number(row.disputed_jobs) || 0;
+  const totalReleased = Number(row.total_released) || 0;
+  const releasedOnTime = Number(row.released_on_time) || 0;
+  const avgReleaseHours = Number(row.avg_release_hours) || 0;
+  const avgResponseHours = Number(row.avg_response_hours) || 0;
+
+  const paymentReleaseRate = totalReleased > 0 ? releasedOnTime / totalReleased : 0;
+  const disputeRate = totalJobs > 0 ? disputedJobs / totalJobs : 0;
+  const completionRate = totalJobs > 0 ? completedJobs / totalJobs : 0;
+  const responseTimeScore = avgResponseHours <= 0 ? 0 : Math.max(0, 1 - avgResponseHours / 168);
+  const releaseSpeedScore = avgReleaseHours <= 0 ? 0 : Math.max(0, 1 - avgReleaseHours / 336);
+
+  const score100 =
+    paymentReleaseRate * 35 +
+    (1 - disputeRate) * 25 +
+    completionRate * 25 +
+    responseTimeScore * 10 +
+    releaseSpeedScore * 5;
+
+  const score = Math.max(0, Math.min(5, Number(((score100 / 100) * 5).toFixed(2))));
+
+  return {
+    publicKey,
+    score,
+    paymentReleaseRate: Number((paymentReleaseRate * 100).toFixed(1)),
+    disputeRate: Number((disputeRate * 100).toFixed(1)),
+    completionRate: Number((completionRate * 100).toFixed(1)),
+    avgTimeToReleaseHours: Number(avgReleaseHours.toFixed(1)),
+    responseTimeToApplicationsHours: Number(avgResponseHours.toFixed(1)),
+    totals: { totalJobs, completedJobs, disputedJobs, totalReleased, releasedOnTime },
+  };
 }
 
-/**
- * Get average response time for a profile (acceptance to release).
- * @param {string} publicKey
- * @returns {Promise<Object>}
- */
+async function getProfileStats(publicKey) {
+  validatePublicKey(publicKey);
+
+  const { rows } = await pool.query(
+    `
+    SELECT
+      COUNT(*)::int AS total_applications,
+      COUNT(*) FILTER (WHERE a.status = 'accepted')::int AS accepted_applications
+    FROM applications a
+    JOIN jobs j ON j.id = a.job_id
+    WHERE a.freelancer_address = $1
+    `,
+    [publicKey],
+  );
+
+  const totalApplications = Number(rows[0]?.total_applications || 0);
+  const acceptedApplications = Number(rows[0]?.accepted_applications || 0);
+  const successRate =
+    totalApplications > 0
+      ? Math.round((acceptedApplications / totalApplications) * 100)
+      : 0;
+
+  return { totalApplications, acceptedApplications, successRate };
+}
+
 async function getResponseTime(publicKey) {
   validatePublicKey(publicKey);
+
   const { rows } = await pool.query(
-    `SELECT
-       ROUND(AVG(EXTRACT(EPOCH FROM (e.released_at - e.created_at)) / 86400.0)::numeric, 1) AS average_days
-     FROM escrows e
-     JOIN jobs j ON j.id = e.job_id
-     WHERE (j.client_address = $1 OR j.freelancer_address = $1)
-       AND e.status = 'released'
-       AND e.released_at IS NOT NULL`,
-    [publicKey]
+    `
+    SELECT
+      AVG(EXTRACT(EPOCH FROM (e.released_at - e.created_at)) / 86400.0) AS average_days
+    FROM escrows e
+    JOIN jobs j ON j.id = e.job_id
+    WHERE j.freelancer_address = $1
+      AND e.status = 'released'
+      AND e.released_at IS NOT NULL
+    `,
+    [publicKey],
   );
-  return { averageDays: rows[0]?.average_days || null };
+
+  const value = rows[0]?.average_days;
+  return { averageDays: value == null ? null : Number(value) };
 }
 
 module.exports = {
@@ -680,6 +771,7 @@ module.exports = {
   getSkillEndorsements,
   endorseSkill,
   getClientSpendingAnalytics,
+  getClientReputation,
   calculateFreelancerTier,
   getProfileStats,
   getResponseTime,

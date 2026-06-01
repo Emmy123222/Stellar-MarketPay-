@@ -13,7 +13,16 @@ import { formatDate } from "@/utils/format";
 
 // ─── Boost tiers ─────────────────────────────────────────────────────────────
 
-const BOOST_TIERS = [
+interface BoostTier {
+  label: string;
+  amountXlm: number;
+  days: number;
+  description: string;
+  badge: string;
+  recommended?: boolean;
+}
+
+const BOOST_TIERS: BoostTier[] = [
   {
     label: "7-Day Boost",
     amountXlm: 5,

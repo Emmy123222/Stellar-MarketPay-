@@ -41,12 +41,12 @@ async function mockApi(page: Page, jobs: unknown[] = [job]) {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, token: "jwt-token" }) });
   });
 
-  await page.route("**/api/jobs?**", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: jobs }) });
-  });
-
   await page.route("**/api/jobs/job-1", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: job }) });
+  });
+
+  await page.route("**/api/jobs?**", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: jobs }) });
   });
 
   await page.route("**/api/applications/job/job-1", async (route) => {

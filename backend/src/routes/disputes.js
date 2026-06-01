@@ -131,11 +131,20 @@ router.post(
         throw e;
       }
 
-      const ipfsResult = await ipfsService.uploadFile(
-        req.file.buffer,
-        req.file.originalname,
-        req.file.mimetype
-      );
+      let ipfsResult;
+      try {
+        ipfsResult = await ipfsService.uploadFile(
+          req.file.buffer,
+          req.file.originalname,
+          req.file.mimetype
+        );
+      } catch (ipfsError) {
+        // Return user-friendly error for IPFS failures
+        const e = new Error(ipfsError.message || "Upload service temporarily unavailable. Please try again later.");
+        e.status = ipfsError.status || 503;
+        e.code = ipfsError.code || "IPFS_UPLOAD_FAILED";
+        throw e;
+      }
 
       const { rows } = await pool.query(
         `INSERT INTO dispute_evidence

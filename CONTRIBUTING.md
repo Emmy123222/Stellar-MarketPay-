@@ -83,3 +83,46 @@ stellar-marketpay/
 ```
 
 Look for `good first issue` labels to find beginner-friendly tasks!
+
+---
+
+## Testing
+
+### Frontend snapshot tests
+
+Component snapshots live under `frontend/__tests__/` and cover `JobCard`, `JobCardSkeleton`, `RatingForm`, `Toast`, `FreelancerTierBadge`, and `Navbar`.
+
+```bash
+cd frontend
+npm test
+```
+
+When you intentionally change UI markup, regenerate snapshots:
+
+```bash
+npm run test:update-snapshots
+```
+
+CI runs `npm test` without `-u`, so outdated snapshots fail the build.
+
+### Backend coverage
+
+```bash
+cd backend
+npm test
+```
+
+Coverage HTML is written to `backend/coverage/`. Thresholds are enforced in `backend/package.json` (minimum 60% lines, 50% branches on covered middleware and service modules). The full suite in `src/services/*.test.js` still runs on every `npm test`.
+
+### End-to-end tests
+
+```bash
+cd frontend
+npm run test:e2e
+```
+
+`tests/e2e/full-marketplace-flow.spec.ts` exercises the full client and freelancer journey with two mock Freighter accounts and `NEXT_PUBLIC_USE_CONTRACT_MOCK=true` (no testnet required).
+
+### Smart contract deployment
+
+See [docs/contract-deployment.md](docs/contract-deployment.md) for Soroban build, deploy, and env configuration steps.

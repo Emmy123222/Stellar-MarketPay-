@@ -164,7 +164,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
   async function handleResolveDispute() {
     if (!resolveModal || !resolveNote.trim()) return;
     try {
-      await resolveDispute(resolveModal.jobId, resolveNote, releaseTo);
+      await resolveDispute(resolveModal.jobId);
       showSuccess(`Dispute resolved — funds released to ${releaseTo}.`);
       setResolveModal(null);
       setResolveNote("");

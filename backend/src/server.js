@@ -35,7 +35,12 @@ const disputeRoutes   = require("./routes/disputes");
 const adminRoutes     = require("./routes/admin");
 const admin2faRoutes  = require("./routes/admin2fa");
 const timeEntryRoutes = require("./routes/timeEntries");
-const invitationRoutes = require("./routes/invitations");
+const notificationRoutes = require("./routes/notifications");
+const developerRoutes = require("./routes/developer");
+const publicRoutes    = require("./routes/public");
+const referralRoutes  = require("./routes/referrals");
+const eventsRoutes    = require("./routes/events");
+const savedSearchRoutes = require("./routes/savedSearches");
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
@@ -284,7 +289,9 @@ app.use("/api/admin",         adminRoutes);
 app.use("/api/developer",     developerRoutes);
 app.use("/api/public",        publicRoutes);
 app.use("/api/time-entries",  timeEntryRoutes);
-app.use("/api/invitations",   invitationRoutes);
+app.use("/api/referrals",     referralRoutes);
+app.use("/api/events",        eventsRoutes);
+app.use("/api/saved-searches", savedSearchRoutes);
 
 app.use((err, req, res, next) => {
   logError(req.logger || serviceLogger, err, {
@@ -433,6 +440,9 @@ async function bootstrap() {
   // Start notification processor - run every 2 minutes
   startNotificationProcessor();
 
+  // Start weekly digest scheduler - fires every Monday at 09:00 UTC
+  startWeeklyDigestScheduler();
+
   server.listen(PORT, () => {
     serviceLogger.info({
       port: PORT,
@@ -543,6 +553,80 @@ async function startNotificationProcessor() {
     }
   }, 2 * 60 * 1000).unref();
 }
+
+/**
+ * Schedule the weekly job-digest email for every Monday at 09:00 UTC.
+ *
+ * Strategy:
+ *   1. Compute milliseconds until the next Monday 09:00 UTC.
+ *   2. Fire a one-shot setTimeout to hit that exact moment.
+ *   3. Inside the callback, run the digest then start a 7-day setInterval
+ *      for all subsequent Mondays — avoiding drift from repeated short polls.
+ */
+function startWeeklyDigestScheduler() {
+  const weeklyDigestService = require("./services/weeklyDigestService");
+  const digestLogger = createServiceLogger("weekly-digest-scheduler");
+
+  // Reuse the same sendEmail transport already wired for notifications
+  const sendEmailFn = async ({ to, subject, text, html }) => {
+    if (!smtpTransport || !to) return;
+    await smtpTransport.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to,
+      subject,
+      text,
+      html,
+    });
+  };
+
+  /**
+   * Returns the number of milliseconds from now until the next
+   * Monday at 09:00:00.000 UTC.  If today is already Monday and
+   * it's before 09:00 UTC, fires today; otherwise next Monday.
+   */
+  function msUntilNextMonday9amUTC() {
+    const now = new Date();
+    const target = new Date(now);
+
+    // getUTCDay(): 0=Sun, 1=Mon … 6=Sat
+    const currentDay = now.getUTCDay();
+    const daysUntilMonday = currentDay === 1 ? 0 : (8 - currentDay) % 7 || 7;
+    target.setUTCDate(now.getUTCDate() + daysUntilMonday);
+    target.setUTCHours(9, 0, 0, 0);
+
+    // If we landed on today-Monday but the window has already passed, push 7 days
+    if (target <= now) {
+      target.setUTCDate(target.getUTCDate() + 7);
+    }
+
+    return target - now;
+  }
+
+  async function runDigest() {
+    try {
+      const stats = await weeklyDigestService.sendWeeklyDigest(sendEmailFn);
+      digestLogger.info(stats, "Weekly digest run complete");
+    } catch (err) {
+      logError(digestLogger, err, { operation: "weekly_digest_run" });
+    }
+  }
+
+  const delay = msUntilNextMonday9amUTC();
+  const nextRun = new Date(Date.now() + delay);
+
+  digestLogger.info(
+    { nextRunUTC: nextRun.toISOString(), delayMs: delay },
+    "Weekly digest scheduler armed"
+  );
+
+  // One-shot: fires at the exact next Monday 09:00 UTC
+  setTimeout(async () => {
+    await runDigest();
+    // Then run every 7 days from that point onward
+    setInterval(runDigest, 7 * 24 * 60 * 60 * 1000).unref();
+  }, delay).unref();
+}
+
 bootstrap();
 
 module.exports = app;

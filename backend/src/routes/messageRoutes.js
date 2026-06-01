@@ -18,7 +18,7 @@ const generalRateLimiter = createRateLimiter(60, 1); // 60 req/min for message o
 router.post("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next) => {
   try {
     const { jobId } = req.params;
-    const { content } = req.body;
+    const { content, contractTxHash } = req.body;
     const senderAddress = req.user.publicKey;
 
     if (!content || typeof content !== "string") {
@@ -29,6 +29,7 @@ router.post("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next)
       jobId,
       senderAddress,
       content: content.trim(),
+      contractTxHash: contractTxHash || null,
     });
 
     res.status(201).json({ success: true, data: message });
@@ -60,6 +61,25 @@ router.get("/unread-count", verifyJWT, generalRateLimiter, async (req, res, next
     const userAddress = req.user.publicKey;
     const count = await messageService.getUnreadCount(userAddress);
     res.json({ success: true, data: { unreadCount: count } });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ─── PATCH /api/messages/:messageId/tx-hash ──────────────────────────────────
+// Attach an on-chain Soroban transaction hash to a message record.
+// This is called after the frontend signs and submits the publish_message event.
+router.patch("/:messageId/tx-hash", verifyJWT, generalRateLimiter, async (req, res, next) => {
+  try {
+    const { messageId } = req.params;
+    const { txHash } = req.body;
+
+    if (!txHash || typeof txHash !== "string") {
+      return res.status(400).json({ success: false, error: "txHash is required" });
+    }
+
+    const message = await messageService.attachTxHash(messageId, txHash);
+    res.json({ success: true, data: message });
   } catch (e) {
     next(e);
   }

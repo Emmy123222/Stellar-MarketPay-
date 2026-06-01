@@ -4,7 +4,7 @@ import { useRouter } from "next/router";
 type CursorMap = Record<string, { start: number; end: number; updatedAt: number }>;
 
 type ScopeMessage =
-  | { event: "scope:init"; payload: { sessionId: string; participantId: string; content: string; cursors: CursorMap; finalized?: boolean } }
+  | { event: "scope:init"; payload: { sessionId: string; participantId: string; content: string; cursors: CursorMap; finalized?: boolean; expiresAt?: string } }
   | { event: "scope:update"; payload: { sessionId: string; content: string; cursors: CursorMap } }
   | { event: "scope:finalized"; payload: { sessionId: string; content: string; payload?: Record<string, string> } }
   | { event: "scope:error"; payload: { error: string } }
@@ -35,6 +35,9 @@ export default function ScopeSessionPage() {
   const [shareUrl, setShareUrl] = useState("");
   const [error, setError] = useState("");
   const [finalized, setFinalized] = useState(false);
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+  const [showExpiryWarning, setShowExpiryWarning] = useState(false);
   const socketRef   = useRef<WebSocket | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const saveTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -74,6 +77,7 @@ export default function ScopeSessionPage() {
           setCursors(msg.payload.cursors || {});
           setParticipantId(msg.payload.participantId);
           if (msg.payload.finalized) setFinalized(true);
+          if (msg.payload.expiresAt) setExpiresAt(msg.payload.expiresAt);
           return;
         }
         if (msg.event === "scope:update") {
@@ -100,6 +104,37 @@ export default function ScopeSessionPage() {
       socketRef.current = null;
     };
   }, [sessionId]);
+
+  // Timer to track session expiry and show warning
+  useEffect(() => {
+    if (!expiresAt) return;
+
+    const updateTimer = () => {
+      const now = Date.now();
+      const expiryTime = new Date(expiresAt).getTime();
+      const remaining = expiryTime - now;
+      
+      setTimeRemaining(remaining);
+      
+      // Show warning when less than 30 minutes remain
+      if (remaining > 0 && remaining <= 30 * 60 * 1000) {
+        setShowExpiryWarning(true);
+      } else {
+        setShowExpiryWarning(false);
+      }
+
+      // Session expired
+      if (remaining <= 0) {
+        setStatus("Session expired");
+        setError("This session has expired. Please save your content.");
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [expiresAt]);
 
   const sendUpdate = (content: string, selectionStart: number, selectionEnd: number) => {
     const socket = socketRef.current;
@@ -149,6 +184,46 @@ export default function ScopeSessionPage() {
     router.push("/post-job?fromScope=1");
   };
 
+  const downloadContent = () => {
+    const blob = new Blob([documentText], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `scope-${sessionId}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const renewSession = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+      const response = await fetch(`${apiUrl}/api/scope/${sessionId}/renew`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setExpiresAt(data.expiresAt);
+        setShowExpiryWarning(false);
+        setError("");
+      } else {
+        setError("Failed to renew session");
+      }
+    } catch (err) {
+      setError("Failed to renew session");
+    }
+  };
+
+  const formatTimeRemaining = (ms: number) => {
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+  };
+
   const activePeerCursors = Object.entries(cursors).filter(([id]) => id !== participantId);
 
   return (
@@ -181,6 +256,59 @@ export default function ScopeSessionPage() {
               <p className="text-sm font-medium text-emerald-300">Scope finalized</p>
               <p className="text-xs text-emerald-600">This document is locked and has been used to create the job.</p>
             </div>
+          </div>
+        )}
+
+        {/* Session expiry warning banner */}
+        {showExpiryWarning && !finalized && timeRemaining !== null && timeRemaining > 0 && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <span className="text-amber-400 text-lg">⚠</span>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-amber-300">Session expiring soon</p>
+                <p className="text-xs text-amber-600 mt-1">
+                  This session will expire in {formatTimeRemaining(timeRemaining)}. Save your content now.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={downloadContent}
+                className="btn-secondary px-3 py-1.5 text-xs"
+              >
+                Download Content
+              </button>
+              <button
+                type="button"
+                onClick={renewSession}
+                className="btn-primary px-3 py-1.5 text-xs"
+              >
+                Extend Session (24h)
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Session expired banner */}
+        {timeRemaining !== null && timeRemaining <= 0 && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+            <div className="flex items-start gap-3">
+              <span className="text-red-400 text-lg">✕</span>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-red-300">Session expired</p>
+                <p className="text-xs text-red-600 mt-1">
+                  This session has expired. You can still download your content below.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={downloadContent}
+              className="btn-secondary px-3 py-1.5 text-xs mt-3"
+            >
+              Download Content
+            </button>
           </div>
         )}
 
