@@ -2188,7 +2188,7 @@ mod event_tests {
     use super::*;
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::testutils::Events;
-    use soroban_sdk::{Address, Env, IntoVal, String, Vec};
+    use soroban_sdk::{Address, Env, String, Vec};
 
     fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, Address) {
         env.mock_all_auths();
@@ -2211,8 +2211,7 @@ mod event_tests {
         let events = env.events().all();
         let event = events.get(idx).unwrap();
         let topic0 = event.1.get(0).unwrap();
-        let sym: Symbol = topic0.into_val(env);
-        std::string::ToString::to_string(&sym)
+        std::format!("{:?}", topic0)
     }
 
     #[test]
