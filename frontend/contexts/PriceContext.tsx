@@ -2,7 +2,7 @@
  * contexts/PriceContext.tsx
  * Fetches XLM/USD price once on mount and shares it across the app.
  * Includes a global XLM/USD currency toggle.
- * Fails silently — components receive null if price is unavailable.
+ * Components must be rendered under PriceProvider.
  */
 import React, { createContext, useContext, useEffect, useState } from "react";
 
@@ -17,12 +17,7 @@ interface PriceContextValue {
   setCurrencyMode: (mode: CurrencyMode) => void;
 }
 
-const PriceContext = createContext<PriceContextValue>({
-  xlmPriceUsd: null,
-  priceLoading: true,
-  currencyMode: "XLM",
-  setCurrencyMode: () => {},
-});
+const PriceContext = createContext<PriceContextValue | undefined>(undefined);
 
 export function PriceProvider({ children }: { children: React.ReactNode }) {
   const [xlmPriceUsd, setXlmPriceUsd] = useState<number | null>(null);
@@ -73,5 +68,11 @@ export function PriceProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function usePriceContext() {
-  return useContext(PriceContext);
+  const context = useContext(PriceContext);
+
+  if (!context) {
+    throw new Error("usePriceContext must be used within a PriceProvider");
+  }
+
+  return context;
 }
