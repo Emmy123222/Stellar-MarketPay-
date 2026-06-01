@@ -33,257 +33,257 @@ exports[`component snapshots FreelancerTierBadge Top Talent 1`] = `
 `;
 
 exports[`component snapshots JobCard with bookmark 1`] = `
-<a
-  href="/jobs/job-bookmarked"
+<div
+  class="card-hover group animate-fade-in relative cursor-pointer outline-none "
+  tabindex="0"
 >
   <div
-    class="card-hover group animate-fade-in relative cursor-pointer outline-none "
-    tabindex="0"
+    class="flex items-start justify-between gap-3 mb-3"
   >
-    <div
-      class="flex items-start justify-between gap-3 mb-3"
+    <a
+      href="/jobs/job-bookmarked"
     >
       <h3
         class="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2"
       >
         Build a Soroban escrow contract for marketplace payouts
       </h3>
-      <div
-        class="flex items-center gap-2"
+    </a>
+    <div
+      class="flex items-center gap-2"
+    >
+      <span
+        class="badge-open flex-shrink-0 text-xs"
       >
-        <span
-          class="badge-open flex-shrink-0 text-xs"
+        Open
+      </span>
+    </div>
+  </div>
+  <p
+    class="text-amber-800/80 text-sm leading-relaxed line-clamp-3 mb-4"
+  >
+    Need a secure escrow contract and integration tests for release and refund paths on testnet.
+  </p>
+  <div
+    class="flex flex-wrap gap-1.5 mb-4"
+  >
+    <span
+      class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
+    >
+      Rust
+    </span>
+    <span
+      class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
+    >
+      Soroban
+    </span>
+    <span
+      class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
+    >
+      Testing
+    </span>
+  </div>
+  <div
+    class="flex items-center justify-between pt-3 border-t border-[rgba(251,191,36,0.07)] relative"
+  >
+    <div
+      class="group/tooltip relative"
+    >
+      <p
+        class="text-xs text-amber-800 mb-0.5"
+      >
+        Budget
+      </p>
+      <p
+        class="font-mono font-semibold text-market-400 text-sm cursor-help"
+      >
+        500 XLM
+      </p>
+    </div>
+    <div
+      class="text-right flex items-center gap-2"
+    >
+      <button
+        aria-label="Remove bookmark"
+        class="p-1.5 rounded-md transition-all flex items-center justify-center hover:bg-amber-500/10 group/bookmark"
+        title="Remove bookmark"
+        type="button"
+      >
+        <svg
+          class="transition-colors group-hover/bookmark:text-amber-400 text-amber-400"
+          fill="currentColor"
+          height="16"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="16"
+          xmlns="http://www.w3.org/2000/svg"
         >
-          Open
-        </span>
-      </div>
-    </div>
-    <p
-      class="text-amber-800/80 text-sm leading-relaxed line-clamp-3 mb-4"
-    >
-      Need a secure escrow contract and integration tests for release and refund paths on testnet.
-    </p>
-    <div
-      class="flex flex-wrap gap-1.5 mb-4"
-    >
-      <span
-        class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
-      >
-        Rust
-      </span>
-      <span
-        class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
-      >
-        Soroban
-      </span>
-      <span
-        class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
-      >
-        Testing
-      </span>
-    </div>
-    <div
-      class="flex items-center justify-between pt-3 border-t border-[rgba(251,191,36,0.07)] relative"
-    >
+          <path
+            d="m14 20 4-6H4l4 6z"
+          />
+          <path
+            d="M18 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0z"
+          />
+        </svg>
+      </button>
       <div
-        class="group/tooltip relative"
+        class="text-right"
       >
         <p
           class="text-xs text-amber-800 mb-0.5"
         >
-          Budget
-        </p>
-        <p
-          class="font-mono font-semibold text-market-400 text-sm cursor-help"
-        >
-          500 XLM
+          2
+           applicant
+          s
         </p>
       </div>
-      <div
-        class="text-right flex items-center gap-2"
+      <p
+        class="text-xs text-amber-800/60"
       >
-        <button
-          aria-label="Remove bookmark"
-          class="p-1.5 rounded-md transition-all flex items-center justify-center hover:bg-amber-500/10 group/bookmark"
-          title="Remove bookmark"
-          type="button"
-        >
-          <svg
-            class="transition-colors group-hover/bookmark:text-amber-400 text-amber-400"
-            fill="currentColor"
-            height="16"
-            stroke="currentColor"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-            width="16"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="m14 20 4-6H4l4 6z"
-            />
-            <path
-              d="M18 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0z"
-            />
-          </svg>
-        </button>
-        <div
-          class="text-right"
-        >
-          <p
-            class="text-xs text-amber-800 mb-0.5"
-          >
-            2
-             applicant
-            s
-          </p>
-        </div>
-        <p
-          class="text-xs text-amber-800/60"
-        >
-          5 months ago
-        </p>
-      </div>
-    </div>
-    <div
-      class="mt-3 flex items-center gap-2 flex-wrap"
-    >
-      <span
-        class="text-xs text-amber-700 bg-ink-700 px-2.5 py-1 rounded-full border border-[rgba(251,191,36,0.08)]"
-      >
-        Smart Contracts
-      </span>
+        5 months ago
+      </p>
     </div>
   </div>
-</a>
+  <div
+    class="mt-3 flex items-center gap-2 flex-wrap"
+  >
+    <span
+      class="text-xs text-amber-700 bg-ink-700 px-2.5 py-1 rounded-full border border-[rgba(251,191,36,0.08)]"
+    >
+      Smart Contracts
+    </span>
+  </div>
+</div>
 `;
 
 exports[`component snapshots JobCard without bookmark 1`] = `
-<a
-  href="/jobs/job-1"
+<div
+  class="card-hover group animate-fade-in relative cursor-pointer outline-none "
+  tabindex="0"
 >
   <div
-    class="card-hover group animate-fade-in relative cursor-pointer outline-none "
-    tabindex="0"
+    class="flex items-start justify-between gap-3 mb-3"
   >
-    <div
-      class="flex items-start justify-between gap-3 mb-3"
+    <a
+      href="/jobs/job-1"
     >
       <h3
         class="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2"
       >
         Build a Soroban escrow contract for marketplace payouts
       </h3>
-      <div
-        class="flex items-center gap-2"
+    </a>
+    <div
+      class="flex items-center gap-2"
+    >
+      <span
+        class="badge-open flex-shrink-0 text-xs"
       >
-        <span
-          class="badge-open flex-shrink-0 text-xs"
+        Open
+      </span>
+    </div>
+  </div>
+  <p
+    class="text-amber-800/80 text-sm leading-relaxed line-clamp-3 mb-4"
+  >
+    Need a secure escrow contract and integration tests for release and refund paths on testnet.
+  </p>
+  <div
+    class="flex flex-wrap gap-1.5 mb-4"
+  >
+    <span
+      class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
+    >
+      Rust
+    </span>
+    <span
+      class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
+    >
+      Soroban
+    </span>
+    <span
+      class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
+    >
+      Testing
+    </span>
+  </div>
+  <div
+    class="flex items-center justify-between pt-3 border-t border-[rgba(251,191,36,0.07)] relative"
+  >
+    <div
+      class="group/tooltip relative"
+    >
+      <p
+        class="text-xs text-amber-800 mb-0.5"
+      >
+        Budget
+      </p>
+      <p
+        class="font-mono font-semibold text-market-400 text-sm cursor-help"
+      >
+        500 XLM
+      </p>
+    </div>
+    <div
+      class="text-right flex items-center gap-2"
+    >
+      <button
+        aria-label="Save job"
+        class="p-1.5 rounded-md transition-all flex items-center justify-center hover:bg-amber-500/10 group/bookmark"
+        title="Save job"
+        type="button"
+      >
+        <svg
+          class="transition-colors group-hover/bookmark:text-amber-400 text-amber-700/60 group-hover/bookmark:text-amber-400"
+          fill="none"
+          height="16"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="16"
+          xmlns="http://www.w3.org/2000/svg"
         >
-          Open
-        </span>
-      </div>
-    </div>
-    <p
-      class="text-amber-800/80 text-sm leading-relaxed line-clamp-3 mb-4"
-    >
-      Need a secure escrow contract and integration tests for release and refund paths on testnet.
-    </p>
-    <div
-      class="flex flex-wrap gap-1.5 mb-4"
-    >
-      <span
-        class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
-      >
-        Rust
-      </span>
-      <span
-        class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
-      >
-        Soroban
-      </span>
-      <span
-        class="text-xs bg-market-500/8 text-market-500/80 border border-market-500/15 px-2 py-0.5 rounded-md"
-      >
-        Testing
-      </span>
-    </div>
-    <div
-      class="flex items-center justify-between pt-3 border-t border-[rgba(251,191,36,0.07)] relative"
-    >
+          <path
+            d="m14 20 4-6H4l4 6z"
+          />
+          <path
+            d="M18 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0z"
+          />
+        </svg>
+      </button>
       <div
-        class="group/tooltip relative"
+        class="text-right"
       >
         <p
           class="text-xs text-amber-800 mb-0.5"
         >
-          Budget
-        </p>
-        <p
-          class="font-mono font-semibold text-market-400 text-sm cursor-help"
-        >
-          500 XLM
+          2
+           applicant
+          s
         </p>
       </div>
-      <div
-        class="text-right flex items-center gap-2"
+      <p
+        class="text-xs text-amber-800/60"
       >
-        <button
-          aria-label="Save job"
-          class="p-1.5 rounded-md transition-all flex items-center justify-center hover:bg-amber-500/10 group/bookmark"
-          title="Save job"
-          type="button"
-        >
-          <svg
-            class="transition-colors group-hover/bookmark:text-amber-400 text-amber-700/60 group-hover/bookmark:text-amber-400"
-            fill="none"
-            height="16"
-            stroke="currentColor"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-            width="16"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="m14 20 4-6H4l4 6z"
-            />
-            <path
-              d="M18 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0z"
-            />
-          </svg>
-        </button>
-        <div
-          class="text-right"
-        >
-          <p
-            class="text-xs text-amber-800 mb-0.5"
-          >
-            2
-             applicant
-            s
-          </p>
-        </div>
-        <p
-          class="text-xs text-amber-800/60"
-        >
-          5 months ago
-        </p>
-      </div>
-    </div>
-    <div
-      class="mt-3 flex items-center gap-2 flex-wrap"
-    >
-      <span
-        class="text-xs text-amber-700 bg-ink-700 px-2.5 py-1 rounded-full border border-[rgba(251,191,36,0.08)]"
-      >
-        Smart Contracts
-      </span>
+        5 months ago
+      </p>
     </div>
   </div>
-</a>
+  <div
+    class="mt-3 flex items-center gap-2 flex-wrap"
+  >
+    <span
+      class="text-xs text-amber-700 bg-ink-700 px-2.5 py-1 rounded-full border border-[rgba(251,191,36,0.08)]"
+    >
+      Smart Contracts
+    </span>
+  </div>
+</div>
 `;
 
 exports[`component snapshots JobCardSkeleton 1`] = `
