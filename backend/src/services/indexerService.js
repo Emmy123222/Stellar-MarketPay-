@@ -46,6 +46,7 @@ class IndexerService {
       lastError: null,
     };
     this.closeStream = null;
+    this.closeEventStream = null;
     this.contractId = requireEnv("CONTRACT_ID", { fallback: contractId || process.env.ESCROW_CONTRACT_ID });
   }
 
@@ -183,8 +184,124 @@ class IndexerService {
     }
   }
 
+  extractTopicString(topic) {
+    if (!topic) return null;
+    if (typeof topic === "string") return topic;
+    if (typeof topic.value === "string") return topic.value;
+    return null;
+  }
+
   async processEvent(event) {
-    // Stub — event processing will be implemented in the next commit
+    if (this.contractId && event.contract_id !== this.contractId) return;
+
+    const eventTypeRaw = this.extractTopicString(event.topic?.[0]);
+    if (!eventTypeRaw) return;
+
+    const typeMap = {
+      "escrow_created":      "escrow_created",
+      "work_started":        "work_started",
+      "escrow_released":     "escrow_released",
+      "escrow_refunded":     "escrow_refunded",
+      "escrow_timeout_refunded": "escrow_refunded",
+      "escrow_disputed":     "dispute_opened",
+      "milestone_released":  "milestone_released"
+    };
+
+    const eventType = typeMap[eventTypeRaw];
+    if (!eventType) return;
+
+    const jobId = this.extractTopicString(event.topic?.[1]) || event.value?.job_id;
+    if (!jobId) return;
+
+    const data = JSON.stringify(event.value || {});
+
+    await pool.query(
+      `INSERT INTO contract_events (job_id, event_type, contract_id, tx_hash, ledger, data, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT DO NOTHING`,
+      [
+        jobId,
+        eventType,
+        event.contract_id,
+        event.transaction_hash,
+        event.ledger,
+        data,
+        event.ledger_closed_at
+      ]
+    );
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      switch (eventType) {
+        case "escrow_created":
+          await client.query(
+            `UPDATE escrows SET status = 'funded', updated_at = NOW() WHERE job_id = $1 AND status = 'funded'`,
+            [jobId]
+          );
+          break;
+
+        case "work_started":
+          await client.query(
+            `UPDATE escrows SET status = 'in_progress', updated_at = NOW() WHERE job_id = $1`,
+            [jobId]
+          );
+          break;
+
+        case "escrow_released":
+          await client.query(
+            `UPDATE jobs SET status = 'completed', updated_at = NOW() WHERE id = $1 AND status <> 'completed'`,
+            [jobId]
+          );
+          await client.query(
+            `UPDATE escrows SET status = 'released', released_at = NOW(), updated_at = NOW() WHERE job_id = $1 AND status <> 'released'`,
+            [jobId]
+          );
+          break;
+
+        case "escrow_refunded":
+          await client.query(
+            `UPDATE jobs SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND status <> 'cancelled'`,
+            [jobId]
+          );
+          await client.query(
+            `UPDATE escrows SET status = 'refunded', updated_at = NOW() WHERE job_id = $1 AND status <> 'refunded'`,
+            [jobId]
+          );
+          break;
+
+        case "dispute_opened":
+          await client.query(
+            `UPDATE jobs SET status = 'disputed', updated_at = NOW() WHERE id = $1`,
+            [jobId]
+          );
+          await client.query(
+            `UPDATE escrows SET status = 'disputed', updated_at = NOW() WHERE job_id = $1`,
+            [jobId]
+          );
+          break;
+
+        case "milestone_released":
+          await client.query(
+            `UPDATE escrows SET updated_at = NOW() WHERE job_id = $1`,
+            [jobId]
+          );
+          break;
+
+        default:
+          break;
+      }
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      console.error("[Indexer] failed to update DB status for event:", error.message);
+    } finally {
+      client.release();
+    }
+
+    this.broadcast("contract:event", { jobId, eventType, txHash: event.transaction_hash });
   }
 
   async start() {
@@ -219,6 +336,32 @@ class IndexerService {
         },
       });
 
+    this.startEventStream();
+  }
+
+  startEventStream() {
+    const cursor = "now";
+    this.closeEventStream = this.horizon
+      .events()
+      .cursor(cursor)
+      .stream({
+        onmessage: async (event) => {
+          try {
+            await this.processEvent(event);
+          } catch (error) {
+            console.error("[Indexer] failed to process event:", error.message);
+          }
+        },
+        onerror: (error) => {
+          console.error("[Indexer] event stream error:", error?.message);
+          setTimeout(() => {
+            if (this.syncState.running) {
+              console.log("[Indexer] attempting to reconnect event stream...");
+              this.startEventStream();
+            }
+          }, 5000);
+        },
+      });
   }
 
   async getEventsForJob(jobId) {
@@ -229,10 +372,11 @@ class IndexerService {
     return rows;
   }
 
-
   stop() {
     if (typeof this.closeStream === "function") this.closeStream();
+    if (typeof this.closeEventStream === "function") this.closeEventStream();
     this.closeStream = null;
+    this.closeEventStream = null;
     this.syncState.running = false;
   }
 
