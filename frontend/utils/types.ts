@@ -111,8 +111,6 @@ export interface UserProfile {
   isKycVerified?: boolean;
   createdAt: string;
   updatedAt?: string;
-  referralCount?: number;
-  reputationPoints?: number;
 }
 
 export interface Rating {

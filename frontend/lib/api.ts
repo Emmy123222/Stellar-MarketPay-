@@ -15,7 +15,6 @@ import type {
   PortfolioFile,
   TokenInfo,
   TokenBalance,
-  ClientReputation,
   TimeEntry,
   TimeInvoice,
   Message,
@@ -847,7 +846,7 @@ export async function fetchAssessment(skill: string) {
       retakeAvailableAt?: string;
       lastAttempt?: { score: number; passed: boolean };
     };
-  }>(`/api/assessments/${skill}`);
+  }>(`/api/assessments/${encodeURIComponent(skill)}`);
   return data.data;
 }
 
@@ -863,7 +862,7 @@ export async function submitAssessment(
       correct: number;
       total: number;
     };
-  }>("/api/assessments/submit", { skill, answers });
+  }>(`/api/assessments/${encodeURIComponent(skill)}/submit`, { answers });
   return data.data;
 }
 
@@ -898,7 +897,7 @@ export async function verifyAdmin2FA(token: string, setup = false) {
 
 export async function bulkCancelJobs(jobIds: string[]): Promise<BulkActionResponse> {
   const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
-    "/api/jobs/bulk/cancel",
+    "/api/jobs/bulk-cancel",
     { jobIds },
   );
   return data.data;
@@ -906,7 +905,7 @@ export async function bulkCancelJobs(jobIds: string[]): Promise<BulkActionRespon
 
 export async function bulkExtendJobs(jobIds: string[], days: number): Promise<BulkActionResponse> {
   const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
-    "/api/jobs/bulk/extend",
+    "/api/jobs/bulk-extend",
     { jobIds, days },
   );
   return data.data;
@@ -914,7 +913,7 @@ export async function bulkExtendJobs(jobIds: string[], days: number): Promise<Bu
 
 export async function bulkBoostJobs(jobIds: string[], txHash: string): Promise<BulkActionResponse> {
   const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
-    "/api/jobs/bulk/boost",
+    "/api/jobs/bulk-boost",
     { jobIds, txHash },
   );
   return data.data;
@@ -1428,31 +1427,6 @@ export async function fetchUserCertificates(
   return data.data;
 }
 
-// ─── Skill Assessments ──────────────────────────────────────────
-
-export async function fetchAssessment(skill: string) {
-  const { data } = await api.get<{
-    success: boolean;
-    data: {
-      canRetake: boolean;
-      retakeAvailableAt?: string;
-      lastAttempt?: { score: number; passed: boolean };
-      label: string;
-      questions: AssessmentQuestion[];
-      durationSeconds: number;
-    };
-  }>(`/api/assessments/${encodeURIComponent(skill)}`);
-  return data.data;
-}
-
-export async function submitAssessment(skill: string, answers: Record<number, number>) {
-  const { data } = await api.post<{
-    success: boolean;
-    data: { score: number; passed: boolean; correct: number; total: number };
-  }>(`/api/assessments/${encodeURIComponent(skill)}/submit`, { answers });
-  return data.data;
-}
-
 // ─── Skill Endorsements ─────────────────────────────────────────
 
 export interface SkillEndorsementData {
@@ -1844,37 +1818,4 @@ export async function acceptInvitation(
   return data.data;
 }
 
-// ─── Bulk Job Actions ─────────────────────────────────────────────────────────
-
-export async function bulkCancelJobs(
-  jobIds: string[]
-): Promise<BulkActionResponse> {
-  const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
-    "/api/jobs/bulk/cancel",
-    { jobIds }
-  );
-  return data.data;
-}
-
-export async function bulkExtendJobs(
-  jobIds: string[],
-  days: number
-): Promise<BulkActionResponse> {
-  const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
-    "/api/jobs/bulk/extend",
-    { jobIds, days }
-  );
-  return data.data;
-}
-
-export async function bulkBoostJobs(
-  jobIds: string[],
-  amountXlm: number | string
-): Promise<BulkActionResponse> {
-  const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
-    "/api/jobs/bulk/boost",
-    { jobIds, amountXlm }
-  );
-  return data.data;
-}
 

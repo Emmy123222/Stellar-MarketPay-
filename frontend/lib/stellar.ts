@@ -14,6 +14,7 @@ import {
 } from "@stellar/stellar-sdk";
 import * as SorobanRpc from "@stellar/stellar-sdk/rpc";
 import { optionalClientEnv, requireClientEnv } from "./env";
+import { getUsdcContractId } from "./config/tokens";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -233,7 +234,6 @@ export async function createEscrowOnChain(
 }
 
 export { getUsdcContractId, USDC_CONTRACT_BY_NETWORK } from "./config/tokens";
-export const USDC_SAC_ADDRESS = getUsdcContractId();
 
 
 // ---------------------------------------------------------------------------
@@ -545,7 +545,7 @@ export async function subscribeToContractEvents(
 }
 
 export const XLM_SAC_ADDRESS = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
-export const USDC_SAC_ADDRESS = "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA";
+export const USDC_SAC_ADDRESS = getUsdcContractId();
 
 export function accountUrl(publicKey: string): string {
   return `https://stellar.expert/explorer/testnet/account/${publicKey}`;
@@ -567,45 +567,6 @@ export function explorerUrl(txHash: string): string {
   return `${explorer}/tx/${txHash}`;
 }
 
-export async function buildPaymentTransaction(params: {
-  fromPublicKey: string;
-  toPublicKey: string;
-  amount: string;
-  memo?: string;
-  asset?: string;
-}) {
-  const server = sorobanServer;
-  const account = await server.getAccount(params.fromPublicKey);
-
-  const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      Operation.payment({
-        destination: params.toPublicKey,
-        asset: Asset.native(),
-        amount: params.amount,
-      })
-    )
-    .setTimeout(300)
-    .build();
-
-  return tx;
-}
-
-export async function submitTransaction(_xdr: string): Promise<string> {
-  throw new Error("Transaction submission not yet implemented");
-}
-
-export async function fetchMarketPayTransactions(
-  _publicKey: string,
-  _limit?: number,
-  _cursor?: string,
-): Promise<{ transactions: MarketPayTransaction[]; hasMore: boolean }> {
-  return { transactions: [], hasMore: false };
-}
-
 export async function signTransactionWithWallet(
   xdrString: string
 ): Promise<{ signedXDR: string | null; error: string | null }> {
@@ -620,14 +581,6 @@ export async function signTransactionWithWallet(
   } catch (e) {
     return { signedXDR: null, error: e instanceof Error ? e.message : "Signing failed" };
   }
-}
-
-export function isValidStellarAddress(address: string): boolean {
-  return /^G[A-Z0-9]{55}$/.test(address);
-}
-
-export function explorerUrl(hash: string): string {
-  return `https://stellar.expert/explorer/testnet/tx/${hash}`;
 }
 
 export interface BuildPaymentParams {

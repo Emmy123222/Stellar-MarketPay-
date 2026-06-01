@@ -105,7 +105,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
       .catch(() => {});
   }, [publicKey]);
 
-  const activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
+  let activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
   const category = (router.query.category as string) || "";
   const status = (router.query.status as string) || "open";
   const minBudget = (router.query.minBudget as string) || "";
@@ -155,12 +155,6 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
       setSavingSearch(false);
     }
   };
-
-  const category = (router.query.category as string) || "";
-  const status = (router.query.status as string) || "open";
-  const minBudget = (router.query.minBudget as string) || "";
-  const maxBudget = (router.query.maxBudget as string) || "";
-  let activeTimezone = "";
 
   const hasActiveFilters = Boolean(
     search.trim() || category || (status && status !== "open") || minBudget || maxBudget || activeTimezone

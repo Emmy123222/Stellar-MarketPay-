@@ -18,7 +18,6 @@ import {
   submitSignedSorobanTransaction,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
-import FeeEstimationModal from "@/components/FeeEstimationModal";
 import Spinner from "@/components/Spinner";
 import type { Application, Job, ClientReputation } from "@/utils/types";
 
