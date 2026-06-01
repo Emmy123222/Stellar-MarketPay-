@@ -129,6 +129,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const { xlmPriceUsd } = usePriceContext();
   const { progress, checklistItems } = useOnboarding(publicKey);
 
+  const handleResetContractMock = async () => {
+    if (!IS_CONTRACT_MOCK_DEV_MODE) return;
+
+    const { clearMockData } = await import("@/lib/contractMock");
+    clearMockData();
+    success("Mock contract data reset");
+  };
+
   // ── Bulk selection state ──────────────────────────────────────────────────
   const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);

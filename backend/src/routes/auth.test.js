@@ -64,6 +64,12 @@ const WRONG_KEYPAIR = Keypair.random();
 const CHALLENGE_XDR = "AAAAAFakeChallengeTransactionXDRBase64Encoded==";
 const SIGNED_XDR = "AAAAAFakeSignedChallengeTransactionXDRBase64==";
 
+function getCookie(res, name) {
+  return (res.headers["set-cookie"] || [])
+    .find((cookie) => cookie.startsWith(`${name}=`))
+    ?.split(";")[0];
+}
+
 describe("SEP-10 Authentication Flow", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -111,6 +117,57 @@ describe("SEP-10 Authentication Flow", () => {
 
       const decoded = jwt.verify(res.body.token, process.env.JWT_SECRET);
       expect(decoded.publicKey).toBe(TEST_KEYPAIR.publicKey());
+      expect(decoded.exp - decoded.iat).toBe(15 * 60);
+      expect(getCookie(res, "refreshToken")).toBeTruthy();
+    });
+
+    it("refreshes and rotates access tokens", async () => {
+      Utils.verifyChallengeTx.mockReturnValue(TEST_KEYPAIR.publicKey());
+
+      const loginRes = await request(app)
+        .post("/api/auth")
+        .send({ transaction: SIGNED_XDR });
+      const refreshCookie = getCookie(loginRes, "refreshToken");
+
+      const refreshRes = await request(app)
+        .post("/api/auth/refresh")
+        .set("Cookie", refreshCookie);
+
+      expect(refreshRes.status).toBe(200);
+      expect(refreshRes.body.success).toBe(true);
+      expect(refreshRes.body).toHaveProperty("token");
+      const decoded = jwt.verify(refreshRes.body.token, process.env.JWT_SECRET);
+      expect(decoded.publicKey).toBe(TEST_KEYPAIR.publicKey());
+      expect(decoded.exp - decoded.iat).toBe(15 * 60);
+      expect(getCookie(refreshRes, "refreshToken")).not.toBe(refreshCookie);
+
+      const reusedRes = await request(app)
+        .post("/api/auth/refresh")
+        .set("Cookie", refreshCookie);
+
+      expect(reusedRes.status).toBe(401);
+    });
+
+    it("logout invalidates the refresh token", async () => {
+      Utils.verifyChallengeTx.mockReturnValue(TEST_KEYPAIR.publicKey());
+
+      const loginRes = await request(app)
+        .post("/api/auth")
+        .send({ transaction: SIGNED_XDR });
+      const refreshCookie = getCookie(loginRes, "refreshToken");
+
+      const logoutRes = await request(app)
+        .post("/api/auth/logout")
+        .set("Cookie", refreshCookie);
+
+      expect(logoutRes.status).toBe(200);
+      expect(logoutRes.body.success).toBe(true);
+
+      const refreshRes = await request(app)
+        .post("/api/auth/refresh")
+        .set("Cookie", refreshCookie);
+
+      expect(refreshRes.status).toBe(401);
     });
 
     it("invalid signature: returns 401 for tampered transaction", async () => {

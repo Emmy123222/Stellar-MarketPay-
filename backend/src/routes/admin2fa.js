@@ -4,11 +4,11 @@
 "use strict";
 
 const express = require("express");
-const jwt = require("jsonwebtoken");
 const QRCode = require("qrcode");
 const speakeasy = require("speakeasy");
 const pool = require("../db/pool");
-const { verifyJWT, JWT_SECRET } = require("../middleware/auth");
+const { verifyJWT } = require("../middleware/auth");
+const { signAccessToken } = require("../services/authTokens");
 const { encrypt } = require("../utils/encryption");
 const {
   generateSecret,
@@ -33,11 +33,7 @@ function requireAdminWallet(req, res, next) {
 }
 
 function issueAdminToken(publicKey, twoFaVerified) {
-  return jwt.sign(
-    { publicKey, role: "admin", "2fa_verified": twoFaVerified },
-    JWT_SECRET,
-    { expiresIn: "24h" }
-  );
+  return signAccessToken({ publicKey, role: "admin", "2fa_verified": twoFaVerified });
 }
 
 // POST /api/admin/2fa/setup — generate TOTP secret and QR code

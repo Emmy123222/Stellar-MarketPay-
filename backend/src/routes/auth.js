@@ -3,11 +3,17 @@
  */
 "use strict";
 const express = require("express");
-const jwt = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
-const { JWT_SECRET } = require("../middleware/auth");
 const { ensureAdminProfile, get2FAStatus } = require("../services/twoFactorService");
 const pool = require("../db/pool");
+const {
+  clearAuthCookies,
+  getRefreshTokenFromRequest,
+  issueTokenPair,
+  revokeRefreshToken,
+  rotateRefreshToken,
+  setAuthCookies,
+} = require("../services/authTokens");
 
 const router = express.Router();
 
@@ -168,17 +174,31 @@ router.post("/", async (req, res) => {
       console.warn("[auth] Could not stamp last_login_at:", stampErr.message);
     }
 
-    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });
-    res.cookie("jwt", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 24 * 60 * 60 * 1000,
-    });
-    res.json({ success: true, token });
+    const { accessToken, refreshToken } = issueTokenPair(payload);
+    setAuthCookies(res, accessToken, refreshToken);
+    res.json({ success: true, token: accessToken });
   } catch (e) {
     res.status(401).json({ error: "Unauthorized: " + e.message });
   }
+});
+
+router.post("/refresh", (req, res) => {
+  const refreshToken = getRefreshTokenFromRequest(req);
+  const rotated = rotateRefreshToken(refreshToken);
+
+  if (!rotated) {
+    clearAuthCookies(res);
+    return res.status(401).json({ error: "Unauthorized: Invalid refresh token" });
+  }
+
+  setAuthCookies(res, rotated.accessToken, rotated.refreshToken);
+  return res.json({ success: true, token: rotated.accessToken });
+});
+
+router.post("/logout", (req, res) => {
+  revokeRefreshToken(getRefreshTokenFromRequest(req));
+  clearAuthCookies(res);
+  res.json({ success: true });
 });
 
 module.exports = router;

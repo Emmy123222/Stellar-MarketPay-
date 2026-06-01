@@ -19,9 +19,9 @@
 const express  = require("express");
 const router   = express.Router();
 const pool     = require("../db/pool");
-const jwt      = require("jsonwebtoken");
 const { createRateLimiter } = require("../middleware/rateLimiter");
-const { verifyJWT, JWT_SECRET } = require("../middleware/auth");
+const { verifyJWT } = require("../middleware/auth");
+const { issueTokenPair, setAuthCookies } = require("../services/authTokens");
 
 const {
   generateRegistrationOptions,
@@ -211,9 +211,10 @@ router.post("/login-verify", webauthnRateLimiter, async (req, res, next) => {
       [verification.authenticationInfo.newCounter, credentialId]
     );
 
-    const token  = jwt.sign({ publicKey }, JWT_SECRET, { expiresIn: "7d" });
+    const { accessToken, refreshToken } = issueTokenPair({ publicKey });
+    setAuthCookies(res, accessToken, refreshToken);
 
-    res.json({ success: true, token });
+    res.json({ success: true, token: accessToken });
   } catch (e) { next(e); }
 });
 
