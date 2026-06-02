@@ -42,6 +42,7 @@ import { useToast } from "@/components/Toast";
 import StateMessage from "@/components/StateMessage";
 import clsx from "clsx";
 import JobAnalytics from "@/components/JobAnalytics";
+import JobTimeline from "@/components/JobTimeline";
 import BulkJobActionBar from "@/components/BulkJobActionBar";
 import ExtendJobModal from "@/components/ExtendJobModal";
 import ClientSpendingTab from "@/components/ClientSpendingTab";
@@ -273,13 +274,6 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const handleJobExtended = (updated: Job) => {
     setMyJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
   };
-
-  async function handleResetContractMock() {
-    if (!IS_CONTRACT_MOCK_DEV_MODE) return;
-    const { clearMockData } = await import("@/lib/contractMock");
-    clearMockData();
-    success("Mock escrow state reset.");
-  }
 
   useEffect(() => {
     if (!publicKey) return;
@@ -623,6 +617,13 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                       {job.applicantCount !== 1 ? "s" : ""} ·{" "}
                       {timeAgo(job.createdAt)}
                     </p>
+                    <JobTimeline
+                      status={job.status}
+                      createdAt={job.createdAt}
+                      updatedAt={job.updatedAt}
+                      disputedAt={job.disputedAt}
+                      isCompact={true}
+                    />
                   </Link>
                   <div className="text-right flex-shrink-0">
                     <p className="font-mono font-semibold text-market-400">

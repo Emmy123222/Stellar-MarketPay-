@@ -751,7 +751,23 @@ async function raiseDispute(jobId, { reason, description, raisedBy }) {
     throw e;
   }
 
-  return rowToJob(rows[0]);
+  const job = rowToJob(rows[0]);
+  const recipients = new Set(
+    [job.clientAddress, job.freelancerAddress].filter(Boolean),
+  );
+
+  for (const userAddress of recipients) {
+    await createJobNotification({
+      userAddress,
+      type: EVENT_TYPES.DISPUTE_OPENED,
+      title: "Dispute filed",
+      body: `${raisedBy.slice(0, 6)}...${raisedBy.slice(-4)} filed a dispute for "${job.title}".`,
+      jobId,
+      linkPath: `/disputes/${jobId}`,
+    });
+  }
+
+  return job;
 }
 
 async function resolveDispute(jobId) {

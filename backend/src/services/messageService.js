@@ -13,6 +13,7 @@
 
 const pool = require("../db/pool");
 const { uploadMessage } = require("./ipfsService");
+const { createJobNotification, EVENT_TYPES } = require("./notificationService");
 
 /* ─── helpers ────────────────────────────────────────────────────────────────── */
 
@@ -152,6 +153,17 @@ async function createMessage({ jobId, senderAddress, content, contractTxHash }) 
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
       [jobId, senderAddress, receiverAddress, trimmedContent, ipfsCid, contractTxHash || null]
+    );
+
+    await createJobNotification(
+      {
+        userAddress: receiverAddress,
+        type: EVENT_TYPES.NEW_MESSAGE,
+        title: "New message",
+        body: `${senderAddress.slice(0, 6)}...${senderAddress.slice(-4)} sent you a message.`,
+        jobId,
+      },
+      client,
     );
 
     await client.query("COMMIT");

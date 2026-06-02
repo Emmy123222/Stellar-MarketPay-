@@ -1,4 +1,5 @@
 import TimeTracker from "@/components/TimeTracker";
+import JobTimeline from "@/components/JobTimeline";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { recordViewedJob } from "@/lib/offlineJobs";
@@ -10,7 +11,7 @@ import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
 import RealtimeBidComparison from "@/components/RealtimeBidComparison";
 import FeeEstimationModal from "@/components/FeeEstimationModal";
-import { fetchJob, fetchApplications, acceptApplication, releaseEscrow, fetchClientReputation, raiseDispute, resolveDispute, timeoutRefund } from "@/lib/api";
+import { fetchJob, fetchApplications, acceptApplication, releaseEscrow, fetchClientReputation, raiseDispute, resolveDispute, timeoutRefund, releaseMilestone, disputeMilestone } from "@/lib/api";
 import { formatXLM, formatDate, shortenAddress, statusLabel, statusClass, timeAgo } from "@/utils/format";
 import {
   accountUrl,
@@ -277,6 +278,14 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
               </a>
             </div>
           </div>
+
+          <JobTimeline
+            status={job.status}
+            createdAt={job.createdAt}
+            updatedAt={job.updatedAt}
+            applications={applications}
+            disputedAt={job.disputedAt}
+          />
 
           <div className="prose prose-sm max-w-none">
             <h3 className="font-display text-base font-semibold text-amber-300 mb-3">

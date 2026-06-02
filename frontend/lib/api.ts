@@ -22,6 +22,7 @@ import type {
   AssessmentQuestion,
   SkillBadge,
   BulkActionResponse,
+  NotificationItem,
 } from "@/utils/types";
 
 const api = axios.create({
@@ -1192,6 +1193,44 @@ export async function fetchUnreadCount(): Promise<number> {
     data: { unreadCount: number };
   }>("/api/messages/unread-count");
   return data.data.unreadCount;
+}
+
+export interface NotificationsResponse {
+  notifications: NotificationItem[];
+  unreadCount: number;
+  nextCursor: string | null;
+}
+
+export async function fetchNotifications(params?: {
+  limit?: number;
+  cursor?: string | null;
+}): Promise<NotificationsResponse> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: NotificationsResponse;
+  }>("/api/notifications", {
+    params: {
+      limit: params?.limit,
+      cursor: params?.cursor || undefined,
+    },
+  });
+  return data.data;
+}
+
+export async function markNotificationRead(id: string): Promise<NotificationItem> {
+  const { data } = await api.patch<{
+    success: boolean;
+    data: NotificationItem;
+  }>(`/api/notifications/${id}/read`);
+  return data.data;
+}
+
+export async function markAllNotificationsRead(): Promise<{ updatedCount: number }> {
+  const { data } = await api.patch<{
+    success: boolean;
+    data: { updatedCount: number };
+  }>("/api/notifications/read-all");
+  return data.data;
 }
 
 /**

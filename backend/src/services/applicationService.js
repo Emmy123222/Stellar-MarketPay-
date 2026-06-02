@@ -8,6 +8,7 @@
 const pool = require("../db/pool");
 const { getJob, assignFreelancer } = require("./jobService");
 const { calculateFreelancerTier, isBlocked } = require("./profileService");
+const { createJobNotification, EVENT_TYPES } = require("./notificationService");
 
 /**
  * Camel-cased application record returned by this service.
@@ -87,6 +88,7 @@ function rowToApp(row) {
     status: row.status,
     screeningAnswers: row.screening_answers || {},
     createdAt: row.created_at,
+    acceptedAt: row.accepted_at,
   };
 }
 
@@ -235,6 +237,14 @@ async function submitApplication({
     [jobId],
   );
 
+  await createJobNotification({
+    userAddress: job.clientAddress,
+    type: EVENT_TYPES.APPLICATION_RECEIVED,
+    title: "New application received",
+    body: `${freelancerAddress.slice(0, 6)}...${freelancerAddress.slice(-4)} applied to "${job.title}".`,
+    jobId,
+  });
+
   return rowToApp(appRow);
 }
 
@@ -342,12 +352,37 @@ async function acceptApplication(applicationId, clientAddress) {
       [applicationId],
     );
 
-    await client.query(
+    const { rows: rejectedApplications } = await client.query(
       `UPDATE applications
        SET status = 'rejected'
-       WHERE job_id = $1 AND id <> $2 AND status = 'pending'`,
+       WHERE job_id = $1 AND id <> $2 AND status = 'pending'
+       RETURNING freelancer_address`,
       [app.job_id, applicationId],
     );
+
+    await createJobNotification(
+      {
+        userAddress: app.freelancer_address,
+        type: EVENT_TYPES.APPLICATION_ACCEPTED,
+        title: "Application accepted",
+        body: `Your application for "${job.title}" was accepted.`,
+        jobId: app.job_id,
+      },
+      client,
+    );
+
+    for (const rejected of rejectedApplications) {
+      await createJobNotification(
+        {
+          userAddress: rejected.freelancer_address,
+          type: EVENT_TYPES.APPLICATION_REJECTED,
+          title: "Application rejected",
+          body: `Your application for "${job.title}" was not selected.`,
+          jobId: app.job_id,
+        },
+        client,
+      );
+    }
 
     await client.query("COMMIT");
 

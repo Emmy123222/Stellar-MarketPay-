@@ -40,6 +40,18 @@ export interface JobMilestone {
   disputedAt?: string | null;
 }
 
+export interface NotificationItem {
+  id: string;
+  userAddress: string;
+  type: string;
+  title: string;
+  body: string;
+  read: boolean;
+  jobId?: string | null;
+  linkPath?: string | null;
+  createdAt: string;
+}
+
 export interface Job {
   id: string;
   title: string;
@@ -67,6 +79,10 @@ export interface Job {
   extendedCount?: number; // Number of times expiry has been extended
   extendedUntil?: string; // Final expiry after all extensions
   clientReputationScore?: number | null;
+  disputedBy?: string;
+  disputedAt?: string | null;
+  disputeReason?: string | null;
+  disputeDescription?: string | null;
 }
 
 export interface ClientReputation {
@@ -98,6 +114,7 @@ export interface Application {
   screeningAnswers?: Record<string, string>;
   estimatedDuration?: string;
   createdAt: string;
+  acceptedAt?: string;
 }
 
 export interface UserProfile {
