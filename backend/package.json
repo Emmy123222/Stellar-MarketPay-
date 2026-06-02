@@ -29,7 +29,7 @@
         "jsonwebtoken": "^9.0.3",
         "morgan": "^1.10.0",
         "multer": "^1.4.5-lts.1",
-        "nodemailer": "^6.9.14",
+        "nodemailer": "^8.0.10",
         "pg": "^8.20.0",
         "pino": "^8.17.2",
         "pino-pretty": "^10.3.1",
