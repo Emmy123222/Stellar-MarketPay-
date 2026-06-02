@@ -18,10 +18,38 @@ const EVENT_TYPES = {
   ESCROW_RELEASED: "escrow_released",
   REFUND_ISSUED: "refund_issued",
   DISPUTE_OPENED: "dispute_opened",
+  APPLICATION_RECEIVED: "application_received",
   APPLICATION_ACCEPTED: "application_accepted",
+  APPLICATION_REJECTED: "application_rejected",
+  NEW_MESSAGE: "new_message",
   JOB_COMPLETED: "job_completed",
   JOB_INVITED: "job_invited",
 };
+
+function rowToInAppNotification(row) {
+  return {
+    id: row.id,
+    userAddress: row.user_address,
+    type: row.type,
+    title: row.title,
+    body: row.body,
+    read: row.read,
+    jobId: row.job_id,
+    linkPath: row.link_path || (row.job_id ? `/jobs/${row.job_id}` : "/notifications"),
+    createdAt: row.created_at,
+  };
+}
+
+function clampLimit(value, fallback = 20, max = 50) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1), max);
+}
+
+function shortAddress(address) {
+  if (!address || address.length < 12) return address || "A user";
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
 
 /**
  * Queue a notification for a user
@@ -44,6 +72,111 @@ async function queueNotification({ recipientAddress, notificationType, eventType
   );
 
   return rows[0];
+}
+
+async function createInAppNotification(
+  { userAddress, type, title, body, jobId = null, linkPath = null },
+  queryRunner = pool,
+) {
+  if (!userAddress) return null;
+
+  const { rows } = await queryRunner.query(
+    `INSERT INTO notifications
+      (user_address, type, title, body, read, job_id, link_path, created_at)
+     VALUES ($1, $2, $3, $4, FALSE, $5, $6, NOW())
+     RETURNING *`,
+    [userAddress, type, title, body, jobId, linkPath],
+  );
+
+  return rowToInAppNotification(rows[0]);
+}
+
+async function listInAppNotifications(userAddress, { limit = 20, cursor = null } = {}) {
+  const safeLimit = clampLimit(limit);
+  const params = [userAddress];
+  let cursorClause = "";
+
+  if (cursor) {
+    params.push(cursor);
+    cursorClause = `AND created_at < $${params.length}`;
+  }
+
+  params.push(safeLimit);
+  const limitPlaceholder = `$${params.length}`;
+
+  const [{ rows }, unreadResult] = await Promise.all([
+    pool.query(
+      `SELECT *
+       FROM notifications
+       WHERE user_address = $1
+         ${cursorClause}
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${limitPlaceholder}`,
+      params,
+    ),
+    pool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM notifications
+       WHERE user_address = $1 AND read = FALSE`,
+      [userAddress],
+    ),
+  ]);
+
+  return {
+    notifications: rows.map(rowToInAppNotification),
+    unreadCount: unreadResult.rows[0]?.count || 0,
+    nextCursor: rows.length === safeLimit ? rows[rows.length - 1].created_at : null,
+  };
+}
+
+async function markInAppNotificationRead(id, userAddress) {
+  const { rows } = await pool.query(
+    `UPDATE notifications
+     SET read = TRUE
+     WHERE id = $1 AND user_address = $2
+     RETURNING *`,
+    [id, userAddress],
+  );
+
+  if (!rows.length) {
+    const e = new Error("Notification not found");
+    e.status = 404;
+    throw e;
+  }
+
+  return rowToInAppNotification(rows[0]);
+}
+
+async function markAllInAppNotificationsRead(userAddress) {
+  const { rowCount } = await pool.query(
+    `UPDATE notifications
+     SET read = TRUE
+     WHERE user_address = $1 AND read = FALSE`,
+    [userAddress],
+  );
+
+  return { updatedCount: rowCount };
+}
+
+async function createJobNotification({
+  userAddress,
+  type,
+  title,
+  body,
+  jobId,
+  linkPath,
+}, queryRunner = pool) {
+  return createInAppNotification(
+    {
+      userAddress,
+      type,
+      title,
+      body,
+      jobId,
+      linkPath: linkPath || `/jobs/${jobId}`,
+    },
+    queryRunner,
+  );
 }
 
 /**
@@ -185,6 +318,63 @@ function generateEmailContent(eventType, data) {
     subject: `Notification: ${jobTitle}`,
     text: `An event occurred for "${jobTitle}".\n\nJob: ${jobUrl}`,
     html: `<h2>Notification</h2><p>An event occurred for "<strong>${jobTitle}</strong>".</p><p><a href="${jobUrl}">View Job</a></p>`,
+  };
+}
+
+function generateInAppContent(eventType, data) {
+  const { jobTitle, jobId, amount, currency, actorAddress } = data;
+  const jobLabel = jobTitle || "this job";
+  const amountLabel = amount ? ` (${amount} ${currency || "XLM"})` : "";
+
+  const templates = {
+    [EVENT_TYPES.ESCROW_CREATED]: {
+      title: "Escrow created",
+      body: `Escrow was created for "${jobLabel}"${amountLabel}.`,
+    },
+    [EVENT_TYPES.WORK_STARTED]: {
+      title: "Work started",
+      body: `Work has started on "${jobLabel}".`,
+    },
+    [EVENT_TYPES.ESCROW_RELEASED]: {
+      title: "Payment released",
+      body: `Payment was released for "${jobLabel}"${amountLabel}.`,
+    },
+    [EVENT_TYPES.REFUND_ISSUED]: {
+      title: "Refund issued",
+      body: `A refund was issued for "${jobLabel}"${amountLabel}.`,
+    },
+    [EVENT_TYPES.DISPUTE_OPENED]: {
+      title: "Dispute filed",
+      body: `A dispute was filed for "${jobLabel}".`,
+    },
+    [EVENT_TYPES.APPLICATION_RECEIVED]: {
+      title: "New application received",
+      body: `${shortAddress(actorAddress)} applied to "${jobLabel}".`,
+    },
+    [EVENT_TYPES.APPLICATION_ACCEPTED]: {
+      title: "Application accepted",
+      body: `Your application for "${jobLabel}" was accepted.`,
+    },
+    [EVENT_TYPES.APPLICATION_REJECTED]: {
+      title: "Application rejected",
+      body: `Your application for "${jobLabel}" was not selected.`,
+    },
+    [EVENT_TYPES.NEW_MESSAGE]: {
+      title: "New message",
+      body: `${shortAddress(actorAddress)} sent you a message about "${jobLabel}".`,
+    },
+    [EVENT_TYPES.JOB_COMPLETED]: {
+      title: "Job completed",
+      body: `"${jobLabel}" was marked complete.`,
+    },
+  };
+
+  return {
+    ...(templates[eventType] || {
+      title: "New notification",
+      body: `There is an update for "${jobLabel}".`,
+    }),
+    linkPath: jobId ? `/jobs/${jobId}` : "/notifications",
   };
 }
 
@@ -335,6 +525,16 @@ async function notifyEscrowEvent({ eventType, jobId, clientAddress, freelancerAd
   if (freelancerAddress) recipients.push(freelancerAddress);
 
   for (const recipient of recipients) {
+    const inAppContent = generateInAppContent(eventType, { ...data, jobId });
+    await createInAppNotification({
+      userAddress: recipient,
+      type: eventType,
+      title: inAppContent.title,
+      body: inAppContent.body,
+      jobId,
+      linkPath: inAppContent.linkPath,
+    });
+
     // Queue email notification
     await queueNotification({
       recipientAddress: recipient,
@@ -359,9 +559,15 @@ async function notifyEscrowEvent({ eventType, jobId, clientAddress, freelancerAd
 
 module.exports = {
   queueNotification,
+  createInAppNotification,
+  createJobNotification,
+  listInAppNotifications,
+  markInAppNotificationRead,
+  markAllInAppNotificationsRead,
   getUserPreferences,
   processPendingNotifications,
   notifyEscrowEvent,
   generateEmailContent,
+  generateInAppContent,
   EVENT_TYPES,
 };

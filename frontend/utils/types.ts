@@ -40,6 +40,18 @@ export interface JobMilestone {
   disputedAt?: string | null;
 }
 
+export interface NotificationItem {
+  id: string;
+  userAddress: string;
+  type: string;
+  title: string;
+  body: string;
+  read: boolean;
+  jobId?: string | null;
+  linkPath?: string | null;
+  createdAt: string;
+}
+
 export interface Job {
   id: string;
   title: string;

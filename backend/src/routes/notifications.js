@@ -2,6 +2,11 @@ const express = require("express");
 const router = express.Router();
 const { verifyJWT } = require("../middleware/auth");
 const notificationPreferencesService = require("../services/notificationPreferencesService");
+const {
+  listInAppNotifications,
+  markInAppNotificationRead,
+  markAllInAppNotificationsRead,
+} = require("../services/notificationService");
 const pool = require("../db/pool");
 
 // ─── Authenticated preference endpoints ───────────────────────────────────────
@@ -41,6 +46,39 @@ router.patch("/preferences", verifyJWT, async (req, res, next) => {
       req.user.publicKey
     );
     res.json({ success: true, data: updated });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get("/", verifyJWT, async (req, res, next) => {
+  try {
+    const result = await listInAppNotifications(req.user.publicKey, {
+      limit: req.query.limit,
+      cursor: req.query.cursor,
+    });
+    res.json({ success: true, data: result });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.patch("/read-all", verifyJWT, async (req, res, next) => {
+  try {
+    const result = await markAllInAppNotificationsRead(req.user.publicKey);
+    res.json({ success: true, data: result });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.patch("/:id/read", verifyJWT, async (req, res, next) => {
+  try {
+    const notification = await markInAppNotificationRead(
+      req.params.id,
+      req.user.publicKey,
+    );
+    res.json({ success: true, data: notification });
   } catch (e) {
     next(e);
   }

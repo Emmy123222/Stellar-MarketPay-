@@ -10,6 +10,7 @@ import { useTranslation } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import FaucetButton from "@/components/FaucetButton";
 import { usePriceContext } from "@/contexts/PriceContext";
+import NotificationBell from "@/components/NotificationBell";
 
 interface NavbarProps {
   publicKey: string | null;
@@ -220,6 +221,7 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
         <div className="flex items-center gap-2 flex-shrink-0">
           {publicKey ? (
             <>
+              <NotificationBell publicKey={publicKey} />
               <button
                 onClick={() => router.push("/dashboard/transactions")}
                 className="flex items-center gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity"
