@@ -22,7 +22,7 @@
         "compression": "^1.7.4",
         "date-fns-tz": "^3.2.0",
         "dotenv": "^16.4.5",
-        "express": "^4.19.2",
+        "express": "^5.2.1",
         "express-rate-limit": "^7.3.1",
         "form-data": "^4.0.0",
         "helmet": "^7.1.0",
