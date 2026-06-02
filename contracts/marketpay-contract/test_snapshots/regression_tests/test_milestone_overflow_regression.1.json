@@ -57,12 +57,36 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "DefaultTimeoutSeconds"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 604800
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "EscrowCount"
                             }
                           ]
                         },
                         "val": {
                           "u32": 0
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "Version"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
                         }
                       }
                     ]

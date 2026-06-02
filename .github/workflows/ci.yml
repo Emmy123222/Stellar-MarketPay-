@@ -21,6 +21,7 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - run: npm test
       - run: npm run type-check
       - run: npm run lint
       - run: npm run build
@@ -28,12 +29,23 @@ jobs:
           NEXT_PUBLIC_STELLAR_NETWORK: testnet
           NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
           NEXT_PUBLIC_API_URL: http://localhost:4000
+          NEXT_PUBLIC_USE_CONTRACT_MOCK: "true"
+          NEXT_PUBLIC_CONTRACT_ID: "CMOCKCONTRACTID"
+          SKIP_API_CALLS: "true"
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
         env:
           NEXT_PUBLIC_STELLAR_NETWORK: testnet
           NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
           NEXT_PUBLIC_API_URL: http://localhost:4000
+          NEXT_PUBLIC_USE_CONTRACT_MOCK: "true"
+          NEXT_PUBLIC_CONTRACT_ID: CMOCKCONTRACTID
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
 
   backend:
     name: Backend (Node.js)
@@ -49,7 +61,17 @@ jobs:
           cache: "npm"
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
+      - run: npm test
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/marketpay_test
+          JWT_SECRET: ci-test-jwt-secret-with-sufficient-length
       - run: npm run lint
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+          retention-days: 7
 
   contracts:
     name: Soroban Contract (Rust)
@@ -71,6 +93,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo check --target wasm32-unknown-unknown
       - run: cargo clippy -- -D warnings
+      - run: cargo install cargo-audit --locked
       - run: cargo audit --ignore RUSTSEC-2020-0071
       - run: cargo test
       - run: cargo build --target wasm32-unknown-unknown --release

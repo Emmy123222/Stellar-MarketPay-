@@ -1,0 +1,7 @@
+
+export interface BulkActionResponse {
+  success: boolean;
+  message?: string;
+  processedCount: number;
+  failedCount: number;
+}

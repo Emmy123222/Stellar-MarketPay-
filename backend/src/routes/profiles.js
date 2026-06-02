@@ -7,9 +7,12 @@ const router  = express.Router();
 const pool    = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT } = require("../middleware/auth");
+const multer = require("multer");
+const { uploadFile, getGatewayUrl, MAX_FILE_SIZE } = require("../services/ipfsService");
 
 const profileUpdateRateLimiter = createRateLimiter(5, 1); // 5 profile updates per minute
 const generalProfileRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for getting profiles
+const cache = require("../services/cacheService");
 
 const {
   getProfile,
@@ -19,6 +22,7 @@ const {
   endorseSkill,
   getClientSpendingAnalytics,
   listProfiles,
+  getClientReputation,
   getProfileStats,
   getResponseTime,
   blockFreelancer,
@@ -45,7 +49,18 @@ router.get("/", generalProfileRateLimiter, async (req, res, next) => {
 });
 
 router.get("/:publicKey", generalProfileRateLimiter, async (req, res, next) => {
-  try { res.json({ success: true, data: await getProfile(req.params.publicKey) }); }
+  try {
+    const key = cache.profileKey(req.params.publicKey);
+    const cached = await cache.get(key);
+    if (cached) {
+      res.set("X-Cache", "HIT");
+      return res.json({ success: true, data: cached });
+    }
+    const data = await getProfile(req.params.publicKey);
+    await cache.set(key, data, cache.TTL.PROFILE);
+    res.set("X-Cache", "MISS");
+    res.json({ success: true, data });
+  }
   catch (e) { next(e); }
 });
 
@@ -60,7 +75,11 @@ router.get("/:publicKey/response-time", generalProfileRateLimiter, async (req, r
 });
 
 router.post("/", profileUpdateRateLimiter, async (req, res, next) => {
-  try { res.json({ success: true, data: await upsertProfile(req.body) }); }
+  try {
+    const data = await upsertProfile(req.body);
+    if (req.body.publicKey) await cache.del(cache.profileKey(req.body.publicKey));
+    res.json({ success: true, data });
+  }
   catch (e) { next(e); }
 });
 
@@ -183,6 +202,15 @@ router.get("/:publicKey/spending", generalProfileRateLimiter, async (req, res, n
   }
 });
 
+router.get("/:publicKey/client-reputation", generalProfileRateLimiter, async (req, res, next) => {
+  try {
+    const data = await getClientReputation(req.params.publicKey);
+    res.json({ success: true, data });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // POST /api/profiles/:publicKey/block — block a freelancer
 router.post("/:publicKey/block", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
   try {
@@ -218,7 +246,8 @@ router.get("/:publicKey/earnings", generalProfileRateLimiter, async (req, res, n
          e.amount_xlm,
          e.released_at,
          j.title  AS job_title,
-         j.client_address
+         j.client_address,
+         j.currency
        FROM escrows e
        JOIN jobs j ON e.job_id = j.id
        WHERE j.freelancer_address = $1
@@ -241,17 +270,28 @@ router.get("/:publicKey/earnings", generalProfileRateLimiter, async (req, res, n
       [publicKey]
     );
 
-    const totalXlm = payments.reduce((sum, p) => sum + parseFloat(p.amount_xlm || 0), 0);
+    let totalXlm = 0;
+    let totalUsdc = 0;
+    for (const p of payments) {
+      const amt = parseFloat(p.amount_xlm || 0);
+      if ((p.currency || "XLM").toUpperCase() === "USDC") {
+        totalUsdc += amt;
+      } else {
+        totalXlm += amt;
+      }
+    }
 
     res.json({
       success: true,
       data: {
         totalXlm: totalXlm.toFixed(7),
+        totalUsdc: totalUsdc.toFixed(7),
         payments: payments.map((p) => ({
           id: p.id,
           jobId: p.job_id,
           jobTitle: p.job_title,
           amountXlm: p.amount_xlm,
+          currency: p.currency || "XLM",
           releasedAt: p.released_at,
           clientAddress: p.client_address,
         })),
@@ -264,4 +304,108 @@ router.get("/:publicKey/earnings", generalProfileRateLimiter, async (req, res, n
   } catch (e) { next(e); }
 });
 
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE },
+});
+
+router.post("/:publicKey/portfolio", verifyJWT, upload.single("file"), async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: "Unauthorized" });
+    if (!req.file) return res.status(400).json({ error: "File is required" });
+
+    const { rows } = await pool.query("SELECT portfolio_items FROM profiles WHERE public_key = $1", [publicKey]);
+    const current = rows[0]?.portfolio_items || [];
+    if (current.length >= 10) return res.status(400).json({ error: "Maximum 10 portfolio items allowed" });
+
+    const uploaded = await uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype);
+    const item = {
+      id: require("crypto").randomUUID(),
+      title: req.body.title?.trim() || req.file.originalname,
+      type: uploaded.mimeType.startsWith("image/") ? "image" : "pdf",
+      cid: uploaded.cid,
+      fileName: uploaded.fileName,
+      mimeType: uploaded.mimeType,
+      size: uploaded.size,
+      uploadedAt: uploaded.uploadedAt,
+      url: getGatewayUrl(uploaded.cid),
+    };
+
+    const updated = [...current, item];
+    await pool.query("UPDATE profiles SET portfolio_items = $2::jsonb, updated_at = NOW() WHERE public_key = $1", [publicKey, JSON.stringify(updated)]);
+
+    res.json({ success: true, data: item });
+  } catch (e) { next(e); }
+});
+
+// GET /api/profiles/:publicKey/endorsements — get skill endorsements
+router.get("/:publicKey/endorsements", generalProfileRateLimiter, async (req, res, next) => {
+  try {
+    const data = await getSkillEndorsements(req.params.publicKey);
+    res.json({ success: true, data });
+  } catch (e) { next(e); }
+});
+
+// POST /api/profiles/:publicKey/endorse — endorse a skill
+router.post("/:publicKey/endorse", verifyJWT, async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+    const { skill } = req.body;
+    const endorserAddress = req.user.publicKey;
+
+    if (!skill || typeof skill !== "string" || !skill.trim()) {
+      return res.status(400).json({ error: "Skill name is required" });
+    }
+
+    // Validate skill exists in recipient's profile
+    const { rows: profileRows } = await pool.query(
+      "SELECT skills FROM profiles WHERE public_key = $1",
+      [publicKey]
+    );
+    if (!profileRows.length) {
+      return res.status(404).json({ error: "Profile not found" });
+    }
+    if (!profileRows[0].skills || !profileRows[0].skills.includes(skill.trim())) {
+      return res.status(400).json({ error: "Skill not found in freelancer's profile" });
+    }
+
+    // Only past clients who completed a job can endorse
+    const { rows: jobRows } = await pool.query(
+      `SELECT 1 FROM jobs
+       WHERE client_address = $1
+         AND freelancer_address = $2
+         AND status = 'completed'
+       LIMIT 1`,
+      [endorserAddress, publicKey]
+    );
+    if (!jobRows.length) {
+      return res.status(403).json({ error: "Only past clients with completed jobs can endorse" });
+    }
+
+    await endorseSkill({ skill: skill.trim(), endorserAddress, recipientAddress: publicKey });
+
+    res.status(201).json({ success: true, data: { skill: skill.trim(), endorsed: true } });
+  } catch (e) { next(e); }
+});
+
+router.delete("/:publicKey/portfolio/:itemId", verifyJWT, async (req, res, next) => {
+  try {
+    const { publicKey, itemId } = req.params;
+    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: "Unauthorized" });
+
+    const { rows } = await pool.query("SELECT portfolio_items FROM profiles WHERE public_key = $1", [publicKey]);
+    const current = rows[0]?.portfolio_items || [];
+    const nextItems = current.filter((item) => item.id !== itemId);
+
+    if (nextItems.length === current.length) return res.status(404).json({ error: "Portfolio item not found" });
+
+    await pool.query("UPDATE profiles SET portfolio_items = $2::jsonb, updated_at = NOW() WHERE public_key = $1", [publicKey, JSON.stringify(nextItems)]);
+
+    res.json({ success: true, data: { deleted: true } });
+  } catch (e) { next(e); }
+});
 module.exports = router;
+
+

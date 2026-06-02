@@ -3,13 +3,22 @@
  * Shared TypeScript types for Stellar MarketPay.
  */
 
-export type JobStatus = "open" | "in_progress" | "completed" | "cancelled" | "disputed";
-export type UserRole  = "client" | "freelancer" | "both";
-export type Currency  = "XLM" | "USDC";
+export type JobStatus =
+  | "open"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "disputed";
+export type UserRole = "client" | "freelancer" | "both";
+export type Currency = "XLM" | "USDC";
 export type JobVisibility = "public" | "private" | "invite_only";
-export type FreelancerTier = "Newcomer" | "Rising Star" | "Expert" | "Top Talent";
+export type FreelancerTier =
+  | "Newcomer"
+  | "Rising Talent"
+  | "Top Rated"
+  | "Expert";
 export type AvailabilityStatus = "available" | "busy" | "unavailable";
-export type PortfolioItemType = "github" | "live" | "stellar_tx" | "file";
+export type PortfolioItemType = "link" | "image" | "pdf" | "github" | "live" | "stellar_tx" | "file";
 
 export interface PortfolioItem {
   title: string;
@@ -23,12 +32,32 @@ export interface Availability {
   availableUntil?: string;
 }
 
+export interface JobMilestone {
+  description: string;
+  amount: string;
+  status: "pending" | "released" | "disputed";
+  releasedAt?: string | null;
+  disputedAt?: string | null;
+}
+
+export interface NotificationItem {
+  id: string;
+  userAddress: string;
+  type: string;
+  title: string;
+  body: string;
+  read: boolean;
+  jobId?: string | null;
+  linkPath?: string | null;
+  createdAt: string;
+}
+
 export interface Job {
   id: string;
   title: string;
   description: string;
-  budget: string;        // Amount as string
-  currency: Currency;   // XLM or USDC
+  budget: string; // Amount as string
+  currency: Currency; // XLM or USDC
   category: string;
   visibility?: JobVisibility;
   skills: string[];
@@ -37,17 +66,41 @@ export interface Job {
   freelancerAddress?: string;
   escrowContractId?: string;
   applicantCount: number;
-  shareCount?: number;   // Track share clicks
-  boosted?: boolean;     // Featured/boosted status
+  shareCount?: number; // Track share clicks
+  boosted?: boolean; // Featured/boosted status
   boostedUntil?: string; // ISO date when boost expires
   createdAt: string;
   updatedAt: string;
   deadline?: string;
-  timezone?: string;     // IANA timezone string (e.g., "America/New_York")
-  screeningQuestions?: string[];  // Up to 5 screening questions
-  expiresAt?: string;    // ISO date when job expires if not hired
+  timezone?: string; // IANA timezone string (e.g., "America/New_York")
+  screeningQuestions?: string[]; // Up to 5 screening questions
+  milestones?: JobMilestone[]; // Up to 10 milestone payments
+  expiresAt?: string; // ISO date when job expires if not hired
   extendedCount?: number; // Number of times expiry has been extended
   extendedUntil?: string; // Final expiry after all extensions
+  biddingClosedAt?: string | null;
+  clientReputationScore?: number | null;
+  disputedBy?: string;
+  disputedAt?: string | null;
+  disputeReason?: string | null;
+  disputeDescription?: string | null;
+}
+
+export interface ClientReputation {
+  publicKey: string;
+  score: number;
+  paymentReleaseRate: number;
+  disputeRate: number;
+  completionRate: number;
+  avgTimeToReleaseHours: number;
+  responseTimeToApplicationsHours: number;
+  totals: {
+    totalJobs: number;
+    completedJobs: number;
+    disputedJobs: number;
+    totalReleased: number;
+    releasedOnTime: number;
+  };
 }
 
 export interface Application {
@@ -56,11 +109,17 @@ export interface Application {
   freelancerAddress: string;
   freelancerTier?: FreelancerTier;
   proposal: string;
-  bidAmount: string;     // Amount as string
-  currency: Currency;    // XLM or USDC
+  bidAmount: string;
+  currency: Currency;
   status: "pending" | "accepted" | "rejected";
-  screeningAnswers?: Record<string, string>;  // Question -> Answer mapping
+  screeningAnswers?: Record<string, string>;
+  estimatedDuration?: string;
+  bidCommitment?: string | null;
+  bidRevealed?: boolean;
+  revealedBidAmount?: string | null;
+  revealedAt?: string | null;
   createdAt: string;
+  acceptedAt?: string;
 }
 
 export interface UserProfile {
@@ -76,7 +135,6 @@ export interface UserProfile {
   totalEarnedXLM: string;
   rating?: number;
   tier?: FreelancerTier;
-  /** Number of ratings received (when returned by profile API). */
   ratingCount?: number;
   referralCount?: number;
   reputationPoints?: number;
@@ -120,7 +178,7 @@ export interface Rating {
   jobId: string;
   raterAddress: string;
   ratedAddress: string;
-  stars: number;          // 1–5
+  stars: number; // 1–5
   review?: string;
   createdAt: string;
 }
@@ -182,6 +240,8 @@ export interface Message {
   content: string;
   read: boolean;
   createdAt: string;
+  ipfsCid?: string;
+  txHash?: string;
 }
 
 export interface PortfolioFile {
@@ -219,4 +279,129 @@ export interface TokenBalance {
   contractId: string;
   balance: string;
   symbol: string;
+}
+
+// ─── Skill Endorsements ────────────────────────────────────────
+
+export interface SkillEndorsement {
+  skill: string;
+  count: number;
+  endorsers: string[];
+}
+
+export interface SkillBadge {
+  skill: string;
+  score: number;
+  passed: boolean;
+  taken_at: string;
+}
+
+export interface AssessmentQuestion {
+  id: number;
+  question: string;
+  options: string[];
+}
+
+// ─── Referrals ────────────────────────────────────────────────────────────────
+
+export type ReferralStatus = "pending" | "paid" | "ineligible";
+
+export interface ReferralReferee {
+  id: string;
+  refereeAddress: string;
+  refereeDisplayName: string | null;
+  status: ReferralStatus;
+  payoutAmount: string | null; // XLM string, e.g. "0.5000000"
+  paidAt: string | null;
+  jobTitle: string | null;
+  createdAt: string;
+}
+
+export interface ReferralPayout {
+  id: string;
+  refereeAddress: string;
+  jobId: string;
+  jobTitle: string;
+  amountXlm: string;
+  contractTxHash: string | null;
+  createdAt: string;
+}
+
+export interface ReferralStats {
+  totalReferrals: number;
+  paidReferrals: number;
+  pendingReferrals: number;
+  totalEarnedXlm: string;
+  bonusBps: number;
+  referees: ReferralReferee[];
+  payouts: ReferralPayout[];
+}
+
+export interface TimeEntry {
+  id: string;
+  jobId: string;
+  durationMinutes: number;
+  description?: string;
+  startedAt?: string;
+  createdAt: string;
+}
+
+export interface TimeInvoice {
+  id: string;
+  jobId: string;
+  status: "pending" | "approved" | "rejected";
+  totalMinutes: number;
+  amountXlm: string;
+  hourlyRateXlm: string;
+  totalAmountXlm: string;
+  createdAt: string;
+}
+
+// ─── Analytics ───────────────────────────────────────────────────────────────
+
+export interface JobAnalytics {
+  jobId: string;
+  title: string;
+  applicantCount: number;
+  averageBid: string;
+  minBid: string;
+  maxBid: string;
+  views?: number;
+  applications: Array<{
+    freelancerAddress: string;
+    bidAmount: string;
+    createdAt: string;
+  }>;
+  applicationsPerDay: Array<{ day: string; count: number }>;
+  averageBidAmount: Array<{ currency: string; avgBid: number; count: number }>;
+  skillDistribution: Record<string, number>;
+  daysToHire: number | null;
+  applicationStatusCounts: Record<string, number>;
+}
+
+// ─── Bulk Actions ────────────────────────────────────────────────────────────
+
+export interface BulkActionResponse {
+  success: boolean;
+  message?: string;
+  succeeded: number;
+  failed: number;
+  processedCount: number;
+  failedCount: number;
+  results: { id: string; success: boolean; error?: string; boostedUntil?: string }[];
+}
+
+// ─── Job Invitations ─────────────────────────────────────────────────────────
+
+export interface JobInvitation {
+  id: string;
+  jobId: string;
+  clientAddress: string;
+  clientName?: string;
+  freelancerAddress: string;
+  jobTitle: string;
+  jobBudget: string;
+  jobCurrency: Currency;
+  status: "pending" | "accepted" | "declined";
+  createdAt: string;
 }

@@ -12,6 +12,12 @@ const VALID_PROFILE_ROLES = ["client", "freelancer", "both"];
 const VALID_PORTFOLIO_TYPES = ["github", "live", "stellar_tx", "file"];
 const VALID_AVAILABILITY_STATUSES = ["available", "busy", "unavailable"];
 const MAX_PORTFOLIO_ITEMS = 10;
+const FREELANCER_TIERS = {
+  NEWCOMER: "Newcomer",
+  RISING_TALENT: "Rising Talent",
+  TOP_RATED: "Top Rated",
+  EXPERT: "Expert",
+};
 
 /**
  * Camel-cased profile record returned by this service.
@@ -216,6 +222,12 @@ function rowToProfile(row) {
     referralCount: Number(row.referral_count || 0),
     reputationPoints: Number(row.reputation_points || 0),
     blockedAddresses: Array.isArray(row.blocked_addresses) ? row.blocked_addresses : [],
+    email: row.email || null,
+    emailNotificationsEnabled: row.email_notifications_enabled !== null ? row.email_notifications_enabled : null,
+    webhookUrl: row.webhook_url || null,
+    webhookSecret: row.webhook_secret || null,
+    isKycVerified: row.is_kyc_verified !== null ? row.is_kyc_verified : null,
+    didHash: row.did_hash || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -262,7 +274,7 @@ async function getProfile(publicKey) {
   const profile = rowToProfile(rows[0]);
   profile.rating = rows[0].avg_rating !== null ? parseFloat(rows[0].avg_rating) : null;
   profile.ratingCount = rows[0].rating_count;
-  profile.tier = calculateFreelancerTier(profile.completedJobs, profile.rating);
+  profile.tier = await calculateTier(publicKey);
 
   // Calculate reputation score (simple formula: higher weight on ratings, lower on time)
   // Max score 100.
@@ -630,6 +642,123 @@ async function endorseSkill({ skill, endorserAddress, recipientAddress }) {
   );
 }
 
+/**
+ * Verify a user's identity by storing a DID hash.
+ * @param {string} publicKey
+ * @param {string} didHash
+ * @returns {Promise<Object>}
+ */
+async function verifyIdentity(publicKey, didHash) {
+  validatePublicKey(publicKey);
+  if (!didHash || typeof didHash !== "string") {
+    throw createValidationError("didHash is required");
+  }
+  const { rows } = await pool.query(
+    `UPDATE profiles SET did_hash = $1, is_kyc_verified = true, updated_at = NOW()
+     WHERE public_key = $2 RETURNING *`,
+    [didHash.trim(), publicKey]
+  );
+  if (!rows.length) {
+    const e = new Error("Profile not found");
+    e.status = 404;
+    throw e;
+  }
+  return rowToProfile(rows[0]);
+}
+
+/**
+ * Calculate freelancer tier from profile and job-history metrics.
+ * @param {Object|number} metrics
+ * @param {number|null} rating
+ * @returns {string}
+ */
+function calculateFreelancerTier(metrics, rating = null) {
+  const source = typeof metrics === "object" && metrics !== null
+    ? metrics
+    : { completedJobs: Number(metrics) || 0, rating };
+
+  const completedJobs = Number(source.completedJobs) || 0;
+  const totalJobs = Math.max(Number(source.totalJobs) || 0, completedJobs);
+  const averageRating = Number(source.rating) || 0;
+  const totalEarnedXlm = Number(source.totalEarnedXlm) || 0;
+  const createdAt = source.createdAt ? new Date(source.createdAt) : null;
+  const accountAgeMs = createdAt && !Number.isNaN(createdAt.getTime())
+    ? Date.now() - createdAt.getTime()
+    : null;
+  const accountAgeDays = accountAgeMs == null ? null : accountAgeMs / (24 * 60 * 60 * 1000);
+  const completionRate = totalJobs > 0 ? completedJobs / totalJobs : 0;
+
+  if (completedJobs >= 20 && averageRating >= 4.8 && totalEarnedXlm >= 500) {
+    return FREELANCER_TIERS.EXPERT;
+  }
+  if (completedJobs >= 5 && averageRating >= 4.5 && completionRate >= 0.9) {
+    return FREELANCER_TIERS.TOP_RATED;
+  }
+  if (completedJobs >= 1 && accountAgeDays !== null && accountAgeDays < 90) {
+    return FREELANCER_TIERS.RISING_TALENT;
+  }
+  return FREELANCER_TIERS.NEWCOMER;
+}
+
+async function calculateTier(publicKey, queryRunner = pool) {
+  validatePublicKey(publicKey);
+
+  const { rows } = await queryRunner.query(
+    `
+    SELECT
+      p.created_at,
+      GREATEST(
+        COALESCE(p.completed_jobs, 0),
+        COALESCE((SELECT COUNT(*) FROM jobs j WHERE j.freelancer_address = p.public_key AND j.status = 'completed'), 0)
+      )::int AS completed_jobs,
+      GREATEST(
+        COALESCE(p.total_earned_xlm::numeric, 0),
+        COALESCE((SELECT SUM(j.budget::numeric) FROM jobs j WHERE j.freelancer_address = p.public_key AND j.status = 'completed'), 0)
+      ) AS total_earned_xlm,
+      COALESCE((SELECT ROUND(AVG(r.stars)::numeric, 2) FROM ratings r WHERE r.rated_address = p.public_key), p.rating) AS avg_rating,
+      COALESCE((SELECT COUNT(*) FROM jobs j WHERE j.freelancer_address = p.public_key), 0)::int AS total_jobs
+    FROM profiles p
+    WHERE p.public_key = $1
+    `,
+    [publicKey],
+  );
+
+  if (!rows.length) return FREELANCER_TIERS.NEWCOMER;
+
+  const row = rows[0];
+  return calculateFreelancerTier({
+    completedJobs: row.completed_jobs,
+    totalJobs: row.total_jobs,
+    rating: row.avg_rating,
+    totalEarnedXlm: row.total_earned_xlm,
+    createdAt: row.created_at,
+  });
+}
+
+async function refreshFreelancerTier(publicKey, queryRunner = pool) {
+  validatePublicKey(publicKey);
+
+  await queryRunner.query(
+    `
+    UPDATE profiles
+    SET completed_jobs = stats.completed_jobs,
+        total_earned_xlm = stats.total_earned_xlm,
+        rating = stats.avg_rating,
+        updated_at = NOW()
+    FROM (
+      SELECT
+        COALESCE((SELECT COUNT(*) FROM jobs j WHERE j.freelancer_address = $1 AND j.status = 'completed'), 0)::int AS completed_jobs,
+        COALESCE((SELECT SUM(j.budget::numeric) FROM jobs j WHERE j.freelancer_address = $1 AND j.status = 'completed'), 0)::numeric(20,7) AS total_earned_xlm,
+        (SELECT ROUND(AVG(r.stars)::numeric, 2) FROM ratings r WHERE r.rated_address = $1) AS avg_rating
+    ) stats
+    WHERE profiles.public_key = $1
+    `,
+    [publicKey],
+  );
+
+  return calculateTier(publicKey, queryRunner);
+}
+
 async function getClientSpendingAnalytics(publicKey) {
   validatePublicKey(publicKey);
 
@@ -696,6 +825,134 @@ async function getClientSpendingAnalytics(publicKey) {
   };
 }
 
+async function getClientReputation(publicKey) {
+  validatePublicKey(publicKey);
+
+  const { rows } = await pool.query(
+    `
+    WITH client_jobs AS (
+      SELECT id, status, created_at, updated_at
+      FROM jobs
+      WHERE client_address = $1
+    ),
+    completed_jobs AS (
+      SELECT id, created_at, updated_at
+      FROM client_jobs
+      WHERE status = 'completed'
+    ),
+    dispute_jobs AS (
+      SELECT id FROM client_jobs WHERE status = 'disputed'
+    ),
+    release_metrics AS (
+      SELECT
+        COUNT(*)::int AS total_released,
+        COUNT(*) FILTER (WHERE e.released_at <= e.created_at + INTERVAL '7 days')::int AS released_on_time,
+        AVG(EXTRACT(EPOCH FROM (e.released_at - e.created_at)) / 3600.0) AS avg_release_hours
+      FROM escrows e
+      JOIN completed_jobs cj ON cj.id = e.job_id
+      WHERE e.status = 'released' AND e.released_at IS NOT NULL
+    ),
+    response_metrics AS (
+      SELECT AVG(EXTRACT(EPOCH FROM (a.accepted_at - j.created_at)) / 3600.0) AS avg_response_hours
+      FROM jobs j
+      JOIN applications a ON a.job_id = j.id
+      WHERE j.client_address = $1
+        AND a.status = 'accepted'
+        AND a.accepted_at IS NOT NULL
+    )
+    SELECT
+      (SELECT COUNT(*)::int FROM client_jobs) AS total_jobs,
+      (SELECT COUNT(*)::int FROM completed_jobs) AS completed_jobs,
+      (SELECT COUNT(*)::int FROM dispute_jobs) AS disputed_jobs,
+      COALESCE((SELECT total_released FROM release_metrics), 0) AS total_released,
+      COALESCE((SELECT released_on_time FROM release_metrics), 0) AS released_on_time,
+      COALESCE((SELECT avg_release_hours FROM release_metrics), 0) AS avg_release_hours,
+      COALESCE((SELECT avg_response_hours FROM response_metrics), 0) AS avg_response_hours
+    `,
+    [publicKey]
+  );
+
+  const row = rows[0];
+  const totalJobs = Number(row.total_jobs) || 0;
+  const completedJobs = Number(row.completed_jobs) || 0;
+  const disputedJobs = Number(row.disputed_jobs) || 0;
+  const totalReleased = Number(row.total_released) || 0;
+  const releasedOnTime = Number(row.released_on_time) || 0;
+  const avgReleaseHours = Number(row.avg_release_hours) || 0;
+  const avgResponseHours = Number(row.avg_response_hours) || 0;
+
+  const paymentReleaseRate = totalReleased > 0 ? releasedOnTime / totalReleased : 0;
+  const disputeRate = totalJobs > 0 ? disputedJobs / totalJobs : 0;
+  const completionRate = totalJobs > 0 ? completedJobs / totalJobs : 0;
+  const responseTimeScore = avgResponseHours <= 0 ? 0 : Math.max(0, 1 - avgResponseHours / 168);
+  const releaseSpeedScore = avgReleaseHours <= 0 ? 0 : Math.max(0, 1 - avgReleaseHours / 336);
+
+  const score100 =
+    paymentReleaseRate * 35 +
+    (1 - disputeRate) * 25 +
+    completionRate * 25 +
+    responseTimeScore * 10 +
+    releaseSpeedScore * 5;
+
+  const score = Math.max(0, Math.min(5, Number(((score100 / 100) * 5).toFixed(2))));
+
+  return {
+    publicKey,
+    score,
+    paymentReleaseRate: Number((paymentReleaseRate * 100).toFixed(1)),
+    disputeRate: Number((disputeRate * 100).toFixed(1)),
+    completionRate: Number((completionRate * 100).toFixed(1)),
+    avgTimeToReleaseHours: Number(avgReleaseHours.toFixed(1)),
+    responseTimeToApplicationsHours: Number(avgResponseHours.toFixed(1)),
+    totals: { totalJobs, completedJobs, disputedJobs, totalReleased, releasedOnTime },
+  };
+}
+
+async function getProfileStats(publicKey) {
+  validatePublicKey(publicKey);
+
+  const { rows } = await pool.query(
+    `
+    SELECT
+      COUNT(*)::int AS total_applications,
+      COUNT(*) FILTER (WHERE a.status = 'accepted')::int AS accepted_applications
+    FROM applications a
+    JOIN jobs j ON j.id = a.job_id
+    WHERE a.freelancer_address = $1
+    `,
+    [publicKey],
+  );
+
+  const totalApplications = Number(rows[0]?.total_applications || 0);
+  const acceptedApplications = Number(rows[0]?.accepted_applications || 0);
+  const successRate =
+    totalApplications > 0
+      ? Math.round((acceptedApplications / totalApplications) * 100)
+      : 0;
+
+  return { totalApplications, acceptedApplications, successRate };
+}
+
+async function getResponseTime(publicKey) {
+  validatePublicKey(publicKey);
+
+  const { rows } = await pool.query(
+    `
+    SELECT
+      AVG(EXTRACT(EPOCH FROM (e.released_at - e.created_at)) / 86400.0) AS average_days
+    FROM escrows e
+    JOIN jobs j ON j.id = e.job_id
+    WHERE j.freelancer_address = $1
+      AND e.status = 'released'
+      AND e.released_at IS NOT NULL
+    `,
+    [publicKey],
+  );
+
+  const value = rows[0]?.average_days;
+  return { averageDays: value == null ? null : Number(value) };
+}
+
 module.exports = {
   getProfile,
   upsertProfile,
@@ -704,9 +961,14 @@ module.exports = {
   getSkillEndorsements,
   endorseSkill,
   getClientSpendingAnalytics,
+  getClientReputation,
+  calculateTier,
+  calculateFreelancerTier,
+  refreshFreelancerTier,
+  FREELANCER_TIERS,
   getProfileStats,
   getResponseTime,
-  calculateFreelancerTier,
+  isBlocked,
   blockFreelancer,
   unblockFreelancer,
   VALID_PORTFOLIO_TYPES,

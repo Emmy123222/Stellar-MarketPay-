@@ -1,6 +1,6 @@
 /**
  * pages/admin.tsx
- * Admin moderation dashboard — gated to admin wallet addresses only.
+ * Admin moderation dashboard gated by the server-issued admin JWT role.
  * Non-admin wallets are immediately redirected to /jobs.
  */
 import { useEffect, useState, useCallback } from "react";
@@ -15,19 +15,38 @@ import {
   adminCancelJob,
   freezeWallet,
   unfreezeWallet,
+  fetchAdmin2FAStatus,
+  getJwtToken,
 } from "@/lib/api";
 import { shortenAddress, timeAgo } from "@/utils/format";
-
-// Wallet addresses with admin access — can also be overridden by env var
-const ADMIN_ADDRESSES = (
-  process.env.NEXT_PUBLIC_ADMIN_ADDRESSES || ""
-).split(",").map((a) => a.trim()).filter(Boolean);
+import AdminAnalytics from "@/components/AdminAnalytics";
+import Admin2FAModal from "@/components/Admin2FAModal";
 
 interface AdminPageProps {
   publicKey: string | null;
 }
 
-type ActiveTab = "disputes" | "reports" | "wallets" | "logs";
+type ActiveTab = "analytics" | "disputes" | "reports" | "wallets" | "logs";
+type AdminState = "checking" | "authorized" | "denied";
+
+function getJwtRole() {
+  if (typeof window === "undefined") return null;
+
+  const token = getJwtToken();
+  if (!token) return null;
+
+  try {
+    const encodedPayload = token.split(".")[1] || "";
+    const base64Payload = encodedPayload
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(encodedPayload.length / 4) * 4, "=");
+    const payload = JSON.parse(window.atob(base64Payload));
+    return typeof payload.role === "string" ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
 
 function Badge({ label, color }: { label: string; color: "red" | "amber" | "emerald" | "blue" | "gray" }) {
   const colorMap = {
@@ -68,9 +87,17 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
+function formatAuditTarget(target?: string | null) {
+  if (!target) return "—";
+  if (/^G[A-Z0-9]{55}$/.test(target)) {
+    return shortenAddress(target);
+  }
+  return target;
+}
+
 export default function AdminDashboard({ publicKey }: AdminPageProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<ActiveTab>("disputes");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("analytics");
   const [disputes, setDisputes] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
@@ -90,14 +117,53 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
   const [freezeModal, setFreezeModal] = useState<{ address: string } | null>(null);
   const [freezeReason, setFreezeReason] = useState("");
 
-  const isAdmin = Boolean(publicKey && ADMIN_ADDRESSES.includes(publicKey));
+  const [twoFaState, setTwoFaState] = useState<"loading" | "setup" | "verify" | "ready">("loading");
+  const [adminState, setAdminState] = useState<AdminState>("checking");
+
+  const isAdmin = adminState === "authorized";
 
   useEffect(() => {
-    if (!publicKey) return;
-    if (!isAdmin) {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+
+    function verifyAdminToken() {
+      if (!publicKey) {
+        setAdminState("checking");
+        return;
+      }
+
+      if (getJwtRole() === "admin") {
+        setAdminState("authorized");
+        return;
+      }
+
+      if (!getJwtToken() && attempts < 20) {
+        attempts += 1;
+        timeout = setTimeout(verifyAdminToken, 250);
+        return;
+      }
+
+      setAdminState("denied");
       router.replace("/jobs");
     }
-  }, [publicKey, isAdmin, router]);
+
+    verifyAdminToken();
+
+    return () => {
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [publicKey, router]);
+
+  useEffect(() => {
+    if (!isAdmin || !publicKey) return;
+    fetchAdmin2FAStatus()
+      .then((status) => {
+        if (!status.totp_enabled) setTwoFaState("setup");
+        else if (!status.verified) setTwoFaState("verify");
+        else setTwoFaState("ready");
+      })
+      .catch(() => setTwoFaState("ready"));
+  }, [isAdmin, publicKey]);
 
   const loadData = useCallback(async () => {
     if (!isAdmin) return;
@@ -121,8 +187,9 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
   }, [isAdmin]);
 
   useEffect(() => {
+    if (twoFaState !== "ready") return;
     loadData();
-  }, [loadData]);
+  }, [loadData, twoFaState]);
 
   function showSuccess(msg: string) {
     setActionMessage(msg);
@@ -139,7 +206,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
   async function handleResolveDispute() {
     if (!resolveModal || !resolveNote.trim()) return;
     try {
-      await resolveDispute(resolveModal.jobId, resolveNote, releaseTo);
+      await resolveDispute(resolveModal.jobId);
       showSuccess(`Dispute resolved — funds released to ${releaseTo}.`);
       setResolveModal(null);
       setResolveNote("");
@@ -194,15 +261,46 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
     );
   }
 
-  if (!isAdmin) {
+  if (adminState === "checking") {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-red-400">Access denied. Admin wallets only.</p>
+        <p className="text-amber-800">Verifying admin session...</p>
       </div>
     );
   }
 
+  if (adminState === "denied") {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-red-400">Access denied. Admin role required.</p>
+      </div>
+    );
+  }
+
+  if (twoFaState === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-amber-800">Verifying admin session…</p>
+      </div>
+    );
+  }
+
+  if (twoFaState === "setup" || twoFaState === "verify") {
+    return (
+      <>
+        <Head>
+          <title>Admin 2FA — Stellar MarketPay</title>
+        </Head>
+        <Admin2FAModal
+          mode={twoFaState}
+          onComplete={() => setTwoFaState("ready")}
+        />
+      </>
+    );
+  }
+
   const tabs: { id: ActiveTab; label: string; count?: number }[] = [
+    { id: "analytics", label: "Analytics" },
     { id: "disputes", label: "Open Disputes", count: disputes.length },
     { id: "reports",  label: "Flagged Jobs",  count: reports.length },
     { id: "wallets",  label: "Frozen Wallets", count: frozenWallets.length },
@@ -276,6 +374,11 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
           </div>
         ) : (
           <>
+            {/* ── Analytics Tab ──────────────────────────────────────────────── */}
+            {activeTab === "analytics" && (
+              <AdminAnalytics publicKey={publicKey} />
+            )}
+
             {/* ── Disputes Tab ──────────────────────────────────────────────── */}
             {activeTab === "disputes" && (
               <Section title="Open Disputes" count={disputes.length}>
@@ -448,6 +551,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                           <th className="text-left px-4 py-3">Action</th>
                           <th className="text-left px-4 py-3">Admin</th>
                           <th className="text-left px-4 py-3">Target</th>
+                          <th className="text-left px-4 py-3">Reason</th>
                           <th className="text-left px-4 py-3">Time</th>
                         </tr>
                       </thead>
@@ -456,10 +560,13 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                           <tr key={log.id} className="hover:bg-market-500/5 transition-colors">
                             <td className="px-4 py-3 text-amber-100 font-mono text-xs">{log.action}</td>
                             <td className="px-4 py-3 text-amber-800 font-mono text-xs">
-                              {shortenAddress(log.admin_address)}
+                              {shortenAddress(log.actor_address || log.admin_address)}
                             </td>
                             <td className="px-4 py-3 text-amber-800 font-mono text-xs">
-                              {log.target_id ? shortenAddress(log.target_id) : "—"}
+                              {formatAuditTarget(log.target || log.target_id)}
+                            </td>
+                            <td className="px-4 py-3 text-amber-800 text-xs">
+                              {log.reason || "—"}
                             </td>
                             <td className="px-4 py-3 text-amber-900 text-xs whitespace-nowrap">
                               {timeAgo(log.created_at)}

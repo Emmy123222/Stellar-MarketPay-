@@ -3,9 +3,19 @@
  */
 "use strict";
 const jwt = require("jsonwebtoken");
-const pool = require("../db/pool");
 
-const JWT_SECRET = process.env.JWT_SECRET || "super_secret_fallback_key";
+function requireJwtSecret() {
+  if (!process.env.JWT_SECRET) {
+    const message = "FATAL: JWT_SECRET environment variable is required";
+    console.error(message);
+    process.exit(1);
+  }
+
+  return process.env.JWT_SECRET;
+}
+
+const JWT_SECRET = requireJwtSecret();
+const pool = require("../db/pool");
 
 async function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -18,21 +28,39 @@ async function verifyJWT(req, res, next) {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
 
-    // Check if admin requires 2FA
-    if (decoded.role === "admin") {
-      const { rows } = await pool.query(
-        "SELECT totp_enabled FROM admin_profiles WHERE id = $1",
-        [decoded.publicKey]
-      );
-      if (rows[0] && rows[0].totp_enabled && !decoded.totpVerified) {
-        return res.status(403).json({ error: "2FA required", requires2FA: true });
-      }
-    }
-
     next();
   } catch {
     return res.status(401).json({ error: "Unauthorized: Invalid or expired token" });
   }
 }
 
-module.exports = { verifyJWT, JWT_SECRET };
+function requireAdminRole(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ error: "Forbidden: Admin access required" });
+  }
+
+  return next();
+}
+
+async function requireAdmin2FA(req, res, next) {
+  if (req.user?.role !== "admin") return next();
+
+  try {
+    const { rows } = await pool.query(
+      "SELECT totp_enabled FROM admin_profiles WHERE id = $1",
+      [req.user.publicKey]
+    );
+    if (rows[0]?.totp_enabled && !req.user["2fa_verified"]) {
+      return res.status(403).json({ error: "2FA required", requires2FA: true });
+    }
+    next();
+  } catch {
+    return res.status(500).json({ error: "Failed to verify 2FA status" });
+  }
+}
+
+module.exports = { verifyJWT, requireAdminRole, requireAdmin2FA, JWT_SECRET, requireJwtSecret };

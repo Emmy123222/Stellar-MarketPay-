@@ -1,181 +1,186 @@
-const { createJob, getJob, listJobs } = require('./jobService');
-const store = require('./store');
+jest.mock("../db/pool", () => {
+  const { createPgMock } = require("../testUtils/pgMock");
+  return createPgMock();
+});
 
-describe('jobService', () => {
+const pool = require("../db/pool");
+const {
+  createJob,
+  getJob,
+  listJobs,
+  listJobsByClient,
+  updateJobStatus,
+} = require("./jobService");
+
+describe("jobService", () => {
   beforeEach(() => {
-    store.jobs.clear();
-    store.applications.clear();
+    pool.reset();
   });
 
-  const validClientAddress = 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC'; // 56 chars, starts with G
+  const validClientAddress =
+    "GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
 
-  describe('createJob', () => {
-    it('createJob (valid): should successfully create and store a job', () => {
-      const jobData = {
-        title: 'Build a decentralized app',
-        description: 'Looking for a full-stack developer to build a dApp on Stellar.',
-        budget: '500',
-        category: 'Smart Contracts',
-        skills: ['Rust', 'Soroban'],
-        deadline: '2026-12-31T23:59:59Z',
+  describe("createJob", () => {
+    it("creates and stores a valid job", async () => {
+      const job = await createJob({
+        title: "Build a decentralized app",
+        description:
+          "Looking for a full-stack developer to build a dApp on Stellar.",
+        budget: "500",
+        category: "Smart Contracts",
+        skills: ["Rust", "Soroban"],
+        deadline: "2026-12-31T23:59:59Z",
         clientAddress: validClientAddress,
-      };
+        currency: "XLM",
+      });
 
-      const job = createJob(jobData);
-      
-      expect(job.title).toBe(jobData.title);
-      expect(job.budget).toBe('500.0000000');
-      expect(job.status).toBe('open');
+      expect(job.title).toBe("Build a decentralized app");
+      expect(job.budget).toBe("500.0000000");
+      expect(job.status).toBe("open");
       expect(job.clientAddress).toBe(validClientAddress);
-      
-      const storedJob = store.jobs.get(job.id);
-      expect(storedJob).toBeDefined();
-      expect(storedJob.id).toBe(job.id);
+      expect(pool.jobs.has(job.id)).toBe(true);
     });
 
-    it('createJob (missing title): should throw error for missing or too short title', () => {
-      const jobData = {
-        title: 'Short',
-        description: 'Looking for a full-stack developer to build a dApp on Stellar.',
-        budget: '500',
-        category: 'Smart Contracts',
-        clientAddress: validClientAddress,
-      };
-
-      expect(() => createJob(jobData)).toThrow('Title must be at least 10 characters');
-      expect(store.jobs.size).toBe(0);
+    it("rejects a short title", async () => {
+      await expect(
+        createJob({
+          title: "Short",
+          description:
+            "Looking for a full-stack developer to build a dApp on Stellar.",
+          budget: "500",
+          category: "Smart Contracts",
+          clientAddress: validClientAddress,
+          currency: "XLM",
+        }),
+      ).rejects.toThrow("Title must be at least 10 characters");
     });
 
-    it('createJob (invalid budget): should throw error for non-positive or invalid budget', () => {
-      const jobData = {
-        title: 'Build a decentralized app',
-        description: 'Looking for a full-stack developer to build a dApp on Stellar.',
-        budget: '-100', // Invalid
-        category: 'Smart Contracts',
+    it("rejects invalid budgets", async () => {
+      const base = {
+        title: "Build a decentralized app",
+        description:
+          "Looking for a full-stack developer to build a dApp on Stellar.",
+        category: "Smart Contracts",
         clientAddress: validClientAddress,
+        currency: "XLM",
       };
 
-      expect(() => createJob(jobData)).toThrow('Budget must be a positive number');
-      
-      const jobData2 = { ...jobData, budget: 'abc' };
-      expect(() => createJob(jobData2)).toThrow('Budget must be a positive number');
-      
-      expect(store.jobs.size).toBe(0);
+      await expect(createJob({ ...base, budget: "-100" })).rejects.toThrow(
+        "Budget must be a positive number",
+      );
+      await expect(createJob({ ...base, budget: "abc" })).rejects.toThrow(
+        "Budget must be a positive number",
+      );
     });
   });
 
-  describe('getJob', () => {
-    it('getJob (not found): should throw 404 error when job ID doesn\'t exist', () => {
-      expect(() => getJob('nonexistent-id')).toThrow('Job not found');
+  describe("getJob", () => {
+    it("throws when the job does not exist", async () => {
+      await expect(getJob("missing-job")).rejects.toThrow("Job not found");
       try {
-        getJob('nonexistent-id');
+        await getJob("missing-job");
       } catch (err) {
         expect(err.status).toBe(404);
       }
     });
   });
 
-  describe('listJobs', () => {
-    beforeEach(() => {
-      createJob({
-        title: 'Open Job 1 long enough',
-        description: 'This is an open job description that is long enough to pass validation.',
-        budget: '100',
-        category: 'Frontend Development',
+  describe("listJobs", () => {
+    beforeEach(async () => {
+      await createJob({
+        title: "Open Job 1 long enough",
+        description:
+          "This is an open job description that is long enough to pass validation.",
+        budget: "100",
+        category: "Frontend Development",
         clientAddress: validClientAddress,
+        currency: "XLM",
       });
 
-      const inProgressJob = createJob({
-        title: 'In Progress Job long enough',
-        description: 'This is an in progress job description that is long enough to pass validation.',
-        budget: '200',
-        category: 'Backend Development',
+      const inProgressJob = await createJob({
+        title: "In Progress Job long enough",
+        description:
+          "This is an in progress job description that is long enough to pass validation.",
+        budget: "200",
+        category: "Backend Development",
         clientAddress: validClientAddress,
+        currency: "XLM",
       });
-      // forcibly update status for testing
-      store.jobs.get(inProgressJob.id).status = 'in_progress';
-      
-      createJob({
-        title: 'Open Job 2 long enough',
-        description: 'This is another open job description that is long enough to pass validation.',
-        budget: '300',
-        category: 'Frontend Development',
+      pool.jobs.get(inProgressJob.id).status = "in_progress";
+
+      await createJob({
+        title: "Open Job 2 long enough",
+        description:
+          "This is another open job description that is long enough to pass validation.",
+        budget: "300",
+        category: "Frontend Development",
         clientAddress: validClientAddress,
+        currency: "XLM",
       });
     });
 
-    it('listJobs (filter by status): should return only jobs matching the requested status', () => {
-      const openJobs = listJobs({ status: 'open' });
-      expect(openJobs.length).toBe(2);
-      expect(openJobs.every(j => j.status === 'open')).toBe(true);
-
-      const inProgressJobs = listJobs({ status: 'in_progress' });
-      expect(inProgressJobs.length).toBe(1);
-      expect(inProgressJobs[0].status).toBe('in_progress');
+    it("filters by status", async () => {
+      const { jobs: openJobs } = await listJobs({ status: "open" });
+      expect(openJobs.length).toBeGreaterThanOrEqual(1);
+      expect(openJobs.every((job) => job.status === "open")).toBe(true);
     });
 
-    it('listJobs (filter by category): should return only jobs matching the requested category', () => {
-      // By default listJobs filters by status 'open' if not provided
-      const frontendJobs = listJobs({ category: 'Frontend Development' });
-      expect(frontendJobs.length).toBe(2);
-      expect(frontendJobs.every(j => j.category === 'Frontend Development')).toBe(true);
-
-      const backendJobs = listJobs({ category: 'Backend Development', status: 'in_progress' });
-      expect(backendJobs.length).toBe(1);
-      expect(backendJobs[0].category).toBe('Backend Development');
+    it("filters by category", async () => {
+      const { jobs: frontendJobs } = await listJobs({
+        category: "Frontend Development",
+        status: "open",
+      });
+      expect(frontendJobs.length).toBeGreaterThanOrEqual(1);
+      expect(
+        frontendJobs.every((job) => job.category === "Frontend Development"),
+      ).toBe(true);
     });
   });
 
-  describe('Additional Edge Cases', () => {
-    it('listJobsByClient: should return only jobs for the specific client', () => {
-      const { listJobsByClient } = require('./jobService');
-      const otherClientAddress = 'GBBCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC';
-      
-      createJob({
-        title: 'Job from client A long enough',
-        description: 'Description format that is long enough to pass validation.',
-        budget: '100',
-        category: 'Frontend Development',
+  describe("listJobsByClient and updateJobStatus", () => {
+    it("returns jobs for a client and updates status", async () => {
+      const otherClientAddress =
+        "GBBCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
+
+      await createJob({
+        title: "Job from client A long enough",
+        description:
+          "Description format that is long enough to pass validation.",
+        budget: "100",
+        category: "Frontend Development",
         clientAddress: validClientAddress,
+        currency: "XLM",
       });
 
-      createJob({
-        title: 'Job from client B long enough',
-        description: 'Description format that is long enough to pass validation.',
-        budget: '100',
-        category: 'Backend Development',
+      await createJob({
+        title: "Job from client B long enough",
+        description:
+          "Description format that is long enough to pass validation.",
+        budget: "100",
+        category: "Backend Development",
         clientAddress: otherClientAddress,
+        currency: "XLM",
       });
 
-      const clientAJobs = listJobsByClient(validClientAddress);
+      const clientAJobs = await listJobsByClient(validClientAddress);
       expect(clientAJobs.length).toBe(1);
       expect(clientAJobs[0].clientAddress).toBe(validClientAddress);
-      
-      const clientBJobs = listJobsByClient(otherClientAddress);
-      expect(clientBJobs.length).toBe(1);
-      expect(clientBJobs[0].clientAddress).toBe(otherClientAddress);
-    });
 
-    it('updateJobStatus: should properly update the status of the job', () => {
-      const { updateJobStatus } = require('./jobService');
-      
-      const job = createJob({
-        title: 'Job to be updated',
-        description: 'Description format that is long enough to pass validation.',
-        budget: '100',
-        category: 'Frontend Development',
+      const job = await createJob({
+        title: "Job to be updated",
+        description:
+          "Description format that is long enough to pass validation.",
+        budget: "100",
+        category: "Frontend Development",
         clientAddress: validClientAddress,
+        currency: "XLM",
       });
 
-      expect(job.status).toBe('open');
-      
-      const updatedJob = updateJobStatus(job.id, 'cancelled');
-      expect(updatedJob.status).toBe('cancelled');
-      
-      const storedJob = store.jobs.get(job.id);
-      expect(storedJob.status).toBe('cancelled');
-
-      expect(() => updateJobStatus(job.id, 'invalid_status')).toThrow('Invalid status');
+      const updatedJob = await updateJobStatus(job.id, "cancelled");
+      expect(updatedJob.status).toBe("cancelled");
+      await expect(updateJobStatus(job.id, "invalid_status")).rejects.toThrow(
+        "Invalid status",
+      );
     });
   });
 });

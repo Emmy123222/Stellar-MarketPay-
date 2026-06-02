@@ -1,10 +1,13 @@
 /**
  * components/MessageThread.tsx
  * Private 1-1 message thread between job client and freelancer.
+ * Messages are uploaded to IPFS for persistence and notarized on-chain
+ * via Soroban events for censorship resistance.
  */
 
 import { useState, useEffect, useRef, useCallback, type FormEvent } from "react";
-import { fetchMessages, sendMessage } from "@/lib/api";
+import { fetchMessages, sendMessage, attachMessageTxHash } from "@/lib/api";
+import { publishMessageOnChain } from "@/lib/stellar";
 import type { Message } from "@/utils/types";
 import { shortenAddress, timeAgo } from "@/utils/format";
 import clsx from "clsx";
@@ -91,7 +94,26 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
     setSending(true);
 
     try {
+      // Step 1: Send message via backend (uploads to IPFS, stores in DB)
       const sentMessage = await sendMessage(jobId, trimmed);
+
+      // Step 2: Notarize on-chain via Soroban (best-effort)
+      if (sentMessage.ipfsCid) {
+        try {
+          const txHash = await publishMessageOnChain({
+            jobId,
+            senderPublicKey: currentUserAddress,
+            recipientPublicKey: otherUserAddress,
+            ipfsCid: sentMessage.ipfsCid,
+          });
+          // Attach the tx hash to the message record
+          const updatedMessage = await attachMessageTxHash(sentMessage.id, txHash);
+          sentMessage.txHash = updatedMessage.txHash;
+        } catch (onChainError) {
+          console.warn("[MessageThread] On-chain notarization failed (non-fatal):", onChainError);
+        }
+      }
+
       // Replace optimistic message with real one
       if (isMountedRef.current) {
         setMessages((prev) =>

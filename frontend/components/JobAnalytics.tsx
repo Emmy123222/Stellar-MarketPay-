@@ -314,7 +314,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
                 {analytics != null && analytics.daysToHire !== null ? (
                   <>
                     <p className="font-display text-4xl font-bold text-emerald-400">
-                      {analytics.daysToHire?.toFixed(1)}
+                      {analytics.daysToHire.toFixed(1)}
                     </p>
                     <p className="text-xs text-amber-700 mt-1">days until hired</p>
                   </>
@@ -336,7 +336,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
               </div>
             ) : (
               <div className="flex items-center justify-center">
-                <StatusBreakdown data={analytics?.applicationStatusCounts || {}} />
+                <StatusBreakdown data={analytics?.applicationStatusCounts ?? { pending: 0, accepted: 0, rejected: 0 }} />
               </div>
             )}
           </div>

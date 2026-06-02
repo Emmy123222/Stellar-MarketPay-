@@ -1,17 +1,14 @@
 import { useEffect } from "react";
 
 type UseKeyboardShortcutsOptions = {
-  isJobDetailPage: boolean;
   onGoToJobs: () => void;
   onGoToDashboard: () => void;
-  onNewJobPost: () => void;
+  onPostJob: () => void;
   onToggleShortcutsModal: () => void;
-  onJobApply: () => void;
-  onJobBackToListing: () => void;
+  onFocusSearch: () => void;
+  onToggleBookmark: () => void;
   shortcutsModalOpen: boolean;
 };
-
-const SEQUENCE_TIMEOUT_MS = 900;
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -25,100 +22,77 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 export function useKeyboardShortcuts({
-  isJobDetailPage,
   onGoToJobs,
   onGoToDashboard,
-  onNewJobPost,
+  onPostJob,
   onToggleShortcutsModal,
-  onJobApply,
-  onJobBackToListing,
+  onFocusSearch,
+  onToggleBookmark,
   shortcutsModalOpen,
 }: UseKeyboardShortcutsOptions) {
   useEffect(() => {
-    let sequencePrefix: "g" | null = null;
-    let sequenceTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const clearSequence = () => {
-      sequencePrefix = null;
-      if (sequenceTimer) {
-        clearTimeout(sequenceTimer);
-        sequenceTimer = null;
-      }
-    };
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
 
+      if (event.key === "Escape") {
+        if (shortcutsModalOpen) {
+          event.preventDefault();
+          onToggleShortcutsModal();
+        }
+        return;
+      }
+
+      if (shortcutsModalOpen) return;
+
       const key = event.key.toLowerCase();
 
-      if (sequencePrefix === "g") {
-        if (key === "j") {
-          event.preventDefault();
-          onGoToJobs();
-          clearSequence();
-          return;
-        }
-
-        if (key === "d") {
-          event.preventDefault();
-          onGoToDashboard();
-          clearSequence();
-          return;
-        }
-      }
-
       if (key === "g") {
-        clearSequence();
-        sequencePrefix = "g";
-        sequenceTimer = setTimeout(clearSequence, SEQUENCE_TIMEOUT_MS);
-        return;
-      }
-
-      clearSequence();
-
-      if (key === "n") {
         event.preventDefault();
-        onNewJobPost();
+        onGoToJobs();
         return;
       }
 
-      const isQuestionMark = event.key === "?" || (event.key === "/" && event.shiftKey);
-      if (isQuestionMark) {
+      if (key === "d") {
+        event.preventDefault();
+        onGoToDashboard();
+        return;
+      }
+
+      if (key === "p") {
+        event.preventDefault();
+        onPostJob();
+        return;
+      }
+
+      if (event.key === "?" || (event.key === "/" && event.shiftKey)) {
         event.preventDefault();
         onToggleShortcutsModal();
         return;
       }
 
-      if (!isJobDetailPage) return;
-
-      if (key === "a") {
+      if (key === "/") {
         event.preventDefault();
-        onJobApply();
+        onFocusSearch();
         return;
       }
 
-      if (event.key === "Escape") {
-        if (shortcutsModalOpen) return;
+      if (key === "b") {
         event.preventDefault();
-        onJobBackToListing();
+        onToggleBookmark();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      clearSequence();
-      window.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
-    isJobDetailPage,
     onGoToJobs,
     onGoToDashboard,
-    onNewJobPost,
+    onPostJob,
     onToggleShortcutsModal,
-    onJobApply,
-    onJobBackToListing,
+    onFocusSearch,
+    onToggleBookmark,
     shortcutsModalOpen,
   ]);
 }

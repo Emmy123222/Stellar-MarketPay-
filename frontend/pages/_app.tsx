@@ -4,8 +4,20 @@ import Head from "next/head";
 import { useRouter } from "next/router";
 import Navbar from "@/components/Navbar";
 import FaucetButton from "@/components/FaucetButton";
-import { connectWallet, getConnectedPublicKey, signTransactionWithWallet } from "@/lib/wallet";
-import { fetchAuthChallenge, verifyAuthChallenge, setJwtToken } from "@/lib/api";
+import AppFooter from "@/components/AppFooter";
+import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
+import {
+  connectWallet,
+  getConnectedPublicKey,
+  signTransactionWithWallet,
+} from "@/lib/wallet";
+import {
+  fetchAuthChallenge,
+  verifyAuthChallenge,
+  setJwtToken,
+  logout,
+  registerReferral,
+} from "@/lib/api";
 import "@/styles/globals.css";
 import { ToastProvider } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
@@ -13,6 +25,7 @@ import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
 import ShortcutsModal from "@/components/ShortcutsModal";
 import OfflineBanner from "@/components/OfflineBanner";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useBackgroundSync } from "@/hooks/useBackgroundSync";
 import "../lib/i18n";
 
 function ThemeToggle() {
@@ -42,26 +55,80 @@ function ThemeToggle() {
 }
 
 function App({ Component, pageProps }: AppProps) {
-  const [publicKey, setPublicKey] = useState<string | null>(null);
+  const [publicKey, setPublicKey] = useState<string | null>(() => loadStoredPublicKey());
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<{
+    prompt: () => Promise<void>;
+    userChoice: Promise<{ outcome: string }>;
+  } | null>(null);
+  const [installDismissed, setInstallDismissed] = useState(false);
   const router = useRouter();
 
-  const isJobDetailPage = router.pathname === "/jobs/[id]";
+  // Background sync: refresh the current page when the SW replays queued requests
+  useBackgroundSync({
+    onSyncComplete: () => router.replace(router.asPath),
+  });
+
+  // Capture ?ref= query param and persist it until the user connects a wallet
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get("ref");
+    if (ref && /^G[A-Z0-9]{55}$/.test(ref)) {
+      localStorage.setItem(REF_STORAGE_KEY, ref);
+    }
+  }, []);
+
+  const handleOpenShortcutsModal = useCallback(() => {
+    setShortcutsModalOpen(true);
+  }, []);
+
+  const handleCloseShortcutsModal = useCallback(() => {
+    setShortcutsModalOpen(false);
+  }, []);
 
   const handleToggleShortcutsModal = useCallback(() => {
     setShortcutsModalOpen((current) => !current);
   }, []);
 
   useKeyboardShortcuts({
-    isJobDetailPage,
     onGoToJobs: () => router.push("/jobs"),
     onGoToDashboard: () => router.push("/dashboard"),
-    onNewJobPost: () => router.push("/post-job"),
+    onPostJob: () => router.push("/post-job"),
     onToggleShortcutsModal: handleToggleShortcutsModal,
-    onJobApply: () => window.dispatchEvent(new CustomEvent("shortcut-apply-job")),
-    onJobBackToListing: () => router.push("/jobs"),
+    onFocusSearch: () =>
+      window.dispatchEvent(new CustomEvent("shortcut-focus-search")),
+    onToggleBookmark: () =>
+      window.dispatchEvent(new CustomEvent("shortcut-toggle-bookmark")),
     shortcutsModalOpen,
   });
+
+  /**
+   * After a successful auth, check if there's a pending referrer in localStorage.
+   * If so, register the referral relationship and clear the stored key.
+   */
+  const maybeRegisterReferral = useCallback(async (newPublicKey: string) => {
+    if (typeof window === "undefined") return;
+    const referrerAddress = localStorage.getItem(REF_STORAGE_KEY);
+    if (!referrerAddress || referrerAddress === newPublicKey) return;
+    try {
+      await registerReferral(referrerAddress, newPublicKey);
+      localStorage.removeItem(REF_STORAGE_KEY);
+    } catch {
+      // Non-fatal — referral registration failure should not block login
+    }
+  }, []);
+
+  const persistPublicKey = useCallback((pk: string | null) => {
+    setPublicKey(pk);
+    if (typeof window === "undefined") return;
+    try {
+      if (pk) localStorage.setItem(WALLET_PUBLIC_KEY_STORAGE_KEY, pk);
+      else localStorage.removeItem(WALLET_PUBLIC_KEY_STORAGE_KEY);
+    } catch {
+      // Ignore storage failures; wallet state still works in memory.
+    }
+  }, []);
 
   const handleAuthAndConnect = async (pk: string) => {
     try {
@@ -84,10 +151,15 @@ function App({ Component, pageProps }: AppProps) {
     getConnectedPublicKey().then(async (pk) => {
       if (pk) {
         const authenticated = await handleAuthAndConnect(pk);
-        if (authenticated) setPublicKey(pk);
+        if (authenticated) {
+          persistPublicKey(pk);
+          await maybeRegisterReferral(pk);
+        } else {
+          persistPublicKey(null);
+        }
       }
     });
-  }, []);
+  }, [maybeRegisterReferral, persistPublicKey]);
 
   useEffect(() => {
     if (typeof window !== "undefined" && "serviceWorker" in navigator) {
@@ -97,12 +169,35 @@ function App({ Component, pageProps }: AppProps) {
     }
   }, []);
 
+  useEffect(() => {
+    const onInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setDeferredInstallPrompt(
+        event as unknown as {
+          prompt: () => Promise<void>;
+          userChoice: Promise<{ outcome: string }>;
+        }
+      );
+    };
+    window.addEventListener("beforeinstallprompt", onInstallPrompt);
+    return () => window.removeEventListener("beforeinstallprompt", onInstallPrompt);
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    const choice = await deferredInstallPrompt.userChoice;
+    if (choice?.outcome !== "accepted") setInstallDismissed(true);
+    setDeferredInstallPrompt(null);
+  };
+
   const handleConnect = async () => {
     const { publicKey: pk, error } = await connectWallet();
     if (pk) {
       const authenticated = await handleAuthAndConnect(pk);
       if (authenticated) {
-        setPublicKey(pk);
+        persistPublicKey(pk);
+        await maybeRegisterReferral(pk);
       } else {
         alert("Wallet connected, but authentication failed.");
       }

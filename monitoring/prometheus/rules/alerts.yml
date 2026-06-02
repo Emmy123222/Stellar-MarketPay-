@@ -1,0 +1,29 @@
+groups:
+  - name: marketpay-alerts
+    rules:
+      - alert: HighP99Latency
+        expr: histogram_quantile(0.99, sum(rate(marketpay_http_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MarketPay p99 latency is above 2s"
+          description: "The 99th percentile request latency has exceeded 2 seconds for more than 10 minutes."
+
+      - alert: HighErrorRate
+        expr: sum(rate(marketpay_http_requests_total{status_code=~"5.."}[5m])) / clamp_min(sum(rate(marketpay_http_requests_total[5m])), 1) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MarketPay error rate is above 5%"
+          description: "More than 5% of API requests are returning 5xx responses."
+
+      - alert: HighDatabaseConnections
+        expr: marketpay_db_connections{state="total"} > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL pool is near capacity"
+          description: "The shared PostgreSQL pool is using more than 80 connections."

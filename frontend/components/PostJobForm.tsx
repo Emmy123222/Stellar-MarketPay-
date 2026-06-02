@@ -1,114 +1,130 @@
+/**
+ * components/PostJobForm.tsx
+ * Issue #350 — Show FeeEstimationModal before job posting.
+ *
+ * Flow:
+ *   1. User fills form and clicks "Post Job"
+ *   2. Backend job record is created (status: open, no escrow yet)
+ *   3. Soroban tx is built via buildCreateEscrowTx (simulation only)
+ *   4. FeeEstimationModal is shown with the simulated fee breakdown
+ *   5. User confirms → Freighter signs → tx submitted → escrow ID stored
+ *   6. On cancel → orphaned job is deleted
+ */
 "use client";
 
 import { useState } from "react";
-import { getPublicKey } from "@stellar/freighter-api";
-import { createEscrowOnChain } from "@/lib/stellar";
+import type { Transaction } from "@stellar/stellar-sdk";
+import {
+  buildCreateEscrowTx,
+  signAndSubmitSorobanTx,
+  getXLMBalance,
+} from "@/lib/stellar";
+import { estimateSorobanFee } from "@/lib/sorobanFees";
+import FeeEstimationModal from "@/components/FeeEstimationModal";
+import { createJob, updateJobEscrowId, deleteJob } from "@/lib/api";
+import { usePriceContext } from "@/contexts/PriceContext";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+const DRAFT_STORAGE_KEY = "marketpay_post_job_draft";
+const AUTOSAVE_INTERVAL_MS = 30_000;
 
 interface JobFormData {
   title: string;
   description: string;
-  budgetXlm: number;
+  budget: string;
+  currency: "XLM" | "USDC";
+  category: string;
   skills: string;
   deadline: string;
+  visibility: "public" | "private" | "invite_only";
+  budgetXlm?: number;
+  milestones: { description: string; amount: string }[];
 }
 
-type Step = "idle" | "posting" | "escrow" | "complete" | "error";
+type Step = "idle" | "posting" | "fee_modal" | "signing" | "complete" | "error";
 
-interface StepState {
-  current: Step;
-  txHash?: string;
-  jobId?: string;
-  errorMessage?: string;
+interface PendingEscrow {
+  /** Pre-built (assembled) Soroban transaction ready for signing */
+  transaction: Transaction;
+  /** Backend job UUID — used for rollback on cancel */
+  jobId: string;
 }
+
+const VALID_CATEGORIES = [
+  "Smart Contracts",
+  "Frontend Development",
+  "Backend Development",
+  "UI/UX Design",
+  "Technical Writing",
+  "DevOps",
+  "Security Audit",
+  "Data Analysis",
+  "Mobile Development",
+  "Other",
+];
 
 // ---------------------------------------------------------------------------
-// Step progress indicator
+// Step progress bar
 // ---------------------------------------------------------------------------
 
 const STEPS = [
-  { id: "posting", label: "Posting Job" },
-  { id: "escrow", label: "Locking Escrow" },
-  { id: "complete", label: "Complete" },
+  { id: "posting", label: "Create Job" },
+  { id: "fee_modal", label: "Review Fees" },
+  { id: "signing", label: "Lock Escrow" },
+  { id: "complete", label: "Done" },
 ] as const;
 
-function StepIndex(step: Step): number {
-  if (step === "posting") return 0;
-  if (step === "escrow") return 1;
-  if (step === "complete") return 2;
-  return -1;
+function stepIndex(step: Step): number {
+  const map: Record<Step, number> = {
+    idle: -1,
+    posting: 0,
+    fee_modal: 1,
+    signing: 2,
+    complete: 3,
+    error: -1,
+  };
+  return map[step] ?? -1;
 }
 
 function ProgressBar({ step }: { step: Step }) {
-  const active = StepIndex(step);
+  const active = stepIndex(step);
   const isError = step === "error";
 
   return (
-    <div className="w-full my-6">
+    <div className="w-full my-5">
       <div className="flex items-center justify-between relative">
-        {/* Connector line */}
-        <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-gray-200 z-0" />
+        <div className="absolute left-0 right-0 top-4 h-0.5 bg-market-500/10 z-0" />
         <div
-          className="absolute left-0 top-1/2 -translate-y-1/2 h-0.5 bg-indigo-500 z-0 transition-all duration-700"
+          className="absolute left-0 top-4 h-0.5 bg-market-400 z-0 transition-all duration-700"
           style={{
             width:
-              active < 0
-                ? "0%"
-                : active === 0
-                ? "0%"
-                : active === 1
-                ? "50%"
-                : "100%",
+              active <= 0 ? "0%" :
+              active === 1 ? "33%" :
+              active === 2 ? "66%" : "100%",
           }}
         />
-
         {STEPS.map((s, i) => {
           const done = active > i;
           const current = active === i;
           const errored = isError && current;
-
           return (
-            <div
-              key={s.id}
-              className="flex flex-col items-center gap-2 z-10"
-            >
+            <div key={s.id} className="flex flex-col items-center gap-1.5 z-10">
               <div
                 className={[
-                  "w-9 h-9 rounded-full flex items-center justify-center border-2 text-sm font-bold transition-all duration-500",
-                  done
-                    ? "bg-indigo-500 border-indigo-500 text-white"
-                    : current && !errored
-                    ? "bg-white border-indigo-500 text-indigo-600 animate-pulse"
-                    : errored
-                    ? "bg-red-500 border-red-500 text-white"
-                    : "bg-white border-gray-300 text-gray-400",
+                  "w-8 h-8 rounded-full flex items-center justify-center border-2 text-xs font-bold transition-all duration-500",
+                  done ? "bg-market-400 border-market-400 text-ink-900" :
+                  current && !errored ? "bg-ink-900 border-market-400 text-market-400 animate-pulse" :
+                  errored ? "bg-red-500 border-red-500 text-white" :
+                  "bg-ink-800 border-market-500/20 text-amber-700",
                 ].join(" ")}
               >
-                {done ? (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : errored ? (
-                  "✕"
-                ) : (
-                  i + 1
-                )}
+                {done ? "✓" : errored ? "✕" : i + 1}
               </div>
-              <span
-                className={[
-                  "text-xs font-medium whitespace-nowrap",
-                  done
-                    ? "text-indigo-600"
-                    : current && !errored
-                    ? "text-indigo-500"
-                    : errored
-                    ? "text-red-500"
-                    : "text-gray-400",
-                ].join(" ")}
-              >
+              <span className={[
+                "text-xs font-medium whitespace-nowrap",
+                done ? "text-market-400" :
+                current && !errored ? "text-amber-100" :
+                errored ? "text-red-400" : "text-amber-700",
+              ].join(" ")}>
                 {s.label}
               </span>
             </div>
@@ -119,133 +135,250 @@ function ProgressBar({ step }: { step: Step }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
+function loadLocalDraft(): JobFormData | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as JobFormData;
+  } catch {
+    return null;
+  }
+}
 
-export default function PostJobForm() {
+function hasFormContent(form: JobFormData): boolean {
+  return Boolean(
+    form.title.trim() ||
+      form.description.trim() ||
+      form.skills.trim() ||
+      form.deadline ||
+      form.budget !== "50"
+  );
+}
+
+function milestoneTotal(milestones: JobFormData["milestones"]): number {
+  return milestones.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+}
+
+interface PostJobFormProps {
+  publicKey: string;
+  initialCategory?: string;
+  suggestedFreelancer?: string;
+}
+
+export default function PostJobForm({
+  publicKey,
+  initialCategory = "",
+  suggestedFreelancer = "",
+}: PostJobFormProps) {
+  const { xlmPriceUsd } = usePriceContext();
+
   const [form, setForm] = useState<JobFormData>({
     title: "",
     description: "",
-    budgetXlm: 50,
+    budget: "50",
+    currency: "XLM",
+    category: initialCategory || VALID_CATEGORIES[0],
     skills: "",
     deadline: "",
+    visibility: "public",
+    milestones: [{ description: "Final delivery", amount: "50" }],
   });
 
-  const [stepState, setStepState] = useState<StepState>({ current: "idle" });
-  const [submitting, setSubmitting] = useState(false);
+  const [step, setStep] = useState<Step>("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [pendingEscrow, setPendingEscrow] = useState<PendingEscrow | null>(null);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  const isInProgress =
-    stepState.current === "posting" || stepState.current === "escrow";
+  const isMockMode = process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
+  const isInProgress = ["posting", "fee_modal", "signing"].includes(step);
 
-  // -------------------------------------------------------------------------
-  // Handlers
-  // -------------------------------------------------------------------------
+  const milestoneSum = milestoneTotal(form.milestones);
+  const budgetValue = parseFloat(form.budget) || 0;
 
+  const fieldErrors = {
+    title: !form.title.trim() ? "Title is required"
+      : form.title.trim().length < 10 ? "Title must be at least 10 characters"
+      : undefined,
+    description: !form.description.trim() ? "Description is required"
+      : form.description.trim().length < 30 ? "Description must be at least 30 characters"
+      : undefined,
+    milestones: form.milestones.length > 10 ? "Use 10 milestones or fewer"
+      : form.milestones.some((m) => !m.description.trim()) ? "Every milestone needs a description"
+      : form.milestones.some((m) => !parseFloat(m.amount) || parseFloat(m.amount) <= 0) ? "Every milestone needs a positive amount"
+      : Math.abs(milestoneSum - budgetValue) > 0.000001 ? "Milestones must add up to the job budget"
+      : undefined,
+  };
+  const isFormValid = !fieldErrors.title && !fieldErrors.description && !fieldErrors.milestones;
+
+  // ── form change ────────────────────────────────────────────────────────────
   function handleChange(
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) {
     const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+    setTouched((prev) => ({ ...prev, [name]: true }));
+  }
+
+
+  function updateMilestone(index: number, field: "description" | "amount", value: string) {
     setForm((prev) => ({
       ...prev,
-      [name]: name === "budgetXlm" ? Number(value) : value,
+      milestones: prev.milestones.map((milestone, currentIndex) =>
+        currentIndex === index ? { ...milestone, [field]: value } : milestone,
+      ),
+    }));
+    setTouched((prev) => ({ ...prev, milestones: true }));
+  }
+
+  function addMilestone() {
+    setForm((prev) => ({
+      ...prev,
+      milestones: [...prev.milestones, { description: "", amount: "" }].slice(0, 10),
     }));
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (submitting) return;
-
-    setSubmitting(true);
-    setStepState({ current: "posting" });
-
-    let jobId: string | undefined;
-
-    try {
-      // ── Step 1: POST to backend ──────────────────────────────────────────
-      const createRes = await fetch("/api/jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: form.title,
-          description: form.description,
-          budgetXlm: form.budgetXlm,
-          skills: form.skills
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean),
-          deadline: form.deadline,
-        }),
-      });
-
-      if (!createRes.ok) {
-        const err = await createRes.json().catch(() => ({}));
-        throw new Error(err?.message ?? "Failed to create job");
-      }
-
-      const { job } = await createRes.json();
-      jobId = job.id as string;
-
-      // ── Step 2: Lock escrow on-chain ─────────────────────────────────────
-      setStepState({ current: "escrow", jobId });
-
-      // Resolve the client's Freighter public key
-      const clientPublicKey = await getPublicKey();
-
-      const { txHash } = await createEscrowOnChain({
-        clientPublicKey,
-        jobId,
-        budgetXlm: form.budgetXlm,
-      });
-
-      // ── Step 2b: Store the contract tx hash in the job record ────────────
-      await fetch(`/api/jobs/${jobId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contractTxHash: txHash }),
-      });
-
-      // ── Step 3: Done ─────────────────────────────────────────────────────
-      setStepState({ current: "complete", jobId, txHash });
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "An unexpected error occurred.";
-
-      // Roll back the job if it was created but escrow failed
-      if (jobId) {
-        try {
-          await fetch(`/api/jobs/${jobId}`, { method: "DELETE" });
-        } catch {
-          // Best-effort rollback; ignore secondary failures
-        }
-      }
-
-      setStepState({
-        current: "error",
-        jobId,
-        errorMessage: message,
-      });
-    } finally {
-      setSubmitting(false);
-    }
+  function removeMilestone(index: number) {
+    setForm((prev) => ({
+      ...prev,
+      milestones: prev.milestones.filter((_, currentIndex) => currentIndex !== index),
+    }));
   }
 
-  function handleReset() {
-    setStepState({ current: "idle" });
-    setForm({
-      title: "",
-      description: "",
-      budgetXlm: 50,
-      skills: "",
-      deadline: "",
+  function moveMilestone(index: number, direction: -1 | 1) {
+    setForm((prev) => {
+      const next = [...prev.milestones];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return prev;
+      [next[index], next[target]] = [next[target], next[index]];
+      return { ...prev, milestones: next };
     });
   }
 
-  // -------------------------------------------------------------------------
-  // Render: success state
-  // -------------------------------------------------------------------------
+  // ── submit ─────────────────────────────────────────────────────────────────
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (isInProgress) return;
 
-  if (stepState.current === "complete") {
+    setTouched({ title: true, description: true, milestones: true });
+    if (!isFormValid) return;
+
+    setStep("posting");
+    setErrorMsg(null);
+    let createdJobId: string | null = null;
+
+    try {
+      // Step 1 — create job record in backend
+      const job = await createJob({
+        title: form.title.trim(),
+        description: form.description.trim(),
+        budget: form.budget,
+        currency: form.currency,
+        category: form.category,
+        skills: form.skills.split(",").map((s) => s.trim()).filter(Boolean),
+        deadline: form.deadline || undefined,
+        clientAddress: publicKey,
+        visibility: form.visibility,
+        milestones: form.milestones.map((milestone) => ({
+          description: milestone.description.trim(),
+          amount: parseFloat(milestone.amount).toFixed(7),
+        })),
+      });
+      createdJobId = job.id;
+      setJobId(job.id);
+
+      if (isMockMode) {
+        // Mock mode — skip fee modal and on-chain tx
+        console.info("[CONTRACT MOCK] create_escrow called", { jobId: job.id, budget: form.budget });
+        await new Promise((r) => setTimeout(r, 600));
+        const mockHash = `mock-escrow-${Date.now()}`;
+        await updateJobEscrowId(job.id, mockHash);
+        setTxHash(mockHash);
+        setStep("complete");
+        return;
+      }
+
+      // Step 2 — build Soroban tx (simulation only, no signing yet)
+      setStep("fee_modal");
+      const { Transaction } = await import("@stellar/stellar-sdk");
+      const xdr = await buildCreateEscrowTx({
+        clientPublicKey: publicKey,
+        jobId: job.id,
+        budget: parseFloat(form.budget),
+        budgetXlm: parseFloat(form.budget),
+      });
+      const tx = new Transaction(xdr, process.env.NEXT_PUBLIC_STELLAR_NETWORK === "mainnet"
+        ? "Public Global Stellar Network ; September 2015"
+        : "Test SDF Network ; September 2015");
+
+      // Show fee modal — user must confirm before signing
+      setPendingEscrow({ transaction: tx as unknown as Transaction, jobId: job.id });
+
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "An unexpected error occurred.";
+      // Roll back orphaned job
+      if (createdJobId) {
+        await deleteJob(createdJobId).catch(() => {});
+      }
+      setErrorMsg(msg);
+      setStep("error");
+    }
+  }
+
+  // ── fee modal confirm ──────────────────────────────────────────────────────
+  async function handleConfirmFee() {
+    if (!pendingEscrow) return;
+    const { transaction, jobId: jId } = pendingEscrow;
+    setPendingEscrow(null);
+    setStep("signing");
+
+    try {
+      const hash = await signAndSubmitSorobanTx(transaction.toXDR());
+      await updateJobEscrowId(jId, hash);
+      setTxHash(hash);
+      setStep("complete");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Signing failed";
+      await deleteJob(jId).catch(() => {});
+      setErrorMsg(msg);
+      setStep("error");
+    }
+  }
+
+  // ── fee modal cancel ───────────────────────────────────────────────────────
+  async function handleCancelFee() {
+    if (!pendingEscrow) return;
+    const { jobId: jId } = pendingEscrow;
+    setPendingEscrow(null);
+    await deleteJob(jId).catch(() => {});
+    setStep("idle");
+    setErrorMsg("Cancelled — the job draft was removed.");
+  }
+
+  // ── reset ──────────────────────────────────────────────────────────────────
+  function handleReset() {
+    setTouched({});
+    setStep("idle");
+    setErrorMsg(null);
+    setTxHash(null);
+    setJobId(null);
+    setForm({
+      title: "",
+      description: "",
+      budget: "50",
+      currency: "XLM",
+      category: VALID_CATEGORIES[0],
+      skills: "",
+      deadline: "",
+      visibility: "public",
+      milestones: [{ description: "Final delivery", amount: "50" }],
+    });
+  }
+
+  // ── success state ──────────────────────────────────────────────────────────
+  if (step === "complete") {
     return (
       <div className="max-w-lg mx-auto bg-white dark:bg-ink-800 rounded-2xl shadow-lg dark:shadow-none dark:border dark:border-market-500/10 p-8 text-center space-y-4">
         <ProgressBar step="complete" />
@@ -274,34 +407,32 @@ export default function PostJobForm() {
             <p className="text-xs font-mono text-gray-800 dark:text-amber-200 break-all">
               {stepState.txHash}
             </p>
-            <a
-              href={`https://stellar.expert/explorer/testnet/tx/${stepState.txHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-indigo-500 hover:underline inline-flex items-center gap-1"
-            >
-              View on Stellar Expert
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
+            <p className="text-xs font-mono text-amber-300 break-all">{txHash}</p>
+            {!isMockMode && (
+              <a
+                href={`https://stellar.expert/explorer/testnet/tx/${txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-market-400 hover:underline"
+              >
+                View on Stellar Expert ↗
+              </a>
+            )}
           </div>
         )}
-
-        <button
-          onClick={handleReset}
-          className="w-full py-2.5 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition-colors text-sm"
-        >
+        {jobId && (
+          <a href={`/jobs/${jobId}`} className="btn-primary text-sm inline-block px-8 py-2.5">
+            View Job →
+          </a>
+        )}
+        <button onClick={handleReset} className="btn-secondary text-sm px-6 py-2">
           Post Another Job
         </button>
       </div>
     );
   }
 
-  // -------------------------------------------------------------------------
-  // Render: form + in-progress overlay
-  // -------------------------------------------------------------------------
-
+  // ── main form ──────────────────────────────────────────────────────────────
   return (
     <div className="max-w-lg mx-auto bg-white dark:bg-ink-800 rounded-2xl shadow-lg dark:shadow-none dark:border dark:border-market-500/10 p-8">
       <h1 className="text-2xl font-bold text-gray-900 dark:text-amber-100 dark:text-amber-100 mb-1">Post a Job</h1>
@@ -325,14 +456,7 @@ export default function PostJobForm() {
               The job record has been rolled back. Please try again.
             </p>
           )}
-          <button
-            onClick={() => setStepState({ current: "idle" })}
-            className="mt-2 text-xs text-red-600 underline"
-          >
-            Dismiss and retry
-          </button>
-        </div>
-      )}
+        </p>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Title */}
@@ -378,16 +502,18 @@ export default function PostJobForm() {
               XLM
             </span>
             <input
-              name="budgetXlm"
-              type="number"
-              min={1}
-              step={1}
-              value={form.budgetXlm}
+              id="job-title"
+              name="title"
+              value={form.title}
               onChange={handleChange}
               required
+              minLength={10}
               disabled={isInProgress}
               className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 pl-14 pr-4 py-2.5 text-sm text-gray-900 dark:text-amber-100 focus:outline-none focus:ring-2 focus:ring-indigo-400 dark:focus:ring-market-500/40 focus:border-transparent disabled:opacity-60"
             />
+            {touched.title && fieldErrors.title && (
+              <p className="text-red-400 text-xs mt-1">{fieldErrors.title}</p>
+            )}
           </div>
           <p className="mt-1 text-xs text-gray-400 dark:text-amber-800">
             This exact amount will be deducted from your wallet and held in escrow.
@@ -424,23 +550,6 @@ export default function PostJobForm() {
           />
         </div>
 
-        {/* Submit */}
-        <button
-          type="submit"
-          disabled={isInProgress}
-          className={[
-            "w-full py-3 rounded-xl font-semibold text-sm transition-all duration-200",
-            isInProgress
-              ? "bg-indigo-300 text-white cursor-not-allowed"
-              : "bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95",
-          ].join(" ")}
-        >
-          {stepState.current === "posting"
-            ? "Posting job…"
-            : stepState.current === "escrow"
-            ? "Waiting for Freighter signature…"
-            : `Post Job & Lock ${form.budgetXlm} XLM Escrow`}
-        </button>
 
         {isInProgress && (
           <p className="text-center text-xs text-gray-400 dark:text-amber-800">

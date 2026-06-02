@@ -160,7 +160,7 @@ export default function ProfileChecklist({ items, onItemClick, onDismiss }: Prof
                   Profile Complete!
                 </p>
                 <p className="text-sm text-amber-800">
-                  You're ready to start posting jobs or applying to projects
+                  You&apos;re ready to start posting jobs or applying to projects
                 </p>
               </div>
             </div>

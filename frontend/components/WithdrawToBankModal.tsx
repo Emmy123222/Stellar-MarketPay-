@@ -285,7 +285,7 @@ export default function WithdrawToBankModal({ publicKey, onClose }: WithdrawToBa
             {errorMessage && <p className="text-red-400 text-sm">{errorMessage}</p>}
 
             <p className="text-xs text-amber-700">
-              You'll provide your bank details on the anchor's secure form. The anchor
+              You&apos;ll provide your bank details on the anchor&apos;s secure form. The anchor
               receives the {asset} payment from this wallet and pays out {fiat} to your
               registered account.
             </p>

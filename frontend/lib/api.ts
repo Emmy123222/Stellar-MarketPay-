@@ -1,5 +1,7 @@
 import axios from "axios";
+import { optionalClientEnv } from "./env";
 import type {
+  ClientReputation,
   Availability,
   Job,
   Application,
@@ -13,36 +15,109 @@ import type {
   PortfolioFile,
   TokenInfo,
   TokenBalance,
+  TimeEntry,
+  TimeInvoice,
   Message,
-  SkillBadge,
-  ProfileStats,
-  ResponseTime,
+  ReferralStats,
   AssessmentQuestion,
+  SkillBadge,
+  BulkActionResponse,
+  NotificationItem,
 } from "@/utils/types";
 
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000",
+  baseURL: optionalClientEnv("NEXT_PUBLIC_API_URL", "http://localhost:4000"),
   headers: { "Content-Type": "application/json" },
   withCredentials: true,
   timeout: 10000,
 });
 
 let jwtToken: string | null = null;
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+let refreshPromise: Promise<string | null> | null = null;
+
+const TOKEN_REFRESH_BUFFER_MS = 60 * 1000;
+
+function getJwtExpiryMs(token: string) {
+  try {
+    const encodedPayload = token.split(".")[1] || "";
+    const base64Payload = encodedPayload
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(encodedPayload.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(base64Payload));
+    return typeof payload.exp === "number" ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearRefreshTimer() {
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
+function scheduleTokenRefresh(token: string) {
+  if (typeof window === "undefined") return;
+
+  const expiryMs = getJwtExpiryMs(token);
+  if (!expiryMs) return;
+
+  const delayMs = Math.max(expiryMs - Date.now() - TOKEN_REFRESH_BUFFER_MS, 0);
+  refreshTimer = setTimeout(() => {
+    refreshAccessToken().catch(() => setJwtToken(null));
+  }, delayMs);
+}
+
+function shouldRefreshToken() {
+  if (!jwtToken) return false;
+  const expiryMs = getJwtExpiryMs(jwtToken);
+  return Boolean(expiryMs && expiryMs - Date.now() <= TOKEN_REFRESH_BUFFER_MS);
+}
 
 export function setJwtToken(token: string | null) {
   jwtToken = token;
+  clearRefreshTimer();
+  if (token) scheduleTokenRefresh(token);
 }
 
 export function getJwtToken() {
   return jwtToken;
 }
- 
-api.interceptors.request.use((config: any) => {
+
+api.interceptors.request.use(async (config: any) => {
+  if (!config.skipAuthRefresh && shouldRefreshToken()) {
+    await refreshAccessToken();
+  }
+
   if (jwtToken) {
     config.headers.Authorization = `Bearer ${jwtToken}`;
   }
   return config;
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config || {};
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !originalRequest.skipAuthRefresh
+    ) {
+      originalRequest._retry = true;
+      const token = await refreshAccessToken();
+      if (token) {
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers.Authorization = `Bearer ${token}`;
+        return api(originalRequest);
+      }
+    }
+    throw error;
+  },
+);
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -61,6 +136,38 @@ export async function verifyAuthChallenge(transaction: string) {
   return data.token;
 }
 
+export async function refreshAccessToken() {
+  if (!refreshPromise) {
+    refreshPromise = api
+      .post<{ success: boolean; token: string }>(
+        "/api/auth/refresh",
+        undefined,
+        { skipAuthRefresh: true } as any,
+      )
+      .then(({ data }) => {
+        setJwtToken(data.token);
+        return data.token;
+      })
+      .catch((error) => {
+        setJwtToken(null);
+        throw error;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+
+  return refreshPromise;
+}
+
+export async function logout() {
+  try {
+    await api.post("/api/auth/logout", undefined, { skipAuthRefresh: true } as any);
+  } finally {
+    setJwtToken(null);
+  }
+}
+
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 
 export async function fetchJobs(params?: {
@@ -71,12 +178,39 @@ export async function fetchJobs(params?: {
   cursor?: string;
   timezone?: string;
   viewerAddress?: string;
+  minBudget?: string;
+  maxBudget?: string;
+  skills?: string;
+  minClientRating?: string;
+  duration?: string;
+  postedSince?: string;
+  maxApplications?: string;
 }) {
+  const {
+    minBudget,
+    maxBudget,
+    minClientRating,
+    postedSince,
+    maxApplications,
+    ...rest
+  } = params || {};
+
   const { data } = await api.get<{
     success: boolean;
     data: Job[];
     nextCursor: string | null;
-  }>("/api/jobs", { params });
+  }>("/api/jobs", {
+    params: {
+      ...rest,
+      min_budget: minBudget,
+      max_budget: maxBudget,
+      skills: params?.skills,
+      min_client_rating: minClientRating,
+      duration: params?.duration,
+      posted_since: postedSince,
+      max_applications: maxApplications,
+    },
+  });
 
   return {
     jobs: data.data,
@@ -99,6 +233,83 @@ export async function fetchRecentlyCompletedJobs(limit = 3): Promise<Job[]> {
   return jobs;
 }
 
+export interface InsightCategory {
+  category: string;
+  totalJobs: number;
+  avgBudget: number;
+  avgApplicationsPerJob: number;
+  acceptanceRate: number;
+  lowCompetitionJobs: number;
+  uniqueClients: number;
+}
+
+export interface InsightClientMix {
+  newClients: number;
+  returningClients: number;
+  totalClients: number;
+}
+
+export interface InsightSkill {
+  skill: string;
+  demandCount: number;
+  avgApplicationsPerJob: number;
+  lowCompetitionJobs: number;
+}
+
+export interface InsightCompetitiveJob {
+  id: string;
+  title: string;
+  category: string;
+  budget: number;
+  currency: string;
+  clientAddress: string;
+  createdAt: string;
+  applicationCount: number;
+  competitionLevel: "uncontested" | "light" | "active";
+}
+
+export interface InsightPayTrend {
+  date: string;
+  category: string;
+  avgBudget: number;
+  jobCount: number;
+}
+
+export async function fetchInsightCategories(limit = 20) {
+  const { data } = await api.get<{
+    success: boolean;
+    data: {
+      categories: InsightCategory[];
+      clientMix: InsightClientMix;
+    };
+  }>("/api/insights/categories", { params: { limit } });
+  return data.data;
+}
+
+export async function fetchInsightSkills(limit = 20) {
+  const { data } = await api.get<{ success: boolean; data: InsightSkill[] }>(
+    "/api/insights/skills",
+    { params: { limit } },
+  );
+  return data.data;
+}
+
+export async function fetchInsightCompetitive(limit = 20) {
+  const { data } = await api.get<{ success: boolean; data: InsightCompetitiveJob[] }>(
+    "/api/insights/competitive",
+    { params: { limit } },
+  );
+  return data.data;
+}
+
+export async function fetchInsightPayTrends(days = 30) {
+  const { data } = await api.get<{ success: boolean; data: InsightPayTrend[] }>(
+    "/api/insights/trends/pay",
+    { params: { days } },
+  );
+  return data.data;
+}
+
 /**
  * Fetches a single job by its identifier.
  *
@@ -118,13 +329,18 @@ export async function fetchJob(id: string, viewerAddress?: string) {
 }
 
 export async function createJob(payload: {
-  title: string; description: string; budget: string;
+  title: string;
+  description: string;
+  budget: string;
   currency?: "XLM" | "USDC";
-  category: string; skills: string[]; deadline?: string;
+  category: string;
+  skills: string[];
+  deadline?: string;
   timezone?: string;
   clientAddress: string;
   screeningQuestions?: string[];
   visibility?: "public" | "private" | "invite_only";
+  milestones?: { description: string; amount: string }[];
 }) {
   const { data } = await api.post<{ success: boolean; data: Job }>(
     "/api/jobs",
@@ -168,14 +384,17 @@ export async function fetchJobAnalytics(jobId: string) {
 }
 
 /**
- * Extend a job's expiry by 30 days.
+ * Extend a job's expiry by the given number of days.
+ * Charges a 0.5 XLM fee per 7-day block.
  *
  * @param jobId Job identifier.
+ * @param days Number of days to extend (7, 14, or 30).
  * @returns Updated job record.
  */
-export async function extendJobExpiry(jobId: string) {
+export async function extendJobExpiry(jobId: string, days = 30) {
   const { data } = await api.patch<{ success: boolean; data: Job }>(
     `/api/jobs/${jobId}/extend`,
+    { days },
   );
   return data.data;
 }
@@ -207,9 +426,10 @@ export async function expireOldJobs() {
 
 // ─── Applications ─────────────────────────────────────────────────────────────
 
-export async function fetchApplications(jobId: string) {
+export async function fetchApplications(jobId: string, tier?: string) {
   const { data } = await api.get<{ success: boolean; data: Application[] }>(
     `/api/applications/job/${jobId}`,
+    { params: tier ? { tier } : undefined },
   );
   return data.data;
 }
@@ -220,6 +440,8 @@ export async function submitApplication(payload: {
   proposal: string;
   bidAmount: string;
   currency: string;
+  bidCommitment?: string;
+  bidNonce?: string;
   screeningAnswers?: Record<string, string>;
   referredBy?: string;
 }) {
@@ -227,6 +449,21 @@ export async function submitApplication(payload: {
     "/api/applications",
     payload,
   );
+  return data.data;
+}
+
+export async function closeBidding(jobId: string, clientAddress: string) {
+  const { data } = await api.post(`/api/applications/job/${jobId}/close-bidding`, {
+    clientAddress,
+  });
+  return data.data;
+}
+
+export async function revealApplicationBid(
+  applicationId: string,
+  payload: { freelancerAddress: string; bidAmount: string; nonce: string },
+) {
+  const { data } = await api.post(`/api/applications/${applicationId}/reveal`, payload);
   return data.data;
 }
 
@@ -253,6 +490,22 @@ export async function fetchProfile(publicKey: string) {
   const { data } = await api.get<{ success: boolean; data: UserProfile }>(
     `/api/profiles/${publicKey}`,
   );
+  return data.data;
+}
+
+export async function fetchProfileStats(publicKey: string) {
+  const { data } = await api.get<{
+    success: boolean;
+    data: { totalApplications: number; acceptedApplications: number; successRate: number };
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/stats`);
+  return data.data;
+}
+
+export async function fetchProfileResponseTime(publicKey: string) {
+  const { data } = await api.get<{
+    success: boolean;
+    data: { averageDays: number | null };
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/response-time`);
   return data.data;
 }
 
@@ -309,7 +562,9 @@ export async function verifyIdentity(publicKey: string, didHash: string) {
 // ─── Escrow ───────────────────────────────────────────────────────────────────
 
 export async function fetchEscrow(jobId: string) {
-  const { data } = await api.get<{ success: boolean; data: any }>(`/api/escrow/${jobId}`);
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    `/api/escrow/${jobId}`,
+  );
   return data.data;
 }
 
@@ -327,7 +582,37 @@ export async function releaseEscrow(
   return data.data;
 }
 
-export async function timeoutRefund(jobId: string, clientAddress: string, contractTxHash?: string) {
+export async function releaseMilestone(
+  jobId: string,
+  clientAddress: string,
+  milestoneIndex: number,
+  contractTxHash?: string,
+) {
+  const { data } = await api.post(`/api/escrow/${jobId}/release-milestone`, {
+    clientAddress,
+    milestoneIndex,
+    ...(contractTxHash ? { contractTxHash } : {}),
+  });
+  return data.data;
+}
+
+export async function disputeMilestone(
+  jobId: string,
+  raisedBy: string,
+  milestoneIndex: number,
+) {
+  const { data } = await api.post(`/api/escrow/${jobId}/dispute-milestone`, {
+    raisedBy,
+    milestoneIndex,
+  });
+  return data.data;
+}
+
+export async function timeoutRefund(
+  jobId: string,
+  clientAddress: string,
+  contractTxHash?: string,
+) {
   const { data } = await api.post(`/api/escrow/${jobId}/timeout-refund`, {
     clientAddress,
     ...(contractTxHash ? { contractTxHash } : {}),
@@ -335,10 +620,16 @@ export async function timeoutRefund(jobId: string, clientAddress: string, contra
   return data.data;
 }
 
-export async function inviteFreelancer(jobId: string, freelancerAddress: string) {
-  const { data } = await api.post<{ success: boolean; data: any }>(`/api/jobs/${jobId}/invite`, {
-    freelancerAddress,
-  });
+export async function inviteFreelancer(
+  jobId: string,
+  freelancerAddress: string,
+) {
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    `/api/jobs/${jobId}/invite`,
+    {
+      freelancerAddress,
+    },
+  );
   return data.data;
 }
 
@@ -385,8 +676,36 @@ export async function fetchPriceAlertPreference(publicKey: string) {
 }
 
 export async function fetchClientSpendingAnalytics(publicKey: string) {
-  const { data } = await api.get<{ success: boolean; data: ClientSpendingAnalytics }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/spending`,
+  const { data } = await api.get<{
+    success: boolean;
+    data: ClientSpendingAnalytics;
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/spending`);
+  return data.data;
+}
+
+export async function fetchClientReputation(publicKey: string): Promise<ClientReputation> {
+  const { data } = await api.get<{ success: boolean; data: ClientReputation }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/client-reputation`
+  );
+  return data.data;
+}
+
+export interface XlmPriceHistoryPoint {
+  timestamp: number;
+  priceUsd: number;
+}
+
+export interface XlmPriceHistory {
+  points: XlmPriceHistoryPoint[];
+  currentPriceUsd: number | null;
+  change24hPercent: number | null;
+  updatedAt?: string;
+  cached?: boolean;
+}
+
+export async function fetchXlmPriceHistory(): Promise<XlmPriceHistory> {
+  const { data } = await api.get<{ success: boolean; data: XlmPriceHistory }>(
+    "/api/stats/xlm-price-history",
   );
   return data.data;
 }
@@ -436,8 +755,14 @@ export async function deleteJob(jobId: string) {
  * @param payload Dispute details (reason and description).
  * @returns The updated job record.
  */
-export async function raiseDispute(jobId: string, payload: { reason: string; description: string }) {
-  const { data } = await api.post<{ success: boolean; data: Job }>(`/api/jobs/${jobId}/dispute`, payload);
+export async function raiseDispute(
+  jobId: string,
+  payload: { reason: string; description: string },
+) {
+  const { data } = await api.post<{ success: boolean; data: Job }>(
+    `/api/jobs/${jobId}/dispute`,
+    payload,
+  );
   return data.data;
 }
 
@@ -445,15 +770,66 @@ export async function raiseDispute(jobId: string, payload: { reason: string; des
  * Resolves a dispute for a job (Admin only).
  *
  * @param jobId Job identifier.
- * @param note Optional admin note explaining the resolution.
- * @param releaseTo Optional override for payout direction ("client" | "freelancer").
+ * @param note Resolution note.
+ * @param releaseTo Release funds to "client" or "freelancer".
  * @returns The updated job record.
  */
 export async function resolveDispute(jobId: string, note?: string, releaseTo?: string) {
-  const { data } = await api.post<{ success: boolean; data: Job }>(`/api/jobs/${jobId}/resolve`, {
-    ...(note ? { note } : {}),
-    ...(releaseTo ? { releaseTo } : {}),
-  });
+  const { data } = await api.post<{ success: boolean; data: Job }>(
+    `/api/jobs/${jobId}/resolve`,
+    { note, releaseTo },
+  );
+  return data.data;
+}
+
+// ─── Time entries ─────────────────────────────────────────────────────────────
+
+export async function logTimeEntry(payload: {
+  jobId: string;
+  durationMinutes: number;
+  description?: string;
+  startedAt?: string;
+}) {
+  const { data } = await api.post<{ success: boolean; data: TimeEntry }>(
+    "/api/time-entries",
+    payload,
+  );
+  return data.data;
+}
+
+export async function fetchTimeEntries(jobId: string): Promise<TimeEntry[]> {
+  const { data } = await api.get<{ success: boolean; data: TimeEntry[] }>(
+    `/api/time-entries/job/${jobId}`,
+  );
+  return data.data;
+}
+
+export async function fetchTimeInvoices(jobId: string): Promise<TimeInvoice[]> {
+  const { data } = await api.get<{ success: boolean; data: TimeInvoice[] }>(
+    `/api/time-entries/job/${jobId}/invoices`,
+  );
+  return data.data;
+}
+
+export async function generateTimeInvoice(payload: {
+  jobId: string;
+  hourlyRateXlm: number;
+}) {
+  const { data } = await api.post<{ success: boolean; data: TimeInvoice }>(
+    "/api/time-entries/invoice",
+    payload,
+  );
+  return data.data;
+}
+
+export async function reviewTimeInvoice(
+  invoiceId: string,
+  decision: "approved" | "rejected",
+) {
+  const { data } = await api.patch<{ success: boolean; data: TimeInvoice }>(
+    `/api/time-entries/invoice/${invoiceId}/review`,
+    { decision },
+  );
   return data.data;
 }
 
@@ -481,20 +857,40 @@ export async function fetchRatings(publicKey: string) {
 
 // ─── Recommendations ──────────────────────────────────────────────────────────
 
-export async function fetchRecommendedJobs(publicKey: string): Promise<(Job & { matchScore: number })[]> {
-  const { data } = await api.get<{ success: boolean; data: (Job & { matchScore: number })[] }>(
-    `/api/jobs/recommended/${encodeURIComponent(publicKey)}`
-  );
+export async function fetchRecommendedJobs(
+  publicKey: string,
+): Promise<(Job & { matchScore: number })[]> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: (Job & { matchScore: number })[];
+  }>(`/api/jobs/recommended/${encodeURIComponent(publicKey)}`);
   return data.data;
 }
 
 export async function fetchDrafts() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/jobs/drafts");
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    "/api/jobs/drafts",
+  );
   return data.data;
 }
 
 export async function fetchDraft(draftId: string) {
-  const { data } = await api.get<{ success: boolean; data: any }>(`/api/jobs/drafts/${draftId}`);
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    `/api/jobs/drafts/${draftId}`,
+  );
+  return data.data;
+}
+
+export async function saveDraft(draft: {
+  id?: string;
+  title?: string;
+  description?: string;
+  budget?: number;
+  category?: string;
+  skills?: string[];
+  deadline?: string;
+}) {
+  const { data } = await api.post<{ success: boolean; data: { id: string } }>("/api/jobs/drafts", draft);
   return data.data;
 }
 
@@ -502,25 +898,110 @@ export async function deleteDraft(draftId: string) {
   await api.delete(`/api/jobs/drafts/${draftId}`);
 }
 
-// NOTE: Global job recommendations endpoint removed to avoid duplicate export.
-// Use `fetchRecommendedJobs(publicKey)` above which calls the personalized endpoint.
+// ─── Skill Assessments ─────────────────────────────────────────────────────────
+
+export async function fetchAssessment(skill: string) {
+  const { data } = await api.get<{
+    success: boolean;
+    data: {
+      label: string;
+      skill: string;
+      questions: AssessmentQuestion[];
+      durationSeconds: number;
+      canRetake: boolean;
+      retakeAvailableAt?: string;
+      lastAttempt?: { score: number; passed: boolean };
+    };
+  }>(`/api/assessments/${encodeURIComponent(skill)}`);
+  return data.data;
+}
+
+export async function submitAssessment(
+  skill: string,
+  answers: Record<number, number>,
+) {
+  const { data } = await api.post<{
+    success: boolean;
+    data: {
+      score: number;
+      passed: boolean;
+      correct: number;
+      total: number;
+    };
+  }>(`/api/assessments/${encodeURIComponent(skill)}/submit`, { answers });
+  return data.data;
+}
+
+// ─── Admin 2FA ────────────────────────────────────────────────────────────────
+
+export async function fetchAdmin2FAStatus() {
+  const { data } = await api.get<{
+    success: boolean;
+    data: { totp_enabled: boolean; verified: boolean };
+  }>("/api/admin/2fa/status");
+  return data.data;
+}
+
+export async function setupAdmin2FA() {
+  const { data } = await api.post<{
+    success: boolean;
+    data: { qrCode: string; manualEntryKey: string };
+  }>("/api/admin/2fa/setup");
+  return data.data;
+}
+
+export async function verifyAdmin2FA(token: string, setup = false) {
+  const { data } = await api.post<{
+    success: boolean;
+    token?: string;
+    data: { backupCodes?: string[]; message?: string };
+  }>("/api/admin/2fa/verify", { token, setup });
+  return { token: data.token, backupCodes: data.data?.backupCodes, message: data.data?.message };
+}
+
+// ─── Bulk Job Actions ───────────────────────────────────────────────────────
+
+export async function bulkCancelJobs(jobIds: string[]): Promise<BulkActionResponse> {
+  const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
+    "/api/jobs/bulk-cancel",
+    { jobIds },
+  );
+  return data.data;
+}
+
+export async function bulkExtendJobs(jobIds: string[], days: number): Promise<BulkActionResponse> {
+  const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
+    "/api/jobs/bulk-extend",
+    { jobIds, days },
+  );
+  return data.data;
+}
+
+export async function bulkBoostJobs(jobIds: string[], txHash: string): Promise<BulkActionResponse> {
+  const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
+    "/api/jobs/bulk-boost",
+    { jobIds, txHash },
+  );
+  return data.data;
+}
+
 
 // ─── IPFS File Upload (Issue #202) ──────────────────────────────────────────
 
 export async function uploadPortfolioFiles(publicKey: string, files: FileList) {
   const formData = new FormData();
-  
+
   // Append all files to FormData
   Array.from(files).forEach((file) => {
     formData.append("files", file);
   });
 
-  const { data } = await api.post<{ 
-    success: boolean; 
-    data: { 
+  const { data } = await api.post<{
+    success: boolean;
+    data: {
       uploadedFiles: PortfolioFile[];
       gatewayUrls: string[];
-    }
+    };
   }>(`/api/profiles/${encodeURIComponent(publicKey)}/upload-files`, formData, {
     headers: {
       "Content-Type": "multipart/form-data",
@@ -534,8 +1015,8 @@ export async function uploadPortfolioFiles(publicKey: string, files: FileList) {
 // ─── Stellar Faucet (Issue #205) ───────────────────────────────────────────
 
 export async function fundTestnetWallet(publicKey: string) {
-  const { data } = await api.post<{ 
-    success: boolean; 
+  const { data } = await api.post<{
+    success: boolean;
     data: {
       success: boolean;
       message: string;
@@ -543,34 +1024,34 @@ export async function fundTestnetWallet(publicKey: string) {
       newBalance?: string;
       transactionHash?: string;
       ledger?: number;
-    }
+    };
   }>("/api/faucet/fund", { publicKey });
 
   return data.data;
 }
 
 export async function checkAccountNeedsFunding(publicKey: string) {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: {
       needsFunding: boolean;
       currentBalance: string;
       exists: boolean;
-    }
+    };
   }>(`/api/faucet/check/${encodeURIComponent(publicKey)}`);
 
   return data.data;
 }
 
 export async function getFaucetStatus() {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: {
       enabled: boolean;
       network: string;
       amount: string;
       asset: string;
-    }
+    };
   }>("/api/faucet/status");
 
   return data.data;
@@ -579,8 +1060,8 @@ export async function getFaucetStatus() {
 // ─── Token Support (Issue #228) ─────────────────────────────────────────────
 
 export async function getPopularTokens() {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: TokenInfo[];
   }>("/api/tokens/popular");
 
@@ -588,8 +1069,8 @@ export async function getPopularTokens() {
 }
 
 export async function searchTokens(query: string) {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: TokenInfo[];
   }>("/api/tokens/search", { params: { q: query } });
 
@@ -597,8 +1078,8 @@ export async function searchTokens(query: string) {
 }
 
 export async function getTokenMetadata(contractId: string) {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: TokenInfo;
   }>(`/api/tokens/${contractId}/metadata`);
 
@@ -606,8 +1087,8 @@ export async function getTokenMetadata(contractId: string) {
 }
 
 export async function getTokenBalance(contractId: string, publicKey: string) {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: TokenBalance;
   }>(`/api/tokens/${contractId}/balance/${publicKey}`);
 
@@ -615,8 +1096,8 @@ export async function getTokenBalance(contractId: string, publicKey: string) {
 }
 
 export async function validateTokenContract(contractId: string) {
-  const { data } = await api.post<{ 
-    success: boolean; 
+  const { data } = await api.post<{
+    success: boolean;
     data: {
       valid: boolean;
       error?: string;
@@ -628,9 +1109,12 @@ export async function validateTokenContract(contractId: string) {
 
 // ─── Stellar Turrets (Issue #224) ───────────────────────────────────────────
 
-export async function submitViaTurrets(transactionXDR: string, useTurret?: boolean) {
-  const { data } = await api.post<{ 
-    success: boolean; 
+export async function submitViaTurrets(
+  transactionXDR: string,
+  useTurret?: boolean,
+) {
+  const { data } = await api.post<{
+    success: boolean;
     data: {
       success: boolean;
       hash: string;
@@ -645,8 +1129,8 @@ export async function submitViaTurrets(transactionXDR: string, useTurret?: boole
 }
 
 export async function getTurretsStatus() {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: {
       available: boolean;
       url?: string;
@@ -662,8 +1146,8 @@ export async function getTurretsStatus() {
 }
 
 export async function estimateTurretsFee(transactionXDR: string) {
-  const { data } = await api.post<{ 
-    success: boolean; 
+  const { data } = await api.post<{
+    success: boolean;
     data: {
       success: boolean;
       baseFee: string;
@@ -678,8 +1162,8 @@ export async function estimateTurretsFee(transactionXDR: string) {
 }
 
 export async function getTurretsConfig() {
-  const { data } = await api.get<{ 
-    success: boolean; 
+  const { data } = await api.get<{
+    success: boolean;
     data: {
       configured: boolean;
       url: string | null;
@@ -703,7 +1187,9 @@ export async function getTurretsConfig() {
  * @see backend/src/routes/messageRoutes.js
  */
 export async function fetchMessages(jobId: string): Promise<Message[]> {
-  const { data } = await api.get<{ success: boolean; data: Message[] }>(`/api/messages/job/${jobId}`);
+  const { data } = await api.get<{ success: boolean; data: Message[] }>(
+    `/api/messages/job/${jobId}`,
+  );
   return data.data;
 }
 
@@ -719,8 +1205,15 @@ export async function fetchMessages(jobId: string): Promise<Message[]> {
  * @throws {import("axios").AxiosError} If unauthorized, validation fails, or request fails.
  * @see backend/src/routes/messageRoutes.js
  */
-export async function sendMessage(jobId: string, content: string): Promise<Message> {
-  const { data } = await api.post<{ success: boolean; data: Message }>(`/api/messages/job/${jobId}`, { content });
+export async function sendMessage(
+  jobId: string,
+  content: string,
+  contractTxHash?: string,
+): Promise<Message> {
+  const { data } = await api.post<{ success: boolean; data: Message }>(
+    `/api/messages/job/${jobId}`,
+    { content, contractTxHash },
+  );
   return data.data;
 }
 
@@ -732,8 +1225,64 @@ export async function sendMessage(jobId: string, content: string): Promise<Messa
  * @see backend/src/routes/messageRoutes.js
  */
 export async function fetchUnreadCount(): Promise<number> {
-  const { data } = await api.get<{ success: boolean; data: { unreadCount: number } }>("/api/messages/unread-count");
+  const { data } = await api.get<{
+    success: boolean;
+    data: { unreadCount: number };
+  }>("/api/messages/unread-count");
   return data.data.unreadCount;
+}
+
+export interface NotificationsResponse {
+  notifications: NotificationItem[];
+  unreadCount: number;
+  nextCursor: string | null;
+}
+
+export async function fetchNotifications(params?: {
+  limit?: number;
+  cursor?: string | null;
+}): Promise<NotificationsResponse> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: NotificationsResponse;
+  }>("/api/notifications", {
+    params: {
+      limit: params?.limit,
+      cursor: params?.cursor || undefined,
+    },
+  });
+  return data.data;
+}
+
+export async function markNotificationRead(id: string): Promise<NotificationItem> {
+  const { data } = await api.patch<{
+    success: boolean;
+    data: NotificationItem;
+  }>(`/api/notifications/${id}/read`);
+  return data.data;
+}
+
+export async function markAllNotificationsRead(): Promise<{ updatedCount: number }> {
+  const { data } = await api.patch<{
+    success: boolean;
+    data: { updatedCount: number };
+  }>("/api/notifications/read-all");
+  return data.data;
+}
+
+/**
+ * Attaches an on-chain Soroban transaction hash to a message record.
+ * Called after the frontend signs and submits the publish_message event.
+ */
+export async function attachMessageTxHash(
+  messageId: string,
+  txHash: string,
+): Promise<Message> {
+  const { data } = await api.patch<{ success: boolean; data: Message }>(
+    `/api/messages/${messageId}/tx-hash`,
+    { txHash },
+  );
+  return data.data;
 }
 
 // ─── Earnings (Issue #181) ────────────────────────────────────────────────────
@@ -748,19 +1297,22 @@ export interface EarningPayment {
 }
 
 export interface MonthlyEarning {
-  month: string;      // "YYYY-MM"
+  month: string; // "YYYY-MM"
   totalXlm: number;
 }
 
 export interface EarningsData {
   totalXlm: string;
+  totalUsdc?: string;
   payments: EarningPayment[];
   monthly: MonthlyEarning[];
 }
 
-export async function fetchFreelancerEarnings(publicKey: string): Promise<EarningsData> {
+export async function fetchFreelancerEarnings(
+  publicKey: string,
+): Promise<EarningsData> {
   const { data } = await api.get<{ success: boolean; data: EarningsData }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/earnings`
+    `/api/profiles/${encodeURIComponent(publicKey)}/earnings`,
   );
   return data.data;
 }
@@ -790,18 +1342,32 @@ export interface DisputeDetail {
   evidence: DisputeEvidence[];
 }
 
-export async function fetchDisputeDetail(jobId: string): Promise<DisputeDetail> {
-  const { data } = await api.get<{ success: boolean; data: DisputeDetail }>(`/api/disputes/${jobId}`);
+export async function fetchDisputeDetail(
+  jobId: string,
+): Promise<DisputeDetail> {
+  const { data } = await api.get<{ success: boolean; data: DisputeDetail }>(
+    `/api/disputes/${jobId}`,
+  );
   return data.data;
 }
 
-export async function uploadDisputeEvidence(jobId: string, file: File): Promise<DisputeEvidence> {
+export async function uploadDisputeEvidence(
+  jobId: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<DisputeEvidence> {
   const formData = new FormData();
   formData.append("file", file);
   const { data } = await api.post<{ success: boolean; data: DisputeEvidence }>(
     `/api/disputes/${jobId}/evidence`,
     formData,
-    { headers: { "Content-Type": "multipart/form-data" }, timeout: 60000 }
+    {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 60000,
+      onUploadProgress: onProgress
+        ? (e) => { if (e.total) onProgress(Math.round((e.loaded / e.total) * 100)); }
+        : undefined,
+    },
   );
   return data.data;
 }
@@ -815,27 +1381,42 @@ export interface PasskeyCredential {
 }
 
 export async function fetchPasskeyRegistrationOptions(publicKey: string) {
-  const { data } = await api.post<{ success: boolean; data: any }>("/api/webauthn/register-options", { publicKey });
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    "/api/webauthn/register-options",
+    { publicKey },
+  );
   return data.data;
 }
 
 export async function verifyPasskeyRegistration(credential: any, name: string) {
-  const { data } = await api.post<{ success: boolean; message: string }>("/api/webauthn/register-verify", { credential, name });
+  const { data } = await api.post<{ success: boolean; message: string }>(
+    "/api/webauthn/register-verify",
+    { credential, name },
+  );
   return data;
 }
 
 export async function fetchPasskeyLoginOptions(publicKey: string) {
-  const { data } = await api.post<{ success: boolean; data: any }>("/api/webauthn/login-options", { publicKey });
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    "/api/webauthn/login-options",
+    { publicKey },
+  );
   return data.data;
 }
 
 export async function verifyPasskeyLogin(credential: any, publicKey: string) {
-  const { data } = await api.post<{ success: boolean; token: string }>("/api/webauthn/login-verify", { credential, publicKey });
+  const { data } = await api.post<{ success: boolean; token: string }>(
+    "/api/webauthn/login-verify",
+    { credential, publicKey },
+  );
   return data;
 }
 
 export async function fetchPasskeyCredentials(): Promise<PasskeyCredential[]> {
-  const { data } = await api.get<{ success: boolean; data: PasskeyCredential[] }>("/api/webauthn/credentials");
+  const { data } = await api.get<{
+    success: boolean;
+    data: PasskeyCredential[];
+  }>("/api/webauthn/credentials");
   return data.data;
 }
 
@@ -843,150 +1424,502 @@ export async function deletePasskeyCredential(id: string) {
   await api.delete(`/api/webauthn/credentials/${id}`);
 }
 
-// ─── Profiles listing ─────────────────────────────────────────────────────────
+// ─── Developer API ────────────────────────────────────────────────────────────
 
-export async function fetchProfiles(params?: {
-  role?: string;
-  availability?: string;
-  search?: string;
-  skill?: string;
-  limit?: number;
-  cursor?: string;
-}): Promise<UserProfile[]> {
-  const { data } = await api.get<{ success: boolean; data: UserProfile[] }>(
-    "/api/profiles",
-    { params },
+export interface DeveloperApiKey {
+  id: string;
+  label: string;
+  key_prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  requests_today: number;
+}
+
+export interface CreatedDeveloperApiKey {
+  id: string;
+  label: string;
+  keyPrefix: string;
+  createdAt: string;
+  apiKey: string;
+}
+
+function buildApiKeyHeaders(apiKey: string) {
+  return { headers: { "X-API-Key": apiKey } };
+}
+
+export async function fetchDeveloperApiKeys(): Promise<DeveloperApiKey[]> {
+  const { data } = await api.get<{ success: boolean; data: DeveloperApiKey[] }>(
+    "/api/developer/keys",
   );
   return data.data;
 }
 
-// ─── Skill endorsements & badges ──────────────────────────────────────────────
-
-export async function fetchSkillEndorsements(publicKey: string): Promise<SkillEndorsement[]> {
-  const { data } = await api.get<{ success: boolean; data: SkillEndorsement[] }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/endorsements`,
+export async function createDeveloperApiKey(
+  label?: string,
+): Promise<CreatedDeveloperApiKey> {
+  const { data } = await api.post<{ success: boolean; data: CreatedDeveloperApiKey }>(
+    "/api/developer/keys",
+    { label },
   );
   return data.data;
 }
 
-export async function endorseSkill(targetAddress: string, skill: string): Promise<void> {
-  await api.post(`/api/profiles/${encodeURIComponent(targetAddress)}/endorsements`, { skill });
+export async function revokeDeveloperApiKey(id: string): Promise<void> {
+  await api.delete(`/api/developer/keys/${id}`);
 }
 
-export async function fetchSkillBadges(publicKey: string): Promise<SkillBadge[]> {
-  const { data } = await api.get<{ success: boolean; data: SkillBadge[] }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/badges`,
+export async function fetchPublicJobs(apiKey: string, limit = 20) {
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    "/api/public/jobs",
+    {
+      params: { limit },
+      ...buildApiKeyHeaders(apiKey),
+    },
   );
   return data.data;
 }
 
-export async function fetchProfileStats(publicKey: string): Promise<ProfileStats> {
-  const { data } = await api.get<{ success: boolean; data: ProfileStats }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/stats`,
+export async function fetchPublicJob(apiKey: string, id: string) {
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    `/api/public/jobs/${encodeURIComponent(id)}`,
+    buildApiKeyHeaders(apiKey),
   );
   return data.data;
 }
 
-export async function fetchResponseTime(publicKey: string): Promise<ResponseTime> {
-  const { data } = await api.get<{ success: boolean; data: ResponseTime }>(
-    `/api/profiles/${encodeURIComponent(publicKey)}/response-time`,
+export async function fetchPublicFreelancerProfile(
+  apiKey: string,
+  publicKey: string,
+) {
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    `/api/public/freelancers/${encodeURIComponent(publicKey)}`,
+    buildApiKeyHeaders(apiKey),
   );
   return data.data;
 }
 
-// ─── Job suggestions (autocomplete) ──────────────────────────────────────────
+// ─── Skill Certificates ─────────────────────────────────────────
 
-export interface JobSuggestion {
-  value: string;
-  type: "title" | "skill" | "category";
+export interface CertificateData {
+  id: string;
+  publicKey: string;
+  displayName: string | null;
+  skill: string;
+  score: number;
+  certificateHash: string;
+  ipfsCid: string | null;
+  txHash: string | null;
+  issuedAt: string;
+  verifyUrl: string;
 }
 
-export async function fetchJobSuggestions(query: string): Promise<JobSuggestion[]> {
-  if (!query.trim()) return [];
-  const { data } = await api.get<{ success: boolean; data: JobSuggestion[] }>(
-    "/api/jobs/suggestions",
-    { params: { q: query } },
+export async function fetchCertificate(id: string): Promise<CertificateData> {
+  const { data } = await api.get<{ success: boolean; data: CertificateData }>(
+    `/api/certificates/${id}`,
   );
   return data.data;
 }
 
-// ─── Admin functions ──────────────────────────────────────────────────────────
+export async function fetchUserCertificates(
+  publicKey: string,
+): Promise<CertificateData[]> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: CertificateData[];
+  }>(`/api/certificates/user/${encodeURIComponent(publicKey)}`);
+  return data.data;
+}
 
-export async function fetchAdminDisputes() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/disputes");
+// ─── Skill Endorsements ─────────────────────────────────────────
+
+export interface SkillEndorsementData {
+  skill: string;
+  count: number;
+  endorsers: string[];
+}
+
+export async function fetchSkillEndorsements(
+  publicKey: string,
+): Promise<SkillEndorsementData[]> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: SkillEndorsementData[];
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/endorsements`);
+  return data.data;
+}
+
+export async function endorseSkill(
+  publicKey: string,
+  skill: string,
+): Promise<void> {
+  await api.post(`/api/profiles/${encodeURIComponent(publicKey)}/endorse`, {
+    skill,
+  });
+}
+
+export async function fetchSkillBadges(
+  publicKey: string,
+): Promise<SkillBadge[]> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: SkillBadge[];
+  }>(`/api/assessments/results/${encodeURIComponent(publicKey)}`);
+  return data.data;
+}
+
+// ─── Admin Functions ──────────────────────────────────────────────────────────
+
+export async function fetchAdminMetrics(period: "7d" | "30d" | "90d" = "30d") {
+  const { data } = await api.get<{
+    success: boolean;
+    data: {
+      period: string;
+      platformHealth: {
+        total_jobs: number;
+        open_jobs: number;
+        completed_jobs: number;
+        disputed_jobs: number;
+        completion_rate: number;
+        dispute_rate: number;
+      };
+      userGrowth: {
+        total_users: number;
+        freelancers: number;
+        clients: number;
+        new_users_period: number;
+      };
+      weeklyGrowth: Array<{ week: string; new_users: number }>;
+      financialMetrics: {
+        total_xlm_escrow: number;
+        total_xlm_released: number;
+        avg_job_budget: number;
+        active_escrows: number;
+      };
+      qualityMetrics: {
+        avg_rating: number;
+        total_ratings: number;
+        repeat_hires: number;
+      };
+      disputeMetrics: Array<{
+        week: string;
+        disputes_opened: number;
+        disputes_resolved: number;
+      }>;
+      topEarners: Array<{
+        public_key: string;
+        display_name: string;
+        total_earned_xlm: number;
+        completed_jobs: number;
+        rating: number;
+      }>;
+      jobVolume: Array<{
+        date: string;
+        jobs_created: number;
+        jobs_completed: number;
+      }>;
+    };
+  }>("/api/admin/metrics", { params: { period } });
   return data.data;
 }
 
 export async function fetchAdminJobReports() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/reports");
-  return data.data;
-}
-
-export async function fetchAdminLogs() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/logs");
-  return data.data;
-}
-
-export async function fetchFrozenWallets() {
-  const { data } = await api.get<{ success: boolean; data: any[] }>("/api/admin/frozen-wallets");
-  return data.data;
-}
-
-export async function adminCancelJob(jobId: string, reason?: string) {
-  const { data } = await api.post<{ success: boolean; data: Job }>(`/api/admin/jobs/${jobId}/cancel`, {
-    ...(reason ? { reason } : {}),
-  });
-  return data.data;
-}
-
-export async function freezeWallet(address: string, reason?: string) {
-  const { data } = await api.post<{ success: boolean; data: any }>("/api/admin/freeze-wallet", {
-    address,
-    ...(reason ? { reason } : {}),
-  });
-  return data.data;
-}
-
-export async function unfreezeWallet(address: string) {
-  const { data } = await api.post<{ success: boolean; data: any }>("/api/admin/unfreeze-wallet", { address });
-  return data.data;
-}
-
-// ─── Skill assessments ────────────────────────────────────────────────────────
-
-export interface AssessmentData {
-  skill: string;
-  label: string;
-  questions: AssessmentQuestion[];
-  durationSeconds: number;
-  timeLimit: number;
-  passingScore: number;
-  cooldownDays: number;
-  canRetake: boolean;
-  retakeAvailableAt?: string | null;
-  lastAttempt?: { passed: boolean; score: number } | null;
-  existingBadge?: {
-    passed: boolean;
-    score: number;
-    taken_at: string;
-  } | null;
-}
-
-export async function fetchAssessment(skill: string): Promise<AssessmentData> {
-  const { data } = await api.get<{ success: boolean; data: AssessmentData }>(
-    `/api/assessments/${encodeURIComponent(skill)}`,
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    "/api/admin/reports/jobs",
   );
   return data.data;
 }
 
-export async function submitAssessment(
-  skill: string,
-  answers: Record<number, number>,
-): Promise<{ passed: boolean; score: number; correct: number; total: number }> {
-  const { data } = await api.post<{
-    success: boolean;
-    data: { passed: boolean; score: number; correct: number; total: number };
-  }>(`/api/assessments/${encodeURIComponent(skill)}/submit`, { answers });
+export async function fetchAdminDisputes() {
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    "/api/admin/disputes",
+  );
   return data.data;
 }
+
+export async function fetchAdminLogs() {
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    "/api/admin/logs",
+  );
+  return data.data;
+}
+
+export async function fetchFrozenWallets() {
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    "/api/admin/wallets/frozen",
+  );
+  return data.data;
+}
+
+export async function adminCancelJob(jobId: string, reason: string) {
+  const { data } = await api.patch<{ success: boolean; message: string }>(
+    `/api/admin/jobs/${jobId}/cancel`,
+    { reason },
+  );
+  return data;
+}
+
+export async function freezeWallet(address: string, reason: string) {
+  const { data } = await api.post<{ success: boolean; message: string }>(
+    `/api/admin/wallets/${address}/freeze`,
+    { reason },
+  );
+  return data;
+}
+
+export async function unfreezeWallet(address: string) {
+  const { data } = await api.delete<{ success: boolean; message: string }>(
+    `/api/admin/wallets/${address}/freeze`,
+  );
+  return data;
+}
+
+// ─── Referrals ────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch referral stats and history for a referrer.
+ */
+export async function fetchReferralStats(
+  publicKey: string,
+): Promise<ReferralStats> {
+  const { data } = await api.get<{ success: boolean; data: ReferralStats }>(
+    `/api/referrals/${encodeURIComponent(publicKey)}`,
+  );
+  return data.data;
+}
+
+/**
+ * Register a referral relationship when a new user signs up via a referral link.
+ */
+export async function registerReferral(
+  referrerAddress: string,
+  refereeAddress: string,
+): Promise<void> {
+  await api.post("/api/referrals/register", {
+    referrerAddress,
+    refereeAddress,
+  });
+}
+
+// ─── Saved Searches (Issue #284) ─────────────────────────────────────────────
+
+export interface SavedSearch {
+  id: string;
+  user_address: string;
+  query_params: Record<string, string>;
+  notify_in_app: boolean;
+  notify_email: boolean;
+  last_notified_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchSavedSearches(): Promise<SavedSearch[]> {
+  const { data } = await api.get<{ success: boolean; data: SavedSearch[] }>(
+    "/api/saved-searches"
+  );
+  return data.data;
+}
+
+export async function createSavedSearch(payload: {
+  query_params: Record<string, string>;
+  notify_in_app?: boolean;
+  notify_email?: boolean;
+}): Promise<SavedSearch> {
+  const { data } = await api.post<{ success: boolean; data: SavedSearch }>(
+    "/api/saved-searches",
+    payload
+  );
+  return data.data;
+}
+
+export async function updateSavedSearch(
+  id: string,
+  payload: { notify_in_app?: boolean; notify_email?: boolean }
+): Promise<SavedSearch> {
+  const { data } = await api.patch<{ success: boolean; data: SavedSearch }>(
+    `/api/saved-searches/${id}`,
+    payload
+  );
+  return data.data;
+}
+
+export async function deleteSavedSearch(id: string): Promise<void> {
+  await api.delete(`/api/saved-searches/${id}`);
+}
+
+// ─── Job Boost (Issue #344) ───────────────────────────────────────────────────
+
+/**
+ * Notify the backend that a boost payment was made on-chain.
+ * The backend sets boosted=true and calculates the expiry from amountXlm.
+ */
+export async function boostJob(
+  jobId: string,
+  txHash: string,
+  amountXlm: number,
+): Promise<Job> {
+  const { data } = await api.patch<{ success: boolean; data: Job }>(
+    `/api/jobs/${jobId}/boost`,
+    { txHash, amountXlm },
+  );
+  return data.data;
+}
+
+// ─── Job Invitations (Issue #342) ────────────────────────────────────────────
+
+export interface JobInvitation {
+  id: string;
+  jobId: string;
+  jobTitle: string;
+  jobBudget: string;
+  jobCurrency: string;
+  clientAddress: string;
+  clientName?: string;
+  freelancerAddress: string;
+  status: "pending" | "accepted" | "declined";
+  createdAt: string;
+}
+
+/**
+ * Fetch all pending invitations for the authenticated freelancer.
+ */
+export async function fetchMyInvitations(): Promise<JobInvitation[]> {
+  const { data } = await api.get<{ success: boolean; data: JobInvitation[] }>(
+    "/api/invitations",
+  );
+  return data.data;
+}
+
+/**
+ * Decline a job invitation.
+ */
+export async function declineInvitation(invitationId: string): Promise<void> {
+  await api.patch(`/api/invitations/${invitationId}/decline`);
+}
+
+// ─── DAO Governance (#278) ───────────────────────────────────────────────────
+
+export interface DaoProposal {
+  id: string;
+  title: string;
+  description: string;
+  type: "treasury" | "platform" | "parameter" | "arbitration";
+  proposer: string;
+  amount?: string;
+  recipient?: string;
+  votesFor: number;
+  votesAgainst: number;
+  status: "active" | "passed" | "rejected" | "executed";
+  createdAt: string;
+  votingEndsAt: string;
+  quorumPercent?: number;
+  quorumReached?: boolean;
+}
+
+export interface DaoArbitrator {
+  publicKey: string;
+  displayName?: string | null;
+  bio?: string | null;
+  votesReceived: number;
+  disputesResolved: number;
+  electedAt?: string | null;
+}
+
+export async function fetchDaoProposals(status?: string): Promise<DaoProposal[]> {
+  const { data } = await api.get<{ success: boolean; data: DaoProposal[] }>(
+    "/api/dao/proposals",
+    { params: status ? { status } : {} },
+  );
+  return data.data;
+}
+
+export async function createDaoProposal(body: {
+  title: string;
+  description: string;
+  type: DaoProposal["type"];
+  amount?: string;
+  recipient?: string;
+  votingDays?: number;
+}): Promise<DaoProposal> {
+  const { data } = await api.post<{ success: boolean; data: DaoProposal }>(
+    "/api/dao/proposals",
+    body,
+  );
+  return data.data;
+}
+
+export async function voteDaoProposal(
+  proposalId: string,
+  support: boolean,
+  weight: number,
+  txHash?: string,
+): Promise<DaoProposal> {
+  const { data } = await api.post<{ success: boolean; data: DaoProposal }>(
+    `/api/dao/proposals/${proposalId}/vote`,
+    { support, weight, txHash },
+  );
+  return data.data;
+}
+
+export async function fetchDaoTreasury(): Promise<{
+  allocatedXlm: string;
+  activeProposals: number;
+  quorumPercent: number;
+}> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: { allocatedXlm: string; activeProposals: number; quorumPercent: number };
+  }>("/api/dao/treasury");
+  return data.data;
+}
+
+export async function fetchDaoArbitrators(): Promise<{
+  arbitrators: DaoArbitrator[];
+  disputePanel: DaoArbitrator[];
+}> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: { arbitrators: DaoArbitrator[]; disputePanel: DaoArbitrator[] };
+  }>("/api/dao/arbitrators");
+  return data.data;
+}
+
+export async function registerDaoArbitrator(body: {
+  displayName?: string;
+  bio?: string;
+}): Promise<DaoArbitrator> {
+  const { data } = await api.post<{ success: boolean; data: DaoArbitrator }>(
+    "/api/dao/arbitrators",
+    body,
+  );
+  return data.data;
+}
+
+export async function voteDaoArbitrator(
+  arbitratorKey: string,
+  weight: number,
+): Promise<DaoArbitrator[]> {
+  const { data } = await api.post<{ success: boolean; data: DaoArbitrator[] }>(
+    `/api/dao/arbitrators/${arbitratorKey}/vote`,
+    { weight },
+  );
+  return data.data;
+}
+
+/**
+ * Accept a job invitation (auto-creates an application).
+ */
+export async function acceptInvitation(
+  invitationId: string,
+  proposal: string,
+  bidAmount: string,
+): Promise<Application> {
+  const { data } = await api.post<{ success: boolean; data: Application }>(
+    `/api/invitations/${invitationId}/accept`,
+    { proposal, bidAmount },
+  );
+  return data.data;
+}
+
 

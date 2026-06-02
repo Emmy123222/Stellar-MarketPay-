@@ -3,9 +3,17 @@
  */
 "use strict";
 const express = require("express");
-const jwt = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
-const { JWT_SECRET } = require("../middleware/auth");
+const { ensureAdminProfile, get2FAStatus } = require("../services/twoFactorService");
+const pool = require("../db/pool");
+const {
+  clearAuthCookies,
+  getRefreshTokenFromRequest,
+  issueTokenPair,
+  revokeRefreshToken,
+  rotateRefreshToken,
+  setAuthCookies,
+} = require("../services/authTokens");
 
 const router = express.Router();
 
@@ -123,7 +131,7 @@ router.get("/", (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   try {
     const { transaction } = req.body;
     if (!transaction) {
@@ -139,17 +147,58 @@ router.post("/", (req, res) => {
       "" // webAuthEndpoint is optional or typically HOME_DOMAIN if not specified differently
     );
 
-    const token = jwt.sign({ publicKey: accountId }, JWT_SECRET, { expiresIn: "24h" });
-    res.cookie("jwt", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 24 * 60 * 60 * 1000,
-    });
-    res.json({ success: true, token });
+    const adminAddresses = (process.env.ADMIN_WALLET_ADDRESSES || "")
+      .split(",")
+      .map((a) => a.trim())
+      .filter(Boolean);
+    const isAdmin = adminAddresses.includes(accountId);
+
+    const payload = { publicKey: accountId };
+    if (isAdmin) {
+      await ensureAdminProfile(accountId);
+      payload.role = "admin";
+      const status = await get2FAStatus(accountId);
+      payload["2fa_verified"] = !status.totp_enabled;
+    }
+
+    // Stamp last_login_at so the weekly digest knows this user is active.
+    // Uses ON CONFLICT to handle the case where the profile row may not yet
+    // exist (it will be created by profileService on first access).
+    try {
+      await pool.query(
+        `UPDATE profiles SET last_login_at = NOW() WHERE public_key = $1`,
+        [accountId]
+      );
+    } catch (stampErr) {
+      // Non-fatal: log and continue issuing the token
+      console.warn("[auth] Could not stamp last_login_at:", stampErr.message);
+    }
+
+    const { accessToken, refreshToken } = issueTokenPair(payload);
+    setAuthCookies(res, accessToken, refreshToken);
+    res.json({ success: true, token: accessToken });
   } catch (e) {
     res.status(401).json({ error: "Unauthorized: " + e.message });
   }
+});
+
+router.post("/refresh", (req, res) => {
+  const refreshToken = getRefreshTokenFromRequest(req);
+  const rotated = rotateRefreshToken(refreshToken);
+
+  if (!rotated) {
+    clearAuthCookies(res);
+    return res.status(401).json({ error: "Unauthorized: Invalid refresh token" });
+  }
+
+  setAuthCookies(res, rotated.accessToken, rotated.refreshToken);
+  return res.json({ success: true, token: rotated.accessToken });
+});
+
+router.post("/logout", (req, res) => {
+  revokeRefreshToken(getRefreshTokenFromRequest(req));
+  clearAuthCookies(res);
+  res.json({ success: true });
 });
 
 module.exports = router;

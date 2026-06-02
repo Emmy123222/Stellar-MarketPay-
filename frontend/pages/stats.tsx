@@ -58,6 +58,9 @@ export default function StatsPage() {
     };
 
     loadStats();
+    // Refresh stats every 5 minutes (stats do not need to be real-time).
+    const interval = setInterval(loadStats, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   if (loading) {
@@ -78,6 +81,9 @@ export default function StatsPage() {
       <Head>
         <title>Platform Statistics - Stellar MarketPay</title>
         <meta name="description" content="View platform-wide statistics and metrics" />
+        <meta property="og:title" content="Platform Statistics - Stellar MarketPay" />
+        <meta property="og:description" content="Live platform-wide metrics: jobs posted, escrow value, completion rate, and top categories." />
+        <meta property="og:type" content="website" />
       </Head>
 
       <div className="min-h-screen bg-gray-50 dark:bg-ink-900 py-12 px-4">
@@ -92,9 +98,9 @@ export default function StatsPage() {
                 <p className="text-3xl font-bold text-gray-900 dark:text-amber-100">{stats.total_jobs_posted.toLocaleString()}</p>
               </div>
 
-              <div className="bg-white dark:bg-ink-800 rounded-lg shadow dark:shadow-none dark:border dark:border-market-500/10 p-6">
-                <h3 className="text-sm font-medium text-gray-500 dark:text-amber-700 mb-2">Total Escrow Value</h3>
-                <p className="text-3xl font-bold text-gray-900 dark:text-amber-100">{Number(stats.total_escrow_xlm).toFixed(2)} XLM</p>
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-sm font-medium text-gray-500 mb-2">Total Escrow Value</h3>
+                <p className="text-3xl font-bold text-gray-900">{stats.total_escrow_xlm.toFixed(2)} XLM</p>
               </div>
 
               <div className="bg-white dark:bg-ink-800 rounded-lg shadow dark:shadow-none dark:border dark:border-market-500/10 p-6">
@@ -102,14 +108,14 @@ export default function StatsPage() {
                 <p className="text-3xl font-bold text-gray-900 dark:text-amber-100">{stats.active_users_30d.toLocaleString()}</p>
               </div>
 
-              <div className="bg-white dark:bg-ink-800 rounded-lg shadow dark:shadow-none dark:border dark:border-market-500/10 p-6">
-                <h3 className="text-sm font-medium text-gray-500 dark:text-amber-700 mb-2">Completion Rate</h3>
-                <p className="text-3xl font-bold text-gray-900 dark:text-amber-100">{Number(stats.completion_rate).toFixed(1)}%</p>
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-sm font-medium text-gray-500 mb-2">Completion Rate</h3>
+                <p className="text-3xl font-bold text-gray-900">{stats.completion_rate.toFixed(1)}%</p>
               </div>
 
-              <div className="bg-white dark:bg-ink-800 rounded-lg shadow dark:shadow-none dark:border dark:border-market-500/10 p-6">
-                <h3 className="text-sm font-medium text-gray-500 dark:text-amber-700 mb-2">Avg Job Budget</h3>
-                <p className="text-3xl font-bold text-gray-900 dark:text-amber-100">{Number(stats.avg_job_budget).toFixed(2)} XLM</p>
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-sm font-medium text-gray-500 mb-2">Avg Job Budget</h3>
+                <p className="text-3xl font-bold text-gray-900">{stats.avg_job_budget.toFixed(2)} XLM</p>
               </div>
 
               <div className="bg-white dark:bg-ink-800 rounded-lg shadow dark:shadow-none dark:border dark:border-market-500/10 p-6">
@@ -147,8 +153,8 @@ export default function StatsPage() {
               <div className="space-y-4">
                 {categories.slice(0, 5).map((cat) => (
                   <div key={`budget-${cat.category}`} className="flex items-center justify-between">
-                    <span className="text-gray-700 dark:text-amber-700">{cat.category}</span>
-                    <span className="text-gray-900 dark:text-amber-100 font-semibold">{Number(cat.avg_budget).toFixed(1)} XLM</span>
+                    <span className="text-gray-700">{cat.category}</span>
+                    <span className="text-gray-900 font-semibold">{cat.avg_budget.toFixed(1)} XLM</span>
                   </div>
                 ))}
               </div>
@@ -172,7 +178,7 @@ export default function StatsPage() {
                       <tr key={trend.date} className="border-b dark:border-market-500/10 hover:bg-gray-50 dark:hover:bg-ink-700">
                         <td className="py-2 px-4 text-gray-900">{new Date(trend.date).toLocaleDateString()}</td>
                         <td className="text-right py-2 px-4 text-gray-900">{trend.jobs_posted}</td>
-                        <td className="text-right py-2 px-4 text-gray-900">{Number(trend.avg_budget || 0).toFixed(2)} XLM</td>
+                        <td className="text-right py-2 px-4 text-gray-900">{(trend.avg_budget || 0).toFixed(2)} XLM</td>
                       </tr>
                     ))}
                   </tbody>

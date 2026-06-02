@@ -20,6 +20,7 @@ const pool       = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT }         = require("../middleware/auth");
 const ipfsService            = require("../services/ipfsService");
+const { validateIpfsCid }    = require("../services/disputeService");
 
 const MAX_FILES_PER_PARTY = 10;
 const MAX_FILE_SIZE       = 5 * 1024 * 1024; // 5 MB
@@ -131,18 +132,29 @@ router.post(
         throw e;
       }
 
-      const ipfsResult = await ipfsService.uploadFile(
-        req.file.buffer,
-        req.file.originalname,
-        req.file.mimetype
-      );
+      let ipfsResult;
+      try {
+        ipfsResult = await ipfsService.uploadFile(
+          req.file.buffer,
+          req.file.originalname,
+          req.file.mimetype
+        );
+      } catch (ipfsError) {
+        // Return user-friendly error for IPFS failures
+        const e = new Error(ipfsError.message || "Upload service temporarily unavailable. Please try again later.");
+        e.status = ipfsError.status || 503;
+        e.code = ipfsError.code || "IPFS_UPLOAD_FAILED";
+        throw e;
+      }
+
+      const ipfsCid = validateIpfsCid(ipfsResult?.cid);
 
       const { rows } = await pool.query(
         `INSERT INTO dispute_evidence
            (job_id, uploader_address, file_name, file_size, mime_type, ipfs_cid)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`,
-        [jobId, uploaderAddress, req.file.originalname, req.file.size, req.file.mimetype, ipfsResult.cid]
+        [jobId, uploaderAddress, req.file.originalname, req.file.size, req.file.mimetype, ipfsCid]
       );
 
       const ev = rows[0];

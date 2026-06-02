@@ -7,38 +7,171 @@
 const express = require("express");
 const router = express.Router();
 const pool = require("../db/pool");
-const { verifyJWT } = require("../middleware/auth");
-const { getJob, updateJobStatus } = require("../services/jobService");
+const { verifyJWT, requireAdminRole, requireAdmin2FA } = require("../middleware/auth");
+const { updateJobStatus } = require("../services/jobService");
 const { logContractInteraction } = require("../services/contractAuditService");
-
-// ── Admin Role Guard ───────────────────────────────────────────────────────────
-function requireAdmin(req, res, next) {
-  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
-  const adminAddresses = (process.env.ADMIN_WALLET_ADDRESSES || "")
-    .split(",")
-    .map((a) => a.trim())
-    .filter(Boolean);
-  if (!adminAddresses.includes(req.user.publicKey) && req.user.role !== "admin") {
-    return res.status(403).json({ error: "Forbidden: Admin access required" });
-  }
-  next();
-}
 
 // Helper: log admin action
 async function logAdminAction({ action, adminAddress, targetId, targetType, details }) {
   try {
     await pool.query(
-      `INSERT INTO admin_action_logs (action, admin_address, target_id, target_type, details, created_at)
+      `INSERT INTO audit_logs (actor_address, action, target, reason, metadata, created_at)
        VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [action, adminAddress, targetId, targetType, JSON.stringify(details || {})]
+      [
+        adminAddress,
+        action,
+        targetId || null,
+        details?.reason || null,
+        JSON.stringify({ targetType, ...details }),
+      ]
     );
   } catch {
     // Table may not exist yet — fail silently, action is still performed
   }
 }
 
+// ── GET /api/admin/metrics — platform analytics dashboard ─────────────────────
+router.get("/metrics", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
+  try {
+    const { period = "30d" } = req.query;
+    
+    // Calculate date range based on period
+    let daysBack = 30;
+    if (period === "7d") daysBack = 7;
+    else if (period === "90d") daysBack = 90;
+    
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysBack);
+    
+    // Platform Health Metrics
+    const platformHealth = await pool.query(`
+      SELECT 
+        COUNT(*) as total_jobs,
+        COUNT(*) FILTER (WHERE status = 'open') as open_jobs,
+        COUNT(*) FILTER (WHERE status = 'completed') as completed_jobs,
+        COUNT(*) FILTER (WHERE status = 'disputed') as disputed_jobs,
+        ROUND(
+          COUNT(*) FILTER (WHERE status = 'completed')::numeric / 
+          NULLIF(COUNT(*) FILTER (WHERE status IN ('completed', 'cancelled'))::numeric, 0) * 100, 2
+        ) as completion_rate,
+        ROUND(
+          COUNT(*) FILTER (WHERE status = 'disputed')::numeric / 
+          NULLIF(COUNT(*)::numeric, 0) * 100, 2
+        ) as dispute_rate
+      FROM jobs 
+      WHERE created_at >= $1
+    `, [startDate]);
+
+    // User Growth Metrics
+    const userGrowth = await pool.query(`
+      SELECT 
+        COUNT(DISTINCT public_key) as total_users,
+        COUNT(DISTINCT public_key) FILTER (WHERE role IN ('freelancer', 'both')) as freelancers,
+        COUNT(DISTINCT public_key) FILTER (WHERE role IN ('client', 'both')) as clients,
+        COUNT(DISTINCT public_key) FILTER (WHERE created_at >= $1) as new_users_period
+      FROM profiles
+    `, [startDate]);
+
+    // Weekly new user growth
+    const weeklyGrowth = await pool.query(`
+      SELECT 
+        DATE_TRUNC('week', created_at) as week,
+        COUNT(*) as new_users
+      FROM profiles 
+      WHERE created_at >= $1
+      GROUP BY DATE_TRUNC('week', created_at)
+      ORDER BY week
+    `, [startDate]);
+
+    // Financial Metrics
+    const financialMetrics = await pool.query(`
+      SELECT 
+        COALESCE(SUM(budget) FILTER (WHERE status = 'funded'), 0) as total_xlm_escrow,
+        COALESCE(SUM(budget) FILTER (WHERE status = 'released'), 0) as total_xlm_released,
+        COALESCE(AVG(budget), 0) as avg_job_budget,
+        COUNT(*) FILTER (WHERE status = 'funded') as active_escrows
+      FROM jobs j
+      LEFT JOIN escrows e ON j.id = e.job_id
+      WHERE j.created_at >= $1
+    `, [startDate]);
+
+    // Quality Metrics
+    const qualityMetrics = await pool.query(`
+      SELECT 
+        COALESCE(AVG(rating), 0) as avg_rating,
+        COUNT(*) as total_ratings,
+        COUNT(DISTINCT j.client_address) FILTER (
+          WHERE EXISTS (
+            SELECT 1 FROM jobs j2 
+            WHERE j2.client_address = j.client_address 
+            AND j2.freelancer_address = j.freelancer_address 
+            AND j2.id != j.id
+          )
+        ) as repeat_hires
+      FROM jobs j
+      LEFT JOIN ratings r ON j.id = r.job_id
+      WHERE j.created_at >= $1 AND j.status = 'completed'
+    `, [startDate]);
+
+    // Dispute Metrics
+    const disputeMetrics = await pool.query(`
+      SELECT 
+        DATE_TRUNC('week', created_at) as week,
+        COUNT(*) FILTER (WHERE status = 'disputed') as disputes_opened,
+        COUNT(*) FILTER (WHERE status = 'resolved') as disputes_resolved
+      FROM jobs
+      WHERE created_at >= $1
+      GROUP BY DATE_TRUNC('week', created_at)
+      ORDER BY week
+    `, [startDate]);
+
+    // Top Earners
+    const topEarners = await pool.query(`
+      SELECT 
+        p.public_key,
+        p.display_name,
+        p.total_earned_xlm,
+        p.completed_jobs,
+        p.rating
+      FROM profiles p
+      WHERE p.total_earned_xlm > 0
+      ORDER BY p.total_earned_xlm DESC
+      LIMIT 10
+    `);
+
+    // Job Volume Over Time
+    const jobVolume = await pool.query(`
+      SELECT 
+        DATE_TRUNC('day', created_at) as date,
+        COUNT(*) as jobs_created,
+        COUNT(*) FILTER (WHERE status = 'completed') as jobs_completed
+      FROM jobs
+      WHERE created_at >= $1
+      GROUP BY DATE_TRUNC('day', created_at)
+      ORDER BY date
+    `, [startDate]);
+
+    res.json({
+      success: true,
+      data: {
+        period,
+        platformHealth: platformHealth.rows[0],
+        userGrowth: userGrowth.rows[0],
+        weeklyGrowth: weeklyGrowth.rows,
+        financialMetrics: financialMetrics.rows[0],
+        qualityMetrics: qualityMetrics.rows[0],
+        disputeMetrics: disputeMetrics.rows,
+        topEarners: topEarners.rows,
+        jobVolume: jobVolume.rows
+      }
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // ── GET /api/admin/reports/jobs — list all flagged/reported jobs ───────────────
-router.get("/reports/jobs", verifyJWT, requireAdmin, async (req, res, next) => {
+router.get("/reports/jobs", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT jr.id, jr.job_id, jr.reporter_address, jr.category, jr.description,
@@ -56,7 +189,7 @@ router.get("/reports/jobs", verifyJWT, requireAdmin, async (req, res, next) => {
 });
 
 // ── GET /api/admin/disputes — list all open disputes ─────────────────────────
-router.get("/disputes", verifyJWT, requireAdmin, async (req, res, next) => {
+router.get("/disputes", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT e.job_id, e.status AS escrow_status, e.created_at AS escrow_created_at,
@@ -75,7 +208,7 @@ router.get("/disputes", verifyJWT, requireAdmin, async (req, res, next) => {
 });
 
 // ── GET /api/admin/reported-wallets — list reported user addresses ─────────────
-router.get("/reported-wallets", verifyJWT, requireAdmin, async (req, res, next) => {
+router.get("/reported-wallets", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT reporter_address AS reported_address, COUNT(*) AS report_count,
@@ -93,23 +226,22 @@ router.get("/reported-wallets", verifyJWT, requireAdmin, async (req, res, next) 
 });
 
 // ── GET /api/admin/logs — admin action audit log ───────────────────────────────
-router.get("/logs", verifyJWT, requireAdmin, async (req, res, next) => {
+router.get("/logs", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, action, admin_address, target_id, target_type, details, created_at
-       FROM admin_action_logs
+      `SELECT id, action, actor_address, target, reason, metadata, created_at
+       FROM audit_logs
        ORDER BY created_at DESC
        LIMIT 200`
     );
     res.json({ success: true, data: rows });
   } catch (e) {
-    // If table doesn't exist, return empty
     res.json({ success: true, data: [] });
   }
 });
 
 // ── PATCH /api/admin/disputes/:jobId/resolve — mark dispute resolved ───────────
-router.patch("/disputes/:jobId/resolve", verifyJWT, requireAdmin, async (req, res, next) => {
+router.patch("/disputes/:jobId/resolve", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { jobId } = req.params;
     const { resolution, releaseTo } = req.body; // releaseTo: 'client' | 'freelancer'
@@ -133,7 +265,7 @@ router.patch("/disputes/:jobId/resolve", verifyJWT, requireAdmin, async (req, re
       adminAddress: req.user.publicKey,
       targetId: jobId,
       targetType: "job",
-      details: { resolution, releaseTo, newJobStatus },
+      details: { reason: resolution, resolution, releaseTo, newJobStatus },
     });
 
     await logContractInteraction({
@@ -153,7 +285,7 @@ router.patch("/disputes/:jobId/resolve", verifyJWT, requireAdmin, async (req, re
 });
 
 // ── PATCH /api/admin/jobs/:jobId/cancel — cancel a flagged job ─────────────────
-router.patch("/jobs/:jobId/cancel", verifyJWT, requireAdmin, async (req, res, next) => {
+router.patch("/jobs/:jobId/cancel", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { jobId } = req.params;
     const { reason } = req.body;
@@ -175,7 +307,7 @@ router.patch("/jobs/:jobId/cancel", verifyJWT, requireAdmin, async (req, res, ne
 });
 
 // ── POST /api/admin/wallets/:address/freeze — freeze a wallet ─────────────────
-router.post("/wallets/:address/freeze", verifyJWT, requireAdmin, async (req, res, next) => {
+router.post("/wallets/:address/freeze", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { address } = req.params;
     const { reason } = req.body;
@@ -206,7 +338,7 @@ router.post("/wallets/:address/freeze", verifyJWT, requireAdmin, async (req, res
 });
 
 // ── DELETE /api/admin/wallets/:address/freeze — unfreeze a wallet ─────────────
-router.delete("/wallets/:address/freeze", verifyJWT, requireAdmin, async (req, res, next) => {
+router.delete("/wallets/:address/freeze", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { address } = req.params;
     await pool.query("DELETE FROM frozen_wallets WHERE address = $1", [address]);
@@ -226,7 +358,7 @@ router.delete("/wallets/:address/freeze", verifyJWT, requireAdmin, async (req, r
 });
 
 // ── GET /api/admin/wallets/frozen — list frozen wallets ───────────────────────
-router.get("/wallets/frozen", verifyJWT, requireAdmin, async (req, res, next) => {
+router.get("/wallets/frozen", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res) => {
   try {
     const { rows } = await pool.query(
       "SELECT address, reason, frozen_by, created_at FROM frozen_wallets ORDER BY created_at DESC"
@@ -234,6 +366,56 @@ router.get("/wallets/frozen", verifyJWT, requireAdmin, async (req, res, next) =>
     res.json({ success: true, data: rows });
   } catch (e) {
     res.json({ success: true, data: [] });
+  }
+});
+
+// ── GET /api/admin/jobs/expired — list expired jobs ───────────────────────────
+router.get("/jobs/expired", verifyJWT, requireAdminRole, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, title, client_address, budget, currency, status, expires_at, created_at
+       FROM jobs
+       WHERE status = 'expired'
+       ORDER BY expires_at DESC
+       LIMIT 100`
+    );
+    res.json({ success: true, data: rows });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── POST /api/admin/jobs/:jobId/reactivate — reactivate expired job ───────────
+router.post("/jobs/:jobId/reactivate", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { rows } = await pool.query(
+      `UPDATE jobs
+       SET status = 'open',
+           expires_at = NOW() + INTERVAL '30 days',
+           updated_at = NOW()
+       WHERE id = $1 AND status = 'expired'
+       RETURNING id, title, status, expires_at`,
+      [jobId]
+    );
+
+    if (!rows.length) {
+      const e = new Error("Job not found or not expired");
+      e.status = 404;
+      throw e;
+    }
+
+    await logAdminAction({
+      action: "job_reactivated",
+      adminAddress: req.user.publicKey,
+      targetId: jobId,
+      targetType: "job",
+      details: { reason: "Admin reactivation" },
+    });
+
+    res.json({ success: true, data: rows[0] });
+  } catch (e) {
+    next(e);
   }
 });
 

@@ -1,34 +1,51 @@
 /**
  * lib/i18n.js
- * Simple i18n implementation
+ * i18next setup with browser language detection and localStorage persistence (#282).
  */
 import i18next from "i18next";
 import LanguageDetector from "i18next-browser-languagedetector";
+import { initReactI18next } from "react-i18next";
 
-i18next.use(LanguageDetector).init({
-  resources: {
-    en: {
-      common: require("../public/locales/en/common.json"),
+const resources = {
+  en: { common: require("../public/locales/en/common.json") },
+  es: { common: require("../public/locales/es/common.json") },
+  fr: { common: require("../public/locales/fr/common.json") },
+  pt: { common: require("../public/locales/pt/common.json") },
+};
+
+i18next
+  .use(LanguageDetector)
+  .use(initReactI18next)
+  .init({
+    resources,
+    fallbackLng: "en",
+    supportedLngs: ["en", "es", "fr", "pt"],
+    ns: ["common"],
+    defaultNS: "common",
+    detection: {
+      order: ["localStorage", "navigator"],
+      lookupLocalStorage: "preferredLocale",
+      caches: ["localStorage"],
     },
-    es: {
-      common: require("../public/locales/es/common.json"),
-    },
-  },
-  lng: typeof window !== "undefined" ? localStorage.getItem("preferredLocale") || "en" : "en",
-  fallbackLng: "en",
-  ns: ["common"],
-  defaultNS: "common",
+    interpolation: { escapeValue: false },
+  });
+
+i18next.on("languageChanged", (lng) => {
+  if (typeof window !== "undefined") {
+    localStorage.setItem("preferredLocale", lng);
+  }
 });
 
 export default i18next;
 
 export function useTranslation(ns = "common") {
   const i18n = i18next;
-  
   const t = (key, options) => {
-    return i18n.getFixedT(null, ns)(key, options);
+      if (typeof i18n.getFixedT === 'function') {
+          return i18n.getFixedT(null, ns)(key, options);
+      }
+      return key;
   };
-
   return { t, i18n, ready: i18n.isInitialized };
 }
 

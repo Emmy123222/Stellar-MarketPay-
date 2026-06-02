@@ -13,7 +13,10 @@ const {
   submitApplication, getApplicationsForJob,
   getApplicationsForFreelancer, acceptApplication,
   withdrawApplication,
+  closeBiddingForJob,
+  revealApplicationBid,
 } = require("../services/applicationService");
+const { FREELANCER_TIERS } = require("../services/profileService");
 const { logContractInteraction } = require("../services/contractAuditService");
 const { notifyEscrowEvent, EVENT_TYPES } = require("../services/notificationService");
 const { getJob } = require("../services/jobService");
@@ -58,7 +61,14 @@ const { getJob } = require("../services/jobService");
 // GET /api/applications/job/:jobId
 router.get("/job/:jobId", generalApplicationRateLimiter, async (req, res, next) => {
   try {
-    const applications = await getApplicationsForJob(req.params.jobId);
+    const tier = typeof req.query.tier === "string" ? req.query.tier : null;
+    if (tier && !Object.values(FREELANCER_TIERS).includes(tier)) {
+      const e = new Error("Invalid freelancer tier filter");
+      e.status = 400;
+      throw e;
+    }
+
+    const applications = await getApplicationsForJob(req.params.jobId, { tier });
     res.json({ success: true, data: applications });
   } catch (e) {
     next(e);
@@ -140,8 +150,55 @@ router.get("/freelancer/:publicKey", generalApplicationRateLimiter, async (req, 
 router.post("/", applicationRateLimiter, async (req, res, next) => {
   try {
     const app = await submitApplication(req.body);
+    
+    // Emit WebSocket event for real-time bid updates
+    const broadcastRealtime = req.app.locals.broadcastRealtime;
+    if (broadcastRealtime) {
+      // Get job details for the broadcast
+      const job = await getJob(app.jobId);
+      
+      broadcastRealtime(`job:${app.jobId}:bids`, {
+        type: 'new_bid',
+        application: {
+          id: app.id,
+          freelancerAddress: app.freelancerAddress,
+          bidAmount: app.bidAmount,
+          proposal: app.proposal,
+          estimatedDuration: app.estimatedDuration,
+          createdAt: app.createdAt,
+          status: app.status
+        },
+        jobTitle: job.title
+      });
+    }
+    
     res.status(201).json({ success: true, data: app });
   } catch (e) { next(e); }
+});
+
+// POST /api/applications/job/:jobId/close-bidding — client closes bidding round
+router.post("/job/:jobId/close-bidding", applicationRateLimiter, async (req, res, next) => {
+  try {
+    const result = await closeBiddingForJob(req.params.jobId, req.body.clientAddress);
+    res.json({ success: true, data: result });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/applications/:id/reveal — freelancer reveals sealed bid
+router.post("/:id/reveal", applicationRateLimiter, async (req, res, next) => {
+  try {
+    const app = await revealApplicationBid(
+      req.params.id,
+      req.body.freelancerAddress,
+      req.body.bidAmount,
+      req.body.nonce,
+    );
+    res.json({ success: true, data: app });
+  } catch (e) {
+    next(e);
+  }
 });
 
 // POST /api/applications/:id/accept — client accepts a proposal

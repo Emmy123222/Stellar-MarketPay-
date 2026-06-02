@@ -6,8 +6,11 @@
     "postJob": "Publicar Trabajo",
     "browseFreelancers": "Explorar Freelancers",
     "insights": "Perspectivas del Mercado",
+    "developer": "Desarrollador",
+    "dao": "DAO",
     "connectWallet": "Conectar Billetera",
-    "disconnect": "Desconectar"
+    "disconnect": "Desconectar",
+    "skipToContent": "Ir al contenido principal"
   },
   "jobs": {
     "title": "Explorar Trabajos",
@@ -19,6 +22,11 @@
     "postFirstJob": "Publica el primer trabajo",
     "loadMore": "Cargar más trabajos",
     "loading": "Cargando...",
+    "filters": "Filtros",
+    "showFilters": "Mostrar filtros",
+    "hideFilters": "Ocultar filtros",
+    "clearAll": "Borrar todo",
+    "activeFilters": "Filtros activos",
     "status": {
       "open": "Abierto",
       "inProgress": "En Progreso",
@@ -26,6 +34,22 @@
       "all": "Todos"
     },
     "budget": "Presupuesto (XLM)",
+    "budgetRange": "Rango de presupuesto",
+    "minBudget": "Mín",
+    "maxBudget": "Máx",
+    "skills": "Habilidades requeridas",
+    "skillsPlaceholder": "ej. Rust, React",
+    "clientRating": "Calificación mín. del cliente",
+    "duration": "Duración del trabajo",
+    "durationShort": "Corta (< 1 semana)",
+    "durationMedium": "Media (1–4 semanas)",
+    "durationLong": "Larga (> 1 mes)",
+    "posted": "Publicado",
+    "postedToday": "Hoy",
+    "postedWeek": "Esta semana",
+    "postedMonth": "Este mes",
+    "applications": "Máx. postulaciones",
+    "lowCompetition": "Baja competencia (≤5)",
     "category": "Categoría",
     "allCategories": "Todas las Categorías",
     "timezone": "Zona Horaria",
@@ -33,7 +57,12 @@
     "myLocation": "Mi Ubicación",
     "detecting": "Detectando...",
     "allTimezones": "Todas las Zonas Horarias",
-    "withinTimezone": "Muestra trabajos dentro de ±3 horas de la zona horaria seleccionada"
+    "withinTimezone": "Muestra trabajos dentro de ±3 horas de la zona horaria seleccionada",
+    "recommended": "Recomendado para ti",
+    "errorTitle": "Algo salió mal",
+    "errorRetry": "Reintentar",
+    "emptyTitle": "Ningún trabajo coincide",
+    "emptyDescription": "Ajusta tu búsqueda o filtros."
   },
   "wallet": {
     "balance": "Saldo",
@@ -42,6 +71,32 @@
   "language": {
     "switch": "Cambiar Idioma",
     "english": "English",
-    "spanish": "Español"
+    "spanish": "Español",
+    "french": "Français",
+    "portuguese": "Português"
+  },
+  "dao": {
+    "title": "Gobernanza DAO",
+    "subtitle": "Participa en la gobernanza de Stellar MarketPay.",
+    "connectPrompt": "Conecta tu billetera para participar en la gobernanza",
+    "treasuryBalance": "Saldo del tesoro",
+    "activeProposals": "Propuestas activas",
+    "votingPower": "Tu poder de voto",
+    "proposals": "Propuestas",
+    "createProposal": "Crear propuesta",
+    "voteFor": "A favor",
+    "voteAgainst": "En contra",
+    "voting": "Votando...",
+    "votesFor": "A favor",
+    "votesAgainst": "En contra",
+    "votingResults": "Resultados de la votación",
+    "quorum": "Progreso del quórum",
+    "arbitrators": "Árbitros comunitarios",
+    "disputePanel": "Panel de disputas (top 3)",
+    "registerArbitrator": "Registrarse como árbitro",
+    "amount": "Monto",
+    "created": "Creado",
+    "ends": "Finaliza",
+    "loading": "Cargando datos de gobernanza..."
   }
 }
