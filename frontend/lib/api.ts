@@ -218,6 +218,23 @@ export async function fetchJobs(params?: {
   };
 }
 
+export interface JobSuggestion {
+  type: "title" | "skill" | "category";
+  value: string;
+}
+
+export async function fetchJobSuggestions(query: string): Promise<JobSuggestion[]> {
+  try {
+    const { data } = await api.get<{ success: boolean; data: JobSuggestion[] }>(
+      "/api/jobs/suggestions",
+      { params: { q: query } },
+    );
+    return data.data;
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchRelatedJobs(category: string, currentJobId: string) {
   const { jobs } = await fetchJobs({
     category,
@@ -521,6 +538,53 @@ export async function fetchPublicProfile(
     if (axios.isAxiosError(e) && e.response?.status === 404) return null;
     throw e;
   }
+}
+
+export async function fetchProfiles(params?: {
+  role?: string;
+  availability?: string;
+  search?: string;
+  limit?: number;
+}) {
+  const { data } = await api.get<{ success: boolean; data: UserProfile[] }>(
+    "/api/profiles",
+    { params },
+  );
+  return data.data;
+}
+
+export async function fetchSkillEndorsements(publicKey: string): Promise<SkillEndorsement[]> {
+  const { data } = await api.get<{ success: boolean; data: SkillEndorsement[] }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/endorsements`,
+  );
+  return data.data;
+}
+
+export async function endorseSkill(publicKey: string, skill: string) {
+  await api.post(`/api/profiles/${encodeURIComponent(publicKey)}/endorse`, {
+    skill,
+  });
+}
+
+export async function fetchSkillBadges(publicKey: string): Promise<SkillBadge[]> {
+  const { data } = await api.get<{ success: boolean; data: SkillBadge[] }>(
+    `/api/assessments/results/${encodeURIComponent(publicKey)}`,
+  );
+  return data.data;
+}
+
+export async function fetchProfileStats(publicKey: string): Promise<ProfileStats> {
+  const { data } = await api.get<{ success: boolean; data: ProfileStats }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/stats`,
+  );
+  return data.data;
+}
+
+export async function fetchResponseTime(publicKey: string): Promise<ResponseTime> {
+  const { data } = await api.get<{ success: boolean; data: ResponseTime }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/response-time`,
+  );
+  return data.data;
 }
 
 export async function upsertProfile(

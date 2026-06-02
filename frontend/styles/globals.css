@@ -122,11 +122,6 @@
   .card-hover:hover {
     border-color: var(--border-hover);
     background-color: var(--surface-2);
-    @apply bg-[#151208] border border-[rgba(251,191,36,0.12)] rounded-2xl p-6 dark:bg-[#0a0906] dark:border-[rgba(251,191,36,0.08)];
-  }
-
-  .card-hover {
-    @apply card hover:border-[rgba(251,191,36,0.28)] hover:bg-[#1a1509] transition-all duration-200 cursor-pointer dark:hover:bg-[#0e0c07] dark:hover:border-[rgba(251,191,36,0.18)];
   }
 
   .btn-primary {
@@ -181,7 +176,6 @@
 
   .badge-open {
     @apply badge bg-emerald-500/10 text-emerald-400 border-emerald-500/20;
-
   }
   .input-field::placeholder { color: var(--text-subtle); }
   .input-field:focus {
@@ -209,7 +203,8 @@
     border: 1px solid var(--border);
     color: var(--gold);
     opacity: 0.9;
-    @apply font-mono text-xs px-2.5 py-1 rounded-lg;
+    @apply font-mono text-xs bg-ink-700 text-market-400/80 px-2.5 py-1 rounded-lg border border-market-500/15
+           dark:bg-[#0a0906] dark:border-market-500/10;
   }
 
   .section-title { color: var(--text); @apply font-display text-2xl font-bold; }
@@ -250,6 +245,13 @@
   .touch-target {
     @apply min-h-[44px] min-w-[44px] flex items-center justify-center;
   }
+  html:not(.dark) .text-gradient-gold {
+    background: linear-gradient(135deg, #b45309, #d97706, #92400e);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
 
   .bg-noise {
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
@@ -265,6 +267,17 @@
     );
   }
 
+  .dark .bg-lines {
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 39px,
+      rgba(251,191,36,0.015) 39px,
+      rgba(251,191,36,0.015) 40px
+    );
+  }
+
+  /* Onboarding highlight effect */
   .onboarding-highlight {
     position: relative;
     z-index: 40;
@@ -285,13 +298,34 @@
     50%       { opacity: 0.5; transform: scale(1.02); }
   }
 
-  .animate-fade-in  { animation: fadeIn 0.3s ease-in-out; }
-  .animate-scale-in { animation: scaleIn 0.3s ease-in-out; }
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.3s ease-in-out;
+  }
 
   @keyframes fadeIn {
     from { opacity: 0; }
     to   { opacity: 1; }
   }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
   @keyframes scaleIn {
     from { opacity: 0; transform: scale(0.95); }
     to   { opacity: 1; transform: scale(1); }
