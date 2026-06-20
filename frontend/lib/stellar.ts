@@ -16,6 +16,7 @@ import {
 import * as SorobanRpc from "@stellar/stellar-sdk/rpc";
 import { optionalClientEnv, requireClientEnv } from "./env";
 import { getUsdcContractId } from "./config/tokens";
+import { fetchGasEstimateSafe, tierToTransactionFee } from "./sorobanFees";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -124,8 +125,14 @@ export async function buildCreateEscrowTx(
     );
   }
 
-  // Fetch the source account
-  const account = await sorobanServer.getAccount(clientPublicKey);
+  // Fetch the source account and dynamic fee estimate in parallel
+  const [account, gasEstimate] = await Promise.all([
+    sorobanServer.getAccount(clientPublicKey),
+    fetchGasEstimateSafe(),
+  ]);
+
+  // Use the "medium" tier as the default inclusion fee for escrow creation
+  const inclusionFee = tierToTransactionFee(gasEstimate.medium);
 
   const amountStroops = BigInt(Math.round(budgetXlm * 10_000_000));
 
@@ -137,7 +144,7 @@ export async function buildCreateEscrowTx(
   ];
 
   const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
+    fee: inclusionFee,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
     .addOperation(contract.call("create_escrow", ...callArgs))
@@ -265,8 +272,12 @@ export async function buildPublishMessageTx(
   }
 
   const { jobId, senderPublicKey, recipientPublicKey, ipfsCid } = params;
-  const account = await sorobanServer.getAccount(senderPublicKey);
+  const [account, gasEstimate] = await Promise.all([
+    sorobanServer.getAccount(senderPublicKey),
+    fetchGasEstimateSafe(),
+  ]);
 
+  const inclusionFee = tierToTransactionFee(gasEstimate.medium);
   const contract = new Contract(CONTRACT_ID);
   const callArgs = [
     nativeToScVal(jobId, { type: "string" }),
@@ -276,7 +287,7 @@ export async function buildPublishMessageTx(
   ];
 
   const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
+    fee: inclusionFee,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
     .addOperation(contract.call("publish_message", ...callArgs))
@@ -385,8 +396,12 @@ export async function buildBoostJobTx(params: BoostParams): Promise<string> {
     throw new Error("NEXT_PUBLIC_CONTRACT_ID is not set.");
   }
 
-  const server = sorobanServer;
-  const account = await server.getAccount(clientPublicKey);
+  const [account, gasEstimate] = await Promise.all([
+    sorobanServer.getAccount(clientPublicKey),
+    fetchGasEstimateSafe(),
+  ]);
+
+  const inclusionFee = tierToTransactionFee(gasEstimate.fast); // boost = fast tier
   const amountStroops = BigInt(Math.round(amountXlm * 10_000_000));
 
   const contract = new Contract(CONTRACT_ID);
@@ -398,7 +413,7 @@ export async function buildBoostJobTx(params: BoostParams): Promise<string> {
   ];
 
   const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
+    fee: inclusionFee,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
     .addOperation(contract.call("boost_job", ...callArgs))

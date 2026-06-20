@@ -63,7 +63,8 @@
             "src/middleware/sanitize.js",
             "src/services/profileService.js",
             "src/services/escrowService.js",
-            "src/services/disputeService.js"
+            "src/services/disputeService.js",
+            "src/services/gas_estimator.js"
         ],
         "coverageDirectory": "coverage",
         "coverageReporters": [
