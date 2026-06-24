@@ -22,6 +22,7 @@ const { requestLoggerMiddleware, logError, createServiceLogger } = require('./ut
 const { sanitizeMiddleware } = require('./middleware/sanitize');
 const { requireChoice } = require("./config/env");
 const { createCorsOptions } = require("./config/cors");
+const { verifyCSRF } = require("./middleware/csrf");
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -233,6 +234,7 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
 }));
 
 app.use(cors(createCorsOptions({ logger: serviceLogger })));
+app.use(verifyCSRF);
 
 app.use((req, res, next) => {
   if (req.path === "/metrics") {
