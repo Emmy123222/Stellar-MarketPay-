@@ -65,6 +65,14 @@ jobs:
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/marketpay_test
           JWT_SECRET: ci-test-jwt-secret-with-sufficient-length
+      - name: Mutation testing
+        run: npm run test:mutation
+        continue-on-error: true
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/marketpay_test
+          JWT_SECRET: ci-test-jwt-secret-with-sufficient-length
+          STRYKER_DASHBOARD_API_KEY: ${{ secrets.STRYKER_DASHBOARD_API_KEY }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
       - run: npm run lint
       - uses: actions/upload-artifact@v4
         if: always()
