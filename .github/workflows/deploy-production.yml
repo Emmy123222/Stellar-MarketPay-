@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Deploy on production VPS via SSH
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.PRODUCTION_SSH_HOST }}
           username: ${{ secrets.PRODUCTION_SSH_USER }}

@@ -17,7 +17,7 @@ jobs:
     environment: ${{ github.event.inputs.target_env }}
     steps:
       - name: Rollback on VPS
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ github.event.inputs.target_env == 'production' && secrets.PRODUCTION_SSH_HOST || secrets.STAGING_SSH_HOST }}
           username: ${{ github.event.inputs.target_env == 'production' && secrets.PRODUCTION_SSH_USER || secrets.STAGING_SSH_USER }}
