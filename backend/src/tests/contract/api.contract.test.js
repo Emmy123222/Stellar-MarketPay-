@@ -1,17 +1,15 @@
-"use strict";
-
 /**
- * API Contract Tests — Issue #512
+ * src/tests/contract/api.contract.test.js
  *
  * Validates every documented endpoint's response shape against the
  * OpenAPI spec (backend/docs/openapi.json) using AJV. Any structural
  * mismatch — wrong type, missing property, invalid format — fails the
  * suite immediately with a descriptive error.
  */
+"use strict";
 
 // ─── Global mocks (must be set before server loads) ──────────────────────────
 
-// Mock native fetch so the health route's stellar check succeeds in tests
 global.fetch = jest.fn().mockResolvedValue({
   ok: true,
   json: jest.fn().mockResolvedValue({
@@ -424,9 +422,8 @@ describe("POST /api/jobs — create job", () => {
 describe("GET /api/applications/job/:jobId", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // The getApplicationsForJob SQL uses "FROM applications a LEFT JOIN …"
-    // Using sql.includes("FROM applications a") avoids matching the subquery
-    // "SELECT client_address FROM jobs WHERE id = $1" inside the same SQL string.
+    // "FROM applications a" is unique to the JOIN query and won't match the
+    // subquery "SELECT client_address FROM jobs WHERE id = $1" on the same string.
     pool.query.mockImplementation(async (sql) => {
       if (sql.includes("FROM applications a")) {
         return { rows: [buildApplicationRow()] };
@@ -447,10 +444,8 @@ describe("GET /api/applications/job/:jobId", () => {
   });
 
   it("404 schema is valid per spec (implementation always returns 200 with empty data — known gap)", () => {
-    // The route does not check job existence before querying applications,
-    // so it returns 200 [] instead of 404 when the job has no applications.
-    // The 404 contract shape is validated directly here to ensure the spec schema
-    // is structurally correct even though the live route never emits it.
+    // Route returns 200 [] instead of 404 (no job-existence check in service).
+    // Validate the 404 schema shape directly so the spec entry is still exercised.
     const { valid } = validateContract(
       "/api/applications/job/{jobId}",
       "get",

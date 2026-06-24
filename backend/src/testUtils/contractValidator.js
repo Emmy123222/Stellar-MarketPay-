@@ -9,7 +9,6 @@ addFormats(ajv);
 
 const componentSchemas = openApiSpec.components?.schemas || {};
 
-// Recursively resolve $ref pointers and convert OpenAPI 3.0 nullable to JSON Schema union types
 function resolveRefs(schema) {
   if (!schema || typeof schema !== "object") return schema;
 
@@ -39,7 +38,6 @@ function resolveRefs(schema) {
   return out;
 }
 
-// Extract and resolve the JSON schema for a given path + method + statusCode
 function getResponseSchema(apiPath, method, statusCode) {
   const pathSpec = openApiSpec.paths?.[apiPath];
   if (!pathSpec) throw new Error(`No OpenAPI spec for path: ${apiPath}`);
@@ -60,7 +58,6 @@ function getResponseSchema(apiPath, method, statusCode) {
 // so we maintain our own Map to avoid recompiling the same schema on every call.
 const _validatorCache = new Map();
 
-// Validate a response body against its OpenAPI contract — returns { valid, errors }
 function validateContract(apiPath, method, statusCode, body) {
   const cacheKey = `${apiPath}::${method.toLowerCase()}::${statusCode}`;
   let validate = _validatorCache.get(cacheKey);
@@ -73,7 +70,6 @@ function validateContract(apiPath, method, statusCode, body) {
   return { valid, errors: validate.errors || [] };
 }
 
-// Assert contract compliance — throws a descriptive error on mismatch
 function assertContract(apiPath, method, statusCode, body) {
   const { valid, errors } = validateContract(apiPath, method, statusCode, body);
   if (!valid) {
