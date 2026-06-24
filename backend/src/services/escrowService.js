@@ -417,5 +417,6 @@ module.exports = {
   releaseMilestone,
   disputeMilestone,
   getEscrow,
+  normalizeMilestones,
   ESCROW_TIMEOUT_DAYS,
 };
