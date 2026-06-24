@@ -435,22 +435,20 @@ impl MarketPayContract {
                 panic!("Maximum 5 milestones allowed");
             }
             let mut total_percentage: u32 = 0;
-            let mut next_id: u32 = 0;
-            for m in ms.iter() {
-                if m.percentage == 0 {
-                    panic!("Milestone percentage must be positive");
-                }
-                total_percentage = total_percentage
-                    .checked_add(m.percentage)
-                    .expect("Arithmetic overflow");
-                milestone_list.push_back(Milestone {
-                    id: next_id,
-                    description: m.description.clone(),
-                    percentage: m.percentage,
-                    released: false,
-                });
-                next_id += 1;
-            }
+        for (next_id, m) in (0_u32..).zip(ms.iter()) {
+    if m.percentage == 0 {
+        panic!("Milestone percentage must be positive");
+    }
+    total_percentage = total_percentage
+        .checked_add(m.percentage)
+        .expect("Arithmetic overflow");
+    milestone_list.push_back(Milestone {
+        id: next_id,
+        description: m.description.clone(),
+        percentage: m.percentage,
+        released: false,
+    });
+}
             if total_percentage != 100 {
                 panic!("Milestone percentages must sum to 100");
             }
