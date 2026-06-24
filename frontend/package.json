@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "next lint --rulesdir eslint/rules",
     "type-check": "tsc --noEmit",
     "test": "jest --ci",
     "test:update-snapshots": "jest -u",

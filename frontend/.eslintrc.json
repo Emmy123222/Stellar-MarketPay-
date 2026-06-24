@@ -1,7 +1,20 @@
 {
   "extends": "next/core-web-vitals",
+  "plugins": [],
   "rules": {
     "react-hooks/exhaustive-deps": "warn",
-    "@next/next/no-img-element": "warn"
-  }
+    "@next/next/no-img-element": "warn",
+    "no-external-assets-without-sri": "error"
+  },
+  "overrides": [
+    {
+      "files": ["*.tsx", "*.jsx"],
+      "plugins": [],
+      "rules": {
+        "no-external-assets-without-sri": "error"
+      },
+      "settings": {},
+      "globals": {}
+    }
+  ]
 }
