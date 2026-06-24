@@ -10,7 +10,8 @@
     "type-check": "tsc --noEmit",
     "test": "jest --ci",
     "test:update-snapshots": "jest -u",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:update-snapshots": "playwright test tests/e2e/visual-regression.spec.ts --update-snapshots"
   },
   "dependencies": {
     "@simplewebauthn/browser": "^9.0.1",
