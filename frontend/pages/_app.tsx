@@ -18,6 +18,8 @@ import {
   logout,
   registerReferral,
 } from "@/lib/api";
+import { useToast } from "@/components/Toast";
+import WalletAccountMonitor from "@/components/WalletAccountMonitor";
 import "@/styles/globals.css";
 import { ToastProvider } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
@@ -35,6 +37,7 @@ function loadStoredPublicKey(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem(WALLET_PUBLIC_KEY_STORAGE_KEY);
 }
+
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
@@ -92,7 +95,7 @@ function App({ Component, pageProps }: AppProps) {
     if (storedKey && !publicKey) {
       setPublicKey(storedKey);
     }
-  }, []);
+  }, [publicKey]);
 
   const handleOpenShortcutsModal = useCallback(() => {
     setShortcutsModalOpen(true);
@@ -221,15 +224,27 @@ function App({ Component, pageProps }: AppProps) {
     }
   };
 
+  const handleWalletDisconnect = useCallback(() => {
+    persistPublicKey(null);
+  }, [persistPublicKey]);
+
   return (
     <>
       <ThemeProvider>
         <ToastProvider>
           <PriceProvider>
+            <WalletAccountMonitor
+              currentPublicKey={publicKey}
+              onDisconnect={handleWalletDisconnect}
+            />
             <Head>
               <title>Stellar MarketPay — Decentralised Freelance Marketplace</title>
               <meta name="description" content="Post jobs, hire freelancers, and pay with XLM — secured by Soroban smart contracts." />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <meta name="theme-color" content="#f59e0b" />
+              <meta name="apple-mobile-web-app-capable" content="yes" />
+              <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+              <meta name="apple-mobile-web-app-title" content="MarketPay" />
               <link rel="manifest" href="/manifest.json" />
               <link rel="apple-touch-icon" href="/icon-192x192.png" />
               <link rel="alternate" type="application/rss+xml" title="Stellar MarketPay — Job Listings (RSS)" href="/api/jobs/feed.rss" />

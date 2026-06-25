@@ -22,6 +22,37 @@ import { getConnectedPublicKey } from "@/lib/wallet";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { createSavedSearch, fetchSavedSearches, type SavedSearch } from "@/lib/api";
 
+// Intersection Observer hook for infinite scroll
+function useInfiniteScroll(callback: () => void, hasNextPage: boolean, isLoading: boolean) {
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const lastElementRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (isLoading || !hasNextPage) return;
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          callback();
+        }
+      },
+      { threshold: 0.1, rootMargin: "100px" }
+    );
+
+    if (lastElementRef.current) {
+      observerRef.current.observe(lastElementRef.current);
+    }
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [callback, hasNextPage, isLoading]);
+
+  return lastElementRef;
+}
+
 interface Suggestion {
   type: string;
   value: string;
@@ -76,6 +107,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   const [useGeolocation, setUseGeolocation] = useState<boolean>(false);
   const [geoLoading, setGeoLoading] = useState<boolean>(false);
   const [geoError, setGeoError] = useState<string | null>(null);
+  const activeTimezoneRef = useRef<string>(manualTimezone || (useGeolocation ? userTimezone : ""));
 
   // ── Job-alert state ────────────────────────────────────────────────────────
   const [alertedCategories, setAlertedCategories] = useState<string[]>([]);
@@ -288,7 +320,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
         let pagesLoaded = 0;
         let allJobs: Job[] = [];
 
-        activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
+        activeTimezoneRef.current = manualTimezone || (useGeolocation ? userTimezone : "");
 
         for (let page = 1; page <= pageFromQuery; page += 1) {
           const result = await fetchJobs({
@@ -296,7 +328,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
             status: status || undefined,
             limit: 20,
             cursor,
-            timezone: activeTimezone || undefined,
+            timezone: activeTimezoneRef.current || undefined,
             viewerAddress: viewerAddress || undefined,
             minBudget: minBudget || undefined,
             maxBudget: maxBudget || undefined,
@@ -456,7 +488,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     );
   };
 
-  const handleLoadMore = async () => {
+  const handleLoadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;
 
     setLoadingMore(true);
@@ -500,7 +532,10 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     } finally {
       setLoadingMore(false);
     }
-  };
+  }, [nextCursor, loadingMore, manualTimezone, useGeolocation, userTimezone, category, status, viewerAddress, minBudget, maxBudget, filterQuery, currentPage, router]);
+
+  // Use infinite scroll hook
+  const lastJobRef = useInfiniteScroll(handleLoadMore, Boolean(nextCursor), loadingMore);
 
   const setBudgetRange = (min: string, max: string) => {
     router.push({
@@ -988,27 +1023,26 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
           ) : (
             <>
               <div className="grid sm:grid-cols-2 gap-4">
-                {filtered.map((job) => (
-                  <JobCard
+                {filtered.map((job, index) => (
+                  <div
                     key={job.id}
-                    job={job}
-                    isFocused={focusedJobId === job.id}
-                    onFocus={() => setFocusedJobId(job.id)}
-                  />
+                    ref={index === filtered.length - 1 ? lastJobRef : null}
+                  >
+                    <JobCard
+                      job={job}
+                      isFocused={focusedJobId === job.id}
+                      onFocus={() => setFocusedJobId(job.id)}
+                    />
+                  </div>
                 ))}
               </div>
 
-              {nextCursor && (
+              {loadingMore && (
                 <div className="mt-8 flex justify-center">
-                  <button
-                    type="button"
-                    onClick={handleLoadMore}
-                    disabled={loadingMore}
-                    className="btn-secondary text-sm min-w-40 min-h-[44px] flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-                  >
-                    {loadingMore && <SpinnerIcon className="w-4 h-4 animate-spin" />}
-                    {loadingMore ? t("jobs.loading") : t("jobs.loadMore")}
-                  </button>
+                  <div className="flex items-center gap-2 text-amber-800 text-sm">
+                    <SpinnerIcon className="w-4 h-4 animate-spin" />
+                    {t("jobs.loading")}
+                  </div>
                 </div>
               )}
             </>

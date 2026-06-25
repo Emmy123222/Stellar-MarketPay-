@@ -2012,4 +2012,71 @@ export async function acceptInvitation(
   return data.data;
 }
 
+// ── Health / Status (#501) ───────────────────────────────────────────────────
 
+export interface HealthStatus {
+  status: "healthy" | "degraded";
+  database: { status: string; latency_ms?: number; message?: string };
+  stellar: { status: string; network?: string; ledger?: number; message?: string };
+  ipfs: { status: string; message?: string };
+  uptime_seconds: number;
+  version: string;
+}
+
+export async function fetchHealthStatus(): Promise<HealthStatus> {
+  const { data } = await api.get<HealthStatus>("/health");
+  return data;
+}
+
+export async function fetchHealthHistory(): Promise<
+  Record<string, { status: string; checkedAt: string }[]>
+> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: Record<string, { status: string; checkedAt: string }[]>;
+  }>("/health/history");
+  return data.data;
+}
+
+export async function subscribeStatusAlerts(email: string): Promise<void> {
+  await api.post("/health/subscribe", { email });
+}
+
+// ── Encryption key + file attachment (#498) ──────────────────────────────────
+
+export async function fetchRecipientEncryptionKey(
+  publicKey: string,
+): Promise<string | null> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: { encryptionPublicKey: string | null };
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/encryption-key`);
+  return data.data.encryptionPublicKey;
+}
+
+export async function publishMyEncryptionKey(
+  userPublicKey: string,
+  naclPublicKey: string,
+): Promise<void> {
+  await api.post(`/api/profiles/${encodeURIComponent(userPublicKey)}`, {
+    publicKey: userPublicKey,
+    encryptionPublicKey: naclPublicKey,
+  });
+}
+
+export async function uploadMessageAttachment(
+  jobId: string,
+  encryptedBlob: Blob,
+  fileName: string,
+  senderNaclPub: string,
+): Promise<Message> {
+  const formData = new FormData();
+  formData.append("file", encryptedBlob, fileName);
+  formData.append("senderNaclPub", senderNaclPub);
+  const { data } = await api.post<{ success: boolean; data: Message }>(
+    `/api/messages/job/${jobId}/attachments`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
+  );
+  return data.data;
+}

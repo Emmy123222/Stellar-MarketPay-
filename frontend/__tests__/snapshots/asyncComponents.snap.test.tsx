@@ -20,6 +20,8 @@ import EditProfileForm from "@/components/EditProfileForm";
 import TimeTracker from "@/components/TimeTracker";
 import XlmPriceWidget from "@/components/XlmPriceWidget";
 
+import EarningsChart from "@/components/EarningsChart";
+
 const noop = jest.fn();
 
 describe("async component snapshots", () => {
@@ -219,6 +221,30 @@ describe("async component snapshots", () => {
         expect(container.textContent).toMatch(/No time entries yet/i);
       });
       expect(container.firstChild).toMatchSnapshot("TimeTracker empty");
+    });
+  });
+
+  describe("EarningsChart", () => {
+    it("loading", () => {
+      const { container } = render(<EarningsChart publicKey={MOCK_PK} />);
+      expect(container.firstChild).toMatchSnapshot("EarningsChart loading");
+    });
+
+    it("populated", async () => {
+      const { container } = render(<EarningsChart publicKey={MOCK_PK} />);
+      await waitFor(() => {
+        expect(container.textContent).toMatch(/Total Earned|Earnings/i);
+      });
+      expect(container.firstChild).toMatchSnapshot("EarningsChart populated");
+    });
+
+    it("error", async () => {
+      jest.spyOn(api, "fetchFreelancerEarnings").mockRejectedValueOnce(new Error("API down"));
+      const { container } = render(<EarningsChart publicKey={MOCK_PK} />);
+      await waitFor(() => {
+        expect(container.textContent).toMatch(/failed|error/i);
+      });
+      expect(container.firstChild).toMatchSnapshot("EarningsChart error");
     });
   });
 
