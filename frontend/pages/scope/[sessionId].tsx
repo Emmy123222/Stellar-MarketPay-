@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/router";
+import dynamic from "next/dynamic";
+
+// This page is already code-split by Next.js as a dynamic route
+// The collaborative editor is loaded on-demand when users navigate to /scope/[sessionId]
+// No additional dynamic import needed here as Next.js handles automatic code splitting
 
 type CursorMap = Record<string, { start: number; end: number; updatedAt: number }>;
 
