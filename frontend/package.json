@@ -10,7 +10,8 @@
     "type-check": "tsc --noEmit",
     "test": "jest --ci",
     "test:update-snapshots": "jest -u",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "analyze": "ANALYZE=true next build"
   },
   "dependencies": {
     "@simplewebauthn/browser": "^9.0.1",
@@ -33,6 +34,7 @@
     "react-i18next": "^17.0.8"
   },
   "devDependencies": {
+    "@next/bundle-analyzer": "^14.2.3",
     "@playwright/test": "^1.58.2",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.6.3",
