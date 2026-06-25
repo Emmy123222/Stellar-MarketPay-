@@ -407,6 +407,24 @@ ALTER TABLE job_invitations ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAUL
 -- ─────────────────────────────────────────
 -- notification_queue additions (in_app type support)
 -- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS notification_queue (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recipient_address   TEXT NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
+  notification_type   TEXT NOT NULL,
+  event_type          TEXT NOT NULL,
+  job_id              UUID REFERENCES jobs(id) ON DELETE CASCADE,
+  payload             JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status              TEXT NOT NULL DEFAULT 'pending',
+  retry_count         INTEGER NOT NULL DEFAULT 0,
+  error_message       TEXT,
+  sent_at             TIMESTAMPTZ,
+  last_attempt_at     TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS notification_queue_status_retry_idx ON notification_queue(status, retry_count);
+CREATE INDEX IF NOT EXISTS notification_queue_recipient_idx ON notification_queue(recipient_address);
+
 -- Allow 'in_app' as a notification_type in addition to 'email' and 'webhook'
 -- The notification_queue table was created without a CHECK constraint on
 -- notification_type so this is a no-op schema change (just documentation).

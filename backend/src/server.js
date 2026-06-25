@@ -454,13 +454,15 @@ async function bootstrap() {
   // Start weekly digest scheduler - fires every Monday at 09:00 UTC
   startWeeklyDigestScheduler();
 
-  server.listen(PORT, () => {
-    serviceLogger.info({
-      port: PORT,
-      network: STELLAR_NETWORK,
-      nodeEnv: process.env.NODE_ENV || "development",
-    }, 'Stellar MarketPay API server started');
-  });
+  if (process.env.NODE_ENV !== "test") {
+    server.listen(PORT, () => {
+      serviceLogger.info({
+        port: PORT,
+        network: STELLAR_NETWORK,
+        nodeEnv: process.env.NODE_ENV || "development",
+      }, 'Stellar MarketPay API server started');
+    });
+  }
   } catch (err) {
     logError(serviceLogger, err, { operation: "bootstrap" });
     process.exit(1);
