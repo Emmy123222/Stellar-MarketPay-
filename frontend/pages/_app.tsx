@@ -230,6 +230,10 @@ function App({ Component, pageProps }: AppProps) {
               <title>Stellar MarketPay — Decentralised Freelance Marketplace</title>
               <meta name="description" content="Post jobs, hire freelancers, and pay with XLM — secured by Soroban smart contracts." />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <meta name="theme-color" content="#f59e0b" />
+              <meta name="apple-mobile-web-app-capable" content="yes" />
+              <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+              <meta name="apple-mobile-web-app-title" content="MarketPay" />
               <link rel="manifest" href="/manifest.json" />
               <link rel="apple-touch-icon" href="/icon-192x192.png" />
               <link rel="alternate" type="application/rss+xml" title="Stellar MarketPay — Job Listings (RSS)" href="/api/jobs/feed.rss" />

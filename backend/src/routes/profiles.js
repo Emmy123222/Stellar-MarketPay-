@@ -406,6 +406,19 @@ router.delete("/:publicKey/portfolio/:itemId", verifyJWT, async (req, res, next)
     res.json({ success: true, data: { deleted: true } });
   } catch (e) { next(e); }
 });
+
+// GET /api/profiles/:publicKey/encryption-key — NaCl public key lookup (no auth required)
+router.get("/:publicKey/encryption-key", generalProfileRateLimiter, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT encryption_public_key FROM profiles WHERE public_key = $1`,
+      [req.params.publicKey],
+    );
+    if (!rows.length) return res.status(404).json({ success: false, error: "Profile not found" });
+    res.json({ success: true, data: { encryptionPublicKey: rows[0].encryption_public_key || null } });
+  } catch (e) { next(e); }
+});
+
 module.exports = router;
 
 

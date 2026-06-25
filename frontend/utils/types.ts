@@ -229,6 +229,11 @@ export interface Message {
   createdAt: string;
   ipfsCid?: string;
   txHash?: string;
+  attachmentCid?:  string | null;
+  attachmentName?: string | null;
+  attachmentSize?: number | null;
+  attachmentMime?: string | null;
+  senderNaclPub?:  string | null;
 }
 
 export interface PortfolioFile {

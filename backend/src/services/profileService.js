@@ -229,6 +229,7 @@ function rowToProfile(row) {
     webhookSecret: row.webhook_secret || null,
     isKycVerified: row.is_kyc_verified !== null ? row.is_kyc_verified : null,
     didHash: row.did_hash || null,
+    encryptionPublicKey: row.encryption_public_key || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -259,6 +260,7 @@ function rowToProfile(row) {
     webhookSecret: decryptedWebhookSecret,
     isKycVerified: row.is_kyc_verified !== null ? row.is_kyc_verified : null,
     didHash: row.did_hash || null,
+    encryptionPublicKey: row.encryption_public_key || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -281,7 +283,8 @@ async function getProfile(publicKey) {
             p.total_earned_xlm, p.rating, p.referral_count, p.reputation_points,
             p.blocked_addresses,
             p.email_notifications_enabled, p.webhook_url,
-            p.is_kyc_verified, p.did_hash, p.created_at, p.updated_at,
+            p.is_kyc_verified, p.did_hash, p.encryption_public_key,
+            p.created_at, p.updated_at,
             COALESCE(
               CASE WHEN p.encrypted_email IS NOT NULL
                 THEN pgp_sym_decrypt(p.encrypted_email, $2)
@@ -391,7 +394,7 @@ async function getProfile(publicKey) {
  *   role: 'freelancer',
  * });
  */
-async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, portfolioFiles, availability, role, email, emailNotificationsEnabled, webhookUrl, webhookSecret }) {
+async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, portfolioFiles, availability, role, email, emailNotificationsEnabled, webhookUrl, webhookSecret, encryptionPublicKey }) {
   validatePublicKey(publicKey);
 
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 15) : null;
@@ -442,7 +445,17 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
     ]
   );
 
-  return rowToProfile(rows[0]);
+  const profile = rowToProfile(rows[0]);
+
+  if (encryptionPublicKey && typeof encryptionPublicKey === "string") {
+    await pool.query(
+      `UPDATE profiles SET encryption_public_key = $2 WHERE public_key = $1`,
+      [publicKey, encryptionPublicKey.trim()],
+    );
+    profile.encryptionPublicKey = encryptionPublicKey.trim();
+  }
+
+  return profile;
 }
 
 /**
