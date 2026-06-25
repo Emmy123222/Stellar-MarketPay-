@@ -196,6 +196,45 @@ export default function PostJobForm({
   const [jobId, setJobId] = useState<string | null>(null);
   const [pendingEscrow, setPendingEscrow] = useState<PendingEscrow | null>(null);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  useEffect(() => {
+    const parts = form.skills.split(",");
+    const lastPart = parts[parts.length - 1]?.trim() || "";
+    
+    if (lastPart.length < 1) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/skills?q=${encodeURIComponent(lastPart)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setSuggestions(data);
+          setShowSuggestions(data.length > 0);
+        }
+      } catch (err) {
+        console.error("Failed to fetch skills", err);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [form.skills]);
+
+  function handleSelectSkill(skill: string) {
+    const parts = form.skills.split(",");
+    parts.pop();
+    parts.push(` ${skill}`);
+    const newSkills = parts.join(",").trim() + ", ";
+    setForm((prev) => ({ ...prev, skills: newSkills }));
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setTouched((prev) => ({ ...prev, skills: true }));
+  }
 
   const isMockMode = process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
   const isInProgress = ["posting", "fee_modal", "signing"].includes(step);
@@ -533,7 +572,7 @@ export default function PostJobForm({
         </div>
 
         {/* Skills */}
-        <div>
+        <div className="relative">
           <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">
             Required Skills
           </label>
@@ -542,9 +581,23 @@ export default function PostJobForm({
             value={form.skills}
             onChange={handleChange}
             disabled={isInProgress}
+            autoComplete="off"
             placeholder="Rust, Soroban, TypeScript (comma-separated)"
             className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-4 py-2.5 text-sm text-gray-900 dark:text-amber-100 placeholder-gray-400 dark:placeholder-amber-900/50 focus:outline-none focus:ring-2 focus:ring-indigo-400 dark:focus:ring-market-500/40 focus:border-transparent disabled:opacity-60"
           />
+          {showSuggestions && suggestions.length > 0 && (
+            <ul className="absolute z-10 w-full mt-1 bg-white dark:bg-ink-800 border border-gray-200 dark:border-market-500/20 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+              {suggestions.map((skill) => (
+                <li
+                  key={skill}
+                  onClick={() => handleSelectSkill(skill)}
+                  className="px-4 py-2 text-sm text-gray-900 dark:text-amber-100 cursor-pointer hover:bg-indigo-50 dark:hover:bg-market-500/10"
+                >
+                  {skill}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {/* Deadline */}

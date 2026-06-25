@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "marketpay.fullname" . }}-postgres
+  labels:
+    app: postgres
+spec:
+  serviceName: {{ include "marketpay.fullname" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          imagePullPolicy: {{ .Values.postgres.image.pullPolicy }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.auth.username | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.postgres.auth.password | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.auth.database | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "marketpay.fullname" . }}-postgres
+  labels:
+    app: postgres
+spec:
+  type: {{ .Values.postgres.service.type }}
+  ports:
+    - port: {{ .Values.postgres.service.port }}
+      targetPort: postgres
+      protocol: TCP
+      name: postgres
+  selector:
+    app: postgres

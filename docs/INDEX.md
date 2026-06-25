@@ -20,13 +20,17 @@ Welcome to Stellar MarketPay documentation. This index helps you find what you n
 
 - **[Architecture Overview](./architecture.md)** - System design and components
 - **[Deployment Guide](./deployment.md)** - How to deploy Stellar MarketPay
+- **[Data Archiving Strategy](./data-archiving.md)** - Archiving old completed jobs for database performance
+- **[Authentication Flow (SEP-10)](./auth-flow.md)** - Complete SEP-10 auth flow with sequence diagrams
 - **[Soroban Contract Deployment](./contract-deployment.md)** - Build, deploy, and configure the escrow contract
+- **[Smart Contract API Reference](./contract-api-reference.md)** - Complete function reference for the MarketPay Soroban contract
 - **[Environment Variables](./environment-variables.md)** - Single source of truth for runtime config
 
 ### API Documentation
 
 - **[API Documentation](./API_DOCUMENTATION.md)** - REST API endpoints
 - **[API Reference](./api.md)** - Detailed API reference
+- **[Smart Contract API Reference](./contract-api-reference.md)** - Every public function, event, and error in the Soroban contract
 - **[Scope WebSocket Protocol](./websocket-scope-protocol.md)** - Realtime session protocol and client schema
 
 ---

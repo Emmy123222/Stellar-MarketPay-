@@ -51,14 +51,22 @@ function formatBudget(budget, currency = "XLM") {
  * @returns {Promise<Array<{public_key: string, email: string, digest_unsubscribe_token: string}>>}
  */
 async function getActiveFreelancers() {
+  const encKey = process.env.DATABASE_ENCRYPTION_KEY || "";
   const { rows } = await pool.query(
-    `SELECT public_key, email, digest_unsubscribe_token
+    `SELECT public_key,
+            COALESCE(
+              CASE WHEN encrypted_email IS NOT NULL
+                THEN pgp_sym_decrypt(encrypted_email, $1)
+              END,
+              email
+            ) AS email,
+            digest_unsubscribe_token
      FROM profiles
      WHERE role IN ('freelancer', 'both')
-       AND email IS NOT NULL
-       AND email <> ''
+       AND (email IS NOT NULL AND email <> '' OR encrypted_email IS NOT NULL)
        AND last_login_at IS NOT NULL
-       AND last_login_at >= NOW() - INTERVAL '30 days'`
+       AND last_login_at >= NOW() - INTERVAL '30 days'`,
+    [encKey]
   );
   return rows;
 }

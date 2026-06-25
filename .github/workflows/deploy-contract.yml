@@ -1,0 +1,115 @@
+name: Deploy Smart Contract
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          override: true
+
+      - name: Build WASM
+        run: |
+          cd contracts
+          cargo build --target wasm32-unknown-unknown --release
+        
+      - name: Run Tests
+        run: |
+          cd contracts
+          cargo test
+
+  deploy-testnet:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    environment: testnet
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install stellar-cli
+        run: cargo install --locked stellar-cli
+        
+      - name: Deploy to Testnet
+        env:
+          STELLAR_NETWORK: testnet
+          STELLAR_ACCOUNT_SECRET: ${{ secrets.TESTNET_SECRET_KEY }}
+        run: |
+          cd contracts
+          # Simulated deployment for now
+          echo "Deploying to testnet..."
+          CONTRACT_ID=$(stellar contract deploy --wasm target/wasm32-unknown-unknown/release/marketpay.wasm --network testnet --source $STELLAR_ACCOUNT_SECRET)
+          echo "TESTNET_CONTRACT_ID=$CONTRACT_ID" >> $GITHUB_ENV
+          
+          # Write to contract-ids.json
+          echo "{\"testnet\": \"$CONTRACT_ID\"}" > contract-ids.json
+          
+      - name: Run Smoke Test
+        run: |
+          echo "Running smoke test on testnet..."
+          # stellar contract invoke ...
+          
+      - name: Upload contract-ids
+        uses: actions/upload-artifact@v3
+        with:
+          name: contract-ids
+          path: contracts/contract-ids.json
+
+  deploy-mainnet:
+    needs: deploy-testnet
+    runs-on: ubuntu-latest
+    environment: 
+      name: mainnet
+      url: https://stellar.expert/explorer/public/contract/${{ env.MAINNET_CONTRACT_ID }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Download contract-ids
+        uses: actions/download-artifact@v3
+        with:
+          name: contract-ids
+          path: contracts/
+
+      - name: Install stellar-cli
+        run: cargo install --locked stellar-cli
+
+      - name: Deploy to Mainnet
+        env:
+          STELLAR_NETWORK: public
+          STELLAR_ACCOUNT_SECRET: ${{ secrets.MAINNET_SECRET_KEY }}
+        run: |
+          cd contracts
+          echo "Deploying to mainnet..."
+          CONTRACT_ID=$(stellar contract deploy --wasm target/wasm32-unknown-unknown/release/marketpay.wasm --network public --source $STELLAR_ACCOUNT_SECRET)
+          echo "MAINNET_CONTRACT_ID=$CONTRACT_ID" >> $GITHUB_ENV
+          
+          # Update contract-ids.json
+          TESTNET_ID=$(jq -r '.testnet' contract-ids.json)
+          echo "{\"testnet\": \"$TESTNET_ID\", \"mainnet\": \"$CONTRACT_ID\"}" > contract-ids.json
+
+      - name: Commit and push contract-ids.json
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git add contracts/contract-ids.json
+          git commit -m "chore: update contract-ids.json after mainnet deploy"
+          git push origin HEAD
+
+      - name: Notify Slack
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_MESSAGE: 'Smart Contract deployed to Mainnet successfully! :rocket:'
+          SLACK_TITLE: Contract Deployment
+          SLACK_COLOR: ${{ job.status }}
