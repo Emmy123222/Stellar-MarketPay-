@@ -593,10 +593,23 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       </div>
 
         {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="card animate-pulse h-20" />
-            ))}
+          <div className="space-y-6 animate-pulse">
+            {/* Balance cards skeleton */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="card h-24" />
+              <div className="card h-24" />
+              <div className="card h-24" />
+            </div>
+
+            {/* Tab content skeleton */}
+            <div className="card space-y-4">
+              <div className="h-6 w-32 bg-market-500/10 rounded" />
+              <div className="space-y-3">
+                <div className="h-16 bg-market-500/8 rounded" />
+                <div className="h-16 bg-market-500/8 rounded" />
+                <div className="h-16 bg-market-500/8 rounded" />
+              </div>
+            </div>
           </div>
         ) : tab === "posted" ? (
           <PostedJobsTab

@@ -95,7 +95,7 @@ function App({ Component, pageProps }: AppProps) {
     if (storedKey && !publicKey) {
       setPublicKey(storedKey);
     }
-  }, []);
+  }, [publicKey]);
 
   const handleOpenShortcutsModal = useCallback(() => {
     setShortcutsModalOpen(true);
