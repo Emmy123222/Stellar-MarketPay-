@@ -1712,6 +1712,42 @@ export async function unfreezeWallet(address: string) {
   return data;
 }
 
+// ─── Admin Cost Report & Time-Series (Issues #569, #561) ──────────────────────
+
+export async function fetchCostReport() {
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    "/api/admin/cost-report",
+  );
+  return data.data;
+}
+
+export async function generateCostReport() {
+  const { data } = await api.post<{ success: boolean; message: string }>(
+    "/api/admin/cost-report/generate",
+  );
+  return data;
+}
+
+export interface TimeSeriesMetric {
+  metric_name: string;
+  value: number;
+  granularity: string;
+  bucket: string;
+}
+
+export async function fetchTimeSeriesMetrics(params: {
+  metric: string;
+  from?: string;
+  to?: string;
+  granularity?: string;
+}): Promise<TimeSeriesMetric[]> {
+  const { data } = await api.get<{ success: boolean; data: TimeSeriesMetric[] }>(
+    "/api/admin/metrics/time-series",
+    { params },
+  );
+  return data.data;
+}
+
 // ─── Referrals ────────────────────────────────────────────────────────────────
 
 /**
