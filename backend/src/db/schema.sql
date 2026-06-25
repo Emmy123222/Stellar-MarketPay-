@@ -50,7 +50,6 @@ CREATE TABLE IF NOT EXISTS jobs (
   budget              NUMERIC(20,7) NOT NULL,
   currency            TEXT        NOT NULL DEFAULT 'XLM',
   category            TEXT        NOT NULL,
-  skills              TEXT[]      NOT NULL DEFAULT '{}',
   status              TEXT        NOT NULL DEFAULT 'open',
   client_address      TEXT        NOT NULL REFERENCES profiles(public_key),
   freelancer_address  TEXT        REFERENCES profiles(public_key),
@@ -99,8 +98,7 @@ ALTER TABLE jobs
   ADD COLUMN IF NOT EXISTS job_search_vector tsvector
   GENERATED ALWAYS AS (
     setweight(to_tsvector('simple', COALESCE(title, '')), 'A') ||
-    setweight(to_tsvector('simple', COALESCE(description, '')), 'B') ||
-    setweight(to_tsvector('simple', COALESCE(array_to_string(skills, ' '), '')), 'C')
+    setweight(to_tsvector('simple', COALESCE(description, '')), 'B')
   ) STORED;
 
 -- enforce valid visibility values for all rows
@@ -116,6 +114,22 @@ BEGIN
       CHECK (visibility IN ('public', 'private', 'invite_only'));
   END IF;
 END $$;
+
+-- ─────────────────────────────────────────
+-- skills
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS skills (
+  id SERIAL PRIMARY KEY,
+  slug TEXT UNIQUE NOT NULL,
+  display_name TEXT NOT NULL,
+  category TEXT
+);
+
+CREATE TABLE IF NOT EXISTS job_skills (
+  job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  skill_id INT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+  PRIMARY KEY (job_id, skill_id)
+);
 
 -- ─────────────────────────────────────────
 -- applications
@@ -410,3 +424,44 @@ ALTER TABLE job_invitations ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAUL
 -- Allow 'in_app' as a notification_type in addition to 'email' and 'webhook'
 -- The notification_queue table was created without a CHECK constraint on
 -- notification_type so this is a no-op schema change (just documentation).
+
+-- ─────────────────────────────────────────
+-- updated_at triggers (V13)
+-- ─────────────────────────────────────────
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+DECLARE
+    t_record RECORD;
+BEGIN
+    FOR t_record IN 
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+          AND table_type = 'BASE TABLE'
+    LOOP
+        -- Add updated_at column if it does not exist
+        IF NOT EXISTS (
+            SELECT 1 
+            FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+              AND table_name = t_record.table_name 
+              AND column_name = 'updated_at'
+        ) THEN
+            EXECUTE format('ALTER TABLE %I ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();', t_record.table_name);
+        END IF;
+
+        -- Drop trigger if exists (idempotent)
+        EXECUTE format('DROP TRIGGER IF EXISTS trg_set_updated_at ON %I;', t_record.table_name);
+        
+        -- Create the trigger
+        EXECUTE format('CREATE TRIGGER trg_set_updated_at BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION set_updated_at();', t_record.table_name);
+    END LOOP;
+END;
+$$;
