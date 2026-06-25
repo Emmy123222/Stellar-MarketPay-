@@ -457,6 +457,9 @@ async function bootstrap() {
   // Start weekly digest scheduler - fires every Monday at 09:00 UTC
   startWeeklyDigestScheduler();
 
+  // Start platform metrics aggregator - runs hourly for Issue #561
+  startPlatformMetricsAggregator();
+
   server.listen(PORT, () => {
     serviceLogger.info({
       port: PORT,
@@ -662,6 +665,35 @@ function startWeeklyDigestScheduler() {
     // Then run every 7 days from that point onward
     setInterval(runDigest, 7 * 24 * 60 * 60 * 1000).unref();
   }, delay).unref();
+}
+
+/**
+ * Issue #561: Hourly platform metrics aggregation into platform_metrics table.
+ * Also cleans up rows older than 1 year (retention policy).
+ */
+function startPlatformMetricsAggregator() {
+  const { aggregatePlatformMetrics } = require("./services/statsService");
+  const metricsLogger = createServiceLogger('platform-metrics');
+
+  async function runAggregation() {
+    try {
+      const result = await aggregatePlatformMetrics();
+      metricsLogger.info(result, 'Platform metrics aggregated');
+
+      // 1-year retention: delete rows older than 1 year
+      const { rowCount } = await pool.query(
+        "DELETE FROM platform_metrics WHERE bucket < NOW() - INTERVAL '1 year'"
+      );
+      if (rowCount > 0) {
+        metricsLogger.info({ deletedCount: rowCount }, 'Cleaned up expired platform metrics');
+      }
+    } catch (err) {
+      logError(metricsLogger, err, { operation: 'platform_metrics_aggregation' });
+    }
+  }
+
+  runAggregation();
+  setInterval(runAggregation, 60 * 60 * 1000).unref();
 }
 
 bootstrap();
