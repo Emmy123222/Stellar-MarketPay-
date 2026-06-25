@@ -45,7 +45,7 @@ const referralRoutes  = require("./routes/referrals");
 const eventsRoutes    = require("./routes/events");
 const invitationRoutes = require("./routes/invitations");
 const statsRoutes      = require("./routes/stats");
-
+const skillsRoutes     = require("./routes/skills");
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
@@ -301,6 +301,7 @@ app.use("/api/referrals",     referralRoutes);
 app.use("/api/events",        eventsRoutes);
 app.use("/api/invitations",   invitationRoutes);
 app.use("/api/stats",         statsRoutes);
+app.use("/api/skills",        skillsRoutes);
 
 app.use((err, req, res, next) => {
   void next;

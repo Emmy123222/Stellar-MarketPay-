@@ -2,7 +2,7 @@
  * pages/dashboard/transactions.tsx
  * Transaction history page with Stellar explorer deep links
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
@@ -30,7 +30,7 @@ export default function TransactionHistory({ publicKey, onConnect }: DashboardPr
 
   const ITEMS_PER_PAGE = 20;
 
-  const fetchTransactions = async (reset: boolean = false) => {
+  const fetchTransactions = useCallback(async (reset: boolean = false) => {
     if (!publicKey) return;
     
     setLoading(true);
@@ -61,13 +61,13 @@ export default function TransactionHistory({ publicKey, onConnect }: DashboardPr
     } finally {
       setLoading(false);
     }
-  };
+  }, [publicKey, page, transactions]);
 
   useEffect(() => {
     if (publicKey) {
       fetchTransactions(true);
     }
-  }, [publicKey, filter]);
+  }, [publicKey, filter, fetchTransactions]);
 
   const loadMore = () => {
     setPage(prev => prev + 1);
@@ -174,9 +174,27 @@ export default function TransactionHistory({ publicKey, onConnect }: DashboardPr
       </div>
 
       {loading && transactions.length === 0 ? (
-        <div className="space-y-3">
+        <div className="space-y-3 animate-pulse">
           {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="card animate-pulse h-20" />
+            <div key={i} className="card flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="flex-shrink-0 w-10 h-10 bg-market-500/10 rounded-full" />
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="h-5 w-16 bg-market-500/10 rounded-full" />
+                    <div className="h-4 w-12 bg-market-500/8 rounded" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="h-5 w-20 bg-market-500/10 rounded" />
+                    <div className="h-4 w-24 bg-market-500/8 rounded" />
+                  </div>
+                </div>
+              </div>
+              <div className="flex-shrink-0 text-right space-y-2">
+                <div className="h-5 w-16 bg-market-500/10 rounded ml-auto" />
+                <div className="h-4 w-20 bg-market-500/8 rounded ml-auto" />
+              </div>
+            </div>
           ))}
         </div>
       ) : error ? (
