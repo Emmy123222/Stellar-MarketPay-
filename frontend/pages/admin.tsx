@@ -22,8 +22,14 @@ import {
   getJwtToken,
 } from "@/lib/api";
 import { shortenAddress, timeAgo } from "@/utils/format";
-import AdminAnalytics from "@/components/AdminAnalytics";
+import dynamic from "next/dynamic";
 import Admin2FAModal from "@/components/Admin2FAModal";
+
+// Dynamic import for heavy AdminAnalytics component
+const AdminAnalytics = dynamic(() => import("@/components/AdminAnalytics"), {
+  loading: () => <div className="animate-pulse bg-market-900/30 h-64 rounded-xl" />,
+  ssr: false,
+});
 
 interface AdminPageProps {
   publicKey: string | null;

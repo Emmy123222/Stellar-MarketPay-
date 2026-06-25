@@ -41,7 +41,7 @@ import WithdrawToBankModal, {
 import { useToast } from "@/components/Toast";
 import StateMessage from "@/components/StateMessage";
 import clsx from "clsx";
-import JobAnalytics from "@/components/JobAnalytics";
+import dynamic from "next/dynamic";
 import JobTimeline from "@/components/JobTimeline";
 import BulkJobActionBar from "@/components/BulkJobActionBar";
 import JobStatusTimeline from "@/components/JobStatusTimeline";
@@ -54,8 +54,18 @@ import InvitationsTab from "@/components/dashboard-tabs/InvitationsTab";
 import { usePriceContext } from "@/contexts/PriceContext";
 import ProfileCompletenessWidget from "@/components/ProfileCompletenessWidget";
 import { useOnboarding } from "@/hooks/useOnboarding";
-import ReferralDashboard from "@/components/ReferralDashboard";
 import XlmPriceWidget from "@/components/XlmPriceWidget";
+
+// Dynamic imports for heavy components
+const JobAnalytics = dynamic(() => import("@/components/JobAnalytics"), {
+  loading: () => <div className="animate-pulse bg-market-900/30 h-64 rounded-xl" />,
+  ssr: false,
+});
+
+const ReferralDashboard = dynamic(() => import("@/components/ReferralDashboard"), {
+  loading: () => <div className="animate-pulse bg-market-900/30 h-64 rounded-xl" />,
+  ssr: false,
+});
 
 const LOW_BALANCE_THRESHOLD_XLM = 5;
 const IS_CONTRACT_MOCK_DEV_MODE =
