@@ -2261,6 +2261,143 @@ mod timeout_tests {
             env.ledger().sequence() + timeout
         );
     }
+
+    #[test]
+    fn test_timeout_refund_legacy_exact_ledger_success() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+
+        let job_id = String::from_str(&env, "legacy_timeout_exact");
+        let timeout_ledgers = 10u32;
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(),
+            token: token_id.clone(),
+            amount: 1000,
+            milestones: None,
+            timeout_ledgers: Some(timeout_ledgers),
+            referrer: None
+        });
+
+        // Remove TimeoutTimestamp to trigger legacy sequence-based fallback
+        env.as_contract(&client.address, || {
+            env.storage()
+                .instance()
+                .remove(&DataKey::TimeoutTimestamp(job_id.clone()));
+        });
+
+        let mut ledger_info = env.ledger().get();
+        ledger_info.sequence_number += timeout_ledgers; // EXACTLY at timeout_ledger
+        env.ledger().set(ledger_info);
+
+        client.timeout_refund(&job_id, &contract_client);
+
+        let escrow_after = client.get_escrow(&job_id);
+        assert_eq!(escrow_after.status, EscrowStatus::Refunded);
+
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&contract_client), 1000);
+    }
+
+    #[test]
+    #[should_panic(expected = "Timeout period has not expired yet")]
+    fn test_timeout_refund_legacy_one_ledger_before_failure() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+
+        let job_id = String::from_str(&env, "legacy_timeout_before");
+        let timeout_ledgers = 10u32;
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(),
+            token: token_id.clone(),
+            amount: 1000,
+            milestones: None,
+            timeout_ledgers: Some(timeout_ledgers),
+            referrer: None
+        });
+
+        // Remove TimeoutTimestamp to trigger legacy sequence-based fallback
+        env.as_contract(&client.address, || {
+            env.storage()
+                .instance()
+                .remove(&DataKey::TimeoutTimestamp(job_id.clone()));
+        });
+
+        let mut ledger_info = env.ledger().get();
+        ledger_info.sequence_number += timeout_ledgers - 1; // ONE ledger before timeout_ledger
+        env.ledger().set(ledger_info);
+
+        client.timeout_refund(&job_id, &contract_client);
+    }
+
+    #[test]
+    #[should_panic(expected = "Escrow is not in Locked state")]
+    fn test_concurrent_release_and_timeout_refund_release_first() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+
+        let job_id = String::from_str(&env, "concurrent_release_first");
+        let timeout_ledgers = 10u32;
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(),
+            token: token_id.clone(),
+            amount: 1000,
+            milestones: None,
+            timeout_ledgers: Some(timeout_ledgers),
+            referrer: None
+        });
+
+        // Advance ledger past timeout (both sequence and timestamp)
+        let mut ledger_info = env.ledger().get();
+        ledger_info.sequence_number += timeout_ledgers + 1;
+        ledger_info.timestamp += (DEFAULT_TIMEOUT_SECONDS + 1) as u64;
+        env.ledger().set(ledger_info);
+
+        // First action: Release Escrow (succeeds)
+        client.release_escrow(&job_id, &contract_client);
+
+        let escrow_after = client.get_escrow(&job_id);
+        assert_eq!(escrow_after.status, EscrowStatus::Released);
+
+        // Second action: Timeout Refund (fails because status is no longer Locked)
+        client.timeout_refund(&job_id, &contract_client);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot release escrow in current status")]
+    fn test_concurrent_release_and_timeout_refund_timeout_first() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+
+        let job_id = String::from_str(&env, "concurrent_timeout_first");
+        let timeout_ledgers = 10u32;
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(),
+            token: token_id.clone(),
+            amount: 1000,
+            milestones: None,
+            timeout_ledgers: Some(timeout_ledgers),
+            referrer: None
+        });
+
+        // Advance ledger past timeout (both sequence and timestamp)
+        let mut ledger_info = env.ledger().get();
+        ledger_info.sequence_number += timeout_ledgers + 1;
+        ledger_info.timestamp += (DEFAULT_TIMEOUT_SECONDS + 1) as u64;
+        env.ledger().set(ledger_info);
+
+        // First action: Timeout Refund (succeeds)
+        client.timeout_refund(&job_id, &contract_client);
+
+        let escrow_after = client.get_escrow(&job_id);
+        assert_eq!(escrow_after.status, EscrowStatus::Refunded);
+
+        // Second action: Release Escrow (fails because status is no longer InProgress/Locked)
+        client.release_escrow(&job_id, &contract_client);
+    }
 }
 
 #[cfg(test)]

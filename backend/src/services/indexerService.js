@@ -200,13 +200,20 @@ class IndexerService {
     if (!eventTypeRaw) return;
 
     const typeMap = {
+      "escrow_cr":           "escrow_created",
       "escrow_created":      "escrow_created",
+      "work_strt":           "work_started",
       "work_started":        "work_started",
+      "escrow_rl":           "escrow_released",
       "escrow_released":     "escrow_released",
+      "escrow_rf":           "escrow_refunded",
       "escrow_refunded":     "escrow_refunded",
       "escrow_timeout_refunded": "escrow_refunded",
+      "escrow_ds":           "dispute_opened",
       "escrow_disputed":     "dispute_opened",
+      "ms_rel":              "milestone_released",
       "milestone_released":  "milestone_released",
+      "msg_sent":            "message_sent",
       "message_sent":        "message_sent"
     };
 

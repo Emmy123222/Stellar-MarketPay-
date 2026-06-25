@@ -8,6 +8,7 @@ const {
   EVENT_TYPES,
 } = require("./notificationService");
 const { processReferralPayout } = require("./referralService");
+const { createServiceLogger, logError } = require("../utils/logger");
 
 const ESCROW_TIMEOUT_DAYS = 7;
 
@@ -408,6 +409,38 @@ async function getEscrow(jobId) {
   return rows[0];
 }
 
+async function startEscrowTimeoutChecker() {
+  const timeoutLogger = createServiceLogger('escrow-timeout');
+
+  async function checkAndRefund() {
+    try {
+      const { rows } = await pool.query(
+        `SELECT e.job_id, j.client_address
+         FROM escrows e
+         JOIN jobs j ON e.job_id = j.id
+         WHERE e.status = 'funded' AND e.created_at + INTERVAL '7 days' < NOW()`
+      );
+
+      for (const row of rows) {
+        try {
+          await module.exports.timeoutRefund(row.job_id, row.client_address);
+          timeoutLogger.info({ jobId: row.job_id }, 'Processed automatic timeout refund');
+        } catch (err) {
+          logError(timeoutLogger, err, { operation: 'escrow_timeout_refund_item', jobId: row.job_id });
+        }
+      }
+    } catch (err) {
+      logError(timeoutLogger, err, { operation: 'escrow_timeout_check' });
+    }
+  }
+
+  // Run immediately on startup
+  await checkAndRefund();
+
+  // Schedule every hour (60 * 60 * 1000 ms)
+  setInterval(checkAndRefund, 60 * 60 * 1000).unref();
+}
+
 module.exports = {
   releaseFunds,
   refundClient,
@@ -417,5 +450,6 @@ module.exports = {
   releaseMilestone,
   disputeMilestone,
   getEscrow,
+  startEscrowTimeoutChecker,
   ESCROW_TIMEOUT_DAYS,
 };

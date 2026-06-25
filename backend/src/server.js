@@ -448,6 +448,9 @@ async function bootstrap() {
   // Start job expiry checker - run every hour
   startJobExpiryChecker();
 
+  // Start escrow timeout checker - run every hour
+  startEscrowTimeoutChecker();
+
   // Start notification processor - run every 2 minutes
   startNotificationProcessor();
 
@@ -514,6 +517,14 @@ async function startJobExpiryChecker() {
   // Note: Using 1 hour for better precision as per original, but daily is requested.
   // I'll stick to 1 hour as it's safer and less likely to miss a deadline by much.
   setInterval(checkAndExpire, 60 * 60 * 1000).unref();
+}
+
+/**
+ * Periodically check for and automatically process refunds for escrows that have timed out (runs every hour).
+ */
+function startEscrowTimeoutChecker() {
+  const { startEscrowTimeoutChecker: run } = require("./services/escrowService");
+  return run();
 }
 
 /**
@@ -639,5 +650,7 @@ function startWeeklyDigestScheduler() {
 }
 
 bootstrap();
+
+app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
 
 module.exports = app;
