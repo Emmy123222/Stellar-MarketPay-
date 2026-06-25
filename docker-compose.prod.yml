@@ -4,6 +4,9 @@ x-logging: &default-logging
   options:
     max-size: "10m"
     max-file: "3"
+x-default-labels: &default-labels
+  project: stellar-marketpay
+  environment: production
 
 services:
   nginx:
@@ -66,6 +69,10 @@ services:
           cpus: '1.0'
           memory: 1G
     logging: *default-logging
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    labels:
+      <<: *default-labels
+      service: frontend
 
   backend-blue:
     image: ${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
@@ -129,6 +136,10 @@ services:
           cpus: '1.0'
           memory: 1G
     logging: *default-logging
+      DATABASE_URL: ${DATABASE_URL}
+    labels:
+      <<: *default-labels
+      service: backend
 
   node-exporter:
     image: prom/node-exporter:v1.8.2
@@ -146,6 +157,11 @@ services:
         limits:
           cpus: '0.5'
           memory: 256M
+    ports:
+      - "9100:9100"
+    labels:
+      <<: *default-labels
+      service: node-exporter
 
   prometheus:
     image: prom/prometheus:v2.55.1
@@ -160,6 +176,11 @@ services:
         limits:
           cpus: '0.5'
           memory: 512M
+    ports:
+      - "9090:9090"
+    labels:
+      <<: *default-labels
+      service: prometheus
 
   grafana:
     image: grafana/grafana:11.4.0
@@ -209,3 +230,8 @@ secrets:
     external: true
   grafana_admin_password:
     external: true
+    ports:
+      - "3001:3000"
+    labels:
+      <<: *default-labels
+      service: grafana
