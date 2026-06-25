@@ -37,6 +37,19 @@ jest.mock("@/lib/i18n", () => ({
   }),
 }));
 
+jest.mock("recharts", () => ({
+  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div data-testid="recharts-container">{children}</div>,
+  BarChart: ({ children }: { children: React.ReactNode }) => <div data-testid="bar-chart">{children}</div>,
+  PieChart: ({ children }: { children: React.ReactNode }) => <div data-testid="pie-chart">{children}</div>,
+  Bar: () => null,
+  XAxis: () => null,
+  YAxis: () => null,
+  Tooltip: () => null,
+  Legend: () => null,
+  Pie: () => null,
+  Cell: () => null,
+}));
+
 jest.mock("react-chartjs-2", () => ({
   Line: () => <div data-testid="chart-line" />,
   Bar: () => <div data-testid="chart-bar" />,
@@ -157,6 +170,20 @@ jest.mock("@/lib/api", () => ({
   logTimeEntry: jest.fn().mockResolvedValue({}),
   generateTimeInvoice: jest.fn().mockResolvedValue({}),
   reviewTimeInvoice: jest.fn().mockResolvedValue({}),
+  fetchFreelancerEarnings: jest.fn().mockResolvedValue({
+    totalXlm: "250.0000000",
+    payments: [
+      {
+        id: "p-1",
+        jobId: "job-1",
+        jobTitle: "Build escrow contract",
+        amountXlm: "250.0000000",
+        releasedAt: "2026-01-10T00:00:00.000Z",
+        clientAddress: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+      },
+    ],
+    monthly: [{ month: "2026-01", totalXlm: 250 }],
+  }),
   fetchXlmPriceHistory: jest.fn().mockResolvedValue({
     points: [{ timestamp: 1700000000000, priceUsd: 0.12 }],
     currentPriceUsd: 0.12,
@@ -191,6 +218,9 @@ jest.mock("@/lib/wallet", () => ({
   isFreighterInstalled: jest.fn().mockResolvedValue(true),
   connectWallet: jest.fn().mockResolvedValue("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
   performSEP0010Auth: jest.fn().mockResolvedValue("jwt-token"),
+  getConnectedPublicKey: jest.fn().mockResolvedValue(null),
+  subscribeToAccountChanges: jest.fn().mockReturnValue(() => {}),
+  signTransactionWithWallet: jest.fn().mockResolvedValue({ signedXDR: "MOCK_XDR", error: null }),
 }));
 
 jest.mock("@/lib/sorobanFees", () => ({
