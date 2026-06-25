@@ -27,5 +27,17 @@ coverage/
 backend/coverage/
 frontend/coverage/
 
+# k6 load-test generated artifacts
+k6/test-fixtures.json
+k6/results/*
+!k6/results/.gitkeep
+k6/logs/*
+!k6/logs/.gitkeep
+!k6/logs/README.md
+k6/previous-results/*
+!k6/previous-results/.gitkeep
+!k6/previous-results/README.md
+k6/.k6-status
+
 # Cargo
 Cargo.lock

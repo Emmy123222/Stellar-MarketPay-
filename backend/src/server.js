@@ -20,6 +20,7 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
 const { requestLoggerMiddleware, logError, createServiceLogger } = require('./utils/logger');
 const { sanitizeMiddleware } = require('./middleware/sanitize');
+const { getRateLimitScale } = require("./middleware/rateLimiter");
 const { requireChoice } = require("./config/env");
 const { createCorsOptions } = require("./config/cors");
 
@@ -263,7 +264,7 @@ app.use((req, res, next) => {
 
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 150,
+  max: Math.max(1, Math.floor(150 * getRateLimitScale())),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => getClientIp(req),
