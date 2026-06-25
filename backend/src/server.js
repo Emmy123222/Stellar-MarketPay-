@@ -448,6 +448,9 @@ async function bootstrap() {
   // Start job expiry checker - run every hour
   startJobExpiryChecker();
 
+  // Start API key rotation finalizer - run every hour
+  startApiKeyRotationFinalizer();
+
   // Start notification processor - run every 2 minutes
   startNotificationProcessor();
 
@@ -563,6 +566,29 @@ async function startNotificationProcessor() {
       logError(notificationLogger, err, { operation: 'scheduled_notification_processing' });
     }
   }, 2 * 60 * 1000).unref();
+}
+
+/**
+ * Periodically finalize expired API key rotations (runs every hour).
+ * Keys in rotating state for more than 24 hours get their rotating_key_hash
+ * promoted to the active key_hash.
+ */
+function startApiKeyRotationFinalizer() {
+  const { finalizeExpiredRotations } = require("./services/developerService");
+  const rotationLogger = createServiceLogger('api-key-rotation');
+
+  async function checkAndFinalize() {
+    try {
+      const finalized = await finalizeExpiredRotations();
+      if (finalized.length > 0) {
+        rotationLogger.info({ count: finalized.length }, 'Finalized expired API key rotations');
+      }
+    } catch (err) {
+      logError(rotationLogger, err, { operation: 'api_key_rotation_finalizer' });
+    }
+  }
+
+  setInterval(checkAndFinalize, 60 * 60 * 1000).unref();
 }
 
 /**

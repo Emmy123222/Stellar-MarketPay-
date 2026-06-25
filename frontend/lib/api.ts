@@ -1471,6 +1471,7 @@ export interface DeveloperApiKey {
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  rotating_at: string | null;
   requests_today: number;
 }
 
@@ -1479,6 +1480,14 @@ export interface CreatedDeveloperApiKey {
   label: string;
   keyPrefix: string;
   createdAt: string;
+  apiKey: string;
+}
+
+export interface RotatedDeveloperApiKey {
+  id: string;
+  label: string;
+  createdAt: string;
+  rotatingAt: string;
   apiKey: string;
 }
 
@@ -1505,6 +1514,13 @@ export async function createDeveloperApiKey(
 
 export async function revokeDeveloperApiKey(id: string): Promise<void> {
   await api.delete(`/api/developer/keys/${id}`);
+}
+
+export async function rotateDeveloperApiKey(id: string): Promise<RotatedDeveloperApiKey> {
+  const { data } = await api.post<{ success: boolean; data: RotatedDeveloperApiKey }>(
+    `/api/developer/keys/${id}/rotate`,
+  );
+  return data.data;
 }
 
 export async function fetchPublicJobs(apiKey: string, limit = 20) {

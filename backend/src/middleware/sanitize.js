@@ -6,6 +6,8 @@
 
 const xss = require("xss");
 const validator = require("validator");
+const { JSDOM } = require("jsdom");
+const DOMPurify = require("dompurify")(new JSDOM("").window);
 
 /**
  * SQL injection patterns to detect and block
@@ -28,7 +30,7 @@ const XSS_OPTIONS = {
 /**
  * Sanitize a single string value by:
  * 1. Decoding entities and normalizing Unicode exploits
- * 2. Stripping HTML tags and dangerous content
+ * 2. Stripping HTML tags and dangerous content via DOMPurify (server-side)
  * 3. Checking for SQL injection patterns
  *
  * @param {string} value - The string to sanitize
@@ -40,27 +42,19 @@ const XSS_OPTIONS = {
 function sanitizeString(value, options = {}) {
   if (typeof value !== "string") return value;
 
-  // Decode entities before filtering so encoded HTML such as
-  // &lt;img onerror=...&gt; is treated the same as raw HTML. Normalize before
-  // and after filtering to catch fullwidth angle brackets and similar tricks.
   let sanitized = validator.unescape(value).normalize("NFKC");
 
-  // Strip HTML using xss library. A second pass after entity decoding handles
-  // values that become tag-like only after the first filter serializes them.
+  sanitized = DOMPurify.sanitize(sanitized, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
   sanitized = xss(sanitized, XSS_OPTIONS);
   sanitized = validator.unescape(sanitized).normalize("NFKC");
-  sanitized = xss(sanitized, XSS_OPTIONS);
+  sanitized = DOMPurify.sanitize(sanitized, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
 
-  // Defense in depth: this middleware is configured as plain-text only, so no
-  // angle brackets should remain even when strict SQL checks are disabled.
   sanitized = sanitized.replace(/[<>]/g, "");
 
-  // Check for SQL injection patterns in strict mode
   if (options.strict) {
     for (const pattern of SQL_PATTERNS) {
       pattern.lastIndex = 0;
       if (pattern.test(sanitized)) {
-        // Log suspicious input but don't block (could be legitimate content)
         console.warn("[sanitize] Suspicious SQL pattern detected:", sanitized.substring(0, 100));
       }
     }
