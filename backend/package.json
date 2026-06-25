@@ -18,8 +18,8 @@
         "@simplewebauthn/server": "^9.0.3",
         "@stellar/stellar-sdk": "^12.0.0",
         "axios": "^1.7.2",
-        "cors": "^2.8.5",
         "compression": "^1.7.4",
+        "cors": "^2.8.5",
         "date-fns-tz": "^3.2.0",
         "dotenv": "^16.4.5",
         "express": "^5.2.1",
@@ -46,6 +46,7 @@
     "devDependencies": {
         "eslint": "^8.57.0",
         "jest": "^30.3.0",
+        "nodemailer-mock": "^2.0.13",
         "nodemon": "^3.1.2",
         "supertest": "^7.2.2",
         "validator": "^13.15.35",
