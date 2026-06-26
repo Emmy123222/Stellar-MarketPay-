@@ -14,6 +14,7 @@
     "analyze": "ANALYZE=true next build"
   },
   "dependencies": {
+    "@ducanh2912/next-pwa": "^10.2.9",
     "@simplewebauthn/browser": "^9.0.1",
     "@stellar/freighter-api": "^2.0.0",
     "@stellar/stellar-sdk": "^12.0.0",
@@ -33,6 +34,7 @@
     "react-chartjs-2": "^5.2.0",
     "react-dom": "^18.3.1",
     "react-i18next": "^17.0.8",
+    "recharts": "^3.9.0",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {

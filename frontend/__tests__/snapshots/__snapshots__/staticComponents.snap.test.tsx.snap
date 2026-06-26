@@ -284,7 +284,7 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
         >
           Expires:
            
-          Jul 2, 2026
+          Jul 3, 2026
         </p>
       </button>
       <button
@@ -324,7 +324,7 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
         >
           Expires:
            
-          Jul 25, 2026
+          Jul 26, 2026
         </p>
       </button>
     </div>
@@ -1213,7 +1213,7 @@ exports[`static component snapshots FreelancerCard default: FreelancerCard 1`] =
 exports[`static component snapshots FreelancerProfileSkeleton loading skeleton: FreelancerProfileSkeleton 1`] = `
 <div
   aria-busy="true"
-  class="card space-y-4 animate-pulse"
+  class="card space-y-6 animate-pulse"
 >
   <div
     class="flex items-center gap-4"
@@ -1222,8 +1222,15 @@ exports[`static component snapshots FreelancerProfileSkeleton loading skeleton: 
       class="h-20 w-20 rounded-full bg-market-500/10"
     />
     <div
-      class="h-6 w-48 bg-market-500/10 rounded"
-    />
+      class="space-y-2"
+    >
+      <div
+        class="h-6 w-48 bg-market-500/10 rounded"
+      />
+      <div
+        class="h-4 w-32 bg-market-500/10 rounded"
+      />
+    </div>
   </div>
   <div
     class="space-y-2"
@@ -1251,24 +1258,98 @@ exports[`static component snapshots FreelancerProfileSkeleton loading skeleton: 
       class="flex-1 h-12 bg-market-500/10 rounded border border-market-500/15"
     />
   </div>
-  <div
-    class="flex flex-wrap gap-2"
-  >
+  <div>
     <div
-      class="h-6 w-16 bg-market-500/10 rounded-full"
+      class="h-5 w-24 bg-market-500/10 rounded mb-3"
     />
     <div
-      class="h-6 w-20 bg-market-500/10 rounded-full"
+      class="flex flex-wrap gap-2"
+    >
+      <div
+        class="h-6 w-16 bg-market-500/10 rounded-full"
+      />
+      <div
+        class="h-6 w-20 bg-market-500/10 rounded-full"
+      />
+      <div
+        class="h-6 w-14 bg-market-500/10 rounded-full"
+      />
+      <div
+        class="h-6 w-18 bg-market-500/10 rounded-full"
+      />
+      <div
+        class="h-6 w-12 bg-market-500/10 rounded-full"
+      />
+    </div>
+  </div>
+  <div>
+    <div
+      class="h-5 w-28 bg-market-500/10 rounded mb-3"
     />
     <div
-      class="h-6 w-14 bg-market-500/10 rounded-full"
+      class="flex flex-wrap gap-2"
+    >
+      <div
+        class="h-7 w-24 bg-market-500/10 rounded-full"
+      />
+      <div
+        class="h-7 w-20 bg-market-500/10 rounded-full"
+      />
+      <div
+        class="h-7 w-16 bg-market-500/10 rounded-full"
+      />
+    </div>
+  </div>
+  <div>
+    <div
+      class="flex items-center justify-between mb-3"
+    >
+      <div
+        class="h-5 w-20 bg-market-500/10 rounded"
+      />
+      <div
+        class="h-4 w-8 bg-market-500/10 rounded"
+      />
+    </div>
+    <div
+      class="grid grid-cols-2 gap-3"
+    >
+      <div
+        class="h-24 bg-market-500/10 rounded-lg"
+      />
+      <div
+        class="h-24 bg-market-500/10 rounded-lg"
+      />
+    </div>
+  </div>
+  <div>
+    <div
+      class="h-5 w-32 bg-market-500/10 rounded mb-3"
     />
     <div
-      class="h-6 w-18 bg-market-500/10 rounded-full"
-    />
-    <div
-      class="h-6 w-12 bg-market-500/10 rounded-full"
-    />
+      class="space-y-2"
+    >
+      <div
+        class="flex items-center gap-2"
+      >
+        <div
+          class="h-8 w-8 rounded-full bg-market-500/10"
+        />
+        <div
+          class="h-4 w-32 bg-market-500/10 rounded"
+        />
+      </div>
+      <div
+        class="flex items-center gap-2"
+      >
+        <div
+          class="h-8 w-8 rounded-full bg-market-500/10"
+        />
+        <div
+          class="h-4 w-28 bg-market-500/10 rounded"
+        />
+      </div>
+    </div>
   </div>
 </div>
 `;
@@ -2126,7 +2207,7 @@ exports[`static component snapshots JobStatusTimeline open: JobStatusTimeline op
         class="flex flex-col items-center gap-1.5 min-w-[4.5rem]"
       >
         <div
-          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-300 w-7 h-7 text-xs bg-ink-900 border-market-400 text-market-400 ring-2 ring-market-400/30"
+          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-500 w-7 h-7 text-xs bg-ink-900 border-market-400 text-market-400 ring-2 ring-market-400/30 motion-safe:animate-pulse-soft"
         />
         <span
           class="text-xs font-medium text-center text-market-400"
@@ -2154,7 +2235,7 @@ exports[`static component snapshots JobStatusTimeline open: JobStatusTimeline op
         class="flex flex-col items-center gap-1.5 min-w-[4.5rem]"
       >
         <div
-          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-300 w-7 h-7 text-xs bg-ink-800 border-market-500/20 text-amber-700"
+          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-500 w-7 h-7 text-xs bg-ink-800 border-market-500/20 text-amber-700 "
         />
         <span
           class="text-xs font-medium text-center text-amber-700"
@@ -2177,7 +2258,7 @@ exports[`static component snapshots JobStatusTimeline open: JobStatusTimeline op
         class="flex flex-col items-center gap-1.5 min-w-[4.5rem]"
       >
         <div
-          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-300 w-7 h-7 text-xs bg-ink-800 border-market-500/20 text-amber-700"
+          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-500 w-7 h-7 text-xs bg-ink-800 border-market-500/20 text-amber-700 "
         />
         <span
           class="text-xs font-medium text-center text-amber-700"
@@ -2200,7 +2281,7 @@ exports[`static component snapshots JobStatusTimeline open: JobStatusTimeline op
         class="flex flex-col items-center gap-1.5 min-w-[4.5rem]"
       >
         <div
-          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-300 w-7 h-7 text-xs bg-ink-800 border-market-500/20 text-amber-700"
+          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-500 w-7 h-7 text-xs bg-ink-800 border-market-500/20 text-amber-700 "
         />
         <span
           class="text-xs font-medium text-center text-amber-700"
@@ -2218,7 +2299,7 @@ exports[`static component snapshots JobStatusTimeline open: JobStatusTimeline op
         class="flex items-start gap-3"
       >
         <div
-          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-300 w-7 h-7 text-xs bg-ink-900 border-market-400 text-market-400 ring-2 ring-market-400/30"
+          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-500 w-7 h-7 text-xs bg-ink-900 border-market-400 text-market-400 ring-2 ring-market-400/30 motion-safe:animate-pulse-soft"
         />
         <div
           class="pt-0.5 pb-1"
@@ -2248,7 +2329,7 @@ exports[`static component snapshots JobStatusTimeline open: JobStatusTimeline op
         class="flex items-start gap-3"
       >
         <div
-          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-300 w-7 h-7 text-xs bg-ink-800 border-market-500/20 text-amber-700"
+          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-500 w-7 h-7 text-xs bg-ink-800 border-market-500/20 text-amber-700 "
         />
         <div
           class="pt-0.5 pb-1"
@@ -2273,7 +2354,7 @@ exports[`static component snapshots JobStatusTimeline open: JobStatusTimeline op
         class="flex items-start gap-3"
       >
         <div
-          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-300 w-7 h-7 text-xs bg-ink-800 border-market-500/20 text-amber-700"
+          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-500 w-7 h-7 text-xs bg-ink-800 border-market-500/20 text-amber-700 "
         />
         <div
           class="pt-0.5 pb-1"
@@ -2298,7 +2379,7 @@ exports[`static component snapshots JobStatusTimeline open: JobStatusTimeline op
         class="flex items-start gap-3"
       >
         <div
-          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-300 w-7 h-7 text-xs bg-ink-800 border-market-500/20 text-amber-700"
+          class="flex items-center justify-center rounded-full border-2 font-bold transition-all duration-500 w-7 h-7 text-xs bg-ink-800 border-market-500/20 text-amber-700 "
         />
         <div
           class="pt-0.5 pb-1"
@@ -3676,7 +3757,7 @@ exports[`static component snapshots PostJobForm default: PostJobForm 1`] = `
             </label>
             <input
               class="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-4 py-2.5 text-sm text-gray-900 dark:text-amber-100 focus:outline-none focus:ring-2 focus:ring-market-400/40 focus:border-transparent"
-              min="2026-06-25"
+              min="2026-06-26"
               name="deadline"
               type="date"
               value=""
@@ -4951,162 +5032,6 @@ exports[`static component snapshots ShareJobModal default: ShareJobModal 1`] = `
         </div>
       </div>
     </div>
-  </div>
-</div>
-`;
-
-exports[`static component snapshots ShortcutsModal open: ShortcutsModal 1`] = `
-<div
-  class="fixed inset-0 z-[70] flex items-center justify-center p-4"
->
-  <button
-    aria-label="Close keyboard shortcuts"
-    class="absolute inset-0 bg-black/60 backdrop-blur-sm"
-    type="button"
-  />
-  <div
-    class="relative w-full max-w-xl rounded-2xl border border-market-500/20 bg-ink-900 p-6 shadow-2xl"
-  >
-    <div
-      class="mb-4 flex items-center justify-between"
-    >
-      <h2
-        class="font-display text-xl font-bold text-amber-100"
-      >
-        Keyboard Shortcuts
-      </h2>
-      <button
-        class="btn-ghost px-3 py-1 text-xs"
-        type="button"
-      >
-        Close
-      </button>
-    </div>
-    <div
-      class="space-y-2 text-sm"
-    >
-      <div
-        class="flex items-center justify-between gap-3 rounded-lg border border-market-500/10 bg-ink-800/50 px-3 py-2"
-      >
-        <div
-          class="flex items-center gap-1.5"
-        >
-          <div
-            class="flex items-center gap-1.5"
-          >
-            <kbd
-              class="rounded border border-market-500/25 bg-ink-800 px-2 py-1 text-xs font-semibold text-market-300"
-            >
-              G
-            </kbd>
-            <span
-              class="text-xs text-amber-700"
-            >
-              then
-            </span>
-          </div>
-          <div
-            class="flex items-center gap-1.5"
-          >
-            <kbd
-              class="rounded border border-market-500/25 bg-ink-800 px-2 py-1 text-xs font-semibold text-market-300"
-            >
-              J
-            </kbd>
-          </div>
-        </div>
-        <span
-          class="text-amber-200/90"
-        >
-          Go to jobs
-        </span>
-      </div>
-      <div
-        class="flex items-center justify-between gap-3 rounded-lg border border-market-500/10 bg-ink-800/50 px-3 py-2"
-      >
-        <div
-          class="flex items-center gap-1.5"
-        >
-          <div
-            class="flex items-center gap-1.5"
-          >
-            <kbd
-              class="rounded border border-market-500/25 bg-ink-800 px-2 py-1 text-xs font-semibold text-market-300"
-            >
-              G
-            </kbd>
-            <span
-              class="text-xs text-amber-700"
-            >
-              then
-            </span>
-          </div>
-          <div
-            class="flex items-center gap-1.5"
-          >
-            <kbd
-              class="rounded border border-market-500/25 bg-ink-800 px-2 py-1 text-xs font-semibold text-market-300"
-            >
-              D
-            </kbd>
-          </div>
-        </div>
-        <span
-          class="text-amber-200/90"
-        >
-          Go to dashboard
-        </span>
-      </div>
-      <div
-        class="flex items-center justify-between gap-3 rounded-lg border border-market-500/10 bg-ink-800/50 px-3 py-2"
-      >
-        <div
-          class="flex items-center gap-1.5"
-        >
-          <div
-            class="flex items-center gap-1.5"
-          >
-            <kbd
-              class="rounded border border-market-500/25 bg-ink-800 px-2 py-1 text-xs font-semibold text-market-300"
-            >
-              N
-            </kbd>
-          </div>
-        </div>
-        <span
-          class="text-amber-200/90"
-        >
-          Create a new job post
-        </span>
-      </div>
-      <div
-        class="flex items-center justify-between gap-3 rounded-lg border border-market-500/10 bg-ink-800/50 px-3 py-2"
-      >
-        <div
-          class="flex items-center gap-1.5"
-        >
-          <div
-            class="flex items-center gap-1.5"
-          >
-            <kbd
-              class="rounded border border-market-500/25 bg-ink-800 px-2 py-1 text-xs font-semibold text-market-300"
-            >
-              ?
-            </kbd>
-          </div>
-        </div>
-        <span
-          class="text-amber-200/90"
-        >
-          Toggle this shortcuts guide
-        </span>
-      </div>
-    </div>
-    <p
-      class="mt-5 text-xs text-amber-800"
-    >
-      Shortcuts are disabled while typing in form fields.
-    </p>
   </div>
 </div>
 `;
