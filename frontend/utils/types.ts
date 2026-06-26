@@ -390,3 +390,12 @@ export interface JobInvitation {
   status: "pending" | "accepted" | "declined";
   createdAt: string;
 }
+
+export interface AuditLogEntry {
+  id: string;
+  adminAddress: string;
+  action: string;
+  resource: string;
+  timestamp: string;
+  changesDiff?: Record<string, any>;
+}
