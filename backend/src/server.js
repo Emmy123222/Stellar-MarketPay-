@@ -14,6 +14,8 @@ const compression = require("compression");
 const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
+const wsQueue = require("./utils/wsEventQueue");
+const { startWsEventCleanup } = require("./services/wsEventCleanupService");
 const nodemailer = require("nodemailer");
 const promClient = require("prom-client");
 const swaggerUi = require('swagger-ui-express');
@@ -104,6 +106,8 @@ function broadcastRealtime(event, payload) {
   for (const ws of realtimeClients) {
     if (ws.readyState === WS_OPEN) ws.send(message);
   }
+  // Store the event for later reconnection pagination
+  wsQueue.enqueueEvent({ event, payload }).catch(err => serviceLogger.error({ err }, 'Failed to enqueue WS event'));
 }
 
 async function upsertScopeSession(sessionId, patch) {
@@ -346,11 +350,37 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
-    realtimeClients.add(ws);
-    sendJson(ws, "connected", { channel: "realtime" });
-    ws.on("close", () => realtimeClients.delete(ws));
-    return;
-  }
+  // Register client for realtime broadcasts
+  realtimeClients.add(ws);
+  sendJson(ws, "connected", { channel: "realtime" });
+
+  // Listen for pagination requests from the client
+  ws.on("message", async (raw) => {
+    try {
+      const msg = JSON.parse(String(raw));
+      if (msg.type === "reconnect") {
+        const lastId = Number(msg.lastEventId) || 0;
+        const rows = await wsQueue.getEventsAfter(lastId, 50);
+        const events = rows.map(r => r.event);
+        const hasMore = rows.length === 50;
+        const lastSentId = rows.length ? rows[rows.length - 1].id : lastId;
+        sendJson(ws, "eventBatch", { events, lastSentId, hasMore });
+      } else if (msg.type === "requestNext") {
+        const afterId = Number(msg.afterId);
+        const rows = await wsQueue.getEventsAfter(afterId, 50);
+        const events = rows.map(r => r.event);
+        const hasMore = rows.length === 50;
+        const lastSentId = rows.length ? rows[rows.length - 1].id : afterId;
+        sendJson(ws, "eventBatch", { events, lastSentId, hasMore });
+      }
+    } catch (err) {
+      sendJson(ws, "error", { error: "Invalid message format" });
+    }
+  });
+
+  ws.on("close", () => realtimeClients.delete(ws));
+  return;
+}
 
   if (url.pathname.startsWith("/ws/scope/")) {
     const sessionId = decodeURIComponent(url.pathname.replace("/ws/scope/", "")).trim();
@@ -455,7 +485,8 @@ async function bootstrap() {
   // Start notification processor - run every 2 minutes
   startNotificationProcessor();
 
-  // Start weekly digest scheduler - fires every Monday at 09:00 UTC
+  // Start WS event cleanup job (purge old events after 7 days)
+  startWsEventCleanup();
   startWeeklyDigestScheduler();
 
   // Start platform metrics aggregator - runs hourly for Issue #561

@@ -2,7 +2,9 @@
 
 const express = require("express");
 const pool = require("../db/pool");
-const rateLimiter = require("../middleware/rateLimit");
+const { createRateLimiter } = require("../middleware/rateLimiter");
+
+const rateLimiter = createRateLimiter(60, 1);
 
 const router = express.Router();
 
