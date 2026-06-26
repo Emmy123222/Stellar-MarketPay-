@@ -1,6 +1,7 @@
 import { Html, Head, Main, NextScript } from "next/document";
 
-// Inline script applied before hydration to prevent flash of wrong theme
+// Inline script applied before hydration to prevent flash of wrong theme.
+// Must remain synchronous and inline — do NOT move to next/script.
 const themeScript = `
 (function(){
   try {
@@ -16,6 +17,10 @@ export default function Document() {
   return (
     <Html lang="en">
       <Head>
+        {/*
+         * Theme detection must run synchronously before paint to avoid FOUC.
+         * All other scripts should use <Script strategy="lazyOnload"> in _app.tsx.
+         */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </Head>
       <body>

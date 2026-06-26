@@ -3,11 +3,12 @@
  * Browse freelancers with availability status filtering.
  */
 import Head from "next/head";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { fetchProfiles } from "@/lib/api";
 import FreelancerCard from "@/components/FreelancerCard";
 import { availabilityStatusLabel } from "@/utils/format";
 import type { AvailabilityStatus, UserProfile } from "@/utils/types";
+import { useApi } from "@/hooks/useApi";
 
 const availabilityOptions = [
   { value: "", label: "All statuses" },
@@ -17,44 +18,24 @@ const availabilityOptions = [
 ];
 
 export default function FreelancersBrowsePage() {
-  const [profiles, setProfiles] = useState<UserProfile[]>([]);
-  const [search, setSearch] = useState("");
-  const [availability, setAvailability] = useState<AvailabilityStatus | "">();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch]           = useState("");
+  const [availability, setAvailability] = useState<AvailabilityStatus | "">("");
 
-  useEffect(() => {
-    let cancelled = false;
-    const loadProfiles = async () => {
-      setLoading(true);
-      setError(null);
+  // Stable cache key — changes when filters change, invalidating stale cache.
+  const cacheKey = `freelancers:${availability}:${search}`;
 
-      try {
-        const results = await fetchProfiles({
-          role: "freelancer",
-          availability: availability || undefined,
-          search: search || undefined,
-          limit: 60,
-        });
-        if (!cancelled) {
-          setProfiles(results);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load freelancers");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
+  const { data, error, isLoading, isValidating } = useApi<UserProfile[]>(
+    cacheKey,
+    () =>
+      fetchProfiles({
+        role: "freelancer",
+        availability: availability || undefined,
+        search: search || undefined,
+        limit: 60,
+      }),
+  );
 
-    loadProfiles();
-    return () => {
-      cancelled = true;
-    };
-  }, [availability, search]);
+  const profiles = data ?? [];
 
   return (
     <>
@@ -111,17 +92,22 @@ export default function FreelancersBrowsePage() {
           <section className="space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm text-amber-400">{profiles.length} freelancers</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-amber-400">{profiles.length} freelancers</p>
+                  {isValidating && !isLoading && (
+                    <span className="text-xs text-amber-600 animate-pulse">Refreshing…</span>
+                  )}
+                </div>
                 <p className="text-amber-300 text-sm">
                   {availability ? availabilityStatusLabel(availability) : "Showing all freelancers"}
                 </p>
               </div>
             </div>
 
-            {loading ? (
+            {isLoading ? (
               <div className="card py-10 text-center text-amber-300">Loading freelancers…</div>
             ) : error ? (
-              <div className="card py-10 text-center text-red-400">{error}</div>
+              <div className="card py-10 text-center text-red-400">{error.message}</div>
             ) : profiles.length === 0 ? (
               <div className="card py-10 text-center text-amber-300">
                 No freelancers match the selected availability and search criteria.
