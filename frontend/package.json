@@ -26,7 +26,7 @@
     "dompurify": "^3.1.0",
     "i18next": "^26.3.0",
     "i18next-browser-languagedetector": "^8.2.1",
-    "next": "14.2.3",
+    "next": "14.2.35",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-chartjs-2": "^5.2.0",
