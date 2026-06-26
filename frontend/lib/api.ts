@@ -1471,6 +1471,7 @@ export interface DeveloperApiKey {
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  rotating_at: string | null;
   requests_today: number;
 }
 
@@ -1479,6 +1480,14 @@ export interface CreatedDeveloperApiKey {
   label: string;
   keyPrefix: string;
   createdAt: string;
+  apiKey: string;
+}
+
+export interface RotatedDeveloperApiKey {
+  id: string;
+  label: string;
+  createdAt: string;
+  rotatingAt: string;
   apiKey: string;
 }
 
@@ -1505,6 +1514,13 @@ export async function createDeveloperApiKey(
 
 export async function revokeDeveloperApiKey(id: string): Promise<void> {
   await api.delete(`/api/developer/keys/${id}`);
+}
+
+export async function rotateDeveloperApiKey(id: string): Promise<RotatedDeveloperApiKey> {
+  const { data } = await api.post<{ success: boolean; data: RotatedDeveloperApiKey }>(
+    `/api/developer/keys/${id}/rotate`,
+  );
+  return data.data;
 }
 
 export async function fetchPublicJobs(apiKey: string, limit = 20) {
@@ -1710,6 +1726,42 @@ export async function unfreezeWallet(address: string) {
     `/api/admin/wallets/${address}/freeze`,
   );
   return data;
+}
+
+// ─── Admin Cost Report & Time-Series (Issues #569, #561) ──────────────────────
+
+export async function fetchCostReport() {
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    "/api/admin/cost-report",
+  );
+  return data.data;
+}
+
+export async function generateCostReport() {
+  const { data } = await api.post<{ success: boolean; message: string }>(
+    "/api/admin/cost-report/generate",
+  );
+  return data;
+}
+
+export interface TimeSeriesMetric {
+  metric_name: string;
+  value: number;
+  granularity: string;
+  bucket: string;
+}
+
+export async function fetchTimeSeriesMetrics(params: {
+  metric: string;
+  from?: string;
+  to?: string;
+  granularity?: string;
+}): Promise<TimeSeriesMetric[]> {
+  const { data } = await api.get<{ success: boolean; data: TimeSeriesMetric[] }>(
+    "/api/admin/metrics/time-series",
+    { params },
+  );
+  return data.data;
 }
 
 // ─── Referrals ────────────────────────────────────────────────────────────────
@@ -1960,4 +2012,71 @@ export async function acceptInvitation(
   return data.data;
 }
 
+// ── Health / Status (#501) ───────────────────────────────────────────────────
 
+export interface HealthStatus {
+  status: "healthy" | "degraded";
+  database: { status: string; latency_ms?: number; message?: string };
+  stellar: { status: string; network?: string; ledger?: number; message?: string };
+  ipfs: { status: string; message?: string };
+  uptime_seconds: number;
+  version: string;
+}
+
+export async function fetchHealthStatus(): Promise<HealthStatus> {
+  const { data } = await api.get<HealthStatus>("/health");
+  return data;
+}
+
+export async function fetchHealthHistory(): Promise<
+  Record<string, { status: string; checkedAt: string }[]>
+> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: Record<string, { status: string; checkedAt: string }[]>;
+  }>("/health/history");
+  return data.data;
+}
+
+export async function subscribeStatusAlerts(email: string): Promise<void> {
+  await api.post("/health/subscribe", { email });
+}
+
+// ── Encryption key + file attachment (#498) ──────────────────────────────────
+
+export async function fetchRecipientEncryptionKey(
+  publicKey: string,
+): Promise<string | null> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: { encryptionPublicKey: string | null };
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/encryption-key`);
+  return data.data.encryptionPublicKey;
+}
+
+export async function publishMyEncryptionKey(
+  userPublicKey: string,
+  naclPublicKey: string,
+): Promise<void> {
+  await api.post(`/api/profiles/${encodeURIComponent(userPublicKey)}`, {
+    publicKey: userPublicKey,
+    encryptionPublicKey: naclPublicKey,
+  });
+}
+
+export async function uploadMessageAttachment(
+  jobId: string,
+  encryptedBlob: Blob,
+  fileName: string,
+  senderNaclPub: string,
+): Promise<Message> {
+  const formData = new FormData();
+  formData.append("file", encryptedBlob, fileName);
+  formData.append("senderNaclPub", senderNaclPub);
+  const { data } = await api.post<{ success: boolean; data: Message }>(
+    `/api/messages/job/${jobId}/attachments`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
+  );
+  return data.data;
+}

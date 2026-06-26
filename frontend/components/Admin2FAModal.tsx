@@ -1,4 +1,5 @@
 import { useState } from "react";
+import Image from "next/image";
 import { setupAdmin2FA, verifyAdmin2FA } from "@/lib/api";
 import { setJwtToken } from "@/lib/api";
 
@@ -95,7 +96,7 @@ export default function Admin2FAModal({ mode, onComplete }: Admin2FAModalProps) 
 
         {qrCode && (
           <div className="flex flex-col items-center gap-3 mb-4">
-            <img src={qrCode} alt="TOTP QR code" className="w-48 h-48 rounded-lg bg-white p-2" />
+            <Image src={qrCode} alt="TOTP QR code" width={192} height={192} className="w-48 h-48 rounded-lg bg-white p-2" />
             {manualKey && (
               <p className="text-xs text-amber-700 font-mono break-all text-center">
                 Manual key: {manualKey}

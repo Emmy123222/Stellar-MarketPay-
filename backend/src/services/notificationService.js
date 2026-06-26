@@ -186,11 +186,27 @@ async function createJobNotification({
  * @returns {Promise<Object>} User preferences
  */
 async function getUserPreferences(publicKey) {
+  const crypto = require("crypto");
+  const encKey = process.env.DATABASE_ENCRYPTION_KEY || "";
   const { rows } = await pool.query(
-    `SELECT email, email_notifications_enabled, webhook_url, webhook_secret
+    `SELECT
+       COALESCE(
+         CASE WHEN encrypted_email IS NOT NULL
+           THEN pgp_sym_decrypt(encrypted_email, $2)
+         END,
+         email
+       ) AS email,
+       email_notifications_enabled,
+       webhook_url,
+       COALESCE(
+         CASE WHEN encrypted_webhook_secret IS NOT NULL
+           THEN pgp_sym_decrypt(encrypted_webhook_secret, $3)
+         END,
+         webhook_secret
+       ) AS webhook_secret
      FROM profiles
      WHERE public_key = $1`,
-    [publicKey]
+    [publicKey, encKey, encKey]
   );
 
   return rows[0] || null;

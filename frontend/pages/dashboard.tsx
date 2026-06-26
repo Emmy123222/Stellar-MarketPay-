@@ -41,17 +41,31 @@ import WithdrawToBankModal, {
 import { useToast } from "@/components/Toast";
 import StateMessage from "@/components/StateMessage";
 import clsx from "clsx";
-import JobAnalytics from "@/components/JobAnalytics";
+import dynamic from "next/dynamic";
 import JobTimeline from "@/components/JobTimeline";
 import BulkJobActionBar from "@/components/BulkJobActionBar";
 import JobStatusTimeline from "@/components/JobStatusTimeline";
 import ExtendJobModal from "@/components/ExtendJobModal";
 import ClientSpendingTab from "@/components/ClientSpendingTab";
+import EarningsChart from "@/components/EarningsChart";
+import PostedJobsTab from "@/components/dashboard-tabs/PostedJobsTab";
+import AppliedJobsTab from "@/components/dashboard-tabs/AppliedJobsTab";
+import InvitationsTab from "@/components/dashboard-tabs/InvitationsTab";
 import { usePriceContext } from "@/contexts/PriceContext";
 import ProfileCompletenessWidget from "@/components/ProfileCompletenessWidget";
 import { useOnboarding } from "@/hooks/useOnboarding";
-import ReferralDashboard from "@/components/ReferralDashboard";
 import XlmPriceWidget from "@/components/XlmPriceWidget";
+
+// Dynamic imports for heavy components
+const JobAnalytics = dynamic(() => import("@/components/JobAnalytics"), {
+  loading: () => <div className="animate-pulse bg-market-900/30 h-64 rounded-xl" />,
+  ssr: false,
+});
+
+const ReferralDashboard = dynamic(() => import("@/components/ReferralDashboard"), {
+  loading: () => <div className="animate-pulse bg-market-900/30 h-64 rounded-xl" />,
+  ssr: false,
+});
 
 const LOW_BALANCE_THRESHOLD_XLM = 5;
 const IS_CONTRACT_MOCK_DEV_MODE =
@@ -70,7 +84,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "invitations" | "analytics" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals";
+type Tab = "posted" | "applied" | "invitations" | "analytics" | "earnings" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 async function fetchBalances(
@@ -551,6 +565,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             "applied",
             "invitations",
             "analytics",
+            "earnings",
             ...(canViewSpending ? (["spending"] as Tab[]) : []),
             "send",
             "edit_profile",
@@ -565,6 +580,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
              t === "applied" ? `Applications (${myApplications.length})` :
              t === "invitations" ? `Invitations${myInvitations.length > 0 ? ` (${myInvitations.length})` : ""}` :
              t === "analytics" ? "Job Analytics" :
+             t === "earnings" ? "Earnings" :
              t === "spending" ? "Spending" :
              t === "send" ? "Send" :
              t === "templates" ? "Templates" :
@@ -577,138 +593,35 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       </div>
 
         {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="card animate-pulse h-20" />
-            ))}
+          <div className="space-y-6 animate-pulse">
+            {/* Balance cards skeleton */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="card h-24" />
+              <div className="card h-24" />
+              <div className="card h-24" />
+            </div>
+
+            {/* Tab content skeleton */}
+            <div className="card space-y-4">
+              <div className="h-6 w-32 bg-market-500/10 rounded" />
+              <div className="space-y-3">
+                <div className="h-16 bg-market-500/8 rounded" />
+                <div className="h-16 bg-market-500/8 rounded" />
+                <div className="h-16 bg-market-500/8 rounded" />
+              </div>
+            </div>
           </div>
         ) : tab === "posted" ? (
-          myJobs.length === 0 ? (
-            <StateMessage
-              type="empty"
-              title="You haven't posted any jobs yet"
-              description="Post your first job and find a great freelancer"
-              ctaLabel="Post a Job"
-              onCta={() => router.push('/post-job')}
-            />
-          ) : (
-            <div className="space-y-3">
-              <div className="flex justify-end mb-2">
-                <button
-                  onClick={() => exportJobsToCSV(myJobs)}
-                  className="btn-secondary text-xs px-3 py-1.5"
-                >
-                  Download CSV
-                </button>
-              </div>
-              {myJobs.map((job) => (
-                <div
-                  key={job.id}
-                  className="card-hover flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
-                >
-                  <Link
-                    href={`/jobs/${job.id}`}
-                    className="flex-1 min-w-0 block"
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={statusClass(job.status)}>
-                        {statusLabel(job.status)}
-                      </span>
-                      <span className="text-xs text-amber-800">
-                        {job.category}
-                      </span>
-                    </div>
-                    <p className="font-display font-semibold text-amber-100 truncate">
-                      {job.title}
-                    </p>
-                    <p className="text-xs text-amber-800 mt-1">
-                      {job.applicantCount} applicant
-                      {job.applicantCount !== 1 ? "s" : ""} ·{" "}
-                      {timeAgo(job.createdAt)}
-                    </p>
-                    <JobStatusTimeline job={job} compact />
-                  </Link>
-                  <div className="text-right flex-shrink-0">
-                    <p className="font-mono font-semibold text-market-400">
-                      {formatXLM(job.budget)}
-                    </p>
-                    <div className="flex gap-1 mt-1 justify-end">
-                      {job.status === "open" && job.expiresAt && (
-                        (() => {
-                          const daysUntilExpiry = Math.ceil(
-                            (new Date(job.expiresAt).getTime() - Date.now()) /
-                              (1000 * 60 * 60 * 24),
-                          );
-                          if (daysUntilExpiry <= 3) {
-                            return (
-                              <button
-                                className="btn-secondary text-xs px-2 py-1"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  handleExtendJob(job.id);
-                                }}
-                              >
-                                Extend
-                              </button>
-                            );
-                          }
-                          return null;
-                        })()
-                      )}
-                      {isRepostable(job.status) && (
-                        <button
-                          className="btn-secondary text-xs px-3 py-1.5"
-                          onClick={() => handleRepost(job)}
-                        >
-                          Repost Job
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )
+          <PostedJobsTab
+            myJobs={myJobs}
+            onExtendJob={handleExtendJob}
+            onRepost={handleRepost}
+            extendModalJob={extendModalJob}
+            onJobExtended={handleJobExtended}
+            onCloseExtendModal={() => setExtendModalJob(null)}
+          />
         ) : tab === "applied" ? (
-          myApplications.length === 0 ? (
-            <StateMessage
-              type="empty"
-              title="You haven't applied to any jobs yet"
-              description="Browse open jobs and submit your first proposal"
-              ctaLabel="Browse Jobs"
-              onCta={() => router.push('/jobs')}
-            />
-          ) : (
-            <div className="space-y-3">
-              <div className="flex justify-end mb-2">
-                <button
-                  onClick={() => exportApplicationsToCSV(myApplications)}
-                  className="btn-secondary text-xs px-3 py-1.5"
-                >
-                  Download CSV
-                </button>
-              </div>
-              {myApplications.map((app) => (
-                <Link
-                  key={app.id}
-                  href={`/jobs/${app.jobId}`}
-                  className="card-hover flex items-center justify-between gap-4"
-                >
-                  <div className="flex-1">
-                    <p className="text-amber-700 text-sm line-clamp-1">
-                      {app.proposal}
-                    </p>
-                    <p className="text-xs text-amber-800 mt-1">
-                      {timeAgo(app.createdAt)}
-                    </p>
-                  </div>
-                  <p className="font-mono font-semibold text-market-400">
-                    {formatXLM(app.bidAmount)}
-                  </p>
-                </Link>
-              ))}
-            </div>
-          )
+          <AppliedJobsTab myApplications={myApplications} />
         ) : tab === "analytics" ? (
           selectedJob ? (
             <JobAnalytics
@@ -729,6 +642,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
               ))}
             </div>
           )
+        ) : tab === "earnings" ? (
+          <EarningsChart publicKey={publicKey} />
         ) : tab === "spending" ? (
           <ClientSpendingTab
             analytics={spendingAnalytics}
@@ -829,59 +744,19 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
               )))}
           </div>
         ) : tab === "invitations" ? (
-        myInvitations.length === 0 ? (
-          <div className="card text-center py-16">
-            <p className="font-display text-xl text-amber-100 mb-2">No invitations yet</p>
-            <p className="text-amber-800 text-sm">When a client invites you to apply to their job, it will appear here.</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {myInvitations.map((inv) => (
-              <div key={inv.id} className="card space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <Link href={`/jobs/${inv.jobId}`} className="font-display font-semibold text-amber-100 hover:text-market-300 transition-colors truncate block">
-                      {inv.jobTitle}
-                    </Link>
-                    <p className="text-xs text-amber-700 mt-0.5">
-                      From: {inv.clientName || inv.clientAddress.slice(0, 12) + "…"} · {timeAgo(inv.createdAt)}
-                    </p>
-                  </div>
-                  <span className="font-mono text-market-400 font-semibold text-sm flex-shrink-0">
-                    {formatXLM(inv.jobBudget)} {inv.jobCurrency}
-                  </span>
-                </div>
-                <p className="text-xs text-amber-700 bg-ink-800 rounded-lg px-3 py-2 border border-market-500/10">
-                  Hi! {inv.clientName || "A client"} has invited you to apply to their job: &ldquo;{inv.jobTitle}&rdquo; — {inv.jobBudget} {inv.jobCurrency}.{" "}
-                  <Link href={`/jobs/${inv.jobId}`} className="text-market-400 hover:underline">View Job</Link>
-                </p>
-                <div className="flex gap-2">
-                  <Link
-                    href={`/jobs/${inv.jobId}`}
-                    className="flex-1 btn-primary text-xs py-2 text-center"
-                  >
-                    View &amp; Apply
-                  </Link>
-                  <button
-                    onClick={async () => {
-                      try {
-                        await declineInvitation(inv.id);
-                        setMyInvitations((prev) => prev.filter((i) => i.id !== inv.id));
-                        success("Invitation declined.");
-                      } catch {
-                        // ignore
-                      }
-                    }}
-                    className="flex-1 btn-secondary text-xs py-2"
-                  >
-                    Decline
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )
-      ) : tab === "price_alerts" ? (
+          <InvitationsTab
+            myInvitations={myInvitations}
+            onDecline={async (id) => {
+              try {
+                await declineInvitation(id);
+                setMyInvitations((prev) => prev.filter((i) => i.id !== id));
+                success("Invitation declined.");
+              } catch {
+                // ignore
+              }
+            }}
+          />
+        ) : tab === "price_alerts" ? (
           (!minPrice && !maxPrice && !emailEnabled) ? (
             <StateMessage
               type="empty"

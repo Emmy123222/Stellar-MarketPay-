@@ -46,7 +46,7 @@ const referralRoutes  = require("./routes/referrals");
 const eventsRoutes    = require("./routes/events");
 const invitationRoutes = require("./routes/invitations");
 const statsRoutes      = require("./routes/stats");
-
+const skillsRoutes     = require("./routes/skills");
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
@@ -302,6 +302,7 @@ app.use("/api/referrals",     referralRoutes);
 app.use("/api/events",        eventsRoutes);
 app.use("/api/invitations",   invitationRoutes);
 app.use("/api/stats",         statsRoutes);
+app.use("/api/skills",        skillsRoutes);
 
 app.use((err, req, res, next) => {
   void next;
@@ -449,11 +450,17 @@ async function bootstrap() {
   // Start job expiry checker - run every hour
   startJobExpiryChecker();
 
+  // Start API key rotation finalizer - run every hour
+  startApiKeyRotationFinalizer();
+
   // Start notification processor - run every 2 minutes
   startNotificationProcessor();
 
   // Start weekly digest scheduler - fires every Monday at 09:00 UTC
   startWeeklyDigestScheduler();
+
+  // Start platform metrics aggregator - runs hourly for Issue #561
+  startPlatformMetricsAggregator();
 
   server.listen(PORT, () => {
     serviceLogger.info({
@@ -567,6 +574,29 @@ async function startNotificationProcessor() {
 }
 
 /**
+ * Periodically finalize expired API key rotations (runs every hour).
+ * Keys in rotating state for more than 24 hours get their rotating_key_hash
+ * promoted to the active key_hash.
+ */
+function startApiKeyRotationFinalizer() {
+  const { finalizeExpiredRotations } = require("./services/developerService");
+  const rotationLogger = createServiceLogger('api-key-rotation');
+
+  async function checkAndFinalize() {
+    try {
+      const finalized = await finalizeExpiredRotations();
+      if (finalized.length > 0) {
+        rotationLogger.info({ count: finalized.length }, 'Finalized expired API key rotations');
+      }
+    } catch (err) {
+      logError(rotationLogger, err, { operation: 'api_key_rotation_finalizer' });
+    }
+  }
+
+  setInterval(checkAndFinalize, 60 * 60 * 1000).unref();
+}
+
+/**
  * Schedule the weekly job-digest email for every Monday at 09:00 UTC.
  *
  * Strategy:
@@ -637,6 +667,35 @@ function startWeeklyDigestScheduler() {
     // Then run every 7 days from that point onward
     setInterval(runDigest, 7 * 24 * 60 * 60 * 1000).unref();
   }, delay).unref();
+}
+
+/**
+ * Issue #561: Hourly platform metrics aggregation into platform_metrics table.
+ * Also cleans up rows older than 1 year (retention policy).
+ */
+function startPlatformMetricsAggregator() {
+  const { aggregatePlatformMetrics } = require("./services/statsService");
+  const metricsLogger = createServiceLogger('platform-metrics');
+
+  async function runAggregation() {
+    try {
+      const result = await aggregatePlatformMetrics();
+      metricsLogger.info(result, 'Platform metrics aggregated');
+
+      // 1-year retention: delete rows older than 1 year
+      const { rowCount } = await pool.query(
+        "DELETE FROM platform_metrics WHERE bucket < NOW() - INTERVAL '1 year'"
+      );
+      if (rowCount > 0) {
+        metricsLogger.info({ deletedCount: rowCount }, 'Cleaned up expired platform metrics');
+      }
+    } catch (err) {
+      logError(metricsLogger, err, { operation: 'platform_metrics_aggregation' });
+    }
+  }
+
+  runAggregation();
+  setInterval(runAggregation, 60 * 60 * 1000).unref();
 }
 
 bootstrap();
