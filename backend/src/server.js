@@ -14,7 +14,7 @@ const compression = require("compression");
 const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
-const nodemailer = require("nodemailer");
+const { sendEmail, smtpTransport } = require("./utils/email");
 const promClient = require("prom-client");
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
@@ -161,28 +161,11 @@ const indexerService = new IndexerService({
   contractId: process.env.CONTRACT_ID || process.env.ESCROW_CONTRACT_ID,
   broadcast: broadcastRealtime,
 });
-const smtpEnabled = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-const smtpTransport = smtpEnabled
-  ? nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: false,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    })
-  : null;
+
 const priceAlertService = new PriceAlertService({
   broadcast: broadcastRealtime,
   sendEmail: async ({ to, subject, text }) => {
-    if (!smtpTransport || !to) return;
-    await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to,
-      subject,
-      text,
-    });
+    await sendEmail({ to, subject, text });
   },
 });
 
@@ -461,6 +444,9 @@ async function bootstrap() {
   // Start platform metrics aggregator - runs hourly for Issue #561
   startPlatformMetricsAggregator();
 
+  // Start GDPR cleanup worker - runs daily
+  startGdprCleanupWorker();
+
   server.listen(PORT, () => {
     serviceLogger.info({
       port: PORT,
@@ -531,14 +517,7 @@ async function startNotificationProcessor() {
   const notificationLogger = createServiceLogger('notifications');
   
   const sendEmailFn = async ({ to, subject, text, html }) => {
-    if (!smtpTransport || !to) return;
-    await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to,
-      subject,
-      text,
-      html,
-    });
+    await sendEmail({ to, subject, text, html });
   };
 
   // Run immediately on startup
@@ -610,14 +589,7 @@ function startWeeklyDigestScheduler() {
 
   // Reuse the same sendEmail transport already wired for notifications
   const sendEmailFn = async ({ to, subject, text, html }) => {
-    if (!smtpTransport || !to) return;
-    await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to,
-      subject,
-      text,
-      html,
-    });
+    await sendEmail({ to, subject, text, html });
   };
 
   /**
@@ -695,6 +667,29 @@ function startPlatformMetricsAggregator() {
 
   runAggregation();
   setInterval(runAggregation, 60 * 60 * 1000).unref();
+}
+
+/**
+ * Periodically permanently delete profiles that have passed the 30-day grace period.
+ * Runs daily.
+ */
+function startGdprCleanupWorker() {
+  const { permanentlyDeleteExpiredProfiles } = require("./services/profileService");
+  const gdprLogger = createServiceLogger('gdpr-cleanup');
+
+  async function checkAndDelete() {
+    try {
+      const deletedKeys = await permanentlyDeleteExpiredProfiles();
+      if (deletedKeys.length > 0) {
+        gdprLogger.info({ count: deletedKeys.length }, 'Permanently deleted expired GDPR profiles');
+      }
+    } catch (err) {
+      logError(gdprLogger, err, { operation: 'gdpr_cleanup' });
+    }
+  }
+
+  // Run daily
+  setInterval(checkAndDelete, 24 * 60 * 60 * 1000).unref();
 }
 
 bootstrap();
