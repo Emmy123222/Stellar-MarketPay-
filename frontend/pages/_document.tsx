@@ -21,6 +21,22 @@ export default function Document() {
          * Theme detection must run synchronously before paint to avoid FOUC.
          * All other scripts should use <Script strategy="lazyOnload"> in _app.tsx.
          */}
+        <link
+          rel="preconnect"
+          href="https://fonts.googleapis.com"
+          crossOrigin="anonymous"
+        />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+          integrity="sha256-gG/REws4rK1dFJcjBtLvVPYoLvhP7D2yRepUOOFbcKY="
+          crossOrigin="anonymous"
+        />
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </Head>
       <body>
