@@ -1,0 +1,44 @@
+replicaCount: 1
+
+frontend:
+  image:
+    repository: marketpay-frontend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+
+backend:
+  image:
+    repository: marketpay-backend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 4000
+  env:
+    STELLAR_NETWORK: testnet
+    HORIZON_URL: https://horizon-testnet.stellar.org
+
+redis:
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 6379
+
+postgres:
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 5432
+  auth:
+    username: stellarwork
+    password: stellarwork_dev
+    database: stellarwork

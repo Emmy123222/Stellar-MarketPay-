@@ -45,6 +45,8 @@ async function listApiKeys(ownerPublicKey) {
        k.created_at,
        k.last_used_at,
        k.revoked_at,
+       k.rotating_at,
+       k.rotating_key_hash,
        COALESCE(u.request_count, 0) AS requests_today
      FROM api_keys k
      LEFT JOIN api_key_usage_daily u
@@ -61,7 +63,9 @@ async function listApiKeys(ownerPublicKey) {
 async function revokeApiKey(ownerPublicKey, keyId) {
   const { rowCount } = await pool.query(
     `UPDATE api_keys
-        SET revoked_at = NOW()
+        SET revoked_at = NOW(),
+            rotating_key_hash = NULL,
+            rotating_at = NULL
       WHERE id = $1
         AND owner_public_key = $2
         AND revoked_at IS NULL`,
@@ -71,17 +75,87 @@ async function revokeApiKey(ownerPublicKey, keyId) {
   return rowCount > 0;
 }
 
+async function rotateApiKey(ownerPublicKey, keyId) {
+  const newApiKey = generateApiKeyValue();
+  const newKeyHash = hashApiKey(newApiKey);
+  const newKeyPrefix = newApiKey.slice(0, 12);
+
+  const { rows } = await pool.query(
+    `UPDATE api_keys
+        SET rotating_key_hash = $3,
+            rotating_at = NOW(),
+            key_prefix = $4,
+            previous_key_hash = key_hash
+      WHERE id = $1
+        AND owner_public_key = $2
+        AND revoked_at IS NULL
+        AND rotating_at IS NULL
+      RETURNING id, label, created_at, rotating_at`,
+    [keyId, ownerPublicKey, newKeyHash, newKeyPrefix]
+  );
+
+  if (!rows.length) return null;
+
+  await pool.query(
+    `INSERT INTO audit_logs (actor_address, action, target, metadata)
+     VALUES ($1, 'api_key_rotated', $2,
+             $3::jsonb)`,
+    [ownerPublicKey, String(keyId), JSON.stringify({ keyId, rotatedAt: new Date().toISOString() })]
+  );
+
+  return {
+    apiKey: newApiKey,
+    key: rows[0],
+  };
+}
+
+async function finalizeExpiredRotations() {
+  const { rows } = await pool.query(
+    `UPDATE api_keys
+        SET key_hash = rotating_key_hash,
+            rotating_key_hash = NULL,
+            rotating_at = NULL
+      WHERE rotating_at IS NOT NULL
+        AND rotating_at < NOW() - INTERVAL '24 hours'
+      RETURNING id, owner_public_key`
+  );
+
+  for (const row of rows) {
+    await pool.query(
+      `INSERT INTO audit_logs (actor_address, action, target, metadata)
+       VALUES ($1, 'api_key_rotation_finalized', $2,
+               $3::jsonb)`,
+      [row.owner_public_key, String(row.id), JSON.stringify({ keyId: row.id, finalizedAt: new Date().toISOString() })]
+    );
+  }
+
+  return rows;
+}
+
 async function findApiKeyByRawValue(apiKey) {
   const keyHash = hashApiKey(apiKey);
   const { rows } = await pool.query(
-    `SELECT id, owner_public_key, label, key_prefix, revoked_at, created_at, last_used_at
+    `SELECT id, owner_public_key, label, key_prefix, revoked_at,
+            rotating_at, rotating_key_hash, created_at, last_used_at
        FROM api_keys
       WHERE key_hash = $1
+         OR rotating_key_hash = $1
       LIMIT 1`,
     [keyHash]
   );
 
-  return rows[0] || null;
+  if (!rows[0]) return null;
+  const row = rows[0];
+
+  if (row.rotating_key_hash === keyHash && row.rotating_at) {
+    const isWithinGrace = (Date.now() - new Date(row.rotating_at).getTime()) < 24 * 60 * 60 * 1000;
+    if (isWithinGrace) {
+      return row;
+    }
+    return null;
+  }
+
+  return row;
 }
 
 async function recordApiKeyUsage(apiKeyId) {
@@ -185,6 +259,8 @@ module.exports = {
   createApiKey,
   listApiKeys,
   revokeApiKey,
+  rotateApiKey,
+  finalizeExpiredRotations,
   findApiKeyByRawValue,
   recordApiKeyUsage,
   listPublicJobs,
