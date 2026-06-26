@@ -10,7 +10,7 @@ const http = require("http");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
-const compression = require("compression");
+const compressionMiddleware = require("./middleware/compression");
 const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
@@ -225,7 +225,7 @@ app.use(helmet({
 // Request logging middleware
 app.use(requestLoggerMiddleware);
 
-app.use(compression());
+app.use(compressionMiddleware());
 
 app.use(express.json({ limit: "20kb" }));
 app.use(sanitizeMiddleware({ strict: false }));
