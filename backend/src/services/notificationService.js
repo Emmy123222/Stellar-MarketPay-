@@ -9,6 +9,12 @@ const axios = require("axios");
 
 const MAX_RETRIES = 3;
 
+let _broadcastToUser = null;
+
+function setBroadcastToUser(fn) {
+  _broadcastToUser = fn;
+}
+
 /**
  * Event types that trigger notifications
  */
@@ -88,7 +94,13 @@ async function createInAppNotification(
     [userAddress, type, title, body, jobId, linkPath],
   );
 
-  return rowToInAppNotification(rows[0]);
+  const notification = rowToInAppNotification(rows[0]);
+
+  if (_broadcastToUser) {
+    _broadcastToUser(userAddress, 'notification:created', notification);
+  }
+
+  return notification;
 }
 
 async function listInAppNotifications(userAddress, { limit = 20, cursor = null } = {}) {
@@ -586,4 +598,5 @@ module.exports = {
   generateEmailContent,
   generateInAppContent,
   EVENT_TYPES,
+  setBroadcastToUser,
 };
