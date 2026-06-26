@@ -61,13 +61,12 @@ function createPgMock() {
         budget: params[2],
         currency: params[3],
         category: params[4],
-        skills: params[5],
-        client_address: params[6],
-        deadline: params[7],
-        timezone: params[8],
-        screening_questions: params[9],
-        milestones: typeof params[10] === "string" ? JSON.parse(params[10]) : params[10],
-        visibility: params[11],
+        client_address: params[5],
+        deadline: params[6],
+        timezone: params[7],
+        screening_questions: params[8],
+        milestones: typeof params[9] === "string" ? JSON.parse(params[9]) : params[9],
+        visibility: params[10],
       });
       jobs.set(row.id, row);
       return { rows: [row] };

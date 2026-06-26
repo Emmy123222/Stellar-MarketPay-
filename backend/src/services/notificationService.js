@@ -6,6 +6,7 @@
 
 const pool = require("../db/pool");
 const axios = require("axios");
+const { emailQueue } = require("../utils/queue");
 
 const MAX_RETRIES = 3;
 
@@ -71,7 +72,25 @@ async function queueNotification({ recipientAddress, notificationType, eventType
     [recipientAddress, notificationType, eventType, jobId, JSON.stringify(payload)]
   );
 
-  return rows[0];
+  const notification = rows[0];
+
+  if (notificationType === "email") {
+    await emailQueue.add({
+      notificationId: notification.id,
+      recipientAddress,
+      eventType,
+      jobId,
+      payload,
+    }, {
+      attempts: 3,
+      backoff: {
+        type: "exponential",
+        delay: 5000,
+      },
+    });
+  }
+
+  return notification;
 }
 
 async function createInAppNotification(

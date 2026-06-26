@@ -22,6 +22,11 @@ const { requestLoggerMiddleware, logError, createServiceLogger } = require('./ut
 const { sanitizeMiddleware } = require('./middleware/sanitize');
 const { requireChoice } = require("./config/env");
 const { createCorsOptions } = require("./config/cors");
+const { verifyJWT, requireAdminRole } = require("./middleware/auth");
+const { ExpressAdapter } = require('@bull-board/express');
+const { createBullBoard } = require('@bull-board/api');
+const { BullAdapter } = require('@bull-board/api/bullAdapter');
+const { emailQueue } = require('./utils/queue');
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -286,6 +291,17 @@ app.use("/api/invitations",   invitationRoutes);
 app.use("/api/stats",         statsRoutes);
 app.use("/api/skills",        skillsRoutes);
 
+// Bull Board setup
+const serverAdapter = new ExpressAdapter();
+serverAdapter.setBasePath('/admin/queues');
+
+createBullBoard({
+  queues: [new BullAdapter(emailQueue)],
+  serverAdapter: serverAdapter,
+});
+
+app.use('/admin/queues', verifyJWT, requireAdminRole, serverAdapter.getRouter());
+
 app.use((err, req, res, next) => {
   void next;
 
@@ -446,6 +462,9 @@ async function bootstrap() {
 
   // Start GDPR cleanup worker - runs daily
   startGdprCleanupWorker();
+
+  // Start Bull email worker
+  require("./workers/emailWorker");
 
   server.listen(PORT, () => {
     serviceLogger.info({
