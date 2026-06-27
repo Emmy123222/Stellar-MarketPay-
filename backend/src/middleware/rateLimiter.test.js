@@ -87,3 +87,46 @@ describe("rate limiter IP handling", () => {
     expect(third.status).toBe(429);
   });
 });
+
+describe("rate limiter RATE_LIMIT_SCALE override", () => {
+  const originalScale = process.env.RATE_LIMIT_SCALE;
+
+  afterEach(() => {
+    if (originalScale === undefined) {
+      delete process.env.RATE_LIMIT_SCALE;
+    } else {
+      process.env.RATE_LIMIT_SCALE = originalScale;
+    }
+  });
+
+  it("defaults to a scale of 1 when the variable is unset", () => {
+    delete process.env.RATE_LIMIT_SCALE;
+    const { getRateLimitScale } = require("./rateLimiter");
+    expect(getRateLimitScale()).toBe(1);
+  });
+
+  it("ignores invalid (non-numeric / sub-1) values and falls back to 1", () => {
+    const { getRateLimitScale } = require("./rateLimiter");
+    process.env.RATE_LIMIT_SCALE = "not-a-number";
+    expect(getRateLimitScale()).toBe(1);
+    process.env.RATE_LIMIT_SCALE = "0";
+    expect(getRateLimitScale()).toBe(1);
+    process.env.RATE_LIMIT_SCALE = "-5";
+    expect(getRateLimitScale()).toBe(1);
+  });
+
+  it("multiplies the request ceiling when a valid scale is configured", async () => {
+    process.env.RATE_LIMIT_SCALE = "10";
+    // base ceiling of 3 → scaled to 30
+    const app = buildTestApp(3);
+
+    // 30 requests must all succeed, the 31st must be throttled
+    for (let i = 0; i < 30; i += 1) {
+      const res = await request(app).get("/test");
+      expect(res.status).toBe(200);
+    }
+
+    const blocked = await request(app).get("/test");
+    expect(blocked.status).toBe(429);
+  });
+});

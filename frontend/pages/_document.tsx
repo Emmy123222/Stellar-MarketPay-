@@ -1,6 +1,7 @@
-import { Html, Head, Main, NextScript } from "next/document";
+import Document, { Html, Head, Main, NextScript, DocumentContext, DocumentInitialProps } from "next/document";
 
-// Inline script applied before hydration to prevent flash of wrong theme
+// Inline script applied before hydration to prevent flash of wrong theme.
+// Must remain synchronous and inline — do NOT move to next/script.
 const themeScript = `
 (function(){
   try {
@@ -12,16 +13,31 @@ const themeScript = `
 })();
 `;
 
-export default function Document() {
+type MarketPayDocumentProps = DocumentInitialProps & {
+  nonce?: string;
+};
+
+export default function MarketPayDocument({ nonce }: MarketPayDocumentProps) {
   return (
     <Html lang="en">
-      <Head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      <Head nonce={nonce}>
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
       </Head>
       <body>
         <Main />
-        <NextScript />
+        <NextScript nonce={nonce} />
       </body>
     </Html>
   );
 }
+
+MarketPayDocument.getInitialProps = async (ctx: DocumentContext): Promise<MarketPayDocumentProps> => {
+  const initialProps = await Document.getInitialProps(ctx);
+  const nonceHeader = ctx.req?.headers["x-nonce"];
+  const nonce = Array.isArray(nonceHeader) ? nonceHeader[0] : nonceHeader;
+
+  return {
+    ...initialProps,
+    nonce,
+  };
+};

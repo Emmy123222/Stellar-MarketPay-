@@ -40,6 +40,19 @@ ALTER TABLE profiles
 CREATE UNIQUE INDEX IF NOT EXISTS profiles_digest_unsubscribe_token_idx
   ON profiles(digest_unsubscribe_token);
 
+-- V12 columns (Issues #553)
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS encryption_public_key TEXT;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS preferred_language TEXT NOT NULL DEFAULT 'en';
+
+CREATE INDEX IF NOT EXISTS profiles_deleted_at_idx ON profiles(deleted_at)
+  WHERE deleted_at IS NOT NULL;
+
 -- ─────────────────────────────────────────
 -- jobs
 -- ─────────────────────────────────────────
@@ -50,7 +63,6 @@ CREATE TABLE IF NOT EXISTS jobs (
   budget              NUMERIC(20,7) NOT NULL,
   currency            TEXT        NOT NULL DEFAULT 'XLM',
   category            TEXT        NOT NULL,
-  skills              TEXT[]      NOT NULL DEFAULT '{}',
   status              TEXT        NOT NULL DEFAULT 'open',
   client_address      TEXT        NOT NULL REFERENCES profiles(public_key),
   freelancer_address  TEXT        REFERENCES profiles(public_key),
@@ -96,11 +108,19 @@ ALTER TABLE jobs
   ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0;
 
 ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS tfidf_vector JSONB;
+
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS jobs_deleted_at_idx ON jobs(deleted_at)
+  WHERE deleted_at IS NOT NULL;
+
+ALTER TABLE jobs
   ADD COLUMN IF NOT EXISTS job_search_vector tsvector
   GENERATED ALWAYS AS (
     setweight(to_tsvector('simple', COALESCE(title, '')), 'A') ||
-    setweight(to_tsvector('simple', COALESCE(description, '')), 'B') ||
-    setweight(to_tsvector('simple', COALESCE(array_to_string(skills, ' '), '')), 'C')
+    setweight(to_tsvector('simple', COALESCE(description, '')), 'B')
   ) STORED;
 
 -- enforce valid visibility values for all rows
@@ -116,6 +136,22 @@ BEGIN
       CHECK (visibility IN ('public', 'private', 'invite_only'));
   END IF;
 END $$;
+
+-- ─────────────────────────────────────────
+-- skills
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS skills (
+  id SERIAL PRIMARY KEY,
+  slug TEXT UNIQUE NOT NULL,
+  display_name TEXT NOT NULL,
+  category TEXT
+);
+
+CREATE TABLE IF NOT EXISTS job_skills (
+  job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  skill_id INT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+  PRIMARY KEY (job_id, skill_id)
+);
 
 -- ─────────────────────────────────────────
 -- applications
@@ -246,6 +282,18 @@ CREATE INDEX IF NOT EXISTS jobs_description_trgm_idx
 
 CREATE INDEX IF NOT EXISTS profiles_public_key_rating_idx
   ON profiles(public_key, rating);
+
+-- Issue #559: Composite indexes for common filter patterns
+CREATE INDEX IF NOT EXISTS jobs_status_category
+  ON jobs (status, category)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS jobs_client_status
+  ON jobs (client_address, status);
+
+CREATE INDEX IF NOT EXISTS jobs_created_desc
+  ON jobs (created_at DESC)
+  WHERE status = 'open';
 
 -- ─────────────────────────────────────────
 -- messages
@@ -407,6 +455,116 @@ ALTER TABLE job_invitations ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAUL
 -- ─────────────────────────────────────────
 -- notification_queue additions (in_app type support)
 -- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS notification_queue (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recipient_address   TEXT NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
+  notification_type   TEXT NOT NULL,
+  event_type          TEXT NOT NULL,
+  job_id              UUID REFERENCES jobs(id) ON DELETE CASCADE,
+  payload             JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status              TEXT NOT NULL DEFAULT 'pending',
+  retry_count         INTEGER NOT NULL DEFAULT 0,
+  error_message       TEXT,
+  sent_at             TIMESTAMPTZ,
+  last_attempt_at     TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS notification_queue_status_retry_idx ON notification_queue(status, retry_count);
+CREATE INDEX IF NOT EXISTS notification_queue_recipient_idx ON notification_queue(recipient_address);
+
 -- Allow 'in_app' as a notification_type in addition to 'email' and 'webhook'
 -- The notification_queue table was created without a CHECK constraint on
 -- notification_type so this is a no-op schema change (just documentation).
+
+-- ─────────────────────────────────────────
+-- updated_at triggers (V13)
+-- ─────────────────────────────────────────
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+DECLARE
+    t_record RECORD;
+BEGIN
+    FOR t_record IN 
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+          AND table_type = 'BASE TABLE'
+    LOOP
+        -- Add updated_at column if it does not exist
+        IF NOT EXISTS (
+            SELECT 1 
+            FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+              AND table_name = t_record.table_name 
+              AND column_name = 'updated_at'
+        ) THEN
+            EXECUTE format('ALTER TABLE %I ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();', t_record.table_name);
+        END IF;
+
+        -- Drop trigger if exists (idempotent)
+        EXECUTE format('DROP TRIGGER IF EXISTS trg_set_updated_at ON %I;', t_record.table_name);
+        
+        -- Create the trigger
+        EXECUTE format('CREATE TRIGGER trg_set_updated_at BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION set_updated_at();', t_record.table_name);
+    END LOOP;
+END;
+$$;
+-- ledger_timestamps (Issue #553)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ledger_timestamps (
+  ledger    INTEGER PRIMARY KEY,
+  timestamp TIMESTAMPTZ NOT NULL
+);
+
+-- ─────────────────────────────────────────
+-- idempotency_keys (Issue #553)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  key        TEXT PRIMARY KEY,
+  response   JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idempotency_keys_cleanup_idx
+  ON idempotency_keys(created_at);
+
+-- ─────────────────────────────────────────
+-- health_checks (Issue #553)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS health_checks (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  service    TEXT NOT NULL,
+  status     TEXT NOT NULL,
+  checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS health_checks_service_idx
+  ON health_checks(service, checked_at DESC);
+
+-- ─────────────────────────────────────────
+-- platform_metrics time-series (Issue #561)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS platform_metrics (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  metric_name TEXT NOT NULL,
+  value       NUMERIC NOT NULL,
+  granularity TEXT NOT NULL,
+  bucket      TIMESTAMPTZ NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (metric_name, granularity, bucket)
+);
+
+CREATE INDEX IF NOT EXISTS platform_metrics_lookup_idx
+  ON platform_metrics (metric_name, granularity, bucket DESC);
+
+CREATE INDEX IF NOT EXISTS platform_metrics_cleanup_idx
+  ON platform_metrics (bucket)
+  WHERE bucket < NOW() - INTERVAL '1 year';

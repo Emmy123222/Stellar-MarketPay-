@@ -28,7 +28,7 @@
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, token, symbol_short, Address, Bytes, BytesN, Env,
-    String, Vec,
+    String, Symbol, Vec,
 };
 
 // ─── Storage keys ─────────────────────────────────────────────────────────────
@@ -45,11 +45,18 @@ pub struct CreateEscrowParams {
     pub freelancer: Address,
     pub token: Address,
     pub amount: i128,
-    pub milestones: Option<soroban_sdk::Vec<i128>>,
+    pub milestones: Option<soroban_sdk::Vec<MilestoneInput>>,
     pub timeout_ledgers: Option<u32>,
     pub referrer: Option<Address>,
 }
 
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct MilestoneInput {
+    pub description: String,
+    pub percentage: u32,
+}
 
 /// Status of an escrow agreement.
 #[contracttype]
@@ -65,13 +72,17 @@ pub enum EscrowStatus {
     Refunded,
     /// Disputed — requires admin resolution (future feature)
     Disputed,
+    /// Admin-frozen — no operations allowed until unfrozen
+    Frozen,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Milestone {
-    pub amount: i128,
-    pub is_completed: bool,
+    pub id: u32,
+    pub description: String,
+    pub percentage: u32,
+    pub released: bool,
 }
 
 /// An escrow record stored on-chain.
@@ -234,7 +245,7 @@ pub enum DataKey {
 }
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
-const REVEAL_WINDOW_LEDGERS: u32 = 1000;
+const REVEAL_WINDOW_LEDGERS: u32 = 17_280;
 
 /// A governance proposal
 #[contracttype]
@@ -371,6 +382,28 @@ impl MarketPayContract {
         )
     }
 
+    // Client creates an escrow with percentage-based milestones.
+    // milestone percentages must sum to 100.
+    pub fn create_escrow_with_milestones(
+        env: Env,
+        job_id: String,
+        client: Address,
+        params: CreateEscrowParams,
+    ) {
+        Self::create_escrow_internal(
+            env,
+            job_id,
+            client,
+            params.freelancer,
+            params.token,
+            params.amount,
+            params.milestones,
+            params.timeout_ledgers,
+            params.referrer,
+            None,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn create_escrow_internal(
         env: Env,
@@ -379,7 +412,7 @@ impl MarketPayContract {
         freelancer: Address,
         token: Address,
         amount: i128,
-        milestones: Option<soroban_sdk::Vec<i128>>,
+        milestones: Option<soroban_sdk::Vec<MilestoneInput>>,
         timeout_ledgers: Option<u32>,
         referrer: Option<Address>,
         deliverable_hash: Option<BytesN<32>>,
@@ -403,21 +436,23 @@ impl MarketPayContract {
             if ms.len() > 5 {
                 panic!("Maximum 5 milestones allowed");
             }
-            let mut total_ms_amount: i128 = 0;
-            for amt in ms.iter() {
-                if amt <= 0 {
-                    panic!("Milestone amount must be positive");
-                }
-                total_ms_amount = total_ms_amount
-                    .checked_add(amt)
-                    .expect("Arithmetic overflow");
-                milestone_list.push_back(Milestone {
-                    amount: amt,
-                    is_completed: false,
-                });
-            }
-            if total_ms_amount != amount {
-                panic!("Milestone amounts must sum to total escrow amount");
+            let mut total_percentage: u32 = 0;
+        for (next_id, m) in (0_u32..).zip(ms.iter()) {
+    if m.percentage == 0 {
+        panic!("Milestone percentage must be positive");
+    }
+    total_percentage = total_percentage
+        .checked_add(m.percentage)
+        .expect("Arithmetic overflow");
+    milestone_list.push_back(Milestone {
+        id: next_id,
+        description: m.description.clone(),
+        percentage: m.percentage,
+        released: false,
+    });
+}
+            if total_percentage != 100 {
+                panic!("Milestone percentages must sum to 100");
             }
         }
 
@@ -490,9 +525,9 @@ impl MarketPayContract {
         );
     }
 
-    /// Client accepts a freelancer and marks work as in-progress.
-    pub fn start_work(env: Env, job_id: String, client: Address) {
-        client.require_auth();
+    /// Freelancer signals that they have started work.
+    pub fn start_work(env: Env, job_id: String, freelancer: Address) {
+        freelancer.require_auth();
 
         let mut escrow: Escrow = env
             .storage()
@@ -500,8 +535,8 @@ impl MarketPayContract {
             .get(&DataKey::Escrow(job_id.clone()))
             .expect("Escrow not found");
 
-        if escrow.client != client {
-            panic!("Only the client can start work");
+        if escrow.freelancer != freelancer {
+            panic!("Only the freelancer can start work");
         }
         if escrow.status != EscrowStatus::Locked {
             panic!("Escrow is not in Locked state");
@@ -542,12 +577,17 @@ impl MarketPayContract {
         // Check if there are incomplete milestones
         let mut remaining_amount: i128 = 0;
         for ms in escrow.milestones.iter() {
-            if !ms.is_completed {
-                remaining_amount = remaining_amount
-                    .checked_add(ms.amount)
-                    .expect("Arithmetic overflow");
-            }
-        }
+        if !ms.released {
+        let ms_amount = escrow.amount
+            .checked_mul(ms.percentage as i128)
+            .expect("Arithmetic overflow")
+            .checked_div(100)
+            .expect("Arithmetic overflow");
+        remaining_amount = remaining_amount
+            .checked_add(ms_amount)
+            .expect("Arithmetic overflow");
+    }
+}
 
         // If no milestones, release full amount. If milestones, release remaining.
         let release_amount = if escrow.milestones.is_empty() {
@@ -559,7 +599,7 @@ impl MarketPayContract {
         // Mark all milestones as completed
         let mut updated_ms = soroban_sdk::Vec::new(&env);
         for mut ms in escrow.milestones.iter() {
-            ms.is_completed = true;
+            ms.released = true;
             updated_ms.push_back(ms);
         }
         escrow.milestones = updated_ms;
@@ -675,13 +715,18 @@ impl MarketPayContract {
 
         // Calculate remaining amount
         let mut remaining_amount: i128 = 0;
-        for ms in escrow.milestones.iter() {
-            if !ms.is_completed {
-                remaining_amount = remaining_amount
-                    .checked_add(ms.amount)
-                    .expect("Arithmetic overflow");
-            }
-        }
+    for ms in escrow.milestones.iter() {
+    if !ms.released {
+        let ms_amount = escrow.amount
+            .checked_mul(ms.percentage as i128)
+            .expect("Arithmetic overflow")
+            .checked_div(100)
+            .expect("Arithmetic overflow");
+        remaining_amount = remaining_amount
+            .checked_add(ms_amount)
+            .expect("Arithmetic overflow");
+    }
+}
         let release_amount = if escrow.milestones.is_empty() {
             escrow.amount
         } else {
@@ -710,7 +755,7 @@ impl MarketPayContract {
         // Mark all milestones as completed
         let mut updated_ms = soroban_sdk::Vec::new(&env);
         for mut ms in escrow.milestones.iter() {
-            ms.is_completed = true;
+            ms.released = true;
             updated_ms.push_back(ms);
         }
         escrow.milestones = updated_ms;
@@ -930,6 +975,81 @@ impl MarketPayContract {
             .set(&DataKey::DefaultTimeoutSeconds, &timeout_seconds);
         env.events()
             .publish((symbol_short!("timeout"), admin), timeout_seconds);
+    }
+
+    /// Admin freezes an escrow, blocking all further operations until unfrozen.
+    pub fn freeze_contract(env: Env, job_id: String, admin: Address) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can freeze a contract");
+        }
+
+        let mut escrow: Escrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        if escrow.status == EscrowStatus::Released
+            || escrow.status == EscrowStatus::Refunded
+            || escrow.status == EscrowStatus::Frozen
+        {
+            panic!("Cannot freeze escrow in current status");
+        }
+
+        escrow.status = EscrowStatus::Frozen;
+        env.storage()
+            .instance()
+            .set(&DataKey::Escrow(job_id.clone()), &escrow);
+
+        env.events().publish(
+            (symbol_short!("frozen"), job_id.clone()),
+            (admin, escrow.client, escrow.freelancer),
+        );
+    }
+
+    /// Admin unfreezes a previously frozen escrow, restoring it to the target status.
+    pub fn unfreeze_contract(env: Env, job_id: String, admin: Address, target_status: EscrowStatus) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can unfreeze a contract");
+        }
+
+        let mut escrow: Escrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        if escrow.status != EscrowStatus::Frozen {
+            panic!("Escrow is not frozen");
+        }
+
+        if target_status != EscrowStatus::Locked && target_status != EscrowStatus::InProgress {
+            panic!("Can only unfreeze to Locked or InProgress");
+        }
+
+        escrow.status = target_status;
+        env.storage()
+            .instance()
+            .set(&DataKey::Escrow(job_id.clone()), &escrow);
+
+        env.events().publish(
+            (symbol_short!("unfroz"), job_id.clone()),
+            (admin, escrow.client, escrow.freelancer),
+        );
     }
 
     // ─── On-chain Message Notarization ─────────────────────────────────────
@@ -1167,8 +1287,8 @@ impl MarketPayContract {
             panic!("Only participants can raise a dispute");
         }
 
-        if escrow.status == EscrowStatus::Released || escrow.status == EscrowStatus::Refunded {
-            panic!("Cannot dispute a resolved escrow");
+        if escrow.status == EscrowStatus::Released || escrow.status == EscrowStatus::Refunded || escrow.status == EscrowStatus::Frozen {
+            panic!("Cannot dispute a resolved or frozen escrow");
         }
         
         escrow.status = EscrowStatus::Disputed;
@@ -1184,7 +1304,7 @@ impl MarketPayContract {
 
     /// Milestone-based partial release.
     /// Can be called even if the escrow is Disputed, to release completed work.
-    pub fn partial_release(env: Env, job_id: String, milestone_index: u32, client: Address) {
+    pub fn release_milestone(env: Env, job_id: String, milestone_id: u32, client: Address) {
         client.require_auth();
 
         let mut escrow: Escrow = env
@@ -1203,30 +1323,42 @@ impl MarketPayContract {
             panic!("Cannot release milestone in current status");
         }
 
-        if milestone_index >= escrow.milestones.len() {
-            panic!("Invalid milestone index");
+       let mut idx: Option<u32> = None;
+        for i in 0..escrow.milestones.len() {
+            if escrow.milestones.get(i).unwrap().id == milestone_id {
+                idx = Some(i);
+                break;
+            }
         }
+        let milestone_index = idx.expect("Invalid milestone id");
 
         let mut milestone = escrow.milestones.get(milestone_index).unwrap();
-        if milestone.is_completed {
-            panic!("Milestone already completed");
+        if milestone.released {
+            panic!("Milestone already released");
         }
 
-        milestone.is_completed = true;
+        milestone.released = true;
         escrow.milestones.set(milestone_index, milestone.clone());
+
+        // Compute payout for this milestone's percentage of the total
+        let payout = escrow.amount
+            .checked_mul(milestone.percentage as i128)
+            .expect("Arithmetic overflow")
+            .checked_div(100)
+            .expect("Arithmetic overflow");
 
         // Transfer funds to freelancer
         let token_client = token::Client::new(&env, &escrow.token);
         token_client.transfer(
             &env.current_contract_address(),
             &escrow.freelancer,
-            &milestone.amount,
+            &payout,
         );
 
         // Check if all milestones are now completed
         let mut all_completed = true;
         for ms in escrow.milestones.iter() {
-            if !ms.is_completed {
+            if !ms.released {
                 all_completed = false;
                 break;
             }
@@ -1267,8 +1399,8 @@ impl MarketPayContract {
             .set(&DataKey::Escrow(job_id.clone()), &escrow);
 
         env.events().publish(
-            (symbol_short!("ms_rel"), job_id.clone()),
-            (escrow.client.clone(), escrow.freelancer.clone(), milestone_index, milestone.amount),
+            (Symbol::new(&env, "milestone_released"), job_id.clone()),
+            (escrow.client.clone(), escrow.freelancer.clone(), milestone_id, payout),
         );
     }
 
@@ -2203,8 +2335,8 @@ mod timeout_tests {
         let timeout_ledgers = 10u32;
         client.create_escrow(&job_id, &contract_client, &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 1000, milestones: None, timeout_ledgers: Some(timeout_ledgers), referrer: None });
 
-        // Start work changes status to InProgress
-        client.start_work(&job_id, &contract_client);
+        // Start work changes status to InProgress (freelancer starts work)
+        client.start_work(&job_id, &freelancer);
 
         let mut ledger_info = env.ledger().get();
         ledger_info.sequence_number += timeout_ledgers + 1;
@@ -2405,27 +2537,6 @@ mod regression_tests {
     use super::*;
     use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 
-    #[test]
-    #[should_panic(expected = "Arithmetic overflow")]
-    fn test_milestone_overflow_regression() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let id = env.register(MarketPayContract, ());
-        let client = MarketPayContractClient::new(&env, &id);
-
-        let admin = Address::generate(&env);
-        client.initialize(&admin);
-
-        let job_id = String::from_str(&env, "job1");
-        let freelancer = Address::generate(&env);
-        let token = Address::generate(&env);
-
-        let mut milestones = Vec::new(&env);
-        milestones.push_back(i128::MAX);
-        milestones.push_back(1);
-        
-        client.create_escrow(&job_id, &admin, &CreateEscrowParams { freelancer: freelancer.clone(), token: token.clone(), amount: i128::MAX, milestones: Some(milestones), timeout_ledgers: None, referrer: None });
-    }
 
     #[test]
     fn test_release_escrow_state_consistency_regression() {
@@ -2448,7 +2559,7 @@ mod regression_tests {
 
         let job_id = String::from_str(&env, "job1");
         contract_client.create_escrow(&job_id, &client.clone(), &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 1000, milestones: None, timeout_ledgers: None, referrer: None });
-        contract_client.start_work(&job_id, &client.clone());
+        contract_client.start_work(&job_id, &freelancer.clone());
 
         contract_client.release_escrow(&job_id, &client.clone());
 
@@ -2484,50 +2595,53 @@ mod regression_tests {
         let escrow = contract_client.get_escrow(&job_id);
         assert_eq!(escrow.status, EscrowStatus::Released);
     }
+
     #[test]
     fn test_partial_release() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let id = env.register(MarketPayContract, ());
-        let contract_client = MarketPayContractClient::new(&env, &id);
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(Market2903
+PayContract, ());
+    let contract_client = MarketPayContractClient::new(&env, &id);
 
-        let admin = Address::generate(&env);
-        contract_client.initialize(&admin);
+    let admin = Address::generate(&env);
+    contract_client.initialize(&admin);
 
-        let client = Address::generate(&env);
-        let freelancer = Address::generate(&env);
+    let client = Address::generate(&env);
+    let freelancer = Address::generate(&env);
 
-        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
-        let token_id = token_contract.address();
-        let token_client = token::Client::new(&env, &token_id);
-        let token_admin = token::StellarAssetClient::new(&env, &token_id);
-        token_admin.mint(&client, &1000);
+    let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
+    let token_id = token_contract.address();
+    let token_client = token::Client::new(&env, &token_id);
+    let token_admin = token::StellarAssetClient::new(&env, &token_id);
+    token_admin.mint(&client, &1000);
 
-        let mut milestones = Vec::new(&env);
-        milestones.push_back(400);
-        milestones.push_back(600);
+    let mut milestones = Vec::new(&env);
+    milestones.push_back(MilestoneInput { description: String::from_str(&env, "Design"), percentage: 40 });
+    milestones.push_back(MilestoneInput { description: String::from_str(&env, "Build"), percentage: 60 });
 
-        let job_id = String::from_str(&env, "job_partial");
-        contract_client.create_escrow(&job_id, &client.clone(), &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 1000, milestones: Some(milestones), timeout_ledgers: None, referrer: None });
-        contract_client.start_work(&job_id, &client.clone());
+    let job_id = String::from_str(&env, "job_partial");
+    contract_client.create_escrow(&job_id, &client.clone(), &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 1000, milestones: Some(milestones), timeout_ledgers: None, referrer: None });
+    contract_client.start_work(&job_id, &client.clone());
 
-        // Raise dispute to test that we can still partial release
-        contract_client.raise_dispute(&job_id, &client.clone());
+    // Raise dispute to test that we can still release milestones
+    contract_client.raise_dispute(&job_id, &client.clone());
 
-        contract_client.partial_release(&job_id, &0u32, &client.clone());
+    contract_client.release_milestone(&job_id, &0u32, &client.clone());
 
-        let escrow = contract_client.get_escrow(&job_id);
-        assert_eq!(escrow.status, EscrowStatus::Disputed);
-        assert_eq!(token_client.balance(&freelancer), 400);
-        assert_eq!(escrow.milestones.get(0).unwrap().is_completed, true);
-        assert_eq!(escrow.milestones.get(1).unwrap().is_completed, false);
+    let escrow = contract_client.get_escrow(&job_id);
+    assert_eq!(escrow.status, EscrowStatus::Disputed);
+    assert_eq!(token_client.balance(&freelancer), 400);
+    assert_eq!(escrow.milestones.get(0).unwrap().released, true);
+    assert_eq!(escrow.milestones.get(1).unwrap().released, false);
 
-        // Release final milestone
-        contract_client.partial_release(&job_id, &1u32, &client.clone());
-        let escrow2 = contract_client.get_escrow(&job_id);
-        assert_eq!(escrow2.status, EscrowStatus::Released);
-        assert_eq!(token_client.balance(&freelancer), 1000);
-    }
+    // Release final milestone
+    contract_client.release_milestone(&job_id, &1u32, &client.clone());
+    let escrow2 = contract_client.get_escrow(&job_id);
+    assert_eq!(escrow2.status, EscrowStatus::Released);
+    assert_eq!(token_client.balance(&freelancer), 1000);
+}
+
 }
 
 #[cfg(test)]
@@ -2615,7 +2729,7 @@ mod event_tests {
     use super::*;
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::testutils::Events;
-    use soroban_sdk::{Address, Env, String, Vec};
+    use soroban_sdk::{Address, Env, String, Symbol, TryFromVal, Vec};
 
     fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, Address) {
         env.mock_all_auths();
@@ -2634,12 +2748,16 @@ mod event_tests {
         (client, contract_client, freelancer, token_id)
     }
 
-    fn get_event_topic0_str(env: &Env, idx: u32) -> std::string::String {
-        let events = env.events().all();
-        let event = events.get(idx).unwrap();
-        let topic0 = event.1.get(0).unwrap();
+fn get_event_topic0_str(env: &Env, idx: u32) -> std::string::String {
+    let events = env.events().all();
+    let event = events.get(idx).unwrap();
+    let topic0 = event.1.get(0).unwrap();
+    if let Ok(sym) = Symbol::try_from_val(env, &topic0) {
+        std::format!("{:?}", sym)
+    } else {
         std::format!("{:?}", topic0)
     }
+}
 
     #[test]
     fn test_create_escrow_emits_event() {
@@ -2668,7 +2786,7 @@ mod event_tests {
             &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
         );
 
-        client.start_work(&job_id, &contract_client);
+        client.start_work(&job_id, &freelancer);
 
         assert!(
             get_event_topic0_str(&env, env.events().all().len() - 1).contains("work_strt"),
@@ -2684,7 +2802,7 @@ mod event_tests {
             &job_id, &contract_client,
             &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
         );
-        client.start_work(&job_id, &contract_client);
+        client.start_work(&job_id, &freelancer);
 
         client.release_escrow(&job_id, &contract_client);
 
@@ -2733,18 +2851,18 @@ mod event_tests {
         let (client, contract_client, freelancer, token_id) = setup(&env);
         let job_id = String::from_str(&env, "evt-job-6");
         let mut milestones = Vec::new(&env);
-        milestones.push_back(400);
-        milestones.push_back(600);
+        milestones.push_back(MilestoneInput { description: String::from_str(&env, "Design"), percentage: 40 });
+        milestones.push_back(MilestoneInput { description: String::from_str(&env, "Build"), percentage: 60 });
         client.create_escrow(
             &job_id, &contract_client,
             &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 1000, milestones: Some(milestones), timeout_ledgers: None, referrer: None },
         );
-        client.start_work(&job_id, &contract_client);
+        client.start_work(&job_id, &freelancer);
 
-        client.partial_release(&job_id, &0u32, &contract_client);
+        client.release_milestone(&job_id, &0u32, &contract_client);
 
         assert!(
-            get_event_topic0_str(&env, env.events().all().len() - 1).contains("ms_rel"),
+            get_event_topic0_str(&env, env.events().all().len() - 1).contains("milestone_released"),
         );
     }
 
@@ -2763,7 +2881,7 @@ mod event_tests {
             "Missing escrow_cr after create_escrow",
         );
 
-        client.start_work(&job_id, &contract_client);
+        client.start_work(&job_id, &freelancer);
         assert!(
             get_event_topic0_str(&env, env.events().all().len() - 1).contains("work_strt"),
             "Missing work_strt after start_work",
@@ -2793,7 +2911,7 @@ mod sealed_bid_tests {
         env.crypto().sha256(&payload).into()
     }
 
-    fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, String) {
+    fn setup(env: &Env) -> (Address, MarketPayContractClient, Address, Address, String) {
         env.mock_all_auths();
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(env, &id);
@@ -2802,13 +2920,13 @@ mod sealed_bid_tests {
         client.initialize(&admin);
         let job_id = String::from_str(env, "sealed-bid-job-1");
         client.commit_budget(&job_id, &1_000, &owner);
-        (client, owner, admin, job_id)
+        (id, client, owner, admin, job_id)
     }
 
     #[test]
     fn test_reveal_bid_verifies_commitment() {
         let env = Env::default();
-        let (client, owner, _admin, job_id) = setup(&env);
+        let (_id, client, owner, _admin, job_id) = setup(&env);
         let freelancer = Address::generate(&env);
         let nonce = BytesN::from_array(&env, &[7u8; 32]);
         let amount = 450i128;
@@ -2829,7 +2947,7 @@ mod sealed_bid_tests {
     #[should_panic(expected = "Commitment verification failed")]
     fn test_reveal_bid_with_invalid_nonce_rejected() {
         let env = Env::default();
-        let (client, owner, _admin, job_id) = setup(&env);
+        let (_id, client, owner, _admin, job_id) = setup(&env);
         let freelancer = Address::generate(&env);
         let amount = 500i128;
         let nonce = BytesN::from_array(&env, &[1u8; 32]);
@@ -2845,7 +2963,7 @@ mod sealed_bid_tests {
     #[should_panic(expected = "Reveal window has closed")]
     fn test_late_reveal_rejected() {
         let env = Env::default();
-        let (client, owner, _admin, job_id) = setup(&env);
+        let (id, client, owner, _admin, job_id) = setup(&env);
         let freelancer = Address::generate(&env);
         let nonce = BytesN::from_array(&env, &[3u8; 32]);
         let amount = 525i128;
@@ -2853,6 +2971,11 @@ mod sealed_bid_tests {
 
         client.submit_bid_commitment(&job_id, &freelancer, &commitment);
         client.close_bidding(&job_id, &owner);
+
+        // Extend instance storage TTL so it survives the ledger jump below.
+        env.as_contract(&id, || {
+            env.storage().instance().extend_ttl(20_000, 20_000);
+        });
 
         let mut ledger = env.ledger().get();
         ledger.sequence_number += REVEAL_WINDOW_LEDGERS + 1;
@@ -2942,5 +3065,115 @@ mod deliverable_oracle_tests {
 
         let token_client = token::Client::new(&env, &token_id);
         assert_eq!(token_client.balance(&freelancer), 0);
+    }
+}
+
+
+#[cfg(test)]
+mod milestone_pct_tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
+
+    fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, Address) {
+        env.mock_all_auths();
+        let id = env.register(MarketPayContract, ());
+        let contract = MarketPayContractClient::new(env, &id);
+        let admin = Address::generate(env);
+        contract.initialize(&admin);
+
+        let client = Address::generate(env);
+        let freelancer = Address::generate(env);
+        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
+        let token_id = token_contract.address();
+        let token_admin = token::StellarAssetClient::new(env, &token_id);
+        token_admin.mint(&client, &1_000);
+
+        (contract, client, freelancer, token_id)
+    }
+
+    #[test]
+    fn test_create_escrow_with_milestones_valid() {
+        let env = Env::default();
+        let (contract, client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ms-job-1");
+
+        let mut ms = Vec::new(&env);
+        ms.push_back(MilestoneInput { description: String::from_str(&env, "Phase 1"), percentage: 40 });
+        ms.push_back(MilestoneInput { description: String::from_str(&env, "Phase 2"), percentage: 60 });
+
+        contract.create_escrow_with_milestones(&job_id, &client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 1_000,
+            milestones: Some(ms), timeout_ledgers: None, referrer: None,
+        });
+
+        let escrow = contract.get_escrow(&job_id);
+        assert_eq!(escrow.milestones.len(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "Milestone percentages must sum to 100")]
+    fn test_invalid_percentages_rejected() {
+        let env = Env::default();
+        let (contract, client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ms-job-2");
+
+        let mut ms = Vec::new(&env);
+        ms.push_back(MilestoneInput { description: String::from_str(&env, "Phase 1"), percentage: 40 });
+        ms.push_back(MilestoneInput { description: String::from_str(&env, "Phase 2"), percentage: 50 });
+
+        contract.create_escrow_with_milestones(&job_id, &client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 1_000,
+            milestones: Some(ms), timeout_ledgers: None, referrer: None,
+        });
+    }
+
+    #[test]
+    fn test_release_first_milestone() {
+        let env = Env::default();
+        let (contract, client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ms-job-3");
+
+        let mut ms = Vec::new(&env);
+        ms.push_back(MilestoneInput { description: String::from_str(&env, "Phase 1"), percentage: 40 });
+        ms.push_back(MilestoneInput { description: String::from_str(&env, "Phase 2"), percentage: 60 });
+
+        contract.create_escrow_with_milestones(&job_id, &client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 1_000,
+            milestones: Some(ms), timeout_ledgers: None, referrer: None,
+        });
+        contract.start_work(&job_id, &client);
+        contract.release_milestone(&job_id, &0u32, &client);
+
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&freelancer), 400);
+
+        let escrow = contract.get_escrow(&job_id);
+        assert_eq!(escrow.status, EscrowStatus::InProgress);
+        assert_eq!(escrow.milestones.get(0).unwrap().released, true);
+    }
+
+    #[test]
+    fn test_release_all_milestones_marks_released() {
+        let env = Env::default();
+        let (contract, client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ms-job-4");
+
+        let mut ms = Vec::new(&env);
+        ms.push_back(MilestoneInput { description: String::from_str(&env, "Phase 1"), percentage: 40 });
+        ms.push_back(MilestoneInput { description: String::from_str(&env, "Phase 2"), percentage: 60 });
+
+        contract.create_escrow_with_milestones(&job_id, &client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 1_000,
+            milestones: Some(ms), timeout_ledgers: None, referrer: None,
+        });
+        contract.start_work(&job_id, &client);
+        contract.release_milestone(&job_id, &0u32, &client);
+        contract.release_milestone(&job_id, &1u32, &client);
+
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&freelancer), 1_000);
+
+        let escrow = contract.get_escrow(&job_id);
+        assert_eq!(escrow.status, EscrowStatus::Released);
     }
 }

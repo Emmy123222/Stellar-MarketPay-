@@ -36,7 +36,7 @@ function createCorsOptions({ env = process.env, logger = console } = {}) {
       return cb(new Error("CORS blocked"));
     },
     methods: ["GET", "POST", "PATCH", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-API-Key"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-XSRF-Token"],
     credentials: true,
   };
 }

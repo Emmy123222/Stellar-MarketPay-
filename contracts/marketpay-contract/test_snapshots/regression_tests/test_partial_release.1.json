@@ -93,16 +93,44 @@
                       "val": {
                         "vec": [
                           {
-                            "i128": {
-                              "hi": 0,
-                              "lo": 400
-                            }
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "description"
+                                },
+                                "val": {
+                                  "string": "Design"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "percentage"
+                                },
+                                "val": {
+                                  "u32": 40
+                                }
+                              }
+                            ]
                           },
                           {
-                            "i128": {
-                              "hi": 0,
-                              "lo": 600
-                            }
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "description"
+                                },
+                                "val": {
+                                  "string": "Build"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "percentage"
+                                },
+                                "val": {
+                                  "u32": 60
+                                }
+                              }
+                            ]
                           }
                         ]
                       }
@@ -211,7 +239,7 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "partial_release",
+              "function_name": "release_milestone",
               "args": [
                 {
                   "string": "job_partial"
@@ -238,7 +266,7 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "partial_release",
+              "function_name": "release_milestone",
               "args": [
                 {
                   "string": "job_partial"
@@ -479,18 +507,31 @@
                                     "map": [
                                       {
                                         "key": {
-                                          "symbol": "amount"
+                                          "symbol": "description"
                                         },
                                         "val": {
-                                          "i128": {
-                                            "hi": 0,
-                                            "lo": 400
-                                          }
+                                          "string": "Design"
                                         }
                                       },
                                       {
                                         "key": {
-                                          "symbol": "is_completed"
+                                          "symbol": "id"
+                                        },
+                                        "val": {
+                                          "u32": 0
+                                        }
+                                      },
+                                      {
+                                        "key": {
+                                          "symbol": "percentage"
+                                        },
+                                        "val": {
+                                          "u32": 40
+                                        }
+                                      },
+                                      {
+                                        "key": {
+                                          "symbol": "released"
                                         },
                                         "val": {
                                           "bool": true
@@ -502,18 +543,31 @@
                                     "map": [
                                       {
                                         "key": {
-                                          "symbol": "amount"
+                                          "symbol": "description"
                                         },
                                         "val": {
-                                          "i128": {
-                                            "hi": 0,
-                                            "lo": 600
-                                          }
+                                          "string": "Build"
                                         }
                                       },
                                       {
                                         "key": {
-                                          "symbol": "is_completed"
+                                          "symbol": "id"
+                                        },
+                                        "val": {
+                                          "u32": 1
+                                        }
+                                      },
+                                      {
+                                        "key": {
+                                          "symbol": "percentage"
+                                        },
+                                        "val": {
+                                          "u32": 60
+                                        }
+                                      },
+                                      {
+                                        "key": {
+                                          "symbol": "released"
                                         },
                                         "val": {
                                           "bool": true

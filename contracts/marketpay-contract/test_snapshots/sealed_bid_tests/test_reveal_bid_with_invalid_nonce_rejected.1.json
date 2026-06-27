@@ -237,7 +237,7 @@
                                 "symbol": "reveal_deadline_ledger"
                               },
                               "val": {
-                                "u32": 1000
+                                "u32": 17280
                               }
                             }
                           ]

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 interface KeyboardShortcutsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  showJobDetailShortcuts?: boolean;
 }
 
 function Key({ children }: { children: string }) {
@@ -13,7 +14,7 @@ function Key({ children }: { children: string }) {
   );
 }
 
-export default function KeyboardShortcutsModal({ isOpen, onClose }: KeyboardShortcutsModalProps) {
+export default function KeyboardShortcutsModal({ isOpen, onClose, showJobDetailShortcuts }: KeyboardShortcutsModalProps) {
   useEffect(() => {
     if (!isOpen) return;
 
@@ -39,6 +40,13 @@ export default function KeyboardShortcutsModal({ isOpen, onClose }: KeyboardShor
     { keys: ["/"], description: "Focus search bar" },
     { keys: ["B"], description: "Toggle bookmark on focused job" },
   ];
+
+  if (showJobDetailShortcuts) {
+    shortcuts.push(
+      { keys: ["A"], description: "Open apply flow (job detail page)" },
+      { keys: ["Esc"], description: "Back to job listings (job detail page)" }
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -10,6 +10,7 @@ import {
   Filler,
 } from "chart.js";
 import { fetchXlmPriceHistory } from "@/lib/api";
+import { useApi } from "@/hooks/useApi";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler);
 
@@ -21,11 +22,6 @@ function formatUsd(value: number) {
 
 export default function XlmPriceWidget() {
   const [collapsed, setCollapsed] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [points, setPoints] = useState<Array<{ timestamp: number; priceUsd: number }>>([]);
-  const [currentPriceUsd, setCurrentPriceUsd] = useState<number | null>(null);
-  const [change24hPercent, setChange24hPercent] = useState<number | null>(null);
 
   useEffect(() => {
     try {
@@ -36,17 +32,15 @@ export default function XlmPriceWidget() {
     }
   }, []);
 
-  useEffect(() => {
-    setLoading(true);
-    fetchXlmPriceHistory()
-      .then((data) => {
-        setPoints(data.points || []);
-        setCurrentPriceUsd(data.currentPriceUsd);
-        setChange24hPercent(data.change24hPercent);
-      })
-      .catch(() => setError("Failed to load XLM price chart."))
-      .finally(() => setLoading(false));
-  }, []);
+  const { data, error, isLoading, isValidating } = useApi(
+    "xlm-price-history",
+    () => fetchXlmPriceHistory(),
+    { refreshInterval: 60_000 },
+  );
+
+  const points           = data?.points ?? [];
+  const currentPriceUsd  = data?.currentPriceUsd ?? null;
+  const change24hPercent = data?.change24hPercent ?? null;
 
   const chartData = useMemo(
     () => ({
@@ -103,7 +97,12 @@ export default function XlmPriceWidget() {
   return (
     <div className="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18">
       <div className="flex items-center justify-between">
-        <h3 className="font-display text-lg font-semibold text-amber-100">XLM / USD</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="font-display text-lg font-semibold text-amber-100">XLM / USD</h3>
+          {isValidating && !isLoading && (
+            <span className="text-xs text-amber-600 animate-pulse">Refreshing…</span>
+          )}
+        </div>
         <button
           type="button"
           onClick={toggleCollapsed}
@@ -115,10 +114,10 @@ export default function XlmPriceWidget() {
 
       {!collapsed && (
         <div className="mt-3 space-y-3">
-          {loading ? (
+          {isLoading ? (
             <div className="h-28 rounded-lg bg-market-500/10 animate-pulse" />
           ) : error ? (
-            <p className="text-sm text-red-400">{error}</p>
+            <p className="text-sm text-red-400">Failed to load XLM price chart.</p>
           ) : (
             <>
               <div className="flex items-end justify-between">

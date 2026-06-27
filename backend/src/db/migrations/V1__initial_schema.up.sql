@@ -237,8 +237,41 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ─────────────────────────────────────────
+-- referrals — tracks who referred whom and bonus payout status
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS referrals (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  referrer_address TEXT        NOT NULL REFERENCES profiles(public_key),
+  referee_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  job_id           UUID        REFERENCES jobs(id),          -- first job that triggered payout
+  status           TEXT        NOT NULL DEFAULT 'pending',   -- pending | paid | ineligible
+  payout_amount    NUMERIC(20,7),                            -- XLM paid to referrer (2% of job earnings)
+  paid_at          TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (referrer_address, referee_address)                 -- one referral relationship per pair
+);
+
 CREATE INDEX IF NOT EXISTS referrals_referrer_address_idx ON referrals(referrer_address);
-CREATE INDEX IF NOT EXISTS referrals_job_id_idx          ON referrals(job_id);
+CREATE INDEX IF NOT EXISTS referrals_referee_address_idx  ON referrals(referee_address);
+CREATE INDEX IF NOT EXISTS referrals_job_id_idx           ON referrals(job_id);
+
+-- ─────────────────────────────────────────
+-- referral_payouts — audit log of every XLM bonus sent
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS referral_payouts (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  referral_id      UUID        NOT NULL REFERENCES referrals(id),
+  referrer_address TEXT        NOT NULL REFERENCES profiles(public_key),
+  referee_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  job_id           UUID        NOT NULL REFERENCES jobs(id),
+  amount_xlm       NUMERIC(20,7) NOT NULL,
+  contract_tx_hash TEXT,                                     -- on-chain tx hash from release_escrow
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS referral_payouts_referrer_idx ON referral_payouts(referrer_address);
+CREATE INDEX IF NOT EXISTS referral_payouts_referee_idx  ON referral_payouts(referee_address);
 
 -- ─────────────────────────────────────────
 -- scope_sessions (real-time collaborative editor — Issue #227)
@@ -303,3 +336,80 @@ CREATE TABLE IF NOT EXISTS notification_preferences (
 );
 
 CREATE INDEX IF NOT EXISTS notification_preferences_user_address_idx ON notification_preferences(user_address);
+
+-- ─────────────────────────────────────────
+-- time_entries  (Issue #346 — time tracking)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS time_entries (
+  id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id              UUID        NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  freelancer_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  duration_minutes    INTEGER     NOT NULL CHECK (duration_minutes > 0 AND duration_minutes <= 1440),
+  description         TEXT,
+  started_at          TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS time_entries_job_id_idx         ON time_entries(job_id);
+CREATE INDEX IF NOT EXISTS time_entries_freelancer_idx     ON time_entries(freelancer_address);
+
+-- ─────────────────────────────────────────
+-- time_invoices  (Issue #346 — billing)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS time_invoices (
+  id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id              UUID        NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  freelancer_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  client_address      TEXT        NOT NULL REFERENCES profiles(public_key),
+  total_minutes       INTEGER     NOT NULL CHECK (total_minutes > 0),
+  hourly_rate_xlm     NUMERIC(20,7) NOT NULL,
+  total_amount_xlm    NUMERIC(20,7) NOT NULL,
+  status              TEXT        NOT NULL DEFAULT 'pending'
+                                  CHECK (status IN ('pending', 'approved', 'rejected')),
+  entry_ids           UUID[]      NOT NULL DEFAULT '{}',
+  contract_tx_hash    TEXT,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS time_invoices_job_id_idx        ON time_invoices(job_id);
+CREATE INDEX IF NOT EXISTS time_invoices_freelancer_idx    ON time_invoices(freelancer_address);
+CREATE INDEX IF NOT EXISTS time_invoices_client_idx        ON time_invoices(client_address);
+
+-- ─────────────────────────────────────────
+-- job_invitations  (Issue #342 — direct invitations)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS job_invitations (
+  id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id              UUID        NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  client_address      TEXT        NOT NULL REFERENCES profiles(public_key),
+  freelancer_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  status              TEXT        NOT NULL DEFAULT 'pending'
+                                  CHECK (status IN ('pending', 'accepted', 'declined')),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (job_id, freelancer_address)
+);
+
+CREATE INDEX IF NOT EXISTS job_invitations_freelancer_idx ON job_invitations(freelancer_address);
+CREATE INDEX IF NOT EXISTS job_invitations_job_id_idx     ON job_invitations(job_id);
+
+-- ─────────────────────────────────────────
+-- notification_queue
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS notification_queue (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recipient_address   TEXT NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
+  notification_type   TEXT NOT NULL,
+  event_type          TEXT NOT NULL,
+  job_id              UUID REFERENCES jobs(id) ON DELETE CASCADE,
+  payload             JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status              TEXT NOT NULL DEFAULT 'pending',
+  retry_count         INTEGER NOT NULL DEFAULT 0,
+  error_message       TEXT,
+  sent_at             TIMESTAMPTZ,
+  last_attempt_at     TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS notification_queue_status_retry_idx ON notification_queue(status, retry_count);
+CREATE INDEX IF NOT EXISTS notification_queue_recipient_idx ON notification_queue(recipient_address);

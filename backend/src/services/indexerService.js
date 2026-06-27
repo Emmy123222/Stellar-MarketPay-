@@ -3,6 +3,7 @@
 const { Horizon } = require("@stellar/stellar-sdk");
 const pool = require("../db/pool");
 const { requireEnv } = require("../config/env");
+const horizonClient = require("../utils/horizonClient");
 
 function parseJobIdFromMemo(memoValue) {
   if (!memoValue || typeof memoValue !== "string") return null;
@@ -81,7 +82,10 @@ class IndexerService {
     const txMemo = tx.memo || null;
     const ledgerNumber = tx.ledger_attr || tx.ledger || null;
     const matchedJobId = parseJobIdFromMemo(txMemo);
-    const operations = await this.horizon.operations().forTransaction(tx.hash).limit(200).call();
+    const operations = await horizonClient.callWithLimit(
+      () => this.horizon.operations().forTransaction(tx.hash).limit(200).call(),
+      "operations.forTransaction"
+    );
     const records = operations?.records || [];
 
     const client = await pool.connect();
