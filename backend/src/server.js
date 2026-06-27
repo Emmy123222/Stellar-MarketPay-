@@ -66,7 +66,7 @@ const { migrate, getCurrentMigrationVersion, getExpectedMigrationVersion, valida
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
-const { startSavedSearchAlertChecker } = require("./services/savedSearchAlertService");
+const { startWsEventCleanup } = require("./services/wsEventCleanupService");
 
 const serviceLogger = createServiceLogger('server');
 const app  = express();
@@ -144,6 +144,7 @@ setInterval(checkPoolHealth, 1000).unref();
 
 const realtimeClients = new Set();
 const userClients = new Map(); // userAddress -> Set<WebSocket>
+const userLastSeen = new Map(); // userAddress -> Date (last disconnect time)
 const scopeSessionClients = new Map();
 
 /**
@@ -177,6 +178,15 @@ function broadcastToUser(userAddress, event, payload) {
     for (const ws of clients) {
       if (ws.readyState === WS_OPEN) ws.send(message);
     }
+  }
+}
+
+function broadcastToUser(userAddress, event, payload) {
+  const sockets = userClients.get(userAddress);
+  if (!sockets) return;
+  const message = JSON.stringify({ event, payload });
+  for (const ws of sockets) {
+    if (ws.readyState === WS_OPEN) ws.send(message);
   }
 }
 
@@ -474,11 +484,64 @@ wsServer.on("connection", async (ws, request) => {
 
   if (url.pathname === "/ws/realtime") {
     realtimeClients.add(ws);
-    refreshWsMetrics();
+    wsConnectionsActive.set(realtimeClients.size);
+
+    // Authenticate user from token query param for per-user delivery
+    let userAddress = null;
+    const token = url.searchParams.get("token");
+    if (token) {
+      try {
+        const { JWT_SECRET } = require("./middleware/auth");
+        const jwt = require("jsonwebtoken");
+        const decoded = jwt.verify(token, JWT_SECRET);
+        userAddress = decoded.publicKey;
+        if (userAddress) {
+          if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
+          userClients.get(userAddress).add(ws);
+        }
+      } catch { /* invalid token — treat as anonymous */ }
+    }
+
     sendJson(ws, "connected", { channel: "realtime" });
+
+    // Replay notifications missed while the user was disconnected
+    if (userAddress) {
+      try {
+        const lastSeen = userLastSeen.get(userAddress) || new Date(0);
+        const { rows: recent } = await pool.query(
+          `SELECT * FROM notifications WHERE user_address = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
+          [userAddress, 20],
+        );
+        const missed = recent
+          .filter((n) => new Date(n.created_at) > lastSeen)
+          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at) || a.id - b.id);
+        for (const row of missed) {
+          sendJson(ws, "notification:created", {
+            id: row.id,
+            userAddress: row.user_address,
+            type: row.type,
+            title: row.title,
+            body: row.body,
+            read: row.read,
+            jobId: row.job_id,
+            linkPath: row.link_path || (row.job_id ? `/jobs/${row.job_id}` : "/notifications"),
+            createdAt: row.created_at,
+          });
+        }
+      } catch { /* non-fatal */ }
+    }
+
     ws.on("close", () => {
       realtimeClients.delete(ws);
-      refreshWsMetrics();
+      wsConnectionsActive.set(realtimeClients.size);
+      if (userAddress) {
+        const sockets = userClients.get(userAddress);
+        if (sockets) {
+          sockets.delete(ws);
+          if (!sockets.size) userClients.delete(userAddress);
+        }
+        userLastSeen.set(userAddress, new Date());
+      }
     });
     return;
   }
@@ -929,5 +992,6 @@ app._ws = {
 };
 
 app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
+app._ws = { server, wsServer, userClients, realtimeClients, userLastSeen };
 
 module.exports = app;
