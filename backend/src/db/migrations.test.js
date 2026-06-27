@@ -8,9 +8,7 @@ const {
   getExpectedMigrationVersion,
 } = require("./migrate");
 
-const LATEST_VERSION = getExpectedMigrationVersion();
-
-describe(`Database Migrations (V1–V${LATEST_VERSION})`, () => {
+describe("Database Migrations (V1–V17)", () => {
   let hasPostgres = false;
 
   beforeAll(async () => {
@@ -34,9 +32,8 @@ describe(`Database Migrations (V1–V${LATEST_VERSION})`, () => {
   it("loads all migration pairs correctly", () => {
     const migrations = loadMigrationPairs();
     expect(migrations.length).toBeGreaterThan(0);
-    // Ensure V1 onward are present
     expect(migrations[0].version).toBe(1);
-    expect(migrations[migrations.length - 1].version).toBe(getExpectedMigrationVersion());
+    expect(migrations[migrations.length - 1].version).toBe(17);
   });
 
   it("applies migrations sequentially and validates schema, foreign keys, and unique indexes after each", async () => {

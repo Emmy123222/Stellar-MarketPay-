@@ -120,3 +120,5 @@ setInterval(() => {
 
 module.exports = pool;
 module.exports.getPoolStats = getPoolStats;
+module.exports.readPool = pool;
+module.exports.writePool = pool;
