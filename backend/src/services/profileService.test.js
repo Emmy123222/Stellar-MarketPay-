@@ -1,3 +1,5 @@
+process.env.DATABASE_ENCRYPTION_KEY = "test-encryption-key-32chars!!!!!";
+
 jest.mock("../db/pool", () => ({
   query: jest.fn(),
 }));
