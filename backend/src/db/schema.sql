@@ -489,3 +489,15 @@ ALTER TABLE jobs
 
 ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+-- ─────────────────────────────────────────
+-- ledger_timestamps  (Issue #443 — V12 migration)
+-- Maps Stellar ledger sequence numbers to UTC close timestamps so that
+-- timeout_ledger values stored on escrows can be displayed as real dates.
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ledger_timestamps (
+  ledger      INTEGER     PRIMARY KEY,
+  timestamp   TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ledger_timestamps_timestamp_idx ON ledger_timestamps(timestamp);
