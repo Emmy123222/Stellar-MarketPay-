@@ -74,14 +74,18 @@ const VALID_STATUSES = [
 // subquery that previously ran once per job row (N+1 pattern).
 const JOB_SELECT_CLAUSE = `
   SELECT jobs.*,
-         COALESCE(agg.skills, '{}') AS skills
+         COALESCE(agg.skills, '{}') AS skills,
+         cat.slug  AS category_slug,
+         cat.name  AS category_name,
+         cat.id    AS category_id_resolved
   FROM   jobs
   LEFT JOIN LATERAL (
     SELECT array_agg(s.display_name ORDER BY s.display_name) AS skills
     FROM   job_skills js
     JOIN   skills s ON s.id = js.skill_id
     WHERE  js.job_id = jobs.id
-  ) agg ON true`;
+  ) agg ON true
+  LEFT JOIN categories cat ON cat.id = jobs.category_id`;
 
 const VALID_CATEGORIES = [
   "Smart Contracts",
@@ -197,7 +201,9 @@ function rowToJob(row) {
     description: row.description,
     budget: row.budget,
     currency: row.currency || "XLM",
-    category: row.category,
+    category: row.category_name || row.category,
+    categorySlug: row.category_slug || null,
+    categoryId: row.category_id_resolved || row.category_id || null,
     skills: row.skills,
     status: row.status,
     clientAddress: row.client_address,
@@ -256,7 +262,7 @@ function rowToJob(row) {
  *   clientAddress: 'GBX...',
  * });
  */
-async function createJob({ title, description, budget, currency, category, skills, deadline, timezone, clientAddress, screeningQuestions, milestones, visibility = "public" }) {
+async function createJob({ title, description, budget, currency, category, categorySlug, skills, deadline, timezone, clientAddress, screeningQuestions, milestones, visibility = "public" }) {
   validatePublicKey(clientAddress);
 
   if (!title || title.length < 10) {
@@ -279,11 +285,30 @@ async function createJob({ title, description, budget, currency, category, skill
     e.status = 400;
     throw e;
   }
-  if (!VALID_CATEGORIES.includes(category)) {
+  // Resolve category: accept either a slug (e.g. "frontend-development") or a legacy name.
+  // categorySlug takes precedence; falls back to category name lookup.
+  const categoryLookupVal = categorySlug || category;
+  let resolvedCategoryId = null;
+  let resolvedCategoryName = category;
+
+  if (categoryLookupVal) {
+    const { rows: catRows } = await pool.query(
+      "SELECT id, name FROM categories WHERE slug = $1 OR LOWER(name) = LOWER($2) LIMIT 1",
+      [categoryLookupVal, categoryLookupVal]
+    );
+    if (catRows.length) {
+      resolvedCategoryId = catRows[0].id;
+      resolvedCategoryName = catRows[0].name;
+    }
+  }
+
+  // Still validate against VALID_CATEGORIES for backward-compat when no DB match found
+  if (!resolvedCategoryId && !VALID_CATEGORIES.includes(category)) {
     const e = new Error("Invalid category");
     e.status = 400;
     throw e;
   }
+
   const jobVisibility = visibility || "public";
   if (!["public", "private", "invite_only"].includes(jobVisibility)) {
     const e = new Error("Visibility must be public, private, or invite_only");
@@ -304,8 +329,8 @@ async function createJob({ title, description, budget, currency, category, skill
     const { rows } = await client.query(
       `
       INSERT INTO jobs
-        (title, description, budget, currency, category, status, client_address, deadline, timezone, screening_questions, milestones, visibility, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8, $9, $10, $11, NOW(), NOW())
+        (title, description, budget, currency, category, category_id, status, client_address, deadline, timezone, screening_questions, milestones, visibility, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, $11, $12, NOW(), NOW())
       RETURNING *
       `,
       [
@@ -313,7 +338,8 @@ async function createJob({ title, description, budget, currency, category, skill
         description.trim(),
         parseFloat(budget).toFixed(7),
         currency || "XLM",
-        category,
+        resolvedCategoryName,
+        resolvedCategoryId,
         clientAddress,
         deadline || null,
         timezone || null,
@@ -483,7 +509,11 @@ async function listJobs({
 
   if (category) {
     params.push(category);
-    conditions.push(`category = $${params.length}`);
+    // Support slug (e.g. 'frontend-development') OR legacy name (e.g. 'Frontend Development')
+    conditions.push(`(
+      EXISTS (SELECT 1 FROM categories c WHERE c.id = jobs.category_id AND (c.slug = $${params.length} OR LOWER(c.name) = LOWER($${params.length})))
+      OR jobs.category = $${params.length}
+    )`);
   }
 
   const minBudget = parseFloat(min_budget);
