@@ -1,5 +1,7 @@
 -- Idempotent schema.  Run via migrate.js on every startup.
 
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- ─────────────────────────────────────────
 -- profiles
 -- ─────────────────────────────────────────
@@ -29,6 +31,28 @@ ALTER TABLE profiles
 ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS blocked_addresses TEXT[] NOT NULL DEFAULT '{}';
 
+-- Weekly digest fields (V5)
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS email                   TEXT,
+  ADD COLUMN IF NOT EXISTS last_login_at           TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS digest_unsubscribe_token UUID NOT NULL DEFAULT gen_random_uuid();
+
+CREATE UNIQUE INDEX IF NOT EXISTS profiles_digest_unsubscribe_token_idx
+  ON profiles(digest_unsubscribe_token);
+
+-- V12 columns (Issues #553)
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS encryption_public_key TEXT;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS preferred_language TEXT NOT NULL DEFAULT 'en';
+
+CREATE INDEX IF NOT EXISTS profiles_deleted_at_idx ON profiles(deleted_at)
+  WHERE deleted_at IS NOT NULL;
+
 -- ─────────────────────────────────────────
 -- jobs
 -- ─────────────────────────────────────────
@@ -39,7 +63,6 @@ CREATE TABLE IF NOT EXISTS jobs (
   budget              NUMERIC(20,7) NOT NULL,
   currency            TEXT        NOT NULL DEFAULT 'XLM',
   category            TEXT        NOT NULL,
-  skills              TEXT[]      NOT NULL DEFAULT '{}',
   status              TEXT        NOT NULL DEFAULT 'open',
   client_address      TEXT        NOT NULL REFERENCES profiles(public_key),
   freelancer_address  TEXT        REFERENCES profiles(public_key),
@@ -48,6 +71,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   deadline            TIMESTAMPTZ,
   timezone            TEXT,
   screening_questions TEXT[]      NOT NULL DEFAULT '{}',
+  milestones          JSONB       NOT NULL DEFAULT '[]'::jsonb,
   dispute_reason      TEXT,
   dispute_description TEXT,
   disputed_by         TEXT        REFERENCES profiles(public_key),
@@ -80,7 +104,24 @@ ALTER TABLE jobs
   ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS extended_count INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS extended_until TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS bidding_closed_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS tfidf_vector JSONB;
+
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS jobs_deleted_at_idx ON jobs(deleted_at)
+  WHERE deleted_at IS NOT NULL;
+
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS job_search_vector tsvector
+  GENERATED ALWAYS AS (
+    setweight(to_tsvector('simple', COALESCE(title, '')), 'A') ||
+    setweight(to_tsvector('simple', COALESCE(description, '')), 'B')
+  ) STORED;
 
 -- enforce valid visibility values for all rows
 DO $$
@@ -95,6 +136,22 @@ BEGIN
       CHECK (visibility IN ('public', 'private', 'invite_only'));
   END IF;
 END $$;
+
+-- ─────────────────────────────────────────
+-- skills
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS skills (
+  id SERIAL PRIMARY KEY,
+  slug TEXT UNIQUE NOT NULL,
+  display_name TEXT NOT NULL,
+  category TEXT
+);
+
+CREATE TABLE IF NOT EXISTS job_skills (
+  job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  skill_id INT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+  PRIMARY KEY (job_id, skill_id)
+);
 
 -- ─────────────────────────────────────────
 -- applications
@@ -114,6 +171,7 @@ CREATE TABLE IF NOT EXISTS applications (
 
 CREATE INDEX IF NOT EXISTS applications_job_id_idx             ON applications(job_id);
 CREATE INDEX IF NOT EXISTS applications_freelancer_address_idx ON applications(freelancer_address);
+CREATE INDEX IF NOT EXISTS applications_job_created_idx        ON applications(job_id, created_at ASC);
 
 -- ─────────────────────────────────────────
 -- job analytics (Issue #212)
@@ -139,7 +197,8 @@ CREATE TABLE IF NOT EXISTS private_messages (
   recipient_public_key  TEXT        NOT NULL,
   nonce                 TEXT        NOT NULL,
   cipher_text           TEXT        NOT NULL,
-  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (nonce)
 );
 
 CREATE INDEX IF NOT EXISTS private_messages_participants_idx
@@ -148,7 +207,12 @@ CREATE INDEX IF NOT EXISTS private_messages_participants_idx
 ALTER TABLE applications
   ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'XLM',
   ADD COLUMN IF NOT EXISTS screening_answers JSONB NOT NULL DEFAULT '{}'::jsonb,
-  ADD COLUMN IF NOT EXISTS withdrawn_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS withdrawn_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS bid_commitment TEXT,
+  ADD COLUMN IF NOT EXISTS bid_nonce TEXT,
+  ADD COLUMN IF NOT EXISTS bid_revealed BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS revealed_bid_amount NUMERIC(20,7),
+  ADD COLUMN IF NOT EXISTS revealed_at TIMESTAMPTZ;
 
 -- ─────────────────────────────────────────
 -- escrows  (schema only; populated by smart-contract layer)
@@ -158,6 +222,7 @@ CREATE TABLE IF NOT EXISTS escrows (
   job_id              UUID        NOT NULL UNIQUE REFERENCES jobs(id),
   contract_id         TEXT        NOT NULL,
   amount_xlm          NUMERIC(20,7) NOT NULL,
+  milestones          JSONB       NOT NULL DEFAULT '[]'::jsonb,
   status              TEXT        NOT NULL DEFAULT 'funded',   -- funded | released | refunded | timeout_refunded
   released_at         TIMESTAMPTZ,                 -- When the escrow was released
   timeout_at          TIMESTAMPTZ,                 -- Issue #175: Ledger timeout mapped to wall-clock (approx)
@@ -194,6 +259,41 @@ CREATE TABLE IF NOT EXISTS ratings (
 
 CREATE INDEX IF NOT EXISTS ratings_rated_address_idx ON ratings(rated_address);
 CREATE INDEX IF NOT EXISTS ratings_job_id_idx        ON ratings(job_id);
+CREATE INDEX IF NOT EXISTS ratings_rated_created_idx ON ratings(rated_address, created_at DESC);
+
+-- ─────────────────────────────────────────
+-- query optimization indexes
+-- ─────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS jobs_open_public_created_idx
+  ON jobs(created_at DESC, id DESC)
+  WHERE status = 'open' AND visibility = 'public';
+
+CREATE INDEX IF NOT EXISTS jobs_status_category_created_idx
+  ON jobs(status, category, created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS jobs_search_vector_idx
+  ON jobs USING GIN (job_search_vector);
+
+CREATE INDEX IF NOT EXISTS jobs_title_trgm_idx
+  ON jobs USING GIN (lower(title) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS jobs_description_trgm_idx
+  ON jobs USING GIN (lower(description) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS profiles_public_key_rating_idx
+  ON profiles(public_key, rating);
+
+-- Issue #559: Composite indexes for common filter patterns
+CREATE INDEX IF NOT EXISTS jobs_status_category
+  ON jobs (status, category)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS jobs_client_status
+  ON jobs (client_address, status);
+
+CREATE INDEX IF NOT EXISTS jobs_created_desc
+  ON jobs (created_at DESC)
+  WHERE status = 'open';
 
 -- ─────────────────────────────────────────
 -- messages
@@ -330,3 +430,62 @@ CREATE TABLE IF NOT EXISTS time_invoices (
 CREATE INDEX IF NOT EXISTS time_invoices_job_id_idx        ON time_invoices(job_id);
 CREATE INDEX IF NOT EXISTS time_invoices_freelancer_idx    ON time_invoices(freelancer_address);
 CREATE INDEX IF NOT EXISTS time_invoices_client_idx        ON time_invoices(client_address);
+
+-- ─────────────────────────────────────────
+-- job_invitations  (Issue #342 — direct invitations)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS job_invitations (
+  id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id              UUID        NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  client_address      TEXT        NOT NULL REFERENCES profiles(public_key),
+  freelancer_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  status              TEXT        NOT NULL DEFAULT 'pending'
+                                  CHECK (status IN ('pending', 'accepted', 'declined')),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (job_id, freelancer_address)
+);
+
+CREATE INDEX IF NOT EXISTS job_invitations_freelancer_idx ON job_invitations(freelancer_address);
+CREATE INDEX IF NOT EXISTS job_invitations_job_id_idx     ON job_invitations(job_id);
+
+-- Add status column to existing job_invitations if it was created without it
+ALTER TABLE job_invitations ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending'
+  CHECK (status IN ('pending', 'accepted', 'declined'));
+
+-- ─────────────────────────────────────────
+-- notification_queue additions (in_app type support)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS notification_queue (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recipient_address   TEXT NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
+  notification_type   TEXT NOT NULL,
+  event_type          TEXT NOT NULL,
+  job_id              UUID REFERENCES jobs(id) ON DELETE CASCADE,
+  payload             JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status              TEXT NOT NULL DEFAULT 'pending',
+  retry_count         INTEGER NOT NULL DEFAULT 0,
+  error_message       TEXT,
+  sent_at             TIMESTAMPTZ,
+  last_attempt_at     TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS notification_queue_status_retry_idx ON notification_queue(status, retry_count);
+CREATE INDEX IF NOT EXISTS notification_queue_recipient_idx ON notification_queue(recipient_address);
+
+-- Allow 'in_app' as a notification_type in addition to 'email' and 'webhook'
+-- The notification_queue table was created without a CHECK constraint on
+-- notification_type so this is a no-op schema change (just documentation).
+
+-- Exponential backoff retry support
+ALTER TABLE notification_queue
+  ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
+
+-- ─────────────────────────────────────────
+-- Soft-delete support (Issue #469)
+-- ─────────────────────────────────────────
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;

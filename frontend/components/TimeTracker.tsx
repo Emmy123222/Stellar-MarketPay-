@@ -232,8 +232,8 @@ export default function TimeTracker({
   };
 
   // ── derived totals ───────────────────────────────────────────────────────
-  const totalMinutes = entries.reduce((s, e) => s + e.durationMinutes, 0);
-  const pendingInvoice = invoices.find((i) => i.status === "pending");
+  const totalMinutes = (entries || []).reduce((s, e) => s + e.durationMinutes, 0);
+  const pendingInvoice = (invoices || []).find((i) => i.status === "pending");
   const hasPendingInvoice = Boolean(pendingInvoice);
 
   // ── flash helper ─────────────────────────────────────────────────────────
@@ -449,13 +449,13 @@ export default function TimeTracker({
               <div className="flex justify-between text-sm">
                 <span className="text-amber-700">Rate</span>
                 <span className="text-amber-100 font-mono">
-                  {parseFloat(inv.hourlyRateXlm).toFixed(2)} XLM/hr
+                  {parseFloat(String(inv.hourlyRateXlm ?? "")).toFixed(2)} XLM/hr
                 </span>
               </div>
               <div className="flex justify-between text-sm font-semibold">
                 <span className="text-amber-300">Total</span>
                 <span className="text-market-400 font-mono">
-                  {parseFloat(inv.totalAmountXlm).toFixed(4)} XLM
+                  {parseFloat(String(inv.totalAmountXlm ?? "")).toFixed(4)} XLM
                 </span>
               </div>
 

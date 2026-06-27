@@ -6,24 +6,46 @@ import Link from "next/link";
 import { useState, useRef, useEffect } from "react"; // Added for hover logic
 import {
   formatDeadline,
-  formatXLM,
+  formatMoney,
   getDeadlineState,
-  getMonthlyEstimate,
   statusClass,
   statusLabel,
   timeAgo,
   formatUSDEquivalent,
-  getMonthlyEstimate,
+  formatPrice,
 } from "@/utils/format";
 import type { Job } from "@/utils/types";
 import { usePriceContext } from "@/contexts/PriceContext";
 import { useBookmarks } from "@/hooks/useBookmarks";
-import { useState, useEffect } from "react";
+import JobStatusTimeline from "@/components/JobStatusTimeline";
 
 interface JobCardProps {
   job: Job;
   isFocused?: boolean;
   onFocus?: () => void;
+}
+
+function getClientReputationBadge(score?: number | null) {
+  if (score == null) return null;
+  if (score >= 4.5) {
+    return {
+      label: `Trusted client ${score.toFixed(1)}`,
+      className: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+      hint: "High on-time payment and completion history",
+    };
+  }
+  if (score < 3.0) {
+    return {
+      label: `Caution ${score.toFixed(1)}`,
+      className: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+      hint: "Lower reliability based on dispute/payment history",
+    };
+  }
+  return {
+    label: `Client ${score.toFixed(1)}`,
+    className: "bg-market-500/10 text-market-300 border-market-500/30",
+    hint: "Score blends payment release, disputes, completion, and response time",
+  };
 }
 
 function CountdownTimer({ deadline }: { deadline: string }) {
@@ -85,9 +107,12 @@ function CountdownTimer({ deadline }: { deadline: string }) {
 }
 
 export default function JobCard({ job, isFocused = false, onFocus }: JobCardProps) {
-  const { xlmPriceUsd } = usePriceContext();
+  const { xlmPriceUsd, currencyMode, priceLoading } = usePriceContext();
   const { isSaved, toggleBookmark } = useBookmarks();
+  const saved = isSaved(job.id);
   const usdEquivalent = formatUSDEquivalent(job.budget, xlmPriceUsd);
+  const price = formatPrice(job.budget, xlmPriceUsd, currencyMode);
+  const clientRepBadge = getClientReputationBadge(job.clientReputationScore);
 
   // ── ISSUE #78: Hover Card State & Logic ──────────────────────────────────────────
   const [showPreview, setShowPreview] = useState(false);
@@ -125,13 +150,12 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
   const showClosingSoonBadge = !showClosedBadge && deadlineState === "closing_soon";
 
   // Helper to get monthly estimate (keeping original logic intact)
-  const getMonthlyEstimate = (budget: string, price: number | null) => {
-    return "Estimated monthly: " + formatUSDEquivalent(budget, price);
+  const getMonthlyEstimate = (budget: string, price: number | null, cur: string) => {
+    const est = formatUSDEquivalent(budget, price, cur);
+    return est ? `Estimated monthly: ${est}` : null;
   };
 
   return (
-    <Link href={`/jobs/${job.id}`}>
-      {/* ── ISSUE #78: Added relative positioning and hover handlers ── */}
       <div
         className={[
           "card-hover group animate-fade-in relative cursor-pointer outline-none",
@@ -145,16 +169,30 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
       >
         {/* Header row */}
         <div className="flex items-start justify-between gap-3 mb-3">
-          <h3 className="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2">
-            {job.searchHeadline ? (
-              <span dangerouslySetInnerHTML={{ __html: job.searchHeadline }} />
-            ) : (
-              job.title
+          <Link href={`/jobs/${job.id}`}>
+            <h3 className="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2">
+              {job.searchHeadline ? (
+                <span dangerouslySetInnerHTML={{ __html: job.searchHeadline }} />
+              ) : (
+                job.title
+              )}
+            </h3>
+          </Link>
+          <div className="flex items-center gap-2">
+            {clientRepBadge && (
+              <span
+                className={`group/rep relative inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${clientRepBadge.className}`}
+              >
+                ★ {clientRepBadge.label}
+                <span className="pointer-events-none absolute bottom-full right-0 mb-1 hidden whitespace-nowrap rounded-md border border-market-500/20 bg-ink-900 px-2 py-1 text-[10px] text-amber-200 shadow-lg group-hover/rep:block">
+                  {clientRepBadge.hint}
+                </span>
+              </span>
             )}
-          </h3>
-          <span className={statusClass(job.status) + " flex-shrink-0 text-xs"}>
-            {statusLabel(job.status)}
-          </span>
+            <span className={statusClass(job.status) + " flex-shrink-0 text-xs"}>
+              {statusLabel(job.status)}
+            </span>
+          </div>
         </div>
 
         {/* Description */}
@@ -190,20 +228,20 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
           <div className="group/tooltip relative">
             <p className="text-xs text-amber-800 mb-0.5">Budget</p>
             <p className="font-mono font-semibold text-market-400 text-sm cursor-help">
-              {formatXLM(job.budget)}
+              {price.display}
             </p>
-            {usdEquivalent && (
+            {currencyMode === "XLM" && price.usdEquiv && (
               <div className="absolute bottom-full left-0 mb-2 hidden group-hover/tooltip:block z-20">
                 <div className="bg-ink-800 border border-market-500/30 text-amber-100 text-[10px] py-1.5 px-2.5 rounded shadow-xl whitespace-nowrap backdrop-blur-md">
                   <p className="font-semibold text-market-300">
-                    {usdEquivalent}
-                  </p>
-                  <p className="text-amber-800/80 mt-0.5">
-                    {getMonthlyEstimate(job.budget, xlmPriceUsd)}
+                    {price.usdEquiv}
                   </p>
                 </div>
                 <div className="w-2 h-2 bg-ink-800 border-r border-b border-market-500/30 rotate-45 -mt-1 ml-3" />
               </div>
+            )}
+            {priceLoading && (
+              <span className="inline-block ml-1 w-3 h-3 border border-market-400/40 border-t-transparent rounded-full animate-spin align-middle" />
             )}
           </div>
           <div className="text-right flex items-center gap-2">
@@ -215,7 +253,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
                 e.stopPropagation();
                 toggleBookmark(job.id);
               }}
-              className="p-1.5 rounded-md transition-all flex items-center justify-center hover:bg-amber-500/10 group/bookmark"
+              className="p-2 sm:p-1.5 rounded-md transition-all flex items-center justify-center hover:bg-amber-500/10 group/bookmark min-h-[44px] min-w-[44px]"
               title={saved ? "Remove bookmark" : "Save job"}
               aria-label={saved ? "Remove bookmark" : "Save job"}
             >
@@ -224,12 +262,12 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
                 width="16"
                 height="16"
                 viewBox="0 0 24 24"
-                fill={saved ? "currentColor" : "none"}
+                fill={isSaved(job.id) ? "currentColor" : "none"}
                 stroke="currentColor"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className={`transition-colors group-hover/bookmark:text-amber-400 ${saved ? 'text-amber-400' : 'text-amber-700/60 group-hover/bookmark:text-amber-400'}`}
+                className={`transition-colors group-hover/bookmark:text-amber-400 ${isSaved(job.id) ? 'text-amber-400' : 'text-amber-700/60 group-hover/bookmark:text-amber-400'}`}
               >
                 <path d="m14 20 4-6H4l4 6z"/>
                 <path d="M18 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0z"/>
@@ -262,11 +300,18 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
         </div>
 
         {/* Category pill */}
-        <div className="mt-3">
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
           <span className="text-xs text-amber-700 bg-ink-700 px-2.5 py-1 rounded-full border border-[rgba(251,191,36,0.08)]">
             {job.category}
           </span>
+          {job.boosted && job.boostedUntil && new Date(job.boostedUntil) > new Date() && (
+            <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 font-medium">
+              ⚡ Featured · until {new Date(job.boostedUntil).toLocaleDateString()}
+            </span>
+          )}
         </div>
+
+        <JobStatusTimeline job={job} compact />
 
         {/* ── ISSUE #78: Floating Hover Preview Card ── */}
         {showPreview && (
@@ -298,7 +343,6 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
         )}
         {/* ───────────────────────────────────────────── */}
       </div>
-    </Link>
   );
 }
 

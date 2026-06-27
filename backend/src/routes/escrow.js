@@ -17,6 +17,7 @@ const {
   EVENT_TYPES,
 } = require("../services/notificationService");
 const { processReferralPayout } = require("../services/referralService");
+const { releaseMilestone, disputeMilestone } = require("../services/escrowService");
 
 /**
  * POST /api/escrow/:jobId/release
@@ -24,7 +25,7 @@ const { processReferralPayout } = require("../services/referralService");
 router.post("/:jobId/release", async (req, res, next) => {
   try {
     const { jobId } = req.params;
-    const { clientAddress, contractTxHash, releaseCurrency } = req.body;
+    const { clientAddress, contractTxHash } = req.body;
 
     if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
       const e = new Error("Invalid client address");
@@ -45,17 +46,12 @@ router.post("/:jobId/release", async (req, res, next) => {
       throw e;
     }
 
-    // Update escrow and fetch amount for bonus calculation
+    // Fetch escrow amount for referral bonus calculation.
+    // DB status is updated asynchronously by the indexer when it processes the on-chain event.
     const { rows: escrowRows } = await pool.query(
-      `UPDATE escrows
-       SET status = 'released', released_at = NOW(), updated_at = NOW()
-       WHERE job_id = $1
-       RETURNING amount_xlm`,
+      `SELECT amount_xlm FROM escrows WHERE job_id = $1`,
       [jobId],
     );
-
-    // Update job
-    await updateJobStatus(jobId, "completed");
 
     // Process referral bonus payout (2% of earnings to referrer on referee's first job).
     // The on-chain transfer is handled by the Soroban contract's release_escrow();
@@ -67,6 +63,7 @@ router.post("/:jobId/release", async (req, res, next) => {
       amountXlm,
       contractTxHash || null,
     );
+    await updateJobStatus(jobId, "completed");
 
     res.json({
       success: true,
@@ -92,7 +89,7 @@ router.post(
   async (req, res, next) => {
     try {
       const { jobId } = req.params;
-      const { clientAddress, contractTxHash, milestoneIndex } = req.body;
+      const { clientAddress, contractTxHash } = req.body;
 
       if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
         const e = new Error("Invalid client address");
@@ -137,6 +134,61 @@ router.post(
 );
 
 /**
+ * POST /api/escrow/:jobId/release-milestone
+ */
+router.post(
+  "/:jobId/release-milestone",
+  escrowActionRateLimiter,
+  async (req, res, next) => {
+    try {
+      const { jobId } = req.params;
+      const { clientAddress, contractTxHash, milestoneIndex } = req.body;
+
+      if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
+        const e = new Error("Invalid client address");
+        e.status = 400;
+        throw e;
+      }
+
+      const result = await releaseMilestone(
+        jobId,
+        milestoneIndex,
+        clientAddress,
+        contractTxHash,
+      );
+      res.json({ success: true, data: result });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+/**
+ * POST /api/escrow/:jobId/dispute-milestone
+ */
+router.post(
+  "/:jobId/dispute-milestone",
+  escrowActionRateLimiter,
+  async (req, res, next) => {
+    try {
+      const { jobId } = req.params;
+      const { raisedBy, milestoneIndex } = req.body;
+
+      if (!raisedBy || !/^G[A-Z0-9]{55}$/.test(raisedBy)) {
+        const e = new Error("Invalid wallet address");
+        e.status = 400;
+        throw e;
+      }
+
+      const result = await disputeMilestone(jobId, milestoneIndex, raisedBy);
+      res.json({ success: true, data: result });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+/**
  * POST /api/escrow/:jobId/refund
  * Client issues a refund to close escrow.
  */
@@ -151,13 +203,7 @@ router.post("/:jobId/refund", async (req, res, next) => {
       throw e;
     }
 
-    await pool.query(
-      `UPDATE escrows
-       SET status = 'refunded', updated_at = NOW()
-       WHERE job_id = $1`,
-      [jobId],
-    );
-    await updateJobStatus(jobId, "cancelled");
+    // DB status is updated asynchronously by the indexer when it processes the on-chain event.
 
     await logContractInteraction({
       functionName: "refund_escrow",
@@ -201,13 +247,7 @@ router.post("/:jobId/timeout-refund", async (req, res, next) => {
       throw e;
     }
 
-    await pool.query(
-      `UPDATE escrows
-       SET status = 'timeout_refunded', updated_at = NOW()
-       WHERE job_id = $1`,
-      [jobId],
-    );
-    await updateJobStatus(jobId, "cancelled");
+    // DB status is updated asynchronously by the indexer when it processes the on-chain event.
 
     await logContractInteraction({
       functionName: "timeout_refund",

@@ -8,6 +8,7 @@
  */
 "use strict";
 
+const crypto  = require("crypto");
 const express = require("express");
 const router  = express.Router();
 const pool    = require("../db/pool");
@@ -100,7 +101,41 @@ router.post("/:skill/submit", verifyJWT, async (req, res, next) => {
       [publicKey, skill, score, passed]
     );
 
-    res.json({ success: true, data: { skill, score, passed, correct, total: bank.questions.length } });
+    let certificate = null;
+
+    // Generate on-chain certificate if passed
+    if (passed) {
+      const adminKey = process.env.ADMIN_PUBLIC_KEYS
+        ? process.env.ADMIN_PUBLIC_KEYS.split(",")[0].trim()
+        : "platform";
+      const issuedAt = new Date().toISOString();
+      const raw = `${publicKey}|${skill}|${score}|${issuedAt}|${adminKey}`;
+      const certificateHash = crypto.createHash("sha256").update(raw).digest("hex");
+
+      // Generate a deterministic IPFS CID-like identifier
+      const cidRaw = crypto.createHash("sha256").update(`ipfs:${raw}`).digest("hex").slice(0, 46);
+      const ipfsCid = `Qm${cidRaw}`;
+
+      // Store certificate
+      const { rows: certRows } = await pool.query(
+        `INSERT INTO skill_certificates (public_key, skill, score, certificate_hash, ipfs_cid, issued_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (public_key, skill) DO UPDATE
+           SET score = EXCLUDED.score,
+               certificate_hash = EXCLUDED.certificate_hash,
+               ipfs_cid = EXCLUDED.ipfs_cid,
+               issued_at = EXCLUDED.issued_at
+         RETURNING id, certificate_hash, ipfs_cid, issued_at`,
+        [publicKey, skill, score, certificateHash, ipfsCid, issuedAt]
+      );
+
+      certificate = certRows[0];
+    }
+
+    res.json({
+      success: true,
+      data: { skill, score, passed, correct, total: bank.questions.length, certificate },
+    });
   } catch (e) { next(e); }
 });
 

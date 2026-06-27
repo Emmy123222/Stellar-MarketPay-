@@ -123,6 +123,19 @@ export function availabilitySummary(availability?: Availability | null): string 
   return availabilityStatusLabel(availability.status);
 }
 
+export function availabilityBadgeClass(status?: Availability["status"] | null): string {
+  if (status === "available") {
+    return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+  }
+  if (status === "busy") {
+    return "bg-amber-500/10 text-amber-300 border-amber-500/20";
+  }
+  if (status === "unavailable") {
+    return "bg-red-500/10 text-red-400 border-red-500/20";
+  }
+  return "bg-market-500/10 text-market-300 border-market-500/20";
+}
+
 export async function copyToClipboard(text: string): Promise<boolean> {
   try { await navigator.clipboard.writeText(text); return true; }
   catch { return false; }
@@ -191,12 +204,59 @@ export const SKILL_SUGGESTIONS = [
  * Converts an XLM amount to a USD equivalent string.
  * Returns null if price is unavailable.
  */
-export function formatUSDEquivalent(xlmAmount: string | number, xlmPriceUsd: number | null): string | null {
-  if (xlmPriceUsd === null) return null;
-  const num = typeof xlmAmount === "string" ? parseFloat(xlmAmount) : xlmAmount;
+export function formatMoney(
+  amount: string | number,
+  currency: string = "XLM",
+): string {
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  if (isNaN(num)) return `0 ${currency}`;
+  const formatted = num.toLocaleString("en-US", { maximumFractionDigits: 4 });
+  return `${formatted} ${currency}`;
+}
+
+export function formatUSDEquivalent(
+  amount: string | number,
+  xlmPriceUsd: number | null,
+  currency: string = "XLM",
+): string | null {
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
   if (isNaN(num)) return null;
+  if (currency.toUpperCase() === "USDC") {
+    return `≈ $${num.toFixed(2)} USD`;
+  }
+  if (xlmPriceUsd === null) return null;
   const usd = (num * xlmPriceUsd).toFixed(2);
   return `≈ $${usd} USD`;
+}
+
+/**
+ * Formats a price based on the active currency mode.
+ * Returns the formatted string and optionally the USD equivalent.
+ */
+export function formatPrice(
+  xlmAmount: string | number,
+  xlmPriceUsd: number | null,
+  currencyMode: "XLM" | "USD",
+): { display: string; usdEquiv: string | null } {
+  const num = typeof xlmAmount === "string" ? parseFloat(xlmAmount) : xlmAmount;
+  if (isNaN(num)) return { display: "0 XLM", usdEquiv: null };
+
+  const usdEquiv = xlmPriceUsd !== null
+    ? `$${(num * xlmPriceUsd).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : null;
+
+  if (currencyMode === "USD" && xlmPriceUsd !== null) {
+    const usd = num * xlmPriceUsd;
+    return {
+      display: `$${usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      usdEquiv: null,
+    };
+  }
+
+  return {
+    display: `${num.toLocaleString("en-US", { maximumFractionDigits: 4 })} XLM`,
+    usdEquiv,
+  };
 }
 
 /**
@@ -251,3 +311,11 @@ export function calculateJobProgress(job: Job): ProgressData | null {
 
   return { percentage, daysRemaining, colorClass };
 }
+
+export const POPULAR_SKILLS: string[] = [
+  "JavaScript", "TypeScript", "Python", "React", "Node.js",
+  "Solidity", "Rust", "Go", "AWS", "Docker",
+  "Stellar", "Soroban", "Smart Contracts", "DeFi", "Web3",
+  "PostgreSQL", "MongoDB", "GraphQL", "Next.js", "Tailwind CSS",
+  "UI/UX Design", "Full Stack", "Smart Contract",
+];

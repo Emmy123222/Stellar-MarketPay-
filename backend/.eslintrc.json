@@ -20,7 +20,7 @@
       }
     },
     {
-      "files": ["**/*.test.js"],
+      "files": ["**/*.test.js", "**/*.test.*.js"],
       "env": {
         "jest": true
       }

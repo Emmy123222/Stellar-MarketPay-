@@ -6,8 +6,18 @@
 
 const pool = require("../db/pool");
 const axios = require("axios");
+const { createServiceLogger } = require("../utils/logger");
+const { emailQueue } = require("../utils/queue");
 
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
+
+const notificationLogger = createServiceLogger("notifications");
+
+let _broadcastToUser = null;
+
+function setBroadcastToUser(fn) {
+  _broadcastToUser = fn;
+}
 
 /**
  * Event types that trigger notifications
@@ -18,9 +28,38 @@ const EVENT_TYPES = {
   ESCROW_RELEASED: "escrow_released",
   REFUND_ISSUED: "refund_issued",
   DISPUTE_OPENED: "dispute_opened",
+  APPLICATION_RECEIVED: "application_received",
   APPLICATION_ACCEPTED: "application_accepted",
+  APPLICATION_REJECTED: "application_rejected",
+  NEW_MESSAGE: "new_message",
   JOB_COMPLETED: "job_completed",
+  JOB_INVITED: "job_invited",
 };
+
+function rowToInAppNotification(row) {
+  return {
+    id: row.id,
+    userAddress: row.user_address,
+    type: row.type,
+    title: row.title,
+    body: row.body,
+    read: row.read,
+    jobId: row.job_id,
+    linkPath: row.link_path || (row.job_id ? `/jobs/${row.job_id}` : "/notifications"),
+    createdAt: row.created_at,
+  };
+}
+
+function clampLimit(value, fallback = 20, max = 50) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1), max);
+}
+
+function shortAddress(address) {
+  if (!address || address.length < 12) return address || "A user";
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
 
 /**
  * Queue a notification for a user
@@ -42,7 +81,136 @@ async function queueNotification({ recipientAddress, notificationType, eventType
     [recipientAddress, notificationType, eventType, jobId, JSON.stringify(payload)]
   );
 
-  return rows[0];
+  const notification = rows[0];
+
+  if (notificationType === "email") {
+    await emailQueue.add({
+      notificationId: notification.id,
+      recipientAddress,
+      eventType,
+      jobId,
+      payload,
+    }, {
+      attempts: 3,
+      backoff: {
+        type: "exponential",
+        delay: 5000,
+      },
+    });
+  }
+
+  return notification;
+}
+
+async function createInAppNotification(
+  { userAddress, type, title, body, jobId = null, linkPath = null },
+  queryRunner = pool,
+) {
+  if (!userAddress) return null;
+
+  const { rows } = await queryRunner.query(
+    `INSERT INTO notifications
+      (user_address, type, title, body, read, job_id, link_path, created_at)
+     VALUES ($1, $2, $3, $4, FALSE, $5, $6, NOW())
+     RETURNING *`,
+    [userAddress, type, title, body, jobId, linkPath],
+  );
+
+  const notification = rowToInAppNotification(rows[0]);
+
+  if (_broadcastToUser) {
+    _broadcastToUser(userAddress, 'notification:created', notification);
+  }
+
+  return notification;
+}
+
+async function listInAppNotifications(userAddress, { limit = 20, cursor = null } = {}) {
+  const safeLimit = clampLimit(limit);
+  const params = [userAddress];
+  let cursorClause = "";
+
+  if (cursor) {
+    params.push(cursor);
+    cursorClause = `AND created_at < $${params.length}`;
+  }
+
+  params.push(safeLimit);
+  const limitPlaceholder = `$${params.length}`;
+
+  const [{ rows }, unreadResult] = await Promise.all([
+    pool.query(
+      `SELECT *
+       FROM notifications
+       WHERE user_address = $1
+         ${cursorClause}
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${limitPlaceholder}`,
+      params,
+    ),
+    pool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM notifications
+       WHERE user_address = $1 AND read = FALSE`,
+      [userAddress],
+    ),
+  ]);
+
+  return {
+    notifications: rows.map(rowToInAppNotification),
+    unreadCount: unreadResult.rows[0]?.count || 0,
+    nextCursor: rows.length === safeLimit ? rows[rows.length - 1].created_at : null,
+  };
+}
+
+async function markInAppNotificationRead(id, userAddress) {
+  const { rows } = await pool.query(
+    `UPDATE notifications
+     SET read = TRUE
+     WHERE id = $1 AND user_address = $2
+     RETURNING *`,
+    [id, userAddress],
+  );
+
+  if (!rows.length) {
+    const e = new Error("Notification not found");
+    e.status = 404;
+    throw e;
+  }
+
+  return rowToInAppNotification(rows[0]);
+}
+
+async function markAllInAppNotificationsRead(userAddress) {
+  const { rowCount } = await pool.query(
+    `UPDATE notifications
+     SET read = TRUE
+     WHERE user_address = $1 AND read = FALSE`,
+    [userAddress],
+  );
+
+  return { updatedCount: rowCount };
+}
+
+async function createJobNotification({
+  userAddress,
+  type,
+  title,
+  body,
+  jobId,
+  linkPath,
+}, queryRunner = pool) {
+  return createInAppNotification(
+    {
+      userAddress,
+      type,
+      title,
+      body,
+      jobId,
+      linkPath: linkPath || `/jobs/${jobId}`,
+    },
+    queryRunner,
+  );
 }
 
 /**
@@ -52,11 +220,27 @@ async function queueNotification({ recipientAddress, notificationType, eventType
  * @returns {Promise<Object>} User preferences
  */
 async function getUserPreferences(publicKey) {
+
+  const encKey = process.env.DATABASE_ENCRYPTION_KEY || "";
   const { rows } = await pool.query(
-    `SELECT email, email_notifications_enabled, webhook_url, webhook_secret
+    `SELECT
+       COALESCE(
+         CASE WHEN encrypted_email IS NOT NULL
+           THEN pgp_sym_decrypt(encrypted_email, $2)
+         END,
+         email
+       ) AS email,
+       email_notifications_enabled,
+       webhook_url,
+       COALESCE(
+         CASE WHEN encrypted_webhook_secret IS NOT NULL
+           THEN pgp_sym_decrypt(encrypted_webhook_secret, $3)
+         END,
+         webhook_secret
+       ) AS webhook_secret
      FROM profiles
      WHERE public_key = $1`,
-    [publicKey]
+    [publicKey, encKey, encKey]
   );
 
   return rows[0] || null;
@@ -173,6 +357,11 @@ function generateEmailContent(eventType, data) {
       text: `The job "${jobTitle}" has been completed.\n\nJob: ${jobUrl}\n\nThank you for using Stellar MarketPay!`,
       html: `<h2>Job Completed</h2><p>The job "<strong>${jobTitle}</strong>" has been completed.</p><p><a href="${jobUrl}">View Job</a></p><p>Thank you for using Stellar MarketPay!</p>`,
     },
+    [EVENT_TYPES.JOB_INVITED]: {
+      subject: `You've been invited to apply: ${jobTitle}`,
+      text: `A client has invited you to apply to their job: "${jobTitle}".\n\nBudget: ${amount} ${currency}\nJob: ${jobUrl}\n\nView the job and apply directly from the link above.`,
+      html: `<h2>Job Invitation</h2><p>A client has invited you to apply to their job: "<strong>${jobTitle}</strong>".</p><p><strong>Budget:</strong> ${amount} ${currency}</p><p><a href="${jobUrl}">View Job &amp; Apply</a></p>`,
+    },
   };
 
   return templates[eventType] || {
@@ -180,6 +369,73 @@ function generateEmailContent(eventType, data) {
     text: `An event occurred for "${jobTitle}".\n\nJob: ${jobUrl}`,
     html: `<h2>Notification</h2><p>An event occurred for "<strong>${jobTitle}</strong>".</p><p><a href="${jobUrl}">View Job</a></p>`,
   };
+}
+
+function generateInAppContent(eventType, data) {
+  const { jobTitle, jobId, amount, currency, actorAddress } = data;
+  const jobLabel = jobTitle || "this job";
+  const amountLabel = amount ? ` (${amount} ${currency || "XLM"})` : "";
+
+  const templates = {
+    [EVENT_TYPES.ESCROW_CREATED]: {
+      title: "Escrow created",
+      body: `Escrow was created for "${jobLabel}"${amountLabel}.`,
+    },
+    [EVENT_TYPES.WORK_STARTED]: {
+      title: "Work started",
+      body: `Work has started on "${jobLabel}".`,
+    },
+    [EVENT_TYPES.ESCROW_RELEASED]: {
+      title: "Payment released",
+      body: `Payment was released for "${jobLabel}"${amountLabel}.`,
+    },
+    [EVENT_TYPES.REFUND_ISSUED]: {
+      title: "Refund issued",
+      body: `A refund was issued for "${jobLabel}"${amountLabel}.`,
+    },
+    [EVENT_TYPES.DISPUTE_OPENED]: {
+      title: "Dispute filed",
+      body: `A dispute was filed for "${jobLabel}".`,
+    },
+    [EVENT_TYPES.APPLICATION_RECEIVED]: {
+      title: "New application received",
+      body: `${shortAddress(actorAddress)} applied to "${jobLabel}".`,
+    },
+    [EVENT_TYPES.APPLICATION_ACCEPTED]: {
+      title: "Application accepted",
+      body: `Your application for "${jobLabel}" was accepted.`,
+    },
+    [EVENT_TYPES.APPLICATION_REJECTED]: {
+      title: "Application rejected",
+      body: `Your application for "${jobLabel}" was not selected.`,
+    },
+    [EVENT_TYPES.NEW_MESSAGE]: {
+      title: "New message",
+      body: `${shortAddress(actorAddress)} sent you a message about "${jobLabel}".`,
+    },
+    [EVENT_TYPES.JOB_COMPLETED]: {
+      title: "Job completed",
+      body: `"${jobLabel}" was marked complete.`,
+    },
+  };
+
+  return {
+    ...(templates[eventType] || {
+      title: "New notification",
+      body: `There is an update for "${jobLabel}".`,
+    }),
+    linkPath: jobId ? `/jobs/${jobId}` : "/notifications",
+  };
+}
+
+/**
+ * Calculate next retry time with exponential backoff.
+ * @param {number} retryCount - Current retry count (0-based).
+ * @returns {Date} Next retry timestamp.
+ */
+function getNextRetryTime(retryCount) {
+  const delayMinutes = Math.pow(2, retryCount);
+  return new Date(Date.now() + delayMinutes * 60 * 1000);
 }
 
 /**
@@ -191,7 +447,9 @@ function generateEmailContent(eventType, data) {
 async function processPendingNotifications(sendEmailFn) {
   const { rows: pending } = await pool.query(
     `SELECT * FROM notification_queue
-     WHERE status = 'pending' AND retry_count < $1
+     WHERE status = 'pending'
+       AND retry_count < $1
+       AND (next_retry_at IS NULL OR next_retry_at <= NOW())
      ORDER BY created_at ASC
      LIMIT 50`,
     [MAX_RETRIES]
@@ -205,7 +463,6 @@ async function processPendingNotifications(sendEmailFn) {
       const prefs = await getUserPreferences(notification.recipient_address);
       
       if (!prefs) {
-        // User not found, mark as failed
         await pool.query(
           `UPDATE notification_queue
            SET status = 'failed', error_message = 'User not found', last_attempt_at = NOW()
@@ -220,7 +477,6 @@ async function processPendingNotifications(sendEmailFn) {
 
       if (notification.notification_type === "email") {
         if (!prefs.email_notifications_enabled || !prefs.email) {
-          // User has email notifications disabled, mark as sent (skip)
           await pool.query(
             `UPDATE notification_queue
              SET status = 'sent', sent_at = NOW(), last_attempt_at = NOW()
@@ -247,7 +503,6 @@ async function processPendingNotifications(sendEmailFn) {
         );
       } else if (notification.notification_type === "webhook") {
         if (!prefs.webhook_url) {
-          // No webhook URL configured, mark as sent (skip)
           await pool.query(
             `UPDATE notification_queue
              SET status = 'sent', sent_at = NOW(), last_attempt_at = NOW()
@@ -282,29 +537,45 @@ async function processPendingNotifications(sendEmailFn) {
         sent++;
       } else {
         const newRetryCount = notification.retry_count + 1;
-        const newStatus = newRetryCount >= MAX_RETRIES ? "failed" : "pending";
+        const isDeadLetter = newRetryCount >= MAX_RETRIES;
+        const newStatus = isDeadLetter ? "failed" : "pending";
+        const nextRetryAt = isDeadLetter ? null : getNextRetryTime(newRetryCount);
+
+        if (isDeadLetter) {
+          notificationLogger.error({
+            notificationId: notification.id,
+            eventType: notification.event_type,
+            recipientAddress: notification.recipient_address,
+            notificationType: notification.notification_type,
+          }, "Webhook dead-lettered after max retries");
+        }
 
         await pool.query(
           `UPDATE notification_queue
            SET status = $1, retry_count = $2, last_attempt_at = NOW(),
-               error_message = 'Delivery failed'
-           WHERE id = $3`,
-          [newStatus, newRetryCount, notification.id]
+               error_message = 'Delivery failed', next_retry_at = $3
+           WHERE id = $4`,
+          [newStatus, newRetryCount, nextRetryAt, notification.id]
         );
         failed++;
       }
     } catch (error) {
-      console.error(`[notifications] Error processing notification ${notification.id}:`, error.message);
+      notificationLogger.error({
+        notificationId: notification.id,
+        error: error.message,
+      }, "Error processing notification");
       
       const newRetryCount = notification.retry_count + 1;
-      const newStatus = newRetryCount >= MAX_RETRIES ? "failed" : "pending";
+      const isDeadLetter = newRetryCount >= MAX_RETRIES;
+      const newStatus = isDeadLetter ? "failed" : "pending";
+      const nextRetryAt = isDeadLetter ? null : getNextRetryTime(newRetryCount);
 
       await pool.query(
         `UPDATE notification_queue
          SET status = $1, retry_count = $2, last_attempt_at = NOW(),
-             error_message = $3
-         WHERE id = $4`,
-        [newStatus, newRetryCount, error.message, notification.id]
+             error_message = $3, next_retry_at = $4
+         WHERE id = $5`,
+        [newStatus, newRetryCount, error.message, nextRetryAt, notification.id]
       );
       failed++;
     }
@@ -329,6 +600,16 @@ async function notifyEscrowEvent({ eventType, jobId, clientAddress, freelancerAd
   if (freelancerAddress) recipients.push(freelancerAddress);
 
   for (const recipient of recipients) {
+    const inAppContent = generateInAppContent(eventType, { ...data, jobId });
+    await createInAppNotification({
+      userAddress: recipient,
+      type: eventType,
+      title: inAppContent.title,
+      body: inAppContent.body,
+      jobId,
+      linkPath: inAppContent.linkPath,
+    });
+
     // Queue email notification
     await queueNotification({
       recipientAddress: recipient,
@@ -353,9 +634,16 @@ async function notifyEscrowEvent({ eventType, jobId, clientAddress, freelancerAd
 
 module.exports = {
   queueNotification,
+  createInAppNotification,
+  createJobNotification,
+  listInAppNotifications,
+  markInAppNotificationRead,
+  markAllInAppNotificationsRead,
   getUserPreferences,
   processPendingNotifications,
   notifyEscrowEvent,
   generateEmailContent,
+  getNextRetryTime,
   EVENT_TYPES,
+  setBroadcastToUser,
 };

@@ -4,12 +4,13 @@
 "use strict";
 
 const crypto = require("crypto");
+const { requireEnv } = require("../config/env");
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 
 function getEncryptionKey() {
-  const raw = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET || "super_secret_fallback_key";
+  const raw = process.env.ENCRYPTION_KEY || requireEnv("JWT_SECRET");
   return crypto.createHash("sha256").update(raw).digest();
 }
 

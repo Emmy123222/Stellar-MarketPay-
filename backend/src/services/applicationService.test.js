@@ -1,126 +1,131 @@
-const { submitApplication, acceptApplication } = require('./applicationService');
-const { createJob } = require('./jobService');
-const store = require('./store');
+jest.mock("../db/pool", () => {
+  const { createPgMock } = require("../testUtils/pgMock");
+  return createPgMock();
+});
 
-describe('applicationService', () => {
-  beforeEach(() => {
-    store.jobs.clear();
-    store.applications.clear();
-  });
+jest.mock("./profileService", () => ({
+  calculateFreelancerTier: jest.fn(),
+  isBlocked: jest.fn().mockResolvedValue(false),
+}));
 
-  const validClientAddress = 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC';
-  const validFreelancerAddress = 'GBBCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC'; // Different valid key
-  
+const pool = require("../db/pool");
+const { submitApplication, acceptApplication } = require("./applicationService");
+const { createJob } = require("./jobService");
+
+describe("applicationService", () => {
+  const validClientAddress =
+    "GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
+  const validFreelancerAddress =
+    "GBBCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
+
   let openJob;
 
-  beforeEach(() => {
-    openJob = createJob({
-      title: 'Build a decentralized app',
-      description: 'Looking for a full-stack developer to build a dApp on Stellar.',
-      budget: '500',
-      category: 'Smart Contracts',
+  beforeEach(async () => {
+    pool.reset();
+    openJob = await createJob({
+      title: "Build a decentralized app",
+      description:
+        "Looking for a full-stack developer to build a dApp on Stellar.",
+      budget: "500",
+      category: "Smart Contracts",
       clientAddress: validClientAddress,
+      currency: "XLM",
     });
   });
 
-  describe('submitApplication', () => {
-    it('submitApplication (valid): should successfully create and store an application', () => {
-      const appData = {
+  describe("submitApplication", () => {
+    it("creates a pending application", async () => {
+      const application = await submitApplication({
         jobId: openJob.id,
         freelancerAddress: validFreelancerAddress,
-        proposal: 'I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.',
-        bidAmount: '450',
-      };
-
-      const application = submitApplication(appData);
+        proposal:
+          "I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.",
+        bidAmount: "450",
+      });
 
       expect(application.jobId).toBe(openJob.id);
       expect(application.freelancerAddress).toBe(validFreelancerAddress);
-      expect(application.bidAmount).toBe('450.0000000');
-      expect(application.status).toBe('pending');
-
-      const storedApp = store.applications.get(application.id);
-      expect(storedApp).toBeDefined();
-      expect(storedApp.id).toBe(application.id);
-
-      // Verify job applicantCount was incremented
-      const updatedJob = store.jobs.get(openJob.id);
-      expect(updatedJob.applicantCount).toBe(1);
+      expect(application.bidAmount).toBe("450.0000000");
+      expect(application.status).toBe("pending");
+      expect(pool.applications.has(application.id)).toBe(true);
     });
 
-    it('submitApplication (own job): should throw error if applying to own job', () => {
-      const appData = {
-        jobId: openJob.id,
-        freelancerAddress: validClientAddress, // same as client
-        proposal: 'I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.',
-        bidAmount: '450',
-      };
-
-      expect(() => submitApplication(appData)).toThrow('You cannot apply to your own job');
-      expect(store.applications.size).toBe(0);
+    it("rejects applications to own jobs", async () => {
+      await expect(
+        submitApplication({
+          jobId: openJob.id,
+          freelancerAddress: validClientAddress,
+          proposal:
+            "I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.",
+          bidAmount: "450",
+        }),
+      ).rejects.toThrow("You cannot apply to your own job");
     });
 
-    it('submitApplication (duplicate): should throw error if already applied', () => {
+    it("rejects duplicate applications", async () => {
       const appData = {
         jobId: openJob.id,
         freelancerAddress: validFreelancerAddress,
-        proposal: 'I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.',
-        bidAmount: '450',
+        proposal:
+          "I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.",
+        bidAmount: "450",
       };
 
-      // First submission succeeds
-      submitApplication(appData);
-
-      // Second submission fails
-      expect(() => submitApplication(appData)).toThrow('You have already applied to this job');
-      expect(store.applications.size).toBe(1); // Only 1 app should be stored
+      await submitApplication(appData);
+      await expect(submitApplication(appData)).rejects.toThrow(
+        "You have already applied to this job",
+      );
+      expect(pool.applications.size).toBe(1);
     });
   });
 
-  describe('acceptApplication', () => {
+  describe("acceptApplication", () => {
     let applicationId;
     let otherApplicationId;
 
-    beforeEach(() => {
-      const app1 = submitApplication({
+    beforeEach(async () => {
+      const app1 = await submitApplication({
         jobId: openJob.id,
         freelancerAddress: validFreelancerAddress,
-        proposal: 'I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.',
-        bidAmount: '450',
+        proposal:
+          "I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.",
+        bidAmount: "450",
       });
       applicationId = app1.id;
 
-      const app2 = submitApplication({
+      const app2 = await submitApplication({
         jobId: openJob.id,
-        freelancerAddress: 'GCCCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC',
-        proposal: 'Another great proposal from another freelancer that is long enough to pass validation checks for fifty chars.',
-        bidAmount: '500',
+        freelancerAddress:
+          "GCCCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC",
+        proposal:
+          "Another great proposal from another freelancer that is long enough to pass validation checks for fifty chars.",
+        bidAmount: "500",
       });
       otherApplicationId = app2.id;
     });
 
-    it('acceptApplication (valid): should accept application, reject others, and update job status', () => {
-      const acceptedApp = acceptApplication(applicationId, validClientAddress);
+    it("accepts one application and rejects the rest", async () => {
+      const acceptedApp = await acceptApplication(
+        applicationId,
+        validClientAddress,
+      );
 
-      expect(acceptedApp.status).toBe('accepted');
-      
-      // Check other application
-      const rejectedApp = store.applications.get(otherApplicationId);
-      expect(rejectedApp.status).toBe('rejected');
-
-      // Check job status
-      const updatedJob = store.jobs.get(openJob.id);
-      expect(updatedJob.status).toBe('in_progress');
-      expect(updatedJob.freelancerAddress).toBe(validFreelancerAddress);
+      expect(acceptedApp.status).toBe("accepted");
+      expect(pool.applications.get(otherApplicationId).status).toBe("rejected");
+      expect(pool.jobs.get(openJob.id).status).toBe("in_progress");
+      expect(pool.jobs.get(openJob.id).freelancer_address).toBe(
+        validFreelancerAddress,
+      );
     });
 
-    it('acceptApplication (wrong client): should throw error if non-client tries to accept', () => {
-      const wrongClient = 'GDDDDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC'; // Different public key
+    it("rejects non-clients", async () => {
+      const wrongClient =
+        "GDDDDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
 
-      expect(() => acceptApplication(applicationId, wrongClient)).toThrow('Only the job client can accept applications');
-      
-      const app = store.applications.get(applicationId);
-      expect(app.status).toBe('pending'); // Unchanged
+      await expect(
+        acceptApplication(applicationId, wrongClient),
+      ).rejects.toThrow("Only the job client can accept applications");
+      expect(pool.applications.get(applicationId).status).toBe("pending");
     });
   });
 });

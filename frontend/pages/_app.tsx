@@ -1,6 +1,7 @@
 import type { AppProps } from "next/app";
 import { useState, useEffect, useCallback } from "react";
 import Head from "next/head";
+import Script from "next/script";
 import { useRouter } from "next/router";
 import Navbar from "@/components/Navbar";
 import FaucetButton from "@/components/FaucetButton";
@@ -15,16 +16,55 @@ import {
   fetchAuthChallenge,
   verifyAuthChallenge,
   setJwtToken,
+  logout,
   registerReferral,
 } from "@/lib/api";
+import { useToast } from "@/components/Toast";
+import WalletAccountMonitor from "@/components/WalletAccountMonitor";
 import "@/styles/globals.css";
 import { ToastProvider } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
+import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
+
 import OfflineBanner from "@/components/OfflineBanner";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useBackgroundSync } from "@/hooks/useBackgroundSync";
 import "../lib/i18n";
 
-const REF_STORAGE_KEY = "marketpay_pending_referrer";
+const WALLET_PUBLIC_KEY_STORAGE_KEY = "smp_wallet_public_key";
+const REF_STORAGE_KEY = "smp_referrer";
+
+function loadStoredPublicKey(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(WALLET_PUBLIC_KEY_STORAGE_KEY);
+}
+
+
+function ThemeToggle() {
+  const { theme, toggleTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+  return (
+    <button
+      onClick={toggleTheme}
+      aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      className="fixed bottom-6 left-6 z-50 w-11 h-11 rounded-full flex items-center justify-center shadow-lg border transition-colors duration-200 bg-white dark:bg-ink-800 border-gray-200 dark:border-market-500/20 text-gray-600 dark:text-amber-400 hover:border-gray-400 dark:hover:border-market-500/50"
+    >
+      {theme === "dark" ? (
+        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+          <circle cx="12" cy="12" r="4" />
+          <path strokeLinecap="round" d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+        </svg>
+      ) : (
+        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+        </svg>
+      )}
+    </button>
+  );
+}
 
 function App({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
@@ -35,6 +75,12 @@ function App({ Component, pageProps }: AppProps) {
   } | null>(null);
   const [installDismissed, setInstallDismissed] = useState(false);
   const router = useRouter();
+  const isJobDetailPage = router.pathname === "/jobs/[id]";
+
+  // Background sync: refresh the current page when the SW replays queued requests
+  useBackgroundSync({
+    onSyncComplete: () => router.replace(router.asPath),
+  });
 
   // Capture ?ref= query param and persist it until the user connects a wallet
   useEffect(() => {
@@ -44,7 +90,13 @@ function App({ Component, pageProps }: AppProps) {
     if (ref && /^G[A-Z0-9]{55}$/.test(ref)) {
       localStorage.setItem(REF_STORAGE_KEY, ref);
     }
-  }, []);
+    
+    // Hydration fix: load public key after mount
+    const storedKey = loadStoredPublicKey();
+    if (storedKey && !publicKey) {
+      setPublicKey(storedKey);
+    }
+  }, [publicKey]);
 
   const handleOpenShortcutsModal = useCallback(() => {
     setShortcutsModalOpen(true);
@@ -86,6 +138,17 @@ function App({ Component, pageProps }: AppProps) {
     }
   }, []);
 
+  const persistPublicKey = useCallback((pk: string | null) => {
+    setPublicKey(pk);
+    if (typeof window === "undefined") return;
+    try {
+      if (pk) localStorage.setItem(WALLET_PUBLIC_KEY_STORAGE_KEY, pk);
+      else localStorage.removeItem(WALLET_PUBLIC_KEY_STORAGE_KEY);
+    } catch {
+      // Ignore storage failures; wallet state still works in memory.
+    }
+  }, []);
+
   const handleAuthAndConnect = async (pk: string) => {
     try {
       const challengeTx = await fetchAuthChallenge(pk);
@@ -108,12 +171,14 @@ function App({ Component, pageProps }: AppProps) {
       if (pk) {
         const authenticated = await handleAuthAndConnect(pk);
         if (authenticated) {
-          setPublicKey(pk);
+          persistPublicKey(pk);
           await maybeRegisterReferral(pk);
+        } else {
+          persistPublicKey(null);
         }
       }
     });
-  }, []);
+  }, [maybeRegisterReferral, persistPublicKey]);
 
   useEffect(() => {
     if (typeof window !== "undefined" && "serviceWorker" in navigator) {
@@ -150,7 +215,7 @@ function App({ Component, pageProps }: AppProps) {
     if (pk) {
       const authenticated = await handleAuthAndConnect(pk);
       if (authenticated) {
-        setPublicKey(pk);
+        persistPublicKey(pk);
         await maybeRegisterReferral(pk);
       } else {
         alert("Wallet connected, but authentication failed.");
@@ -160,69 +225,61 @@ function App({ Component, pageProps }: AppProps) {
     }
   };
 
+  const handleWalletDisconnect = useCallback(() => {
+    persistPublicKey(null);
+  }, [persistPublicKey]);
+
   return (
     <>
-      <ToastProvider>
-        <PriceProvider>
-          <Head>
-            <title>
-              Stellar MarketPay — Decentralised Freelance Marketplace
-            </title>
-            <meta
-              name="description"
-              content="Post jobs, hire freelancers, and pay with XLM — secured by Soroban smart contracts."
+      {/*
+       * Non-critical third-party scripts — loaded after the page is interactive
+       * so they don't block TTI. Add any analytics, widgets, or tracking scripts
+       * here using strategy="lazyOnload". They run after hydration completes.
+       *
+       * Example (uncomment and replace src with your script URL):
+       *   <Script src="https://example.com/analytics.js" strategy="lazyOnload" />
+       *
+       * For CPU-intensive scripts (analytics, chat widgets), consider Partytown:
+       *   npm install @builder.io/partytown
+       *   Then use strategy="worker" to offload to a web worker thread.
+       */}
+      <ThemeProvider>
+        <ToastProvider>
+          <PriceProvider>
+            <WalletAccountMonitor
+              currentPublicKey={publicKey}
+              onDisconnect={handleWalletDisconnect}
             />
-            <meta
-              name="viewport"
-              content="width=device-width, initial-scale=1"
-            />
-            <link rel="manifest" href="/manifest.json" />
-            <link rel="apple-touch-icon" href="/icon-192x192.png" />
-            <link
-              rel="alternate"
-              type="application/rss+xml"
-              title="Stellar MarketPay — Job Listings (RSS)"
-              href="/api/jobs/feed.rss"
-            />
-            <link
-              rel="alternate"
-              type="application/atom+xml"
-              title="Stellar MarketPay — Job Listings (Atom)"
-              href="/api/jobs/feed.atom"
-            />
-          </Head>
-          <OfflineBanner />
-          <div className="min-h-screen bg-ink-900 bg-lines flex flex-col">
-            <Navbar
-              publicKey={publicKey}
-              onConnect={handleConnect}
-              onDisconnect={() => setPublicKey(null)}
-            />
-            <main className="flex-1">
-              <Component
-                {...pageProps}
-                publicKey={publicKey}
-                onConnect={handleConnect}
+            <Head>
+              <title>Stellar MarketPay — Decentralised Freelance Marketplace</title>
+              <meta name="description" content="Post jobs, hire freelancers, and pay with XLM — secured by Soroban smart contracts." />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <meta name="theme-color" content="#f59e0b" />
+              <meta name="apple-mobile-web-app-capable" content="yes" />
+              <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+              <meta name="apple-mobile-web-app-title" content="MarketPay" />
+              <link rel="manifest" href="/manifest.json" />
+              <link rel="apple-touch-icon" href="/icon-192x192.png" />
+              <link rel="alternate" type="application/rss+xml" title="Stellar MarketPay — Job Listings (RSS)" href="/api/jobs/feed.rss" />
+              <link rel="alternate" type="application/atom+xml" title="Stellar MarketPay — Job Listings (Atom)" href="/api/jobs/feed.atom" />
+            </Head>
+            <OfflineBanner />
+            <div className="min-h-screen bg-lines" style={{ backgroundColor: "var(--bg)" }}>
+              <Navbar publicKey={publicKey} onConnect={handleConnect} onDisconnect={() => setPublicKey(null)} />
+              <main>
+                <Component {...pageProps} publicKey={publicKey} onConnect={handleConnect} />
+              </main>
+              {publicKey && <FaucetButton publicKey={publicKey} />}
+              <ThemeToggle />
+              <KeyboardShortcutsModal
+                isOpen={shortcutsModalOpen}
+                onClose={() => setShortcutsModalOpen(false)}
+                showJobDetailShortcuts={isJobDetailPage}
               />
-            </main>
-            <AppFooter onOpenShortcuts={handleOpenShortcutsModal} />
-            {publicKey && <FaucetButton publicKey={publicKey} />}
-            {deferredInstallPrompt && !installDismissed && (
-              <button
-                onClick={handleInstallApp}
-                className="fixed right-4 bottom-4 z-50 btn-primary text-sm"
-                type="button"
-              >
-                Install App
-              </button>
-            )}
-            <KeyboardShortcutsModal
-              isOpen={shortcutsModalOpen}
-              onClose={handleCloseShortcutsModal}
-            />
-          </div>
-        </PriceProvider>
-      </ToastProvider>
+            </div>
+          </PriceProvider>
+        </ToastProvider>
+      </ThemeProvider>
     </>
   );
 }

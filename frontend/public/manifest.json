@@ -6,26 +6,12 @@
     "scope":  "/",
     "display":  "standalone",
     "orientation":  "portrait-primary",
-    "theme_color":  "#6366f1",
-    "background_color":  "#ffffff",
+    "theme_color":  "#f59e0b",
+    "background_color":  "#0c0a06",
     "categories":  [
                        "business",
                        "productivity"
                    ],
-    "screenshots":  [
-                        {
-                            "src":  "/icon-192x192.png",
-                            "sizes":  "192x192",
-                            "type":  "image/png",
-                            "purpose":  "any"
-                        },
-                        {
-                            "src":  "/icon-512x512.png",
-                            "sizes":  "512x512",
-                            "type":  "image/png",
-                            "purpose":  "any"
-                        }
-                    ],
     "icons":  [
                   {
                       "purpose":  "any",

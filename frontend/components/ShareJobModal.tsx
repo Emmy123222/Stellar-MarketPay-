@@ -2,7 +2,7 @@
  * components/ShareJobModal.tsx
  * Modal for sharing job listings with pre-filled application forms
  */
-import { useState } from "react";
+import { useState, useEffect, useRef, KeyboardEvent } from "react";
 import type { Job } from "@/utils/types";
 
 interface ShareJobModalProps {
@@ -21,6 +21,30 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
     jobId: job.id,
   });
   const [showQR, setShowQR] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Focus trap (#287): keep focus inside modal
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const focusable = dialog.querySelectorAll<HTMLElement>(
+      'a[href],button:not([disabled]),input,select,textarea,[tabindex]:not([tabindex="-1"])'
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    first?.focus();
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") { onClose(); return; }
+      if (e.key !== "Tab") return;
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first?.focus(); }
+      }
+    };
+    dialog.addEventListener("keydown", handleKeyDown);
+    return () => dialog.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   // Generate canonical job URL
   const jobUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/jobs/${job.id}`;
@@ -58,8 +82,14 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-ink-900/90 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-ink-800 rounded-xl border border-market-500/20 shadow-xl">
+    <div className="fixed inset-0 z-50 bg-ink-900/90 backdrop-blur-sm flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Share job: ${job.title}`}
+        className="w-full max-w-md bg-ink-800 rounded-xl border border-market-500/20 shadow-xl"
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-market-500/10">
           <h3 className="font-display text-lg font-semibold text-amber-100">Share Job</h3>

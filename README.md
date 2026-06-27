@@ -6,8 +6,9 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Stellar](https://img.shields.io/badge/Stellar-Testnet-blue)](https://stellar.org)
 [![Soroban](https://img.shields.io/badge/Soroban-Smart%20Contracts-purple)](https://soroban.stellar.org)
+[![Backend Coverage](https://img.shields.io/badge/backend%20coverage-60%25%2B-brightgreen)](#testing)
 
-Stellar MarketPay is an open-source decentralised freelance marketplace where clients post jobs, freelancers apply, and payments are secured in **Soroban smart contract escrow** — released automatically when work is approved. No middlemen. No payment delays. No platform fees eating your earnings.
+Stellar MarketPay is an open-source decentralised freelance marketplace where clients post jobs, freelancers apply, and payments are secured in **Soroban smart contract escrow** — released automatically when work is approved. No middlemen. No payment delays. No platform fees eating your earnings..
 
 ---
 
@@ -84,22 +85,29 @@ npm run dev
 
 ## 🔑 Environment Variables
 
+See [docs/environment-variables.md](docs/environment-variables.md) for the full list of backend and frontend variables, validation rules, and examples.
+
+Deploy the Soroban escrow contract with [docs/contract-deployment.md](docs/contract-deployment.md).
+
 ### Frontend (`frontend/.env.local`)
 ```env
+NEXT_PUBLIC_API_URL=http://localhost:4000
 NEXT_PUBLIC_STELLAR_NETWORK=testnet
 NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
 NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
-NEXT_PUBLIC_API_URL=http://localhost:4000
-NEXT_PUBLIC_CONTRACT_ID=           # Set after deploying contract
-NEXT_PUBLIC_USE_CONTRACT_MOCK=false # Set to 'true' for offline development
+NEXT_PUBLIC_CONTRACT_ID=CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+NEXT_PUBLIC_USE_CONTRACT_MOCK=false
 ```
 
 ### Backend (`backend/.env`)
 ```env
 PORT=4000
+DATABASE_URL=postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork
+JWT_SECRET=replace-with-a-long-random-secret
 STELLAR_NETWORK=testnet
 HORIZON_URL=https://horizon-testnet.stellar.org
-CONTRACT_ID=                        # Set after deploying contract
+CONTRACT_ID=CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+ALLOWED_ORIGINS=http://localhost:3000
 ```
 
 ---
@@ -144,6 +152,28 @@ For frontend development without a deployed Soroban contract:
 4. Receive 10,000 test XLM instantly
 
 ---
+
+## Testing
+
+| Suite | Command | Notes |
+|-------|---------|--------|
+| Frontend unit snapshots | `cd frontend && npm test` | Jest + React Testing Library |
+| Update snapshots | `cd frontend && npm run test:update-snapshots` | Regenerate when UI changes are intentional |
+| Backend unit + coverage | `cd backend && npm test` | HTML report in `backend/coverage/` |
+| E2E (Playwright) | `cd frontend && npm run test:e2e` | Includes full client/freelancer marketplace flow |
+
+Deploy or upgrade the Soroban escrow contract using [docs/contract-deployment.md](docs/contract-deployment.md).
+
+---
+
+## 📚 Documentation
+
+- **[Architecture Decision Records (ADRs)](docs/adr/README.md)** — Design decisions and rationale
+- **[API Client SDKs](docs/api-client-sdk.md)** — TypeScript, Python, and Go client libraries
+- **[Troubleshooting Guide](docs/troubleshooting.md)** — Common issues and solutions
+- **[Production Deployment](docs/deployment-production.md)** — Deploy to AWS, GCP, or DigitalOcean
+- **[API Documentation](docs/API_DOCUMENTATION.md)** — Complete API reference
+- **[Contract Deployment](docs/contract-deployment.md)** — Deploy Soroban smart contracts
 
 ## 🤝 Contributing
 
