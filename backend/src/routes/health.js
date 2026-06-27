@@ -9,6 +9,9 @@
  *   - Returns 200 when all dependencies are healthy
  *   - Returns 503 when any critical dependency is down
  *
+ * GET /health/db
+ *   - Returns pool stats: total, idle, waiting connections
+ *
  * Response shape:
  *   {
  *     "status": "healthy" | "degraded",
@@ -24,6 +27,7 @@
 
 const express = require("express");
 const pool = require("../db/pool");
+const { getPoolStats } = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const router = express.Router();
@@ -155,6 +159,16 @@ router.get("/", healthRateLimiter, async (req, res) => {
   };
 
   res.status(healthy ? 200 : 503).json(body);
+});
+
+// GET /health/db — pool connection stats for monitoring
+router.get("/db", healthRateLimiter, async (req, res) => {
+  const stats = getPoolStats();
+  res.json({
+    status: "ok",
+    pool: stats,
+    pool_size: parseInt(process.env.DATABASE_POOL_SIZE, 10) || 10,
+  });
 });
 
 module.exports = router;
