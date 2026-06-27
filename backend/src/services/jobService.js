@@ -5,7 +5,8 @@
  */
 "use strict";
 
-const pool = require("../db/pool");
+const { readPool, writePool } = require("../db/pool");
+const pool = writePool; // default alias — write-safe; read-only paths use readPool
 const { refreshFreelancerTier } = require("./profileService");
 const { createJobNotification, EVENT_TYPES } = require("./notificationService");
 
@@ -69,7 +70,18 @@ const VALID_STATUSES = [
   "disputed",
 ];
 
-const JOB_SELECT_CLAUSE = `SELECT jobs.*, COALESCE((SELECT array_agg(s.display_name) FROM job_skills js JOIN skills s ON s.id = js.skill_id WHERE js.job_id = jobs.id), '{}') AS skills FROM jobs`;
+// Single-pass skill aggregation via LEFT JOIN — eliminates the correlated
+// subquery that previously ran once per job row (N+1 pattern).
+const JOB_SELECT_CLAUSE = `
+  SELECT jobs.*,
+         COALESCE(agg.skills, '{}') AS skills
+  FROM   jobs
+  LEFT JOIN LATERAL (
+    SELECT array_agg(s.display_name ORDER BY s.display_name) AS skills
+    FROM   job_skills js
+    JOIN   skills s ON s.id = js.skill_id
+    WHERE  js.job_id = jobs.id
+  ) agg ON true`;
 
 const VALID_CATEGORIES = [
   "Smart Contracts",
@@ -368,7 +380,7 @@ async function createJob({ title, description, budget, currency, category, skill
  * @throws {Error} If the job is not found.
  */
 async function getJob(id) {
-  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1`, [id]);
+  const { rows } = await readPool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1`, [id]);
   if (!rows.length) {
     const e = new Error("Job not found");
     e.status = 404;
@@ -572,7 +584,7 @@ async function listJobs({
 
   params.push(limit);
 
-  const { rows } = await pool.query(
+  const { rows } = await readPool.query(
     `${JOB_SELECT_CLAUSE} ${where} ORDER BY
        CASE WHEN boosted = true AND (boosted_until IS NULL OR boosted_until > NOW()) THEN 0 ELSE 1 END,
        created_at DESC, id DESC LIMIT $${params.length}`,
@@ -598,7 +610,7 @@ async function listJobs({
  */
 async function listJobsByClient(clientAddress) {
   validatePublicKey(clientAddress);
-  const { rows } = await pool.query(
+  const { rows } = await readPool.query(
     `${JOB_SELECT_CLAUSE} WHERE client_address = $1 ORDER BY created_at DESC`,
     [clientAddress]
   );

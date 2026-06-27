@@ -10,7 +10,7 @@ const http = require("http");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
-const compression = require("compression");
+const compressionMiddleware = require("./middleware/compression");
 const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
@@ -55,6 +55,7 @@ const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
+const { setBroadcastToUser } = require("./services/notificationService");
 
 const serviceLogger = createServiceLogger('server');
 const app  = express();
@@ -101,6 +102,7 @@ dbConnectionGauge.collect = function collectDbConnections() {
 };
 
 const realtimeClients = new Set();
+const userClients = new Map(); // userAddress -> Set<WebSocket>
 const scopeSessionClients = new Map();
 
 function broadcastRealtime(event, payload) {
@@ -108,6 +110,18 @@ function broadcastRealtime(event, payload) {
   serviceLogger.debug({ event, payload }, 'Broadcasting realtime message');
   for (const ws of realtimeClients) {
     if (ws.readyState === WS_OPEN) ws.send(message);
+  }
+  // Store the event for later reconnection pagination
+  wsQueue.enqueueEvent({ event, payload }).catch(err => serviceLogger.error({ err }, 'Failed to enqueue WS event'));
+}
+
+function broadcastToUser(userAddress, event, payload) {
+  const message = JSON.stringify({ event, payload });
+  const clients = userClients.get(userAddress);
+  if (clients) {
+    for (const ws of clients) {
+      if (ws.readyState === WS_OPEN) ws.send(message);
+    }
   }
 }
 
@@ -176,6 +190,8 @@ const priceAlertService = new PriceAlertService({
 
 app.locals.indexerService = indexerService;
 app.locals.broadcastRealtime = broadcastRealtime;
+app.locals.broadcastToUser = broadcastToUser;
+setBroadcastToUser(broadcastToUser);
 
 // Middleware
 app.use(helmet({
@@ -209,7 +225,7 @@ app.use(helmet({
 // Request logging middleware
 app.use(requestLoggerMiddleware);
 
-app.use(compression());
+app.use(compressionMiddleware());
 
 app.use(express.json({ limit: "20kb" }));
 app.use(sanitizeMiddleware({ strict: false }));
@@ -345,9 +361,45 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
-    realtimeClients.add(ws);
-    sendJson(ws, "connected", { channel: "realtime" });
-    ws.on("close", () => realtimeClients.delete(ws));
+    const token = url.searchParams.get("token");
+    let userAddress = null;
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        userAddress = decoded.publicKey;
+      } catch {
+        serviceLogger.warn('Invalid WebSocket JWT token, falling back to anonymous');
+      }
+    }
+
+    if (userAddress) {
+      if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
+      userClients.get(userAddress).add(ws);
+      sendJson(ws, "connected", { channel: "realtime", userAddress });
+
+      ws.on("close", () => {
+        const clients = userClients.get(userAddress);
+        if (clients) {
+          clients.delete(ws);
+          if (clients.size === 0) userClients.delete(userAddress);
+        }
+      });
+
+      // Send unread notifications on reconnect
+      try {
+        const notificationService = require("./services/notificationService");
+        const result = await notificationService.listInAppNotifications(userAddress, { limit: 50 });
+        for (const notification of result.notifications) {
+          sendJson(ws, "notification:created", notification);
+        }
+      } catch (err) {
+        logError(serviceLogger, err, { operation: 'send_unread_notifications' });
+      }
+    } else {
+      realtimeClients.add(ws);
+      sendJson(ws, "connected", { channel: "realtime" });
+      ws.on("close", () => realtimeClients.delete(ws));
+    }
     return;
   }
 
@@ -454,7 +506,8 @@ async function bootstrap() {
   // Start notification processor - run every 2 minutes
   startNotificationProcessor();
 
-  // Start weekly digest scheduler - fires every Monday at 09:00 UTC
+  // Start WS event cleanup job (purge old events after 7 days)
+  startWsEventCleanup();
   startWeeklyDigestScheduler();
 
   // Start platform metrics aggregator - runs hourly for Issue #561

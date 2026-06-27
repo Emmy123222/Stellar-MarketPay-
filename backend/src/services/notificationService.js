@@ -10,6 +10,12 @@ const { emailQueue } = require("../utils/queue");
 
 const MAX_RETRIES = 3;
 
+let _broadcastToUser = null;
+
+function setBroadcastToUser(fn) {
+  _broadcastToUser = fn;
+}
+
 /**
  * Event types that trigger notifications
  */
@@ -107,7 +113,13 @@ async function createInAppNotification(
     [userAddress, type, title, body, jobId, linkPath],
   );
 
-  return rowToInAppNotification(rows[0]);
+  const notification = rowToInAppNotification(rows[0]);
+
+  if (_broadcastToUser) {
+    _broadcastToUser(userAddress, 'notification:created', notification);
+  }
+
+  return notification;
 }
 
 async function listInAppNotifications(userAddress, { limit = 20, cursor = null } = {}) {
@@ -205,7 +217,7 @@ async function createJobNotification({
  * @returns {Promise<Object>} User preferences
  */
 async function getUserPreferences(publicKey) {
-  const crypto = require("crypto");
+
   const encKey = process.env.DATABASE_ENCRYPTION_KEY || "";
   const { rows } = await pool.query(
     `SELECT
@@ -605,4 +617,5 @@ module.exports = {
   generateEmailContent,
   generateInAppContent,
   EVENT_TYPES,
+  setBroadcastToUser,
 };

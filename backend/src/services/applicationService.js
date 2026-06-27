@@ -6,7 +6,8 @@
 "use strict";
 
 const crypto = require("crypto");
-const pool = require("../db/pool");
+const { readPool, writePool } = require("../db/pool");
+const pool = writePool; // default to write; SELECTs below use readPool
 const { getJob, assignFreelancer } = require("./jobService");
 const { calculateFreelancerTier, isBlocked } = require("./profileService");
 const { createJobNotification, EVENT_TYPES } = require("./notificationService");
@@ -365,7 +366,7 @@ async function revealApplicationBid(applicationId, freelancerAddress, bidAmount,
  * @returns {Promise<Object[]>} An array of application objects ordered by creation date ascending.
  */
 async function getApplicationsForJob(jobId, filters = {}) {
-  const { rows } = await pool.query(
+  const { rows } = await readPool.query(
     `SELECT a.*,
             COALESCE(p.completed_jobs, 0) AS completed_jobs,
             COALESCE(p.total_earned_xlm, 0) AS total_earned_xlm,
@@ -400,7 +401,7 @@ async function getApplicationsForJob(jobId, filters = {}) {
  */
 async function getApplicationsForFreelancer(freelancerAddress) {
   validatePublicKey(freelancerAddress);
-  const { rows } = await pool.query(
+  const { rows } = await readPool.query(
     `SELECT a.*,
             COALESCE(p.completed_jobs, 0) AS completed_jobs,
             COALESCE(p.total_earned_xlm, 0) AS total_earned_xlm,

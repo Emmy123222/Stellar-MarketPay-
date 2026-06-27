@@ -6,6 +6,7 @@
 
 const express = require("express");
 const router = express.Router();
+
 const pool = require("../db/pool");
 const { verifyJWT, requireAdminRole, requireAdmin2FA } = require("../middleware/auth");
 const { updateJobStatus } = require("../services/jobService");
@@ -422,12 +423,7 @@ router.post("/jobs/:jobId/reactivate", verifyJWT, requireAdminRole, requireAdmin
 // ── GET /api/admin/cost-report — infrastructure cost tracking & optimization ──
 router.get("/cost-report", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
-    const { rows: metrics } = await pool.query(`
-      SELECT
-        (SELECT COUNT(*) FROM jobs) AS total_jobs,
-        (SELECT COUNT(*) FROM profiles) AS total_users,
-        (SELECT COUNT(*) FROM escrows WHERE status = 'funded') AS active_escrows
-    `);
+
 
     const costDrivers = [
       {
@@ -514,7 +510,7 @@ router.get("/cost-report", verifyJWT, requireAdminRole, requireAdmin2FA, async (
 // ── GET /api/admin/cost-report/generate — trigger a fresh report email ──────
 router.post("/cost-report/generate", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res) => {
   try {
-    const { rows } = await pool.query(`
+    await pool.query(`
       INSERT INTO audit_logs (actor_address, action, target, reason, metadata, created_at)
       VALUES ($1, 'generate_cost_report', 'infrastructure', 'Manual cost report generation', $2, NOW())
       RETURNING id
