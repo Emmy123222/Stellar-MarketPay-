@@ -97,6 +97,15 @@ function normalizeAddress(address) {
   return typeof address === "string" ? address.trim() : "";
 }
 
+function isAdmin(req) {
+  if (!req.user) return false;
+  const adminAddresses = (process.env.ADMIN_WALLET_ADDRESSES || "")
+    .split(",")
+    .map((a) => a.trim())
+    .filter(Boolean);
+  return adminAddresses.includes(req.user.publicKey) || req.user.role === "admin";
+}
+
 function isValidReportCategory(category) {
   return ["fraud", "suspicious", "spam", "inappropriate", "other"].includes(
     category,
@@ -210,6 +219,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
     } = req.query;
     const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
     const includeExpired = include_expired === "true";
+    const includeDeleted = req.query.include_deleted === "true" && isAdmin(req);
 
     // Deprecated offset-style `page` param — cursor pagination is canonical (#291).
     if (page !== undefined && cursor === undefined) {
@@ -250,13 +260,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       timezone,
       viewerAddress,
       includeExpired,
-      min_budget,
-      max_budget,
-      skills,
-      min_client_rating,
-      duration,
-      posted_since,
-      max_applications,
+      includeDeleted,
     });
 
     const jobsWithRep = await enrichJobsWithClientReputation(result.jobs);
@@ -281,9 +285,11 @@ router.get(
   generalJobRateLimiter,
   async (req, res, next) => {
     try {
-      const jobs = await listJobsByClient(req.params.publicKey);
-      const jobsWithRep = await enrichJobsWithClientReputation(jobs);
-      res.json({ success: true, data: jobsWithRep });
+      const includeDeleted = req.query.include_deleted === "true" && isAdmin(req);
+      res.json({
+        success: true,
+        data: await listJobsByClient(req.params.publicKey, { includeDeleted }),
+      });
     } catch (e) {
       next(e);
     }
@@ -307,9 +313,8 @@ router.get(
 // GET /api/jobs/:id — get single job
 router.get("/:id", generalJobRateLimiter, async (req, res, next) => {
   try {
-    const job = await getJob(req.params.id);
-    const [jobWithRep] = await enrichJobsWithClientReputation([job]);
-    res.json({ success: true, data: jobWithRep });
+    const includeDeleted = req.query.include_deleted === "true" && isAdmin(req);
+    res.json({ success: true, data: await getJob(req.params.id, { includeDeleted }) });
   } catch (e) {
     next(e);
   }
@@ -781,6 +786,18 @@ router.delete("/drafts/:id", verifyJWT, async (req, res, next) => {
   try {
     await jobDraftService.deleteDraft(req.params.id, req.user.publicKey);
     res.json({ success: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// PUT /api/jobs/drafts/:id — upsert a job draft (partial data)
+router.put("/drafts/:id", verifyJWT, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const draftData = { id, ...req.body };
+    const draft = await jobDraftService.saveDraft(req.user.publicKey, draftData);
+    res.json({ success: true, data: draft });
   } catch (e) {
     next(e);
   }

@@ -1,0 +1,242 @@
+# Gitleaks Configuration for Stellar MarketPay
+# This configuration detects secrets in the codebase, with custom rules for Stellar-specific patterns
+
+title = "Stellar MarketPay Gitleaks Configuration"
+
+# Allowlist for known false positives
+[allowlist]
+  description = "Global allowlist for known false positives"
+  paths = [
+    '''node_modules''',
+    '''.next''',
+    '''coverage''',
+    '''dist''',
+    '''build''',
+    '''target''',
+    '''test_snapshots''',
+    '''*.log''',
+    '''*.min.js''',
+    '''*.min.css''',
+    '''package-lock.json''',
+    '''yarn.lock''',
+    '''pnpm-lock.yaml''',
+    '''vendor''',
+  ]
+
+  # Allow specific commits or branches if needed
+  commits = []
+  branches = []
+
+# Stellar-specific rule for private keys
+[[rules]]
+  id = "stellar-private-key"
+  description = "Detects Stellar private keys (S-prefixed 56 character base32 strings)"
+  regex = '''\bS[A-Z2-7]{55}\b'''
+  keywords = ["S"]
+  entropy = 3.5
+  severity = "critical"
+
+# Stellar contract ID pattern
+[[rules]]
+  id = "stellar-contract-id"
+  description = "Detects Stellar Soroban contract IDs (C-prefixed 56 character strings)"
+  regex = '''\bC[A-Z0-9]{55}\b'''
+  keywords = ["C"]
+  entropy = 3.5
+  severity = "high"
+
+# Stellar secret seed pattern (alternative format)
+[[rules]]
+  id = "stellar-secret-seed"
+  description = "Detects Stellar secret seeds (S-prefixed with different validation)"
+  regex = '''\bS[A-Z0-9]{55}\b'''
+  keywords = ["secret", "seed", "private"]
+  entropy = 4.0
+  severity = "critical"
+
+# Generic API keys
+[[rules]]
+  id = "generic-api-key"
+  description = "Detects generic API key patterns"
+  regex = '''(?i)(api[_-]?key|apikey|secret[_-]?key|access[_-]?token|auth[_-]?token|private[_-]?key|client[_-]?secret)[\s=:]+[a-zA-Z0-9_\-\.]{20,}'''
+  keywords = ["api", "key", "secret", "token", "auth", "private"]
+  entropy = 3.0
+  severity = "high"
+
+# AWS Access Key
+[[rules]]
+  id = "aws-access-key"
+  description = "Detects AWS access keys"
+  regex = '''(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}'''
+  keywords = ["aws", "access", "key"]
+  entropy = 3.0
+  severity = "critical"
+
+# AWS Secret Key
+[[rules]]
+  id = "aws-secret-key"
+  description = "Detects AWS secret keys"
+  regex = '''(?i)aws[_\.-]?secret[_\.-]?key[\s=:]+[A-Za-z0-9\/\+=]{40}'''
+  keywords = ["aws", "secret", "key"]
+  entropy = 3.5
+  severity = "critical"
+
+# GitHub Personal Access Token
+[[rules]]
+  id = "github-pat"
+  description = "Detects GitHub personal access tokens"
+  regex = '''ghp_[a-zA-Z0-9]{36}'''
+  keywords = ["ghp_"]
+  entropy = 3.0
+  severity = "critical"
+
+# GitHub OAuth Token
+[[rules]]
+  id = "github-oauth"
+  description = "Detects GitHub OAuth tokens"
+  regex = '''(gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36}'''
+  keywords = ["gho_", "ghu_", "ghs_", "ghr_"]
+  entropy = 3.0
+  severity = "critical"
+
+# JWT Token
+[[rules]]
+  id = "jwt-token"
+  description = "Detects JWT tokens"
+  regex = '''eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}'''
+  keywords = ["eyJ"]
+  entropy = 3.0
+  severity = "high"
+
+# Database Connection String
+[[rules]]
+  id = "database-connection-string"
+  description = "Detects database connection strings"
+  regex = '''(?i)(postgresql|mysql|mongodb|redis)://[a-zA-Z0-9_\-\.]+:[a-zA-Z0-9_\-\.]+@[a-zA-Z0-9_\-\.]+:[0-9]+/[a-zA-Z0-9_\-\.]+'''
+  keywords = ["postgresql://", "mysql://", "mongodb://", "redis://"]
+  entropy = 2.5
+  severity = "critical"
+
+# Private Key Files
+[[rules]]
+  id = "private-key-file"
+  description = "Detects private key file content"
+  regex = '''-----BEGIN ((RSA |OPENSSH |DSA |EC |PGP )?PRIVATE KEY|CERTIFICATE)-----'''
+  keywords = ["-----BEGIN", "PRIVATE KEY", "CERTIFICATE"]
+  entropy = 4.0
+  severity = "critical"
+
+# Slack Webhook
+[[rules]]
+  id = "slack-webhook"
+  description = "Detects Slack webhooks"
+  regex = '''https://hooks\.slack\.com/services/[A-Z0-9]{9,}/[A-Z0-9]{9,}/[A-Z0-9]{9,}'''
+  keywords = ["hooks.slack.com"]
+  entropy = 3.0
+  severity = "high"
+
+# Stripe API Key
+[[rules]]
+  id = "stripe-api-key"
+  description = "Detects Stripe API keys"
+  regex = '''(sk|pk)_(live|test)_[a-zA-Z0-9]{24,}'''
+  keywords = ["sk_live", "pk_live", "sk_test", "pk_test"]
+  entropy = 3.0
+  severity = "critical"
+
+# SendGrid API Key
+[[rules]]
+  id = "sendgrid-api-key"
+  description = "Detects SendGrid API keys"
+  regex = '''SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}'''
+  keywords = ["SG."]
+  entropy = 3.0
+  severity = "critical"
+
+# Twilio API Key
+[[rules]]
+  id = "twilio-api-key"
+  description = "Detects Twilio API keys"
+  regex = '''SK[a-f0-9]{32}'''
+  keywords = ["SK"]
+  entropy = 3.0
+  severity = "critical"
+
+# Google Cloud API Key
+[[rules]]
+  id = "google-cloud-api-key"
+  description = "Detects Google Cloud API keys"
+  regex = '''AIza[a-zA-Z0-9_\-]{35}'''
+  keywords = ["AIza"]
+  entropy = 3.0
+  severity = "critical"
+
+# Google Cloud OAuth
+[[rules]]
+  id = "google-cloud-oauth"
+  description = "Detects Google Cloud OAuth tokens"
+  regex = '''[0-9]+-[a-zA-Z0-9_]{32}\.apps\.googleusercontent\.com'''
+  keywords = ["apps.googleusercontent.com"]
+  entropy = 2.5
+  severity = "high"
+
+# Docker Registry Auth
+[[rules]]
+  id = "docker-registry-auth"
+  description = "Detects Docker registry authentication tokens"
+  regex = '''docker\.io.*[a-zA-Z0-9:_\-]{20,}'''
+  keywords = ["docker.io"]
+  entropy = 2.5
+  severity = "high"
+
+# npm Token
+[[rules]]
+  id = "npm-token"
+  description = "Detects npm authentication tokens"
+  regex = '''npm_[a-zA-Z0-9_-]{36}'''
+  keywords = ["npm_"]
+  entropy = 3.0
+  severity = "critical"
+
+# PyPI Token
+[[rules]]
+  id = "pypi-token"
+  description = "Detects PyPI tokens"
+  regex = '''pypi-[a-zA-Z0-9_-]{34}'''
+  keywords = ["pypi-"]
+  entropy = 3.0
+  severity = "critical"
+
+# Heroku API Key
+[[rules]]
+  id = "heroku-api-key"
+  description = "Detects Heroku API keys"
+  regex = '''[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'''
+  keywords = ["heroku"]
+  entropy = 3.0
+  severity = "high"
+
+# Environment variable assignments
+[[rules]]
+  id = "env-var-secret"
+  description = "Detects secrets in environment variable assignments"
+  regex = '''(?i)export\s+[A-Z_]+(SECRET|KEY|TOKEN|PASSWORD|PRIVATE)[\s=]+['"]?[a-zA-Z0-9_\-\.]{20,}'''
+  keywords = ["export", "SECRET", "KEY", "TOKEN", "PASSWORD", "PRIVATE"]
+  entropy = 2.5
+  severity = "high"
+
+# Base64 encoded secrets (high entropy)
+[[rules]]
+  id = "high-entropy-base64"
+  description = "Detects high-entropy base64 strings that might be encoded secrets"
+  regex = '''[a-zA-Z0-9+/]{40,}={0,2}'''
+  entropy = 4.5
+  severity = "medium"
+
+# Hex encoded secrets (high entropy)
+[[rules]]
+  id = "high-entropy-hex"
+  description = "Detects high-entropy hex strings that might be encoded secrets"
+  regex = '''[a-f0-9]{40,}'''
+  entropy = 4.5
+  severity = "medium"

@@ -8,6 +8,7 @@
 import { useState, useEffect, useRef, useCallback, DragEvent } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
+import Image from "next/image";
 import {
   fetchDisputeDetail,
   uploadDisputeEvidence,
@@ -42,14 +43,12 @@ function EvidenceCard({ ev, isOwn }: { ev: DisputeEvidence; isOwn: boolean }) {
       </div>
       <div className="flex-shrink-0 flex flex-col gap-2 items-end">
         {isImage && (
-          <img
+          <Image
             src={ev.gatewayUrl}
             alt={ev.fileName}
             width={80}
             height={64}
             className="w-20 h-16 object-cover rounded-lg border border-market-500/20"
-            loading="lazy"
-            decoding="async"
           />
         )}
         <a
@@ -103,7 +102,7 @@ export default function DisputePage({ publicKey }: PageProps) {
       .then(setDetail)
       .catch(() => info("Could not load dispute details."))
       .finally(() => setLoading(false));
-  }, [jobId]);
+  }, [jobId, info]);
 
   const myEvidentCount = (detail?.evidence ?? []).filter((ev) => ev.uploaderAddress === publicKey).length;
   const slotsLeft = 10 - myEvidentCount - pendingFiles.filter((f) => f.status !== "error").length;
@@ -159,8 +158,35 @@ export default function DisputePage({ publicKey }: PageProps) {
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 space-y-4">
-        {[1, 2, 3].map((i) => <div key={i} className="card animate-pulse h-20" />)}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 space-y-8 animate-pulse">
+        {/* Header */}
+        <div className="space-y-3">
+          <div className="h-6 w-24 bg-market-500/8 rounded" />
+          <div className="h-10 w-48 bg-market-500/10 rounded" />
+          <div className="h-5 w-64 bg-market-500/8 rounded" />
+          <div className="flex gap-2 mt-2">
+            <div className="h-6 w-20 bg-market-500/10 rounded-full" />
+            <div className="h-6 w-24 bg-market-500/10 rounded-full" />
+          </div>
+        </div>
+
+        {/* Upload section */}
+        <div className="card space-y-4">
+          <div className="h-5 w-32 bg-market-500/10 rounded" />
+          <div className="h-32 bg-market-500/8 rounded-lg border-2 border-dashed border-market-500/20" />
+        </div>
+
+        {/* Evidence sections */}
+        <div className="space-y-6">
+          <div className="space-y-3">
+            <div className="h-5 w-36 bg-market-500/10 rounded" />
+            <div className="card h-20 bg-market-500/8 rounded" />
+          </div>
+          <div className="space-y-3">
+            <div className="h-5 w-40 bg-market-500/10 rounded" />
+            <div className="card h-20 bg-market-500/8 rounded" />
+          </div>
+        </div>
       </div>
     );
   }

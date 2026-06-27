@@ -389,6 +389,160 @@ exports[`async component snapshots AdminAnalytics populated: AdminAnalytics popu
 </div>
 `;
 
+exports[`async component snapshots EarningsChart error: EarningsChart error 1`] = `
+<div
+  class="card text-center py-16"
+>
+  <p
+    class="text-amber-700 text-sm"
+  >
+    Failed to load earnings data.
+  </p>
+</div>
+`;
+
+exports[`async component snapshots EarningsChart loading: EarningsChart loading 1`] = `
+<div
+  class="space-y-3"
+>
+  <div
+    class="card animate-pulse h-24"
+  />
+  <div
+    class="card animate-pulse h-24"
+  />
+  <div
+    class="card animate-pulse h-24"
+  />
+</div>
+`;
+
+exports[`async component snapshots EarningsChart populated: EarningsChart populated 1`] = `
+<div
+  class="space-y-6"
+>
+  <div
+    class="grid grid-cols-1 sm:grid-cols-3 gap-4"
+  >
+    <div
+      class="card"
+    >
+      <p
+        class="text-xs text-amber-700"
+      >
+        Total Earned
+      </p>
+      <p
+        class="font-display text-2xl text-market-300 mt-1"
+      >
+        250 XLM
+      </p>
+    </div>
+    <div
+      class="card"
+    >
+      <p
+        class="text-xs text-amber-700"
+      >
+        Avg Earnings / Job
+      </p>
+      <p
+        class="font-display text-2xl text-amber-100 mt-1"
+      >
+        250 XLM
+      </p>
+    </div>
+    <div
+      class="card"
+    >
+      <p
+        class="text-xs text-amber-700"
+      >
+        Completed Jobs
+      </p>
+      <p
+        class="font-display text-2xl text-amber-100 mt-1"
+      >
+        1
+      </p>
+    </div>
+  </div>
+  <div
+    class="card"
+  >
+    <div
+      class="flex items-center justify-between mb-4"
+    >
+      <p
+        class="font-display text-lg text-amber-100"
+      >
+        Monthly Earnings (Last 12 Months)
+      </p>
+      <button
+        aria-label="Export earnings data as CSV"
+        class="btn-secondary text-xs px-3 py-1.5"
+      >
+        Export CSV
+      </button>
+    </div>
+    <div
+      data-testid="recharts-container"
+    >
+      <div
+        data-testid="bar-chart"
+      />
+    </div>
+  </div>
+  <div
+    class="card"
+  >
+    <p
+      class="font-display text-lg text-amber-100 mb-4"
+    >
+      Earnings by Job
+    </p>
+    <div
+      class="flex flex-col sm:flex-row items-center gap-6"
+    >
+      <div
+        data-testid="recharts-container"
+      >
+        <div
+          data-testid="pie-chart"
+        />
+      </div>
+      <div
+        class="flex-1 space-y-2 min-w-0"
+      >
+        <div
+          class="flex items-center justify-between gap-3"
+        >
+          <div
+            class="flex items-center gap-2 min-w-0"
+          >
+            <span
+              class="w-2.5 h-2.5 rounded-full flex-shrink-0"
+              style="background: rgb(245, 158, 11);"
+            />
+            <span
+              class="text-xs text-amber-100 truncate"
+            >
+              Build escrow contract
+            </span>
+          </div>
+          <span
+            class="text-xs text-market-300 font-medium flex-shrink-0"
+          >
+            250.00
+             XLM
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+
 exports[`async component snapshots EditProfileForm loading: EditProfileForm loading 1`] = `
 <div
   class="card animate-pulse py-16 text-center"
@@ -1320,6 +1474,30 @@ exports[`async component snapshots MessageThread empty: MessageThread empty 1`] 
     <div
       class="flex items-center gap-2"
     >
+      <input
+        accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.doc,.docx"
+        class="hidden"
+        type="file"
+      />
+      <button
+        aria-label="Attach encrypted file"
+        class="p-2.5 rounded-xl border border-market-500/15 text-amber-700 hover:text-market-400 hover:border-market-500/40 disabled:opacity-40 transition-colors shrink-0"
+        type="button"
+      >
+        <svg
+          class="w-4 h-4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.75"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
       <input
         class="flex-1 bg-ink-800 border border-market-500/15 rounded-xl px-4 py-2.5 text-sm text-amber-100 placeholder-amber-900 focus:outline-none focus:border-market-500/40 disabled:opacity-50"
         maxlength="2000"

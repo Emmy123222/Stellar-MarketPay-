@@ -92,13 +92,26 @@ function getCookieOptions(maxAge) {
 }
 
 function setAuthCookies(res, accessToken, refreshToken) {
-  res.cookie("jwt", accessToken, getCookieOptions(15 * 60 * 1000));
+  const csrfToken = crypto.randomBytes(32).toString("hex");
+  res.cookie("token", accessToken, getCookieOptions(15 * 60 * 1000));
   res.cookie(REFRESH_COOKIE_NAME, refreshToken, getCookieOptions(REFRESH_TOKEN_TTL_MS));
+  res.cookie("XSRF-TOKEN", csrfToken, {
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: REFRESH_TOKEN_TTL_MS,
+    httpOnly: false,
+  });
 }
 
 function clearAuthCookies(res) {
-  res.clearCookie("jwt", getCookieOptions(0));
+  res.clearCookie("token", getCookieOptions(0));
   res.clearCookie(REFRESH_COOKIE_NAME, getCookieOptions(0));
+  res.clearCookie("XSRF-TOKEN", {
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: 0,
+    httpOnly: false,
+  });
 }
 
 module.exports = {

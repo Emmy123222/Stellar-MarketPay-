@@ -63,7 +63,6 @@ CREATE TABLE IF NOT EXISTS jobs (
   budget              NUMERIC(20,7) NOT NULL,
   currency            TEXT        NOT NULL DEFAULT 'XLM',
   category            TEXT        NOT NULL,
-  skills              TEXT[]      NOT NULL DEFAULT '{}',
   status              TEXT        NOT NULL DEFAULT 'open',
   client_address      TEXT        NOT NULL REFERENCES profiles(public_key),
   freelancer_address  TEXT        REFERENCES profiles(public_key),
@@ -121,8 +120,7 @@ ALTER TABLE jobs
   ADD COLUMN IF NOT EXISTS job_search_vector tsvector
   GENERATED ALWAYS AS (
     setweight(to_tsvector('simple', COALESCE(title, '')), 'A') ||
-    setweight(to_tsvector('simple', COALESCE(description, '')), 'B') ||
-    setweight(to_tsvector('simple', COALESCE(array_to_string(skills, ' '), '')), 'C')
+    setweight(to_tsvector('simple', COALESCE(description, '')), 'B')
   ) STORED;
 
 -- enforce valid visibility values for all rows
@@ -138,6 +136,22 @@ BEGIN
       CHECK (visibility IN ('public', 'private', 'invite_only'));
   END IF;
 END $$;
+
+-- ─────────────────────────────────────────
+-- skills
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS skills (
+  id SERIAL PRIMARY KEY,
+  slug TEXT UNIQUE NOT NULL,
+  display_name TEXT NOT NULL,
+  category TEXT
+);
+
+CREATE TABLE IF NOT EXISTS job_skills (
+  job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  skill_id INT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+  PRIMARY KEY (job_id, skill_id)
+);
 
 -- ─────────────────────────────────────────
 -- applications
@@ -441,59 +455,37 @@ ALTER TABLE job_invitations ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAUL
 -- ─────────────────────────────────────────
 -- notification_queue additions (in_app type support)
 -- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS notification_queue (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recipient_address   TEXT NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
+  notification_type   TEXT NOT NULL,
+  event_type          TEXT NOT NULL,
+  job_id              UUID REFERENCES jobs(id) ON DELETE CASCADE,
+  payload             JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status              TEXT NOT NULL DEFAULT 'pending',
+  retry_count         INTEGER NOT NULL DEFAULT 0,
+  error_message       TEXT,
+  sent_at             TIMESTAMPTZ,
+  last_attempt_at     TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS notification_queue_status_retry_idx ON notification_queue(status, retry_count);
+CREATE INDEX IF NOT EXISTS notification_queue_recipient_idx ON notification_queue(recipient_address);
+
 -- Allow 'in_app' as a notification_type in addition to 'email' and 'webhook'
 -- The notification_queue table was created without a CHECK constraint on
 -- notification_type so this is a no-op schema change (just documentation).
 
--- ─────────────────────────────────────────
--- ledger_timestamps (Issue #553)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS ledger_timestamps (
-  ledger    INTEGER PRIMARY KEY,
-  timestamp TIMESTAMPTZ NOT NULL
-);
+-- Exponential backoff retry support
+ALTER TABLE notification_queue
+  ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
 
 -- ─────────────────────────────────────────
--- idempotency_keys (Issue #553)
+-- Soft-delete support (Issue #469)
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS idempotency_keys (
-  key        TEXT PRIMARY KEY,
-  response   JSONB NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
-CREATE INDEX IF NOT EXISTS idempotency_keys_cleanup_idx
-  ON idempotency_keys(created_at);
-
--- ─────────────────────────────────────────
--- health_checks (Issue #553)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS health_checks (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  service    TEXT NOT NULL,
-  status     TEXT NOT NULL,
-  checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS health_checks_service_idx
-  ON health_checks(service, checked_at DESC);
-
--- ─────────────────────────────────────────
--- platform_metrics time-series (Issue #561)
--- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS platform_metrics (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  metric_name TEXT NOT NULL,
-  value       NUMERIC NOT NULL,
-  granularity TEXT NOT NULL,
-  bucket      TIMESTAMPTZ NOT NULL,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (metric_name, granularity, bucket)
-);
-
-CREATE INDEX IF NOT EXISTS platform_metrics_lookup_idx
-  ON platform_metrics (metric_name, granularity, bucket DESC);
-
-CREATE INDEX IF NOT EXISTS platform_metrics_cleanup_idx
-  ON platform_metrics (bucket)
-  WHERE bucket < NOW() - INTERVAL '1 year';
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;

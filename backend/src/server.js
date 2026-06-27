@@ -10,18 +10,20 @@ const http = require("http");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
-const compression = require("compression");
+const compressionMiddleware = require("./middleware/compression");
 const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
-const nodemailer = require("nodemailer");
+const { sendEmail, smtpTransport } = require("./utils/email");
 const promClient = require("prom-client");
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
 const { requestLoggerMiddleware, logError, createServiceLogger } = require('./utils/logger');
 const { sanitizeMiddleware } = require('./middleware/sanitize');
+const { getRateLimitScale } = require("./middleware/rateLimiter");
 const { requireChoice } = require("./config/env");
 const { createCorsOptions } = require("./config/cors");
+const { verifyCSRF } = require("./middleware/csrf");
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -45,11 +47,13 @@ const referralRoutes  = require("./routes/referrals");
 const eventsRoutes    = require("./routes/events");
 const invitationRoutes = require("./routes/invitations");
 const statsRoutes      = require("./routes/stats");
+const gasEstimatorRoutes = require("./routes/gasEstimator");
 
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
+const { setBroadcastToUser } = require("./services/notificationService");
 
 const serviceLogger = createServiceLogger('server');
 const app  = express();
@@ -95,7 +99,98 @@ dbConnectionGauge.collect = function collectDbConnections() {
   this.set({ state: "waiting" }, pool.waitingCount);
 };
 
+const pgPoolTotal = new promClient.Gauge({
+  name: "pg_pool_total",
+  help: "Total PostgreSQL pool connections",
+  registers: [metricsRegistry],
+});
+
+const pgPoolIdle = new promClient.Gauge({
+  name: "pg_pool_idle",
+  help: "Idle PostgreSQL pool connections",
+  registers: [metricsRegistry],
+});
+
+const pgPoolWaiting = new promClient.Gauge({
+  name: "pg_pool_waiting",
+  help: "Waiting PostgreSQL pool requests",
+  registers: [metricsRegistry],
+});
+
+pgPoolTotal.collect = function collectPgPoolTotal() {
+  this.set(pool.totalCount);
+};
+pgPoolIdle.collect = function collectPgPoolIdle() {
+  this.set(pool.idleCount);
+};
+pgPoolWaiting.collect = function collectPgPoolWaiting() {
+  this.set(pool.waitingCount);
+};
+
+const wsConnectionsActive = new promClient.Gauge({
+  name: "ws_connections_active",
+  help: "Active WebSocket connections",
+  registers: [metricsRegistry],
+});
+
+const notificationQueuePending = new promClient.Gauge({
+  name: "notification_queue_pending",
+  help: "Pending notifications in the queue",
+  registers: [metricsRegistry],
+});
+
+notificationQueuePending.collect = async function collectNotificationQueue() {
+  try {
+    const { rows } = await pool.query(
+      "SELECT COUNT(*)::int AS cnt FROM notification_queue WHERE status = 'pending'"
+    );
+    this.set(rows[0]?.cnt || 0);
+  } catch {
+    this.set(0);
+  }
+};
+
+let poolWaitingSince = null;
+const POOL_ALERT_THRESHOLD = 5;
+const POOL_ALERT_INTERVAL_MS = 10_000;
+
+function checkPoolHealth() {
+  const waiting = pool.waitingCount;
+  if (waiting > POOL_ALERT_THRESHOLD) {
+    if (!poolWaitingSince) {
+      poolWaitingSince = Date.now();
+    } else if (Date.now() - poolWaitingSince > POOL_ALERT_INTERVAL_MS) {
+      serviceLogger.error({
+        waiting,
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        duration_ms: Date.now() - poolWaitingSince,
+      }, "Database pool exhausted: requests queuing for >10s");
+      const webhookUrl = process.env.POOL_ALERT_WEBHOOK_URL;
+      if (webhookUrl) {
+        fetch(webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            alert: "pg_pool_exhausted",
+            waiting,
+            total: pool.totalCount,
+            idle: pool.idleCount,
+            timestamp: new Date().toISOString(),
+          }),
+        }).catch(() => {});
+      }
+      poolWaitingSince = Date.now();
+    }
+  } else {
+    poolWaitingSince = null;
+  }
+}
+
+setInterval(checkPoolHealth, 1000).unref();
+
 const realtimeClients = new Set();
+const userClients = new Map(); // userAddress -> Set<WebSocket>
 const scopeSessionClients = new Map();
 
 function broadcastRealtime(event, payload) {
@@ -104,6 +199,7 @@ function broadcastRealtime(event, payload) {
   for (const ws of realtimeClients) {
     if (ws.readyState === WS_OPEN) ws.send(message);
   }
+  wsConnectionsActive.set(realtimeClients.size);
 }
 
 async function upsertScopeSession(sessionId, patch) {
@@ -161,33 +257,18 @@ const indexerService = new IndexerService({
   contractId: process.env.CONTRACT_ID || process.env.ESCROW_CONTRACT_ID,
   broadcast: broadcastRealtime,
 });
-const smtpEnabled = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-const smtpTransport = smtpEnabled
-  ? nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: false,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    })
-  : null;
+
 const priceAlertService = new PriceAlertService({
   broadcast: broadcastRealtime,
   sendEmail: async ({ to, subject, text }) => {
-    if (!smtpTransport || !to) return;
-    await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to,
-      subject,
-      text,
-    });
+    await sendEmail({ to, subject, text });
   },
 });
 
 app.locals.indexerService = indexerService;
 app.locals.broadcastRealtime = broadcastRealtime;
+app.locals.broadcastToUser = broadcastToUser;
+setBroadcastToUser(broadcastToUser);
 
 // Middleware
 app.use(helmet({
@@ -221,7 +302,7 @@ app.use(helmet({
 // Request logging middleware
 app.use(requestLoggerMiddleware);
 
-app.use(compression());
+app.use(compressionMiddleware());
 
 app.use(express.json({ limit: "20kb" }));
 app.use(sanitizeMiddleware({ strict: false }));
@@ -233,6 +314,7 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
 }));
 
 app.use(cors(createCorsOptions({ logger: serviceLogger })));
+app.use(verifyCSRF);
 
 app.use((req, res, next) => {
   if (req.path === "/metrics") {
@@ -263,7 +345,7 @@ app.use((req, res, next) => {
 
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 150,
+  max: Math.max(1, Math.floor(150 * getRateLimitScale())),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => getClientIp(req),
@@ -271,6 +353,14 @@ app.use(rateLimit({
 
 app.get("/metrics", async (req, res, next) => {
   try {
+    const metricsSecret = process.env.METRICS_SECRET;
+    if (metricsSecret) {
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+      if (token !== metricsSecret) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+    }
     res.set("Content-Type", metricsRegistry.contentType);
     res.end(await metricsRegistry.metrics());
   } catch (error) {
@@ -301,6 +391,7 @@ app.use("/api/referrals",     referralRoutes);
 app.use("/api/events",        eventsRoutes);
 app.use("/api/invitations",   invitationRoutes);
 app.use("/api/stats",         statsRoutes);
+app.use("/api/gas-estimate", gasEstimatorRoutes);
 
 app.use((err, req, res, next) => {
   void next;
@@ -346,8 +437,12 @@ wsServer.on("connection", async (ws, request) => {
 
   if (url.pathname === "/ws/realtime") {
     realtimeClients.add(ws);
+    wsConnectionsActive.set(realtimeClients.size);
     sendJson(ws, "connected", { channel: "realtime" });
-    ws.on("close", () => realtimeClients.delete(ws));
+    ws.on("close", () => {
+      realtimeClients.delete(ws);
+      wsConnectionsActive.set(realtimeClients.size);
+    });
     return;
   }
 
@@ -448,17 +543,18 @@ async function bootstrap() {
   // Start job expiry checker - run every hour
   startJobExpiryChecker();
 
-  // Start API key rotation finalizer - run every hour
-  startApiKeyRotationFinalizer();
+  // Start escrow timeout checker - run every hour
+  startEscrowTimeoutChecker();
 
   // Start notification processor - run every 2 minutes
   startNotificationProcessor();
 
-  // Start weekly digest scheduler - fires every Monday at 09:00 UTC
+  // Start WS event cleanup job (purge old events after 7 days)
+  startWsEventCleanup();
   startWeeklyDigestScheduler();
 
-  // Start platform metrics aggregator - runs hourly for Issue #561
-  startPlatformMetricsAggregator();
+  // Start purge job for soft-deleted records - run daily
+  startPurgeDeletedRecords();
 
   server.listen(PORT, () => {
     serviceLogger.info({
@@ -523,6 +619,14 @@ async function startJobExpiryChecker() {
 }
 
 /**
+ * Periodically check for and automatically process refunds for escrows that have timed out (runs every hour).
+ */
+function startEscrowTimeoutChecker() {
+  const { startEscrowTimeoutChecker: run } = require("./services/escrowService");
+  return run();
+}
+
+/**
  * Periodically process pending notifications (runs every 2 minutes).
  */
 async function startNotificationProcessor() {
@@ -530,14 +634,7 @@ async function startNotificationProcessor() {
   const notificationLogger = createServiceLogger('notifications');
   
   const sendEmailFn = async ({ to, subject, text, html }) => {
-    if (!smtpTransport || !to) return;
-    await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to,
-      subject,
-      text,
-      html,
-    });
+    await sendEmail({ to, subject, text, html });
   };
 
   // Run immediately on startup
@@ -609,14 +706,7 @@ function startWeeklyDigestScheduler() {
 
   // Reuse the same sendEmail transport already wired for notifications
   const sendEmailFn = async ({ to, subject, text, html }) => {
-    if (!smtpTransport || !to) return;
-    await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to,
-      subject,
-      text,
-      html,
-    });
+    await sendEmail({ to, subject, text, html });
   };
 
   /**
@@ -668,34 +758,30 @@ function startWeeklyDigestScheduler() {
 }
 
 /**
- * Issue #561: Hourly platform metrics aggregation into platform_metrics table.
- * Also cleans up rows older than 1 year (retention policy).
+ * Periodically purge soft-deleted jobs and profiles older than 90 days (runs daily).
  */
-function startPlatformMetricsAggregator() {
-  const { aggregatePlatformMetrics } = require("./services/statsService");
-  const metricsLogger = createServiceLogger('platform-metrics');
+function startPurgeDeletedRecords() {
+  const { purgeDeletedJobs } = require("./services/jobService");
+  const { purgeDeletedProfiles } = require("./services/profileService");
+  const purgeLogger = createServiceLogger("purge-deleted");
 
-  async function runAggregation() {
+  async function purge() {
     try {
-      const result = await aggregatePlatformMetrics();
-      metricsLogger.info(result, 'Platform metrics aggregated');
-
-      // 1-year retention: delete rows older than 1 year
-      const { rowCount } = await pool.query(
-        "DELETE FROM platform_metrics WHERE bucket < NOW() - INTERVAL '1 year'"
-      );
-      if (rowCount > 0) {
-        metricsLogger.info({ deletedCount: rowCount }, 'Cleaned up expired platform metrics');
+      const jobsCount = await purgeDeletedJobs(90);
+      const profilesCount = await purgeDeletedProfiles(90);
+      if (jobsCount > 0 || profilesCount > 0) {
+        purgeLogger.info({ jobsPurged: jobsCount, profilesPurged: profilesCount }, "Purged soft-deleted records older than 90 days");
       }
     } catch (err) {
-      logError(metricsLogger, err, { operation: 'platform_metrics_aggregation' });
+      logError(purgeLogger, err, { operation: "purge_deleted_records" });
     }
   }
 
-  runAggregation();
-  setInterval(runAggregation, 60 * 60 * 1000).unref();
+  setInterval(purge, 24 * 60 * 60 * 1000).unref();
 }
 
 bootstrap();
+
+app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
 
 module.exports = app;

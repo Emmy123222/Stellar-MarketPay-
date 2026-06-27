@@ -3,6 +3,7 @@
 const { Horizon } = require("@stellar/stellar-sdk");
 const pool = require("../db/pool");
 const { requireEnv } = require("../config/env");
+const horizonClient = require("../utils/horizonClient");
 
 function parseJobIdFromMemo(memoValue) {
   if (!memoValue || typeof memoValue !== "string") return null;
@@ -81,7 +82,10 @@ class IndexerService {
     const txMemo = tx.memo || null;
     const ledgerNumber = tx.ledger_attr || tx.ledger || null;
     const matchedJobId = parseJobIdFromMemo(txMemo);
-    const operations = await this.horizon.operations().forTransaction(tx.hash).limit(200).call();
+    const operations = await horizonClient.callWithLimit(
+      () => this.horizon.operations().forTransaction(tx.hash).limit(200).call(),
+      "operations.forTransaction"
+    );
     const records = operations?.records || [];
 
     const client = await pool.connect();
@@ -200,13 +204,20 @@ class IndexerService {
     if (!eventTypeRaw) return;
 
     const typeMap = {
+      "escrow_cr":           "escrow_created",
       "escrow_created":      "escrow_created",
+      "work_strt":           "work_started",
       "work_started":        "work_started",
+      "escrow_rl":           "escrow_released",
       "escrow_released":     "escrow_released",
+      "escrow_rf":           "escrow_refunded",
       "escrow_refunded":     "escrow_refunded",
       "escrow_timeout_refunded": "escrow_refunded",
+      "escrow_ds":           "dispute_opened",
       "escrow_disputed":     "dispute_opened",
+      "ms_rel":              "milestone_released",
       "milestone_released":  "milestone_released",
+      "msg_sent":            "message_sent",
       "message_sent":        "message_sent"
     };
 

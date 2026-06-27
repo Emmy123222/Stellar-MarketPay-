@@ -20,8 +20,17 @@ const express  = require("express");
 const router   = express.Router();
 const pool     = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
-const { verifyJWT } = require("../middleware/auth");
+const { verifyJWT, requireAdminRole, requireAdmin2FA } = require("../middleware/auth");
 const { issueTokenPair, setAuthCookies } = require("../services/authTokens");
+const {
+  assertCanRegisterCredential,
+  recordRegistrationAttempt,
+  registerCredential,
+  listCredentials,
+  removeCredential,
+  adminListCredentials,
+  adminRevokeCredential,
+} = require("../services/webauthnService");
 
 const {
   generateRegistrationOptions,
@@ -50,6 +59,7 @@ const webauthnRateLimiter = createRateLimiter(10, 1);
 router.post("/register-options", verifyJWT, webauthnRateLimiter, async (req, res, next) => {
   try {
     const publicKey = req.user.publicKey;
+    await assertCanRegisterCredential(publicKey);
 
     const { rows: existing } = await pool.query(
       "SELECT credential_id, transports FROM webauthn_credentials WHERE public_key = $1",
@@ -82,6 +92,8 @@ router.post("/register-verify", verifyJWT, webauthnRateLimiter, async (req, res,
   try {
     const publicKey = req.user.publicKey;
     const { credential, name } = req.body;
+    await assertCanRegisterCredential(publicKey);
+    recordRegistrationAttempt(publicKey);
 
     const stored = challengeStore.get(`reg:${publicKey}`);
     if (!stored) {
@@ -106,20 +118,14 @@ router.post("/register-verify", verifyJWT, webauthnRateLimiter, async (req, res,
     challengeStore.delete(`reg:${publicKey}`);
 
     const { credential: cred } = verification.registrationInfo;
-    await pool.query(
-      `INSERT INTO webauthn_credentials
-         (public_key, credential_id, credential_name, public_key_cose, counter, transports)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (credential_id) DO NOTHING`,
-      [
-        publicKey,
-        Buffer.from(cred.id).toString("base64url"),
-        (name || "Passkey").slice(0, 64),
-        Buffer.from(cred.publicKey).toString("base64"),
-        cred.counter,
-        credential.response?.transports || [],
-      ]
-    );
+    await registerCredential({
+      publicKey,
+      credentialId: Buffer.from(cred.id).toString("base64url"),
+      credentialName: (name || "Passkey").slice(0, 64),
+      publicKeyCose: Buffer.from(cred.publicKey).toString("base64"),
+      counter: cred.counter,
+      transports: credential.response?.transports || [],
+    });
 
     res.json({ success: true, message: "Passkey registered successfully" });
   } catch (e) { next(e); }
@@ -222,26 +228,29 @@ router.post("/login-verify", webauthnRateLimiter, async (req, res, next) => {
 
 router.get("/credentials", verifyJWT, async (req, res, next) => {
   try {
-    const { rows } = await pool.query(
-      "SELECT id, credential_name, created_at FROM webauthn_credentials WHERE public_key = $1 ORDER BY created_at DESC",
-      [req.user.publicKey]
-    );
+    const rows = await listCredentials(req.user.publicKey);
     res.json({ success: true, data: rows });
   } catch (e) { next(e); }
 });
 
 router.delete("/credentials/:id", verifyJWT, async (req, res, next) => {
   try {
-    const { rowCount } = await pool.query(
-      "DELETE FROM webauthn_credentials WHERE id = $1 AND public_key = $2",
-      [req.params.id, req.user.publicKey]
-    );
-    if (!rowCount) {
-      const e = new Error("Passkey not found");
-      e.status = 404;
-      throw e;
-    }
+    await removeCredential({ id: req.params.id, publicKey: req.user.publicKey });
     res.json({ success: true, message: "Passkey removed" });
+  } catch (e) { next(e); }
+});
+
+router.get("/admin/credentials", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
+  try {
+    const rows = await adminListCredentials(req.query.publicKey);
+    res.json({ success: true, data: rows });
+  } catch (e) { next(e); }
+});
+
+router.delete("/admin/credentials/:id", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
+  try {
+    const credential = await adminRevokeCredential(req.params.id);
+    res.json({ success: true, message: "Passkey revoked", data: credential });
   } catch (e) { next(e); }
 });
 
