@@ -687,4 +687,5 @@ module.exports = {
 
   verifyFreelancerAccount,
   ESCROW_TIMEOUT_DAYS,
+  normalizeMilestones,
 };
