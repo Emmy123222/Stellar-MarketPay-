@@ -1,4 +1,4 @@
-
+<<
 const contentSecurityPolicy = [
   "default-src 'self'",
   "script-src 'self'",
