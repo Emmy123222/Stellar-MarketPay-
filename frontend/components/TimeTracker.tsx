@@ -13,14 +13,17 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { TimeEntry, TimeInvoice } from "@/utils/types";
+import type { TimeEntry, TimeInvoice, Job } from "@/utils/types";
 import {
   logTimeEntry,
   fetchTimeEntries,
   fetchTimeInvoices,
   generateTimeInvoice,
   reviewTimeInvoice,
+  fetchJob,
 } from "@/lib/api";
+import { usePDFDownload } from "@/hooks/usePDFDownload";
+import { InvoicePDF } from "@/components/InvoicePDF";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -103,16 +106,24 @@ export default function TimeTracker({
   // invoice
   const [submittingInvoice, setSubmittingInvoice] = useState(false);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
+
+  // job and user data for PDF
+  const [job, setJob] = useState<Job | null>(null);
+  const [userPublicKey, setUserPublicKey] = useState<string | null>(null);
+  const { downloadPDF } = usePDFDownload();
 
   // ── load data ────────────────────────────────────────────────────────────
   const reload = useCallback(async () => {
     try {
-      const [e, i] = await Promise.all([
+      const [e, i, j] = await Promise.all([
         fetchTimeEntries(jobId),
         fetchTimeInvoices(jobId),
+        fetchJob(jobId),
       ]);
       setEntries(e);
       setInvoices(i);
+      setJob(j);
     } catch {
       // silently ignore — user may not be authenticated yet
     } finally {
@@ -228,6 +239,47 @@ export default function TimeTracker({
       setError(e instanceof Error ? e.message : "Failed to update invoice.");
     } finally {
       setReviewingId(null);
+    }
+  };
+
+  const handleDownloadPDF = async (invoice: TimeInvoice) => {
+    if (!job) {
+      setError("Job details not available");
+      return;
+    }
+
+    setDownloadingInvoiceId(invoice.id);
+    setError(null);
+    try {
+      const invoiceEntries = entries.filter(
+        (e) => new Date(e.createdAt) <= new Date(invoice.createdAt)
+      );
+
+      const freelancerAddress = job.freelancerAddress || "Unknown";
+      const clientAddress = job.clientAddress || "Unknown";
+
+      const pdfDocument = (
+        <InvoicePDF
+          job={job}
+          invoice={invoice}
+          entries={invoiceEntries}
+          freelancerAddress={freelancerAddress}
+          clientAddress={clientAddress}
+        />
+      );
+
+      const filename = `invoice-${invoice.id.slice(0, 8)}-${new Date(
+        invoice.createdAt
+      )
+        .toISOString()
+        .split("T")[0]}.pdf`;
+
+      await downloadPDF(pdfDocument, filename);
+      flash("Invoice PDF downloaded successfully");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to download PDF");
+    } finally {
+      setDownloadingInvoiceId(null);
     }
   };
 
@@ -459,9 +511,9 @@ export default function TimeTracker({
                 </span>
               </div>
 
-              <div className="flex items-center justify-between pt-1">
+              <div className="flex items-center justify-between pt-1 gap-2">
                 {inv.status === "pending" ? (
-                  <div className="flex gap-2 w-full">
+                  <>
                     <button
                       onClick={() => handleReview(inv.id, "approved")}
                       disabled={reviewingId === inv.id}
@@ -476,17 +528,37 @@ export default function TimeTracker({
                     >
                       {reviewingId === inv.id ? "…" : "Reject"}
                     </button>
-                  </div>
+                    <button
+                      onClick={() => handleDownloadPDF(inv)}
+                      disabled={downloadingInvoiceId === inv.id}
+                      className="btn-secondary py-2 px-3 text-xs whitespace-nowrap"
+                      title="Download invoice as PDF"
+                      aria-label={`Download invoice ${inv.id.slice(0, 8)} as PDF`}
+                    >
+                      {downloadingInvoiceId === inv.id ? "⏳" : "📄"}
+                    </button>
+                  </>
                 ) : (
-                  <span
-                    className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
-                      inv.status === "approved"
-                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                        : "bg-red-500/10 text-red-400 border-red-500/20"
-                    }`}
-                  >
-                    {inv.status.charAt(0).toUpperCase() + inv.status.slice(1)}
-                  </span>
+                  <>
+                    <span
+                      className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
+                        inv.status === "approved"
+                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                          : "bg-red-500/10 text-red-400 border-red-500/20"
+                      }`}
+                    >
+                      {inv.status.charAt(0).toUpperCase() + inv.status.slice(1)}
+                    </span>
+                    <button
+                      onClick={() => handleDownloadPDF(inv)}
+                      disabled={downloadingInvoiceId === inv.id}
+                      className="btn-secondary py-2 px-3 text-xs whitespace-nowrap"
+                      title="Download invoice as PDF"
+                      aria-label={`Download invoice ${inv.id.slice(0, 8)} as PDF`}
+                    >
+                      {downloadingInvoiceId === inv.id ? "⏳" : "📄"}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
