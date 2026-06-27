@@ -672,6 +672,42 @@ async function getResponseTime(publicKey) {
   return { averageDays: rows[0]?.average_days || null };
 }
 
+/**
+ * Soft-delete a profile (sets deleted_at instead of removing).
+ *
+ * @param {string} publicKey - Stellar public key.
+ * @returns {Promise<void>}
+ * @throws {Error} 404 if profile not found.
+ */
+async function softDeleteProfile(publicKey) {
+  validatePublicKey(publicKey);
+  const { rowCount } = await pool.query(
+    "UPDATE profiles SET deleted_at = NOW(), updated_at = NOW() WHERE public_key = $1 AND deleted_at IS NULL",
+    [publicKey]
+  );
+  if (!rowCount) {
+    const e = new Error("Profile not found");
+    e.status = 404;
+    throw e;
+  }
+}
+
+/**
+ * Permanently purge soft-deleted profiles older than the given number of days.
+ *
+ * @param {number} [days=90] - Number of days after soft-delete to purge.
+ * @returns {Promise<number>} Count of purged rows.
+ */
+async function purgeDeletedProfiles(days = 90) {
+  const { rowCount } = await pool.query(
+    `DELETE FROM profiles
+     WHERE deleted_at IS NOT NULL
+       AND deleted_at < NOW() - INTERVAL '1 day' * $1`,
+    [days]
+  );
+  return rowCount || 0;
+}
+
 module.exports = {
   getProfile,
   upsertProfile,
@@ -686,6 +722,8 @@ module.exports = {
   isBlocked,
   blockFreelancer,
   unblockFreelancer,
+  softDeleteProfile,
+  purgeDeletedProfiles,
   VALID_PORTFOLIO_TYPES,
   VALID_AVAILABILITY_STATUSES,
   MAX_PORTFOLIO_ITEMS,
