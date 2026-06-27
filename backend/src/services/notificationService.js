@@ -6,8 +6,11 @@
 
 const pool = require("../db/pool");
 const axios = require("axios");
+const { createServiceLogger } = require("../utils/logger");
 
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
+
+const notificationLogger = createServiceLogger("notifications");
 
 /**
  * Event types that trigger notifications
@@ -189,6 +192,16 @@ function generateEmailContent(eventType, data) {
 }
 
 /**
+ * Calculate next retry time with exponential backoff.
+ * @param {number} retryCount - Current retry count (0-based).
+ * @returns {Date} Next retry timestamp.
+ */
+function getNextRetryTime(retryCount) {
+  const delayMinutes = Math.pow(2, retryCount);
+  return new Date(Date.now() + delayMinutes * 60 * 1000);
+}
+
+/**
  * Process pending notifications
  * 
  * @param {Function} sendEmailFn - Function to send email
@@ -197,7 +210,9 @@ function generateEmailContent(eventType, data) {
 async function processPendingNotifications(sendEmailFn) {
   const { rows: pending } = await pool.query(
     `SELECT * FROM notification_queue
-     WHERE status = 'pending' AND retry_count < $1
+     WHERE status = 'pending'
+       AND retry_count < $1
+       AND (next_retry_at IS NULL OR next_retry_at <= NOW())
      ORDER BY created_at ASC
      LIMIT 50`,
     [MAX_RETRIES]
@@ -211,7 +226,6 @@ async function processPendingNotifications(sendEmailFn) {
       const prefs = await getUserPreferences(notification.recipient_address);
       
       if (!prefs) {
-        // User not found, mark as failed
         await pool.query(
           `UPDATE notification_queue
            SET status = 'failed', error_message = 'User not found', last_attempt_at = NOW()
@@ -226,7 +240,6 @@ async function processPendingNotifications(sendEmailFn) {
 
       if (notification.notification_type === "email") {
         if (!prefs.email_notifications_enabled || !prefs.email) {
-          // User has email notifications disabled, mark as sent (skip)
           await pool.query(
             `UPDATE notification_queue
              SET status = 'sent', sent_at = NOW(), last_attempt_at = NOW()
@@ -253,7 +266,6 @@ async function processPendingNotifications(sendEmailFn) {
         );
       } else if (notification.notification_type === "webhook") {
         if (!prefs.webhook_url) {
-          // No webhook URL configured, mark as sent (skip)
           await pool.query(
             `UPDATE notification_queue
              SET status = 'sent', sent_at = NOW(), last_attempt_at = NOW()
@@ -288,29 +300,45 @@ async function processPendingNotifications(sendEmailFn) {
         sent++;
       } else {
         const newRetryCount = notification.retry_count + 1;
-        const newStatus = newRetryCount >= MAX_RETRIES ? "failed" : "pending";
+        const isDeadLetter = newRetryCount >= MAX_RETRIES;
+        const newStatus = isDeadLetter ? "failed" : "pending";
+        const nextRetryAt = isDeadLetter ? null : getNextRetryTime(newRetryCount);
+
+        if (isDeadLetter) {
+          notificationLogger.error({
+            notificationId: notification.id,
+            eventType: notification.event_type,
+            recipientAddress: notification.recipient_address,
+            notificationType: notification.notification_type,
+          }, "Webhook dead-lettered after max retries");
+        }
 
         await pool.query(
           `UPDATE notification_queue
            SET status = $1, retry_count = $2, last_attempt_at = NOW(),
-               error_message = 'Delivery failed'
-           WHERE id = $3`,
-          [newStatus, newRetryCount, notification.id]
+               error_message = 'Delivery failed', next_retry_at = $3
+           WHERE id = $4`,
+          [newStatus, newRetryCount, nextRetryAt, notification.id]
         );
         failed++;
       }
     } catch (error) {
-      console.error(`[notifications] Error processing notification ${notification.id}:`, error.message);
+      notificationLogger.error({
+        notificationId: notification.id,
+        error: error.message,
+      }, "Error processing notification");
       
       const newRetryCount = notification.retry_count + 1;
-      const newStatus = newRetryCount >= MAX_RETRIES ? "failed" : "pending";
+      const isDeadLetter = newRetryCount >= MAX_RETRIES;
+      const newStatus = isDeadLetter ? "failed" : "pending";
+      const nextRetryAt = isDeadLetter ? null : getNextRetryTime(newRetryCount);
 
       await pool.query(
         `UPDATE notification_queue
          SET status = $1, retry_count = $2, last_attempt_at = NOW(),
-             error_message = $3
-         WHERE id = $4`,
-        [newStatus, newRetryCount, error.message, notification.id]
+             error_message = $3, next_retry_at = $4
+         WHERE id = $5`,
+        [newStatus, newRetryCount, error.message, nextRetryAt, notification.id]
       );
       failed++;
     }
@@ -363,5 +391,6 @@ module.exports = {
   processPendingNotifications,
   notifyEscrowEvent,
   generateEmailContent,
+  getNextRetryTime,
   EVENT_TYPES,
 };
