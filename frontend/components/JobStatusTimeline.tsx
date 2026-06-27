@@ -2,12 +2,51 @@
  * components/JobStatusTimeline.tsx
  * Visual stepper showing job lifecycle progression.
  */
+"use client";
+
+import { useEffect, useState } from "react";
 import { formatDate } from "@/utils/format";
 import type { Job, JobStatus } from "@/utils/types";
 
 interface JobStatusTimelineProps {
   job: Job;
   compact?: boolean;
+  /** Resolved UTC timestamp for the escrow timeout ledger (from ledger_timestamps table). */
+  timeoutAt?: string | null;
+}
+
+/** Format remaining time as "Xd Xh Xm" or "Expired". */
+function formatCountdown(targetIso: string): string {
+  const ms = new Date(targetIso).getTime() - Date.now();
+  if (ms <= 0) return "Expired";
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h remaining`;
+  if (hours > 0) return `${hours}h ${minutes}m remaining`;
+  return `${minutes}m remaining`;
+}
+
+function EscrowCountdown({ timeoutAt }: { timeoutAt: string }) {
+  const [label, setLabel] = useState(() => formatCountdown(timeoutAt));
+
+  useEffect(() => {
+    const timer = setInterval(() => setLabel(formatCountdown(timeoutAt)), 60_000);
+    return () => clearInterval(timer);
+  }, [timeoutAt]);
+
+  const expired = label === "Expired";
+  return (
+    <span
+      className={[
+        "text-[10px] font-medium mt-0.5",
+        expired ? "text-red-400" : "text-amber-500",
+      ].join(" ")}
+    >
+      {label}
+    </span>
+  );
 }
 
 type StepState = "complete" | "current" | "upcoming" | "branch";
@@ -135,7 +174,7 @@ function Connector({ complete, vertical }: { complete: boolean; vertical?: boole
   );
 }
 
-export default function JobStatusTimeline({ job, compact = false }: JobStatusTimelineProps) {
+export default function JobStatusTimeline({ job, compact = false, timeoutAt }: JobStatusTimelineProps) {
   const { steps, branch } = buildSteps(job);
 
   if (compact) {
@@ -202,6 +241,9 @@ export default function JobStatusTimeline({ job, compact = false }: JobStatusTim
                   {formatDate(step.date)}
                 </span>
               )}
+              {step.id === "in_progress" && step.state === "current" && timeoutAt && (
+                <EscrowCountdown timeoutAt={timeoutAt} />
+              )}
             </div>
             {i < steps.length - 1 && (
               <div className="flex-1 flex items-center pt-3.5 px-1">
@@ -244,6 +286,9 @@ export default function JobStatusTimeline({ job, compact = false }: JobStatusTim
                 </p>
                 {step.date && (
                   <p className="text-xs text-amber-800/60">{formatDate(step.date)}</p>
+                )}
+                {step.id === "in_progress" && step.state === "current" && timeoutAt && (
+                  <EscrowCountdown timeoutAt={timeoutAt} />
                 )}
               </div>
             </div>
