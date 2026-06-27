@@ -1479,6 +1479,24 @@ export async function uploadDisputeEvidence(
   return data.data;
 }
 
+export interface SignedEvidenceUrl {
+  url: string;
+  expiresAt: string;
+  fileName: string;
+  mimeType: string;
+}
+
+/** Fetch a 15-minute signed proxy URL for a dispute evidence file (Issue #467). */
+export async function fetchEvidenceSignedUrl(
+  jobId: string,
+  evidenceId: string,
+): Promise<SignedEvidenceUrl> {
+  const { data } = await api.get<{ success: boolean; data: SignedEvidenceUrl }>(
+    `/api/disputes/${jobId}/evidence/${evidenceId}/url`,
+  );
+  return data.data;
+}
+
 // ─── WebAuthn / Passkeys (Issue #218) ────────────────────────────────────────
 
 export interface PasskeyCredential {

@@ -6,11 +6,14 @@
 
 const FormData = require("form-data");
 const axios = require("axios");
+const jwt = require("jsonwebtoken");
 
 // Configuration
 const PINATA_API_URL = process.env.PINATA_API_URL || "https://api.pinata.cloud";
 const PINATA_API_KEY = process.env.PINATA_API_KEY;
 const PINATA_SECRET_KEY = process.env.PINATA_SECRET_KEY;
+const SIGNED_URL_SECRET = process.env.SIGNED_URL_SECRET || process.env.JWT_SECRET || "change-me-in-production";
+const SIGNED_URL_TTL_SECONDS = 15 * 60; // 15 minutes
 
 // File upload limits
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB in bytes
@@ -293,13 +296,70 @@ function isConfigured() {
   return !!(PINATA_API_KEY && PINATA_SECRET_KEY);
 }
 
+/**
+ * Generate a time-limited signed URL token for accessing a specific IPFS CID.
+ * The token is a JWT containing the CID, job ID, and requester address.
+ * Valid for 15 minutes.
+ *
+ * @param {string} cid            - IPFS CID of the evidence file
+ * @param {string} jobId          - Job the evidence belongs to
+ * @param {string} requesterAddress - Stellar address of the requester (client or freelancer)
+ * @returns {string} Signed JWT token
+ */
+function generateSignedUrlToken(cid, jobId, requesterAddress) {
+  return jwt.sign(
+    { cid, jobId, requesterAddress },
+    SIGNED_URL_SECRET,
+    { expiresIn: SIGNED_URL_TTL_SECONDS }
+  );
+}
+
+/**
+ * Verify a signed URL token and return its payload.
+ *
+ * @param {string} token - JWT token from generateSignedUrlToken
+ * @returns {{ cid: string, jobId: string, requesterAddress: string }}
+ * @throws Error with code SIGNED_URL_EXPIRED or SIGNED_URL_INVALID
+ */
+function verifySignedUrlToken(token) {
+  try {
+    return jwt.verify(token, SIGNED_URL_SECRET);
+  } catch (err) {
+    const e = new Error(err.name === "TokenExpiredError" ? "Signed URL has expired" : "Invalid signed URL");
+    e.status = 403;
+    e.code   = err.name === "TokenExpiredError" ? "SIGNED_URL_EXPIRED" : "SIGNED_URL_INVALID";
+    throw e;
+  }
+}
+
+/**
+ * Proxy an IPFS file through the backend after verifying the signed token.
+ * Streams the file content from the Pinata gateway.
+ *
+ * @param {string} cid - IPFS CID
+ * @returns {Promise<{ data: Stream, headers: Object }>}
+ */
+async function proxyIpfsFile(cid) {
+  const url = `https://gateway.pinata.cloud/ipfs/${cid}`;
+  const response = await axios.get(url, {
+    responseType: "stream",
+    timeout: 30000,
+    headers: PINATA_API_KEY ? { "pinata_api_key": PINATA_API_KEY, "pinata_secret_api_key": PINATA_SECRET_KEY } : {},
+  });
+  return { stream: response.data, headers: response.headers };
+}
+
 module.exports = {
   uploadFile,
   uploadMessage,
   validatePortfolioFiles,
   getGatewayUrl,
   isConfigured,
+  generateSignedUrlToken,
+  verifySignedUrlToken,
+  proxyIpfsFile,
   MAX_FILE_SIZE,
   MAX_FILES_PER_PROFILE,
-  ALLOWED_MIME_TYPES
+  ALLOWED_MIME_TYPES,
+  SIGNED_URL_TTL_SECONDS,
 };
