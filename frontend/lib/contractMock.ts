@@ -4,6 +4,9 @@
  * 
  * Enables offline development without a deployed testnet contract.
  * Toggle via NEXT_PUBLIC_USE_CONTRACT_MOCK=true
+ *
+ * Mock-only persistence: escrow state is stored in browser localStorage
+ * under per-job keys so local development flows survive page reloads.
  */
 
 export type EscrowStatus = "Locked" | "InProgress" | "Released" | "Refunded" | "Disputed";
@@ -18,9 +21,115 @@ export interface MockEscrow {
   createdAt: number;
 }
 
-// In-memory escrow storage
+// Mock-only browser persistence. These keys are intentionally scoped to
+// NEXT_PUBLIC_USE_CONTRACT_MOCK local development and are never read by real
+// contract code. Each escrow is keyed by job ID so individual jobs survive
+// page reloads while remaining easy to inspect or clear in DevTools.
+const MOCK_STORAGE_KEY_PREFIX = "marketpay_contract_mock_escrow:";
+
+// In-memory escrow storage, hydrated from localStorage in the browser.
 const escrows = new Map<string, MockEscrow>();
 let escrowCount = 0;
+let hasHydratedFromStorage = false;
+
+function canUseLocalStorage(): boolean {
+  try {
+    return (
+      typeof window !== "undefined" &&
+      typeof window.localStorage !== "undefined"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function getStorageKey(jobId: string): string {
+  return `${MOCK_STORAGE_KEY_PREFIX}${jobId}`;
+}
+
+function isMockEscrow(value: unknown): value is MockEscrow {
+  if (!value || typeof value !== "object") return false;
+
+  const escrow = value as Partial<MockEscrow>;
+  return (
+    typeof escrow.jobId === "string" &&
+    typeof escrow.client === "string" &&
+    typeof escrow.freelancer === "string" &&
+    typeof escrow.token === "string" &&
+    typeof escrow.amount === "string" &&
+    typeof escrow.createdAt === "number" &&
+    ["Locked", "InProgress", "Released", "Refunded", "Disputed"].includes(
+      escrow.status || "",
+    )
+  );
+}
+
+function hydrateEscrowsFromStorage(): void {
+  if (hasHydratedFromStorage || !canUseLocalStorage()) return;
+
+  try {
+    escrows.clear();
+    for (let index = 0; index < window.localStorage.length; index++) {
+      const key = window.localStorage.key(index);
+      if (!key || !key.startsWith(MOCK_STORAGE_KEY_PREFIX)) continue;
+
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+
+      const parsed = JSON.parse(raw);
+      if (isMockEscrow(parsed)) {
+        escrows.set(parsed.jobId, parsed);
+      } else {
+        window.localStorage.removeItem(key);
+      }
+    }
+    escrowCount = escrows.size;
+  } catch (error) {
+    console.warn(
+      "[CONTRACT MOCK] Failed to hydrate mock escrows from localStorage:",
+      error,
+    );
+  } finally {
+    hasHydratedFromStorage = true;
+  }
+}
+
+function persistEscrow(escrow: MockEscrow): void {
+  if (!canUseLocalStorage()) return;
+
+  try {
+    window.localStorage.setItem(
+      getStorageKey(escrow.jobId),
+      JSON.stringify(escrow),
+    );
+  } catch (error) {
+    console.warn(
+      "[CONTRACT MOCK] Failed to persist mock escrow to localStorage:",
+      error,
+    );
+  }
+}
+
+function removePersistedEscrows(): void {
+  if (!canUseLocalStorage()) return;
+
+  try {
+    const keysToRemove: string[] = [];
+    for (let index = 0; index < window.localStorage.length; index++) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith(MOCK_STORAGE_KEY_PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+
+    keysToRemove.forEach((key) => window.localStorage.removeItem(key));
+  } catch (error) {
+    console.warn(
+      "[CONTRACT MOCK] Failed to clear mock escrows from localStorage:",
+      error,
+    );
+  }
+}
 
 /**
  * Simulates network delay for realistic behavior
@@ -55,6 +164,7 @@ export async function mockCreateEscrow(params: {
   console.log("[CONTRACT MOCK] create_escrow called:", params);
   
   await delay(1200); // Simulate signing + submission
+  hydrateEscrowsFromStorage();
 
   if (escrows.has(params.jobId)) {
     throw new Error(`Mock contract error: Escrow already exists for job ${params.jobId}`);
@@ -75,7 +185,8 @@ export async function mockCreateEscrow(params: {
   };
 
   escrows.set(params.jobId, escrow);
-  escrowCount++;
+  escrowCount = escrows.size;
+  persistEscrow(escrow);
 
   const txHash = generateMockTxHash();
   console.log("[CONTRACT MOCK] ✓ Escrow created. Tx hash:", txHash);
@@ -95,6 +206,7 @@ export async function mockStartWork(params: {
   console.log("[CONTRACT MOCK] start_work called:", params);
   
   await delay(1000);
+  hydrateEscrowsFromStorage();
 
   const escrow = escrows.get(params.jobId);
   if (!escrow) {
@@ -111,6 +223,7 @@ export async function mockStartWork(params: {
 
   escrow.status = "InProgress";
   escrows.set(params.jobId, escrow);
+  persistEscrow(escrow);
 
   const txHash = generateMockTxHash();
   console.log("[CONTRACT MOCK] ✓ Work started. Tx hash:", txHash);
@@ -130,6 +243,7 @@ export async function mockReleaseEscrow(params: {
   console.log("[CONTRACT MOCK] release_escrow called:", params);
   
   await delay(1000);
+  hydrateEscrowsFromStorage();
 
   const escrow = escrows.get(params.jobId);
   if (!escrow) {
@@ -146,6 +260,7 @@ export async function mockReleaseEscrow(params: {
 
   escrow.status = "Released";
   escrows.set(params.jobId, escrow);
+  persistEscrow(escrow);
 
   const txHash = generateMockTxHash();
   console.log("[CONTRACT MOCK] ✓ Escrow released. Tx hash:", txHash);
@@ -166,6 +281,7 @@ export async function mockRefundEscrow(params: {
   console.log("[CONTRACT MOCK] refund_escrow called:", params);
   
   await delay(1000);
+  hydrateEscrowsFromStorage();
 
   const escrow = escrows.get(params.jobId);
   if (!escrow) {
@@ -182,6 +298,7 @@ export async function mockRefundEscrow(params: {
 
   escrow.status = "Refunded";
   escrows.set(params.jobId, escrow);
+  persistEscrow(escrow);
 
   const txHash = generateMockTxHash();
   console.log("[CONTRACT MOCK] ✓ Escrow refunded. Tx hash:", txHash);
@@ -199,6 +316,7 @@ export async function mockGetEscrow(jobId: string): Promise<MockEscrow> {
   console.log("[CONTRACT MOCK] get_escrow called:", jobId);
   
   await delay(300);
+  hydrateEscrowsFromStorage();
 
   const escrow = escrows.get(jobId);
   if (!escrow) {
@@ -217,6 +335,7 @@ export async function mockGetStatus(jobId: string): Promise<EscrowStatus> {
   console.log("[CONTRACT MOCK] get_status called:", jobId);
   
   await delay(300);
+  hydrateEscrowsFromStorage();
 
   const escrow = escrows.get(jobId);
   if (!escrow) {
@@ -235,6 +354,7 @@ export async function mockGetEscrowCount(): Promise<number> {
   console.log("[CONTRACT MOCK] get_escrow_count called");
   
   await delay(300);
+  hydrateEscrowsFromStorage();
 
   console.log("[CONTRACT MOCK] ✓ Escrow count:", escrowCount);
   return escrowCount;
@@ -244,14 +364,19 @@ export async function mockGetEscrowCount(): Promise<number> {
  * Utility: Clear all mock data (useful for testing)
  */
 export function clearMockData(): void {
-  console.log("[CONTRACT MOCK] Clearing all mock data");
+  console.log(
+    "[CONTRACT MOCK] Clearing all mock data from memory and mock-only localStorage",
+  );
+  hydrateEscrowsFromStorage();
   escrows.clear();
   escrowCount = 0;
+  removePersistedEscrows();
 }
 
 /**
  * Utility: Get all escrows (for debugging)
  */
 export function getAllMockEscrows(): MockEscrow[] {
+  hydrateEscrowsFromStorage();
   return Array.from(escrows.values());
 }

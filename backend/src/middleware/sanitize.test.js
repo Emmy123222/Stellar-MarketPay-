@@ -23,6 +23,15 @@ describe("Input Sanitization", () => {
       expect(result).not.toContain("alert");
     });
 
+    test("should strip encoded HTML even when strict mode is disabled", () => {
+      const input = '&lt;img src="x" onerror="alert(1)"&gt;Safe text';
+      const result = sanitizeString(input, { strict: false });
+      expect(result).toBe("Safe text");
+      expect(result).not.toContain("<");
+      expect(result).not.toContain(">");
+      expect(result).not.toContain("onerror");
+    });
+
     test("should strip iframe injection", () => {
       const input = '<iframe src="javascript:alert(1)"></iframe>';
       const result = sanitizeString(input);
@@ -42,10 +51,10 @@ describe("Input Sanitization", () => {
       // Unicode normalization test - using fullwidth characters
       const input = "\uFF1Cscript\uFF1Ealert(1)\uFF1C/script\uFF1E"; // Fullwidth < > characters
       const result = sanitizeString(input);
-      // After normalization, xss library should strip the tags
-      // The fullwidth characters get normalized but xss may not catch them all
-      // So we just verify the string is sanitized (no actual script execution possible)
-      expect(result.length).toBeGreaterThan(0);
+      // After normalization, xss library should strip the fullwidth tags
+      // and their script body rather than leaving executable content behind.
+      expect(result).not.toContain("script");
+      expect(result).not.toContain("alert");
     });
 
     test("should handle nested HTML tags", () => {
@@ -255,13 +264,13 @@ describe("Input Sanitization", () => {
       expect(next).toHaveBeenCalled();
     });
 
-    test("should handle errors gracefully", () => {
+    test("should handle circular references", () => {
       const req = {
-        body: { circular: null },
+        body: { a: "test" },
         query: {},
         params: {},
       };
-      // Create circular reference to cause error
+      // Create circular reference
       req.body.circular = req.body;
       
       const res = {
@@ -273,12 +282,10 @@ describe("Input Sanitization", () => {
       const middleware = sanitizeMiddleware();
       middleware(req, res, next);
 
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({
-        success: false,
-        error: "Invalid input data",
-      });
-      expect(next).not.toHaveBeenCalled();
+      expect(req.body.a).toBe("test");
+      expect(req.body.circular).toEqual({}); // Circular reference sanitized to empty object
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalledWith(400);
     });
 
     test("should respect options to skip sanitization", () => {

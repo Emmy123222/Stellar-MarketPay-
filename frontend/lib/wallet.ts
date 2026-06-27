@@ -133,3 +133,37 @@ export async function signTransactionWithWallet(transactionXDR: string, mockPara
     return { signedXDR: null, error: `Signing failed: ${msg}` };
   }
 }
+
+/**
+ * Issue #499 — Subscribe to Freighter account changes.
+ *
+ * Freighter exposes `window.freighter.on('accountChanged', callback)` in newer
+ * versions. This helper wraps that API with a polling fallback for older builds.
+ *
+ * @returns Unsubscribe function, or null if not supported (caller should poll).
+ */
+export function subscribeToAccountChanges(
+  callback: (publicKey: string | null) => void
+): (() => void) | null {
+  if (typeof window === "undefined") return null;
+
+  const w = window as Window & {
+    freighter?: {
+      on?: (event: string, cb: (data: unknown) => void) => void;
+      off?: (event: string, cb: (data: unknown) => void) => void;
+    };
+  };
+
+  if (w.freighter?.on && w.freighter?.off) {
+    const handler = (data: unknown) => {
+      // Freighter passes the new public key (string) or undefined on disconnect
+      const pk = typeof data === "string" && data.length > 0 ? data : null;
+      callback(pk);
+    };
+    w.freighter.on("accountChanged", handler);
+    return () => w.freighter?.off?.("accountChanged", handler);
+  }
+
+  // No native event support — return null so caller can poll
+  return null;
+}

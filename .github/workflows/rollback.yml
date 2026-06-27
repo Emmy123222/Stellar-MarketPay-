@@ -25,6 +25,7 @@ jobs:
           script: |
             set -e
             export IMAGE_TAG=${{ github.event.inputs.image_tag }}
+            export IMAGE_TAG=$(echo "$IMAGE_TAG" | tr '[:upper:]' '[:lower:]')
             cd ${{ github.event.inputs.target_env == 'production' && secrets.PRODUCTION_APP_DIR || secrets.STAGING_APP_DIR }}
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d

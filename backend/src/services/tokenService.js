@@ -4,11 +4,7 @@
  */
 "use strict";
 
-const { Server } = require("@stellar/stellar-sdk");
-
-// Configuration
-const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
-const server = new Server(HORIZON_URL);
+const stellarAccountCache = require("./stellarAccountCache");
 
 /**
  * Get token metadata from Stellar Asset Contract (SAC)
@@ -24,7 +20,7 @@ async function getTokenMetadata(contractId) {
 
   try {
     // First try to get the contract from Stellar
-    const contract = await server.loadAccount(contractId);
+    const contract = await stellarAccountCache.getAccount(contractId);
     
     // Look for token metadata in contract data
     // This is a simplified approach - in production you'd want to use Soroban RPC
@@ -68,7 +64,7 @@ async function getTokenBalance(publicKey, contractId) {
   }
 
   try {
-    const account = await server.loadAccount(publicKey);
+    const account = await stellarAccountCache.getAccount(publicKey);
     
     // Find the balance for this specific token
     const tokenBalance = account.balances.find(balance => 
@@ -126,7 +122,7 @@ async function validateTokenContract(contractId) {
   }
 
   try {
-    const account = await server.loadAccount(contractId);
+    const account = await stellarAccountCache.getAccount(contractId);
     
     // Check if this looks like a token contract
     // In a full implementation, you'd check specific contract data

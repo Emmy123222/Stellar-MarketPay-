@@ -154,6 +154,21 @@ const VARIANT_STYLES: Record<
 
 // ─── Single toast item ────────────────────────────────────────────────────────
 
+export function ToastSnapshot({
+  variant,
+  message,
+}: {
+  variant: ToastVariant;
+  message: string;
+}) {
+  return (
+    <ToastItem
+      toast={{ id: "snapshot", message, variant, dismissing: false }}
+      onDismiss={() => {}}
+    />
+  );
+}
+
 function ToastItem({
   toast,
   onDismiss,

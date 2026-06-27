@@ -10,10 +10,14 @@ import FreelancerTierBadge from "@/components/FreelancerTierBadge";
 import FreelancerProfileSkeleton from "@/components/FreelancerProfileSkeleton";
 import {
   fetchPublicProfile,
+  fetchProfileStats,
+  fetchProfileResponseTime,
   verifyIdentity,
   fetchSkillEndorsements,
   endorseSkill,
   fetchSkillBadges,
+ 
+  fetchResponseTime,
   fetchUserCertificates,
   type CertificateData,
 } from "@/lib/api";
@@ -23,14 +27,17 @@ import {
   availabilitySummary,
   formatXLM,
   shortenAddress,
+  availabilityBadgeClass,
 } from "@/utils/format";
 import { accountUrl, isValidStellarAddress } from "@/lib/stellar";
 import type {
   AvailabilityStatus,
   PortfolioItem,
+  ProfileStats,
+  ResponseTime,
+  SkillBadge,
   SkillEndorsement,
   UserProfile,
-  SkillBadge,
 } from "@/utils/types";
 
 type LoadState =
@@ -60,15 +67,6 @@ function getPortfolioTypeLabel(item: PortfolioItem) {
   }
 }
 
-function getAvailabilityBadgeClass(status?: AvailabilityStatus | null) {
-  if (status === "available")
-    return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-  if (status === "busy")
-    return "bg-amber-500/10 text-amber-300 border-amber-500/20";
-  if (status === "unavailable")
-    return "bg-red-500/10 text-red-400 border-red-500/20";
-  return "bg-market-500/10 text-market-300 border-market-500/20";
-}
 
 export default function PublicFreelancerProfilePage({
   publicKey,
@@ -85,6 +83,8 @@ export default function PublicFreelancerProfilePage({
   const [endorsingSkill, setEndorsingSkill] = useState<string | null>(null);
   const [badges, setBadges] = useState<SkillBadge[]>([]);
   const [certificates, setCertificates] = useState<CertificateData[]>([]);
+  const [stats, setStats] = useState<{ totalApplications: number; acceptedApplications: number } | null>(null);
+  const [responseTime, setResponseTime] = useState<{ averageDays: number | null } | null>(null);
 
   const isOwner = publicKey && rawKey === publicKey;
 
@@ -157,12 +157,21 @@ export default function PublicFreelancerProfilePage({
 
     (async () => {
       try {
-        const [profile, endorsementsData] = await Promise.all([
-          fetchPublicProfile(rawKey),
-          fetchSkillEndorsements(rawKey).catch(() => [] as SkillEndorsement[]),
-        ]);
+        const [profile, endorsementsData, profileStats, profileResponseTime, badgeData] =
+          await Promise.all([
+            fetchPublicProfile(rawKey),
+            fetchSkillEndorsements(rawKey).catch(() => [] as SkillEndorsement[]),
+            fetchProfileStats(rawKey).catch(() => null),
+            fetchResponseTime(rawKey).catch(() => null),
+            fetchSkillBadges(rawKey).catch(() => [] as SkillBadge[]),
+          ]);
+
         if (cancelled) return;
         setEndorsements(endorsementsData);
+        setStats(profileStats);
+        setResponseTime(profileResponseTime);
+        setBadges(badgeData.filter((b) => b.passed));
+
         if (profile === null) setState({ status: "not_found" });
         else setState({ status: "ok", profile });
       } catch (error: unknown) {
@@ -181,6 +190,14 @@ export default function PublicFreelancerProfilePage({
     // Fetch certificates separately (non-blocking)
     fetchUserCertificates(rawKey)
       .then((data) => { if (!cancelled) setCertificates(data); })
+      .catch(() => {});
+
+    // Fetch profile stats and response time separately (non-blocking)
+    fetchProfileStats(rawKey)
+      .then((data) => { if (!cancelled) setStats(data); })
+      .catch(() => {});
+    fetchProfileResponseTime(rawKey)
+      .then((data) => { if (!cancelled) setResponseTime(data); })
       .catch(() => {});
 
     return () => {
@@ -337,7 +354,7 @@ export default function PublicFreelancerProfilePage({
               <div className="flex flex-wrap items-center gap-3 mb-2">
                 <h2 className="label !mb-0">Availability</h2>
                 <span
-                  className={`text-xs px-2.5 py-1 rounded-full border ${getAvailabilityBadgeClass(
+                  className={`text-xs px-2.5 py-1 rounded-full border ${availabilityBadgeClass(
                     state.profile.availability?.status,
                   )}`}
                 >
@@ -402,13 +419,13 @@ export default function PublicFreelancerProfilePage({
               <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
                 <p className="label mb-1">Success rate</p>
                 <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
-                  {stats?.acceptedApplications || 0} / {stats?.totalApplications || 0} accepted
+                  {state.profile.completedJobs || 0} completed
                 </p>
               </div>
               <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
                 <p className="label mb-1">Avg. completion</p>
                 <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
-                  {responseTime?.averageDays !== null ? `${responseTime?.averageDays}d` : "—"}
+                  —
                 </p>
                 <p className="text-[10px] uppercase tracking-wider text-amber-800 mt-1">
                   Acceptance to release

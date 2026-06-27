@@ -9,6 +9,7 @@ import type { ChecklistItem } from "@/components/Onboarding/ProfileChecklist";
 
 const ONBOARDING_STORAGE_KEY = "marketpay_onboarding_completed";
 const TOOLTIPS_DISMISSED_KEY = "marketpay_tooltips_dismissed";
+const ONBOARDING_COMPLETE_THRESHOLD = 80;
 
 export interface OnboardingState {
   hasSeenWelcome: boolean;
@@ -24,6 +25,80 @@ export interface OnboardingProgress {
   hasAvailability: boolean;
   completionPercentage: number;
   isComplete: boolean;
+}
+
+function calculateOnboardingProgress(
+  profile: UserProfile | null,
+): OnboardingProgress {
+  if (!profile) {
+    return {
+      hasAvatar: false,
+      hasBio: false,
+      hasSkills: false,
+      hasPortfolio: false,
+      hasAvailability: false,
+      completionPercentage: 0,
+      isComplete: false,
+    };
+  }
+
+  const hasAvatar = Boolean(
+    profile.displayName && profile.displayName.length >= 3,
+  );
+  const hasBio = Boolean(profile.bio && profile.bio.length >= 10);
+  const hasSkills = Boolean(profile.skills && profile.skills.length > 0);
+  const hasPortfolio = Boolean(
+    (profile.portfolioItems && profile.portfolioItems.length > 0) ||
+      (profile.portfolioFiles && profile.portfolioFiles.length > 0),
+  );
+  const hasAvailability = Boolean(
+    profile.availability && profile.availability.status,
+  );
+
+  const completedItems = [
+    hasAvatar,
+    hasBio,
+    hasSkills,
+    hasPortfolio,
+    hasAvailability,
+  ].filter(Boolean).length;
+  const totalItems = 5;
+  const completionPercentage = Math.round((completedItems / totalItems) * 100);
+
+  return {
+    hasAvatar,
+    hasBio,
+    hasSkills,
+    hasPortfolio,
+    hasAvailability,
+    completionPercentage,
+    isComplete: completedItems === totalItems,
+  };
+}
+
+function isCompleteEnoughForOnboarding(progress: OnboardingProgress): boolean {
+  return progress.completionPercentage >= ONBOARDING_COMPLETE_THRESHOLD;
+}
+
+function persistOnboardingState(
+  state: OnboardingState,
+  profileCompletionPercentage?: number,
+): void {
+  if (typeof window === "undefined") return;
+
+  localStorage.setItem(
+    ONBOARDING_STORAGE_KEY,
+    JSON.stringify({
+      hasSeenWelcome: state.hasSeenWelcome,
+      checklistDismissed: state.checklistDismissed,
+      profileCompletionPercentage,
+      syncedAt: new Date().toISOString(),
+    }),
+  );
+  localStorage.setItem(
+    TOOLTIPS_DISMISSED_KEY,
+    JSON.stringify(state.dismissedTooltips),
+  );
 }
 
 export function useOnboarding(publicKey: string | null) {
@@ -69,6 +144,25 @@ export function useOnboarding(publicKey: string | null) {
     fetchProfile(publicKey)
       .then((data) => {
         setProfile(data);
+
+        const serverProgress = calculateOnboardingProgress(data);
+        setOnboardingState((current) => {
+          const serverCompleted = isCompleteEnoughForOnboarding(serverProgress);
+          const syncedState = serverCompleted
+            ? {
+                ...current,
+                hasSeenWelcome: true,
+                checklistDismissed: true,
+              }
+            : current;
+
+          persistOnboardingState(
+            syncedState,
+            serverProgress.completionPercentage,
+          );
+
+          return syncedState;
+        });
       })
       .catch((error) => {
         console.error("Failed to fetch profile:", error);
@@ -79,56 +173,13 @@ export function useOnboarding(publicKey: string | null) {
       });
   }, [publicKey]);
 
-  // Calculate onboarding progress
+  // Calculate onboarding progress from the latest API profile. The API is the
+  // source of truth; localStorage is only used as a UI cache for dismissals.
   const progress: OnboardingProgress = useMemo(() => {
-    if (!profile) {
-      return {
-        hasAvatar: false,
-        hasBio: false,
-        hasSkills: false,
-        hasPortfolio: false,
-        hasAvailability: false,
-        completionPercentage: 0,
-        isComplete: false,
-      };
-    }
-
-    const hasAvatar = Boolean(
-      profile.displayName && profile.displayName.length >= 3,
-    );
-    const hasBio = Boolean(profile.bio && profile.bio.length >= 10);
-    const hasSkills = Boolean(profile.skills && profile.skills.length > 0);
-    const hasPortfolio = Boolean(
-      (profile.portfolioItems && profile.portfolioItems.length > 0) ||
-      (profile.portfolioFiles && profile.portfolioFiles.length > 0),
-    );
-    const hasAvailability = Boolean(
-      profile.availability && profile.availability.status,
-    );
-
-    const completedItems = [
-      hasAvatar,
-      hasBio,
-      hasSkills,
-      hasPortfolio,
-      hasAvailability,
-    ].filter(Boolean).length;
-    const totalItems = 5;
-    const completionPercentage = Math.round(
-      (completedItems / totalItems) * 100,
-    );
-    const isComplete = completedItems === totalItems;
-
-    return {
-      hasAvatar,
-      hasBio,
-      hasSkills,
-      hasPortfolio,
-      hasAvailability,
-      completionPercentage,
-      isComplete,
-    };
+    return calculateOnboardingProgress(profile);
   }, [profile]);
+
+  const serverCompletedOnboarding = isCompleteEnoughForOnboarding(progress);
 
   // Generate checklist items
   const checklistItems: ChecklistItem[] = useMemo(() => {
@@ -246,19 +297,7 @@ export function useOnboarding(publicKey: string | null) {
     const updated = { ...onboardingState, ...newState };
     setOnboardingState(updated);
 
-    if (typeof window !== "undefined") {
-      localStorage.setItem(
-        ONBOARDING_STORAGE_KEY,
-        JSON.stringify({
-          hasSeenWelcome: updated.hasSeenWelcome,
-          checklistDismissed: updated.checklistDismissed,
-        }),
-      );
-      localStorage.setItem(
-        TOOLTIPS_DISMISSED_KEY,
-        JSON.stringify(updated.dismissedTooltips),
-      );
-    }
+    persistOnboardingState(updated, progress.completionPercentage);
   };
 
   // Mark welcome as seen
@@ -299,10 +338,14 @@ export function useOnboarding(publicKey: string | null) {
 
   // Check if user should see onboarding
   const shouldShowWelcome =
-    !onboardingState.hasSeenWelcome && publicKey !== null;
+    !loading &&
+    !serverCompletedOnboarding &&
+    !onboardingState.hasSeenWelcome &&
+    publicKey !== null;
   const shouldShowChecklist =
+    !loading &&
+    !serverCompletedOnboarding &&
     !onboardingState.checklistDismissed &&
-    !progress.isComplete &&
     publicKey !== null;
 
   return {

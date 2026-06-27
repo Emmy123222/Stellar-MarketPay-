@@ -3,6 +3,7 @@
 const { Horizon } = require("@stellar/stellar-sdk");
 const pool = require("../db/pool");
 const { requireEnv } = require("../config/env");
+const horizonClient = require("../utils/horizonClient");
 
 function parseJobIdFromMemo(memoValue) {
   if (!memoValue || typeof memoValue !== "string") return null;
@@ -81,7 +82,10 @@ class IndexerService {
     const txMemo = tx.memo || null;
     const ledgerNumber = tx.ledger_attr || tx.ledger || null;
     const matchedJobId = parseJobIdFromMemo(txMemo);
-    const operations = await this.horizon.operations().forTransaction(tx.hash).limit(200).call();
+    const operations = await horizonClient.callWithLimit(
+      () => this.horizon.operations().forTransaction(tx.hash).limit(200).call(),
+      "operations.forTransaction"
+    );
     const records = operations?.records || [];
 
     const client = await pool.connect();
@@ -194,21 +198,26 @@ class IndexerService {
   }
 
   async processEvent(event) {
-    // Soroban events from Horizon have: type, id, paging_token, ledger, ledger_closed_at, contract_id, topic, value, etc.
     if (this.contractId && event.contract_id !== this.contractId) return;
 
     const eventTypeRaw = this.extractTopicString(event.topic?.[0]);
     if (!eventTypeRaw) return;
 
-    // Map contract symbols to DB event types
     const typeMap = {
+      "escrow_cr":           "escrow_created",
       "escrow_created":      "escrow_created",
+      "work_strt":           "work_started",
       "work_started":        "work_started",
+      "escrow_rl":           "escrow_released",
       "escrow_released":     "escrow_released",
+      "escrow_rf":           "escrow_refunded",
       "escrow_refunded":     "escrow_refunded",
       "escrow_timeout_refunded": "escrow_refunded",
+      "escrow_ds":           "dispute_opened",
       "escrow_disputed":     "dispute_opened",
+      "ms_rel":              "milestone_released",
       "milestone_released":  "milestone_released",
+      "msg_sent":            "message_sent",
       "message_sent":        "message_sent"
     };
 
@@ -236,7 +245,6 @@ class IndexerService {
       ]
     );
 
-    // ── Auto-update database status based on event ──────────────────────
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -345,7 +353,6 @@ class IndexerService {
         },
       });
 
-    // Start event stream
     this.startEventStream();
   }
 
@@ -364,7 +371,6 @@ class IndexerService {
         },
         onerror: (error) => {
           console.error("[Indexer] event stream error:", error?.message);
-          // Auto-reconnect logic
           setTimeout(() => {
             if (this.syncState.running) {
               console.log("[Indexer] attempting to reconnect event stream...");
@@ -382,7 +388,6 @@ class IndexerService {
     );
     return rows;
   }
-
 
   stop() {
     if (typeof this.closeStream === "function") this.closeStream();

@@ -13,13 +13,23 @@ import { formatDate } from "@/utils/format";
 
 // ─── Boost tiers ─────────────────────────────────────────────────────────────
 
-const BOOST_TIERS = [
+interface BoostTier {
+  label: string;
+  amountXlm: number;
+  days: number;
+  description: string;
+  badge: string;
+  recommended?: boolean;
+}
+
+const BOOST_TIERS: BoostTier[] = [
   {
     label: "7-Day Boost",
     amountXlm: 5,
     days: 7,
     description: "Featured at the top of listings for 7 days",
     badge: "⚡ Featured",
+    recommended: false,
   },
   {
     label: "30-Day Boost",

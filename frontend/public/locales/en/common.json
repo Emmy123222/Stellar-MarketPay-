@@ -4,10 +4,13 @@
     "browseJobs": "Browse Jobs",
     "dashboard": "Dashboard",
     "postJob": "Post a Job",
+    "browseFreelancers": "Browse Freelancers",
     "insights": "Market Insights",
     "developer": "Developer",
+    "dao": "DAO",
     "connectWallet": "Connect Wallet",
-    "disconnect": "Disconnect"
+    "disconnect": "Disconnect",
+    "skipToContent": "Skip to main content"
   },
   "jobs": {
     "title": "Browse Jobs",
@@ -19,6 +22,11 @@
     "postFirstJob": "Post the first job",
     "loadMore": "Load more jobs",
     "loading": "Loading...",
+    "filters": "Filters",
+    "showFilters": "Show filters",
+    "hideFilters": "Hide filters",
+    "clearAll": "Clear all",
+    "activeFilters": "Active filters",
     "status": {
       "open": "Open",
       "inProgress": "In Progress",
@@ -26,6 +34,22 @@
       "all": "All"
     },
     "budget": "Budget (XLM)",
+    "budgetRange": "Budget range",
+    "minBudget": "Min",
+    "maxBudget": "Max",
+    "skills": "Required skills",
+    "skillsPlaceholder": "e.g. Rust, React",
+    "clientRating": "Min. client rating",
+    "duration": "Job duration",
+    "durationShort": "Short (< 1 week)",
+    "durationMedium": "Medium (1–4 weeks)",
+    "durationLong": "Long (> 1 month)",
+    "posted": "Posted",
+    "postedToday": "Today",
+    "postedWeek": "This week",
+    "postedMonth": "This month",
+    "applications": "Max applications",
+    "lowCompetition": "Low competition (≤5)",
     "category": "Category",
     "allCategories": "All Categories",
     "timezone": "Timezone",
@@ -33,7 +57,12 @@
     "myLocation": "My Location",
     "detecting": "Detecting...",
     "allTimezones": "All Timezones",
-    "withinTimezone": "Shows jobs within ±3 hours of selected timezone"
+    "withinTimezone": "Shows jobs within ±3 hours of selected timezone",
+    "recommended": "Recommended for you",
+    "errorTitle": "Something went wrong",
+    "errorRetry": "Retry",
+    "emptyTitle": "No jobs match your filters",
+    "emptyDescription": "Try adjusting your search or filters."
   },
   "wallet": {
     "balance": "Balance",
@@ -42,6 +71,32 @@
   "language": {
     "switch": "Switch Language",
     "english": "English",
-    "spanish": "Español"
+    "spanish": "Español",
+    "french": "Français",
+    "portuguese": "Português"
+  },
+  "dao": {
+    "title": "DAO Governance",
+    "subtitle": "Participate in platform governance and help shape the future of Stellar MarketPay.",
+    "connectPrompt": "Connect your wallet to participate in DAO governance",
+    "treasuryBalance": "Treasury Balance",
+    "activeProposals": "Active Proposals",
+    "votingPower": "Your Voting Power",
+    "proposals": "Proposals",
+    "createProposal": "Create Proposal",
+    "voteFor": "Vote For",
+    "voteAgainst": "Vote Against",
+    "voting": "Voting...",
+    "votesFor": "For",
+    "votesAgainst": "Against",
+    "votingResults": "Voting Results",
+    "quorum": "Quorum progress",
+    "arbitrators": "Community Arbitrators",
+    "disputePanel": "Dispute panel (top 3)",
+    "registerArbitrator": "Register as arbitrator",
+    "amount": "Amount",
+    "created": "Created",
+    "ends": "Ends",
+    "loading": "Loading governance data..."
   }
 }

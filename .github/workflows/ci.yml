@@ -7,9 +7,27 @@ on:
     branches: [main]
 
 jobs:
+  secrets-scan:
+    name: Secrets Scanning (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        with:
+          version: latest
+          config-path: .gitleaks.toml
+          verbose: true
+
   frontend:
     name: Frontend (Next.js)
     runs-on: ubuntu-latest
+    needs: secrets-scan
     defaults:
       run:
         working-directory: frontend
@@ -21,23 +39,52 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - run: npm audit --audit-level=high
+        continue-on-error: true
+      - run: npm test
       - run: npm run type-check
-      - run: npm run migrate`n        env:`n          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/marketpay_test`n      - run: npm run lint
+      - run: npm run lint
       - run: npm run build
         env:
           NEXT_PUBLIC_STELLAR_NETWORK: testnet
           NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
           NEXT_PUBLIC_API_URL: http://localhost:4000
+          NEXT_PUBLIC_USE_CONTRACT_MOCK: "true"
+          NEXT_PUBLIC_CONTRACT_ID: "CMOCKCONTRACTID"
+          SKIP_API_CALLS: "true"
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
         env:
           NEXT_PUBLIC_STELLAR_NETWORK: testnet
           NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
           NEXT_PUBLIC_API_URL: http://localhost:4000
+          NEXT_PUBLIC_USE_CONTRACT_MOCK: "true"
+          NEXT_PUBLIC_CONTRACT_ID: CMOCKCONTRACTID
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
 
   backend:
     name: Backend (Node.js)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: marketpay_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    needs: secrets-scan
     defaults:
       run:
         working-directory: backend
@@ -49,11 +96,32 @@ jobs:
           cache: "npm"
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - run: npm run migrate`n        env:`n          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/marketpay_test`n      - run: npm run lint
+      - run: npm audit --audit-level=high
+        continue-on-error: true
+      - run: npm test
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/marketpay_test
+          JWT_SECRET: ci-test-jwt-secret-with-sufficient-length
+      - name: Mutation testing
+        run: npm run test:mutation
+        continue-on-error: true
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/marketpay_test
+          JWT_SECRET: ci-test-jwt-secret-with-sufficient-length
+          STRYKER_DASHBOARD_API_KEY: ${{ secrets.STRYKER_DASHBOARD_API_KEY }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+      - run: npm run lint
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+          retention-days: 7
 
   contracts:
     name: Soroban Contract (Rust)
     runs-on: ubuntu-latest
+    needs: secrets-scan
     defaults:
       run:
         working-directory: contracts/marketpay-contract
@@ -71,7 +139,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo check --target wasm32-unknown-unknown
       - run: cargo clippy -- -D warnings
+      - run: cargo install cargo-audit --locked
       - run: cargo audit --ignore RUSTSEC-2020-0071
       - run: cargo test
       - run: cargo build --target wasm32-unknown-unknown --release
-

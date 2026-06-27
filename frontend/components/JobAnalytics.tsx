@@ -97,7 +97,7 @@ function BidAmountChart({ data }: { data: JobAnalytics["averageBidAmount"] }) {
  * Status breakdown mini pie/donut.
  */
 function StatusBreakdown({ data }: { data: JobAnalytics["applicationStatusCounts"] }) {
-  const total = Object.values(data).reduce((a, b) => a + (b || 0), 0);
+  const total = Object.values(data).reduce<number>((a, b) => a + (b || 0), 0);
   if (total === 0) {
     return <p className="text-sm text-amber-800 text-center py-4">No applications</p>;
   }
@@ -115,7 +115,7 @@ function StatusBreakdown({ data }: { data: JobAnalytics["applicationStatusCounts
           {statuses.map((s, i) => {
             const value = data[s.key] || 0;
             const pct = total > 0 ? value / total : 0;
-            const offset = statuses.slice(0, i).reduce((acc, prev) => acc + ((data[prev.key] || 0) / total), 0);
+            const offset = statuses.slice(0, i).reduce<number>((acc, prev) => acc + ((data[prev.key] || 0) / (total || 1)), 0);
             return pct > 0 ? (
               <circle
                 key={s.key}
@@ -164,7 +164,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
         .catch(console.error)
         .finally(() => setLoading(false));
     }
-  }, [job?.id]);
+  }, [job]);
 
   const handleExtend = async () => {
     try {
@@ -207,16 +207,16 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
           {!isExpired && job.status === "open" && (
             <button
               onClick={handleExtend}
-              disabled={extending || job.extendedCount >= 3}
+              disabled={extending || (job.extendedCount ?? 0) >= 3}
               className={clsx(
                 "btn-secondary text-sm py-2 px-4 flex items-center gap-2",
-                (extending || job.extendedCount >= 3) && "opacity-50 cursor-not-allowed"
+                (extending || (job.extendedCount ?? 0) >= 3) && "opacity-50 cursor-not-allowed"
               )}
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              {extending ? "Extending..." : `Extend 30 days (${3 - job.extendedCount} left)`}
+              {extending ? "Extending..." : `Extend 30 days (${3 - (job.extendedCount ?? 0)} left)`}
             </button>
           )}
         </div>
@@ -236,7 +236,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
               "font-mono text-sm",
               isExpired ? "text-red-400" : isExpiringSoon ? "text-amber-400" : "text-amber-400"
             )}>
-              {new Date(job.expiresAt).toLocaleDateString()}
+              {job.expiresAt ? new Date(job.expiresAt).toLocaleDateString() : "—"}
             </p>
           </div>
           <div>
@@ -311,10 +311,10 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
               </div>
             ) : (
               <div className="text-center">
-                {analytics?.daysToHire !== null ? (
+                {analytics != null && analytics.daysToHire !== null ? (
                   <>
                     <p className="font-display text-4xl font-bold text-emerald-400">
-                      {analytics.daysToHire?.toFixed(1)}
+                      {analytics.daysToHire.toFixed(1)}
                     </p>
                     <p className="text-xs text-amber-700 mt-1">days until hired</p>
                   </>
@@ -336,7 +336,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
               </div>
             ) : (
               <div className="flex items-center justify-center">
-                <StatusBreakdown data={analytics?.applicationStatusCounts || {}} />
+                <StatusBreakdown data={analytics?.applicationStatusCounts ?? { pending: 0, accepted: 0, rejected: 0 }} />
               </div>
             )}
           </div>

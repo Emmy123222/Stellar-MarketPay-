@@ -66,18 +66,54 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 500
-                  }
-                },
-                "void"
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 500
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "freelancer"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "milestones"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "referrer"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "timeout_ledgers"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "token"
+                      },
+                      "val": {
+                        "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                      }
+                    }
+                  ]
+                }
               ]
             }
           },
@@ -223,6 +259,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "DefaultTimeoutSeconds"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 604800
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Escrow"
                             },
                             {
@@ -261,6 +309,12 @@
                             },
                             {
                               "key": {
+                                "symbol": "deliverable_hash"
+                              },
+                              "val": "void"
+                            },
+                            {
+                              "key": {
                                 "symbol": "freelancer"
                               },
                               "val": {
@@ -285,6 +339,12 @@
                             },
                             {
                               "key": {
+                                "symbol": "referrer"
+                              },
+                              "val": "void"
+                            },
+                            {
+                              "key": {
                                 "symbol": "status"
                               },
                               "val": {
@@ -293,6 +353,14 @@
                                     "symbol": "Locked"
                                   }
                                 ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "timeout_ledger"
+                              },
+                              "val": {
+                                "u32": 120960
                               }
                             },
                             {
@@ -316,6 +384,21 @@
                         },
                         "val": {
                           "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "TimeoutTimestamp"
+                            },
+                            {
+                              "string": "upgrade_job_1"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 604800
                         }
                       },
                       {

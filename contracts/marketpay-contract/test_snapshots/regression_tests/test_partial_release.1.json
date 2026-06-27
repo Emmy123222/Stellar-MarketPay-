@@ -66,29 +66,93 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 1000
-                  }
-                },
-                {
-                  "vec": [
+                  "map": [
                     {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 400
+                      "key": {
+                        "symbol": "amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 1000
+                        }
                       }
                     },
                     {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 600
+                      "key": {
+                        "symbol": "freelancer"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "milestones"
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "description"
+                                },
+                                "val": {
+                                  "string": "Design"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "percentage"
+                                },
+                                "val": {
+                                  "u32": 40
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "description"
+                                },
+                                "val": {
+                                  "string": "Build"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "percentage"
+                                },
+                                "val": {
+                                  "u32": 60
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "referrer"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "timeout_ledgers"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "token"
+                      },
+                      "val": {
+                        "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                       }
                     }
                   ]
@@ -175,7 +239,7 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "partial_release",
+              "function_name": "release_milestone",
               "args": [
                 {
                   "string": "job_partial"
@@ -202,7 +266,7 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "partial_release",
+              "function_name": "release_milestone",
               "args": [
                 {
                   "string": "job_partial"
@@ -363,6 +427,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "DefaultTimeoutSeconds"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 604800
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Escrow"
                             },
                             {
@@ -401,6 +477,12 @@
                             },
                             {
                               "key": {
+                                "symbol": "deliverable_hash"
+                              },
+                              "val": "void"
+                            },
+                            {
+                              "key": {
                                 "symbol": "freelancer"
                               },
                               "val": {
@@ -425,18 +507,31 @@
                                     "map": [
                                       {
                                         "key": {
-                                          "symbol": "amount"
+                                          "symbol": "description"
                                         },
                                         "val": {
-                                          "i128": {
-                                            "hi": 0,
-                                            "lo": 400
-                                          }
+                                          "string": "Design"
                                         }
                                       },
                                       {
                                         "key": {
-                                          "symbol": "is_completed"
+                                          "symbol": "id"
+                                        },
+                                        "val": {
+                                          "u32": 0
+                                        }
+                                      },
+                                      {
+                                        "key": {
+                                          "symbol": "percentage"
+                                        },
+                                        "val": {
+                                          "u32": 40
+                                        }
+                                      },
+                                      {
+                                        "key": {
+                                          "symbol": "released"
                                         },
                                         "val": {
                                           "bool": true
@@ -448,18 +543,31 @@
                                     "map": [
                                       {
                                         "key": {
-                                          "symbol": "amount"
+                                          "symbol": "description"
                                         },
                                         "val": {
-                                          "i128": {
-                                            "hi": 0,
-                                            "lo": 600
-                                          }
+                                          "string": "Build"
                                         }
                                       },
                                       {
                                         "key": {
-                                          "symbol": "is_completed"
+                                          "symbol": "id"
+                                        },
+                                        "val": {
+                                          "u32": 1
+                                        }
+                                      },
+                                      {
+                                        "key": {
+                                          "symbol": "percentage"
+                                        },
+                                        "val": {
+                                          "u32": 60
+                                        }
+                                      },
+                                      {
+                                        "key": {
+                                          "symbol": "released"
                                         },
                                         "val": {
                                           "bool": true
@@ -472,6 +580,12 @@
                             },
                             {
                               "key": {
+                                "symbol": "referrer"
+                              },
+                              "val": "void"
+                            },
+                            {
+                              "key": {
                                 "symbol": "status"
                               },
                               "val": {
@@ -480,6 +594,14 @@
                                     "symbol": "Released"
                                   }
                                 ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "timeout_ledger"
+                              },
+                              "val": {
+                                "u32": 120960
                               }
                             },
                             {
@@ -498,6 +620,18 @@
                           "vec": [
                             {
                               "symbol": "EscrowCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "Version"
                             }
                           ]
                         },

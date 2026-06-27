@@ -10,15 +10,20 @@ const http = require("http");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
+const compressionMiddleware = require("./middleware/compression");
 const rateLimit = require("express-rate-limit");
+const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
-const nodemailer = require("nodemailer");
+const { sendEmail, smtpTransport } = require("./utils/email");
 const promClient = require("prom-client");
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
-const { logger, requestLoggerMiddleware, logError, createServiceLogger } = require('./utils/logger');
+const { requestLoggerMiddleware, logError, createServiceLogger } = require('./utils/logger');
 const { sanitizeMiddleware } = require('./middleware/sanitize');
+const { getRateLimitScale } = require("./middleware/rateLimiter");
 const { requireChoice } = require("./config/env");
+const { createCorsOptions } = require("./config/cors");
+const { verifyCSRF } = require("./middleware/csrf");
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -35,15 +40,24 @@ const disputeRoutes   = require("./routes/disputes");
 const adminRoutes     = require("./routes/admin");
 const admin2faRoutes  = require("./routes/admin2fa");
 const timeEntryRoutes = require("./routes/timeEntries");
+const notificationRoutes = require("./routes/notifications");
+const developerRoutes = require("./routes/developer");
+const publicRoutes    = require("./routes/public");
 const referralRoutes  = require("./routes/referrals");
 const eventsRoutes    = require("./routes/events");
+const invitationRoutes = require("./routes/invitations");
+const statsRoutes      = require("./routes/stats");
+const gasEstimatorRoutes = require("./routes/gasEstimator");
+
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
+const { setBroadcastToUser } = require("./services/notificationService");
 
 const serviceLogger = createServiceLogger('server');
 const app  = express();
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 4000;
 const server = http.createServer(app);
 const WS_OPEN = 1;
@@ -176,6 +190,7 @@ function checkPoolHealth() {
 setInterval(checkPoolHealth, 1000).unref();
 
 const realtimeClients = new Set();
+const userClients = new Map(); // userAddress -> Set<WebSocket>
 const scopeSessionClients = new Map();
 
 function broadcastRealtime(event, payload) {
@@ -242,33 +257,18 @@ const indexerService = new IndexerService({
   contractId: process.env.CONTRACT_ID || process.env.ESCROW_CONTRACT_ID,
   broadcast: broadcastRealtime,
 });
-const smtpEnabled = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-const smtpTransport = smtpEnabled
-  ? nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: false,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    })
-  : null;
+
 const priceAlertService = new PriceAlertService({
   broadcast: broadcastRealtime,
   sendEmail: async ({ to, subject, text }) => {
-    if (!smtpTransport || !to) return;
-    await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to,
-      subject,
-      text,
-    });
+    await sendEmail({ to, subject, text });
   },
 });
 
 app.locals.indexerService = indexerService;
 app.locals.broadcastRealtime = broadcastRealtime;
+app.locals.broadcastToUser = broadcastToUser;
+setBroadcastToUser(broadcastToUser);
 
 // Middleware
 app.use(helmet({
@@ -302,6 +302,8 @@ app.use(helmet({
 // Request logging middleware
 app.use(requestLoggerMiddleware);
 
+app.use(compressionMiddleware());
+
 app.use(express.json({ limit: "20kb" }));
 app.use(sanitizeMiddleware({ strict: false }));
 
@@ -311,13 +313,8 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
   customSiteTitle: 'Stellar MarketPay API Documentation'
 }));
 
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").split(",").map(o => o.trim());
-app.use(cors({
-  origin: (origin, cb) => (!origin || allowedOrigins.includes(origin)) ? cb(null, true) : cb(new Error("CORS blocked")),
-  methods: ["GET", "POST", "PATCH", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key"],
-  credentials: true,
-}));
+app.use(cors(createCorsOptions({ logger: serviceLogger })));
+app.use(verifyCSRF);
 
 app.use((req, res, next) => {
   if (req.path === "/metrics") {
@@ -346,7 +343,13 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 150, standardHeaders: true, legacyHeaders: false }));
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Math.max(1, Math.floor(150 * getRateLimitScale())),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
+}));
 
 app.get("/metrics", async (req, res, next) => {
   try {
@@ -386,8 +389,13 @@ app.use("/api/public",        publicRoutes);
 app.use("/api/time-entries",  timeEntryRoutes);
 app.use("/api/referrals",     referralRoutes);
 app.use("/api/events",        eventsRoutes);
+app.use("/api/invitations",   invitationRoutes);
+app.use("/api/stats",         statsRoutes);
+app.use("/api/gas-estimate", gasEstimatorRoutes);
 
 app.use((err, req, res, next) => {
+  void next;
+
   logError(req.logger || serviceLogger, err, {
     method: req.method,
     path: req.path,
@@ -535,10 +543,14 @@ async function bootstrap() {
   // Start job expiry checker - run every hour
   startJobExpiryChecker();
 
+  // Start escrow timeout checker - run every hour
+  startEscrowTimeoutChecker();
+
   // Start notification processor - run every 2 minutes
   startNotificationProcessor();
 
-  // Start weekly digest scheduler - fires every Monday at 09:00 UTC
+  // Start WS event cleanup job (purge old events after 7 days)
+  startWsEventCleanup();
   startWeeklyDigestScheduler();
 
   // Start purge job for soft-deleted records - run daily
@@ -607,6 +619,14 @@ async function startJobExpiryChecker() {
 }
 
 /**
+ * Periodically check for and automatically process refunds for escrows that have timed out (runs every hour).
+ */
+function startEscrowTimeoutChecker() {
+  const { startEscrowTimeoutChecker: run } = require("./services/escrowService");
+  return run();
+}
+
+/**
  * Periodically process pending notifications (runs every 2 minutes).
  */
 async function startNotificationProcessor() {
@@ -614,14 +634,7 @@ async function startNotificationProcessor() {
   const notificationLogger = createServiceLogger('notifications');
   
   const sendEmailFn = async ({ to, subject, text, html }) => {
-    if (!smtpTransport || !to) return;
-    await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to,
-      subject,
-      text,
-      html,
-    });
+    await sendEmail({ to, subject, text, html });
   };
 
   // Run immediately on startup
@@ -656,6 +669,29 @@ async function startNotificationProcessor() {
 }
 
 /**
+ * Periodically finalize expired API key rotations (runs every hour).
+ * Keys in rotating state for more than 24 hours get their rotating_key_hash
+ * promoted to the active key_hash.
+ */
+function startApiKeyRotationFinalizer() {
+  const { finalizeExpiredRotations } = require("./services/developerService");
+  const rotationLogger = createServiceLogger('api-key-rotation');
+
+  async function checkAndFinalize() {
+    try {
+      const finalized = await finalizeExpiredRotations();
+      if (finalized.length > 0) {
+        rotationLogger.info({ count: finalized.length }, 'Finalized expired API key rotations');
+      }
+    } catch (err) {
+      logError(rotationLogger, err, { operation: 'api_key_rotation_finalizer' });
+    }
+  }
+
+  setInterval(checkAndFinalize, 60 * 60 * 1000).unref();
+}
+
+/**
  * Schedule the weekly job-digest email for every Monday at 09:00 UTC.
  *
  * Strategy:
@@ -670,14 +706,7 @@ function startWeeklyDigestScheduler() {
 
   // Reuse the same sendEmail transport already wired for notifications
   const sendEmailFn = async ({ to, subject, text, html }) => {
-    if (!smtpTransport || !to) return;
-    await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to,
-      subject,
-      text,
-      html,
-    });
+    await sendEmail({ to, subject, text, html });
   };
 
   /**
@@ -752,5 +781,7 @@ function startPurgeDeletedRecords() {
 }
 
 bootstrap();
+
+app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
 
 module.exports = app;

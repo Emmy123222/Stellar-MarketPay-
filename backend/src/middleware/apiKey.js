@@ -1,6 +1,7 @@
 "use strict";
 
 const rateLimit = require("express-rate-limit");
+const { getClientIp } = require("../utils/clientIp");
 const {
   findApiKeyByRawValue,
   recordApiKeyUsage,
@@ -12,7 +13,7 @@ function createApiKeyRateLimiter(maxRequests = 100, windowMinutes = 60) {
     max: maxRequests,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.apiKey?.id || req.ip,
+    keyGenerator: (req) => req.apiKey?.id || getClientIp(req),
     handler: (req, res) => {
       res.set("Retry-After", String(windowMinutes * 60));
       return res.status(429).json({

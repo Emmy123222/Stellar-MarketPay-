@@ -28,22 +28,22 @@ function loadMigrationPairs() {
       };
     })
     .filter(Boolean)
-    .sort((a, b) => a.version - b.version);
+    .sort((a, b) => a.version - b.version || a.name.localeCompare(b.name));
 }
 
 async function ensureMigrationsTable(client) {
   await client.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
-      version INTEGER PRIMARY KEY,
-      name TEXT NOT NULL,
+      name TEXT PRIMARY KEY,
+      version INTEGER NOT NULL,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
 }
 
-async function getAppliedVersions(client) {
-  const { rows } = await client.query("SELECT version FROM schema_migrations");
-  return new Set(rows.map((r) => Number(r.version)));
+async function getAppliedMigrations(client) {
+  const { rows } = await client.query("SELECT name FROM schema_migrations");
+  return new Set(rows.map((r) => r.name));
 }
 
 async function migrate() {
@@ -51,17 +51,17 @@ async function migrate() {
   try {
     await ensureMigrationsTable(client);
     const migrations = loadMigrationPairs();
-    const applied = await getAppliedVersions(client);
+    const applied = await getAppliedMigrations(client);
 
     for (const migration of migrations) {
-      if (applied.has(migration.version)) continue;
+      if (applied.has(migration.name)) continue;
 
       await client.query("BEGIN");
       try {
         await client.query(migration.upSql);
         await client.query(
-          "INSERT INTO schema_migrations (version, name) VALUES ($1, $2)",
-          [migration.version, migration.name]
+          "INSERT INTO schema_migrations (name, version) VALUES ($1, $2)",
+          [migration.name, migration.version]
         );
         await client.query("COMMIT");
       } catch (err) {
@@ -79,7 +79,7 @@ async function rollbackLastMigration() {
   try {
     await ensureMigrationsTable(client);
     const { rows } = await client.query(
-      "SELECT version, name FROM schema_migrations ORDER BY version DESC LIMIT 1"
+      "SELECT version, name FROM schema_migrations ORDER BY applied_at DESC, version DESC, name DESC LIMIT 1"
     );
 
     if (!rows.length) return null;
@@ -95,7 +95,7 @@ async function rollbackLastMigration() {
     await client.query("BEGIN");
     try {
       await client.query(downSql);
-      await client.query("DELETE FROM schema_migrations WHERE version = $1", [last.version]);
+      await client.query("DELETE FROM schema_migrations WHERE name = $1", [last.name]);
       await client.query("COMMIT");
     } catch (err) {
       await client.query("ROLLBACK");
@@ -127,4 +127,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { migrate, rollbackLastMigration };
+module.exports = { migrate, rollbackLastMigration, loadMigrationPairs, ensureMigrationsTable, getAppliedMigrations };

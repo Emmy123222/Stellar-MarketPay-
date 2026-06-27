@@ -21,6 +21,13 @@ import {
   fetchMyInvitations,
   declineInvitation,
   acceptInvitation,
+  bulkCancelJobs,
+  bulkExtendJobs,
+  bulkBoostJobs,
+  fetchSavedSearches,
+  updateSavedSearch,
+  deleteSavedSearch,
+  type SavedSearch,
 } from "@/lib/api";
 import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV } from "@/utils/format";
 import type { Job, Application, ClientSpendingAnalytics, JobInvitation } from "@/utils/types";
@@ -32,17 +39,38 @@ import WithdrawToBankModal, {
   type WithdrawHistoryEntry,
 } from "@/components/WithdrawToBankModal";
 import { useToast } from "@/components/Toast";
+import StateMessage from "@/components/StateMessage";
 import clsx from "clsx";
-import JobAnalytics from "@/components/JobAnalytics";
+import dynamic from "next/dynamic";
+import JobTimeline from "@/components/JobTimeline";
 import BulkJobActionBar from "@/components/BulkJobActionBar";
+import JobStatusTimeline from "@/components/JobStatusTimeline";
 import ExtendJobModal from "@/components/ExtendJobModal";
 import ClientSpendingTab from "@/components/ClientSpendingTab";
+import EarningsChart from "@/components/EarningsChart";
+import PostedJobsTab from "@/components/dashboard-tabs/PostedJobsTab";
+import AppliedJobsTab from "@/components/dashboard-tabs/AppliedJobsTab";
+import InvitationsTab from "@/components/dashboard-tabs/InvitationsTab";
 import { usePriceContext } from "@/contexts/PriceContext";
 import ProfileCompletenessWidget from "@/components/ProfileCompletenessWidget";
 import { useOnboarding } from "@/hooks/useOnboarding";
-import ReferralDashboard from "@/components/ReferralDashboard";
+import XlmPriceWidget from "@/components/XlmPriceWidget";
+
+// Dynamic imports for heavy components
+const JobAnalytics = dynamic(() => import("@/components/JobAnalytics"), {
+  loading: () => <div className="animate-pulse bg-market-900/30 h-64 rounded-xl" />,
+  ssr: false,
+});
+
+const ReferralDashboard = dynamic(() => import("@/components/ReferralDashboard"), {
+  loading: () => <div className="animate-pulse bg-market-900/30 h-64 rounded-xl" />,
+  ssr: false,
+});
 
 const LOW_BALANCE_THRESHOLD_XLM = 5;
+const IS_CONTRACT_MOCK_DEV_MODE =
+  process.env.NODE_ENV !== "production" &&
+  process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
 const CATEGORY_ICONS: Record<string, string> = {
   web: "Web",
   mobile: "Mobile",
@@ -56,7 +84,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "invitations" | "analytics" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals";
+type Tab = "posted" | "applied" | "invitations" | "analytics" | "earnings" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 async function fetchBalances(
@@ -117,6 +145,18 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const { success } = useToast();
   const { xlmPriceUsd } = usePriceContext();
   const { progress, checklistItems } = useOnboarding(publicKey);
+
+  // ── Saved searches state (Issue #284) ──────────────────────────────────────
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+  const [savedSearchesLoading, setSavedSearchesLoading] = useState(false);
+
+  const handleResetContractMock = async () => {
+    if (!IS_CONTRACT_MOCK_DEV_MODE) return;
+
+    const { clearMockData } = await import("@/lib/contractMock");
+    clearMockData();
+    success("Mock contract data reset");
+  };
 
   // ── Bulk selection state ──────────────────────────────────────────────────
   const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
@@ -314,6 +354,15 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   }, [publicKey]);
 
   useEffect(() => {
+    if (!publicKey) return;
+    setSavedSearchesLoading(true);
+    fetchSavedSearches()
+      .then(setSavedSearches)
+      .catch(() => {})
+      .finally(() => setSavedSearchesLoading(false));
+  }, [publicKey]);
+
+  useEffect(() => {
     if (tab === "spending" && !canViewSpending) setTab("posted");
   }, [tab, canViewSpending]);
 
@@ -368,49 +417,71 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           </Link>
         </div>
 
-        <div className="card mb-4 bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18">
-          <p className="label mb-2">XLM Balance</p>
-          {balance !== null ? (
-            <p className="font-display text-4xl font-bold text-amber-100">
-              {parseFloat(balance).toLocaleString("en-US", {
-                maximumFractionDigits: 4,
-              })}
-              <span className="text-market-400 text-2xl ml-2">XLM</span>
-            </p>
-          ) : (
-            <div className="h-10 w-48 bg-market-500/8 rounded-xl animate-pulse" />
-          )}
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              onClick={() => setShowBuyXLM(true)}
-              className={
-                parseFloat(balance || "0") < LOW_BALANCE_THRESHOLD_XLM
-                  ? "btn-primary text-xs py-1.5 px-3"
-                  : "btn-secondary text-xs py-1.5 px-3"
-              }
-            >
-              Buy XLM
-            </button>
-            <button
-              onClick={() => setShowWithdraw(true)}
-              className="btn-secondary text-xs py-1.5 px-3"
-            >
-              Withdraw to Bank
-            </button>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+          <div className="lg:col-span-2 space-y-4">
+            <div className="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18">
+              <p className="label mb-2">XLM Balance</p>
+              {balance !== null ? (
+                <p className="font-display text-4xl font-bold text-amber-100">
+                  {parseFloat(balance).toLocaleString("en-US", {
+                    maximumFractionDigits: 4,
+                  })}
+                  <span className="text-market-400 text-2xl ml-2">XLM</span>
+                </p>
+              ) : (
+                <div className="h-10 w-48 bg-market-500/8 rounded-xl animate-pulse" />
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={() => setShowBuyXLM(true)}
+                  className={
+                    parseFloat(balance || "0") < LOW_BALANCE_THRESHOLD_XLM
+                      ? "btn-primary text-xs py-1.5 px-3"
+                      : "btn-secondary text-xs py-1.5 px-3"
+                  }
+                >
+                  Buy XLM
+                </button>
+                <button
+                  onClick={() => setShowWithdraw(true)}
+                  className="btn-secondary text-xs py-1.5 px-3"
+                >
+                  Withdraw to Bank
+                </button>
+                {IS_CONTRACT_MOCK_DEV_MODE && (
+                  <button
+                    onClick={handleResetContractMock}
+                    className="btn-secondary text-xs py-1.5 px-3 border-red-400/30 text-red-300 hover:bg-red-400/10"
+                    title="Mock-only: clears locally persisted escrow test data"
+                  >
+                    Reset Mock
+                  </button>
+                )}
+              </div>
+              {IS_CONTRACT_MOCK_DEV_MODE && (
+                <p className="mt-2 text-xs text-amber-700">
+                  Mock-only contract escrow state is persisted in this browser for
+                  local development and can be cleared with Reset Mock.
+                </p>
+              )}
+            </div>
+
+            {usdcBalance !== null && (
+              <div className="card bg-gradient-to-br from-ink-800 to-ink-900 border-blue-500/18">
+                <p className="label mb-2">USDC Balance</p>
+                <p className="font-display text-4xl font-bold text-amber-100">
+                  {parseFloat(usdcBalance).toLocaleString("en-US", {
+                    maximumFractionDigits: 4,
+                  })}
+                  <span className="text-blue-400 text-2xl ml-2">USDC</span>
+                </p>
+              </div>
+            )}
+          </div>
+          <div className="lg:col-span-1">
+            <XlmPriceWidget />
           </div>
         </div>
-
-        {usdcBalance !== null && (
-          <div className="card mb-8 bg-gradient-to-br from-ink-800 to-ink-900 border-blue-500/18">
-            <p className="label mb-2">USDC Balance</p>
-            <p className="font-display text-4xl font-bold text-amber-100">
-              {parseFloat(usdcBalance).toLocaleString("en-US", {
-                maximumFractionDigits: 4,
-              })}
-              <span className="text-blue-400 text-2xl ml-2">USDC</span>
-            </p>
-          </div>
-        )}
 
         {/* Profile completeness widget */}
         {!progress.isComplete && (
@@ -494,12 +565,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             "applied",
             "invitations",
             "analytics",
+            "earnings",
             ...(canViewSpending ? (["spending"] as Tab[]) : []),
             "send",
             "edit_profile",
             "templates",
             "price_alerts",
             "withdrawals",
+            "saved_searches",
           ] as Tab[]
         ).map((t) => (
           <button key={t} onClick={() => setTab(t)} className={clsx("px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap", tab === t ? "border-market-400 text-market-300" : "border-transparent text-amber-700 hover:text-amber-400")}>
@@ -507,148 +580,48 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
              t === "applied" ? `Applications (${myApplications.length})` :
              t === "invitations" ? `Invitations${myInvitations.length > 0 ? ` (${myInvitations.length})` : ""}` :
              t === "analytics" ? "Job Analytics" :
+             t === "earnings" ? "Earnings" :
              t === "spending" ? "Spending" :
-             t === "send" ? "Send Payment" :
-             t === "templates" ? "Proposal Templates" :
+             t === "send" ? "Send" :
+             t === "templates" ? "Templates" :
              t === "price_alerts" ? "Price Alerts" :
              t === "withdrawals" ? `Withdrawals (${withdrawHistory.length})` :
+             t === "saved_searches" ? `Saved Searches${savedSearches.length > 0 ? ` (${savedSearches.length})` : ""}` :
              "Edit Profile"}
           </button>
         ))}
       </div>
 
         {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="card animate-pulse h-20" />
-            ))}
+          <div className="space-y-6 animate-pulse">
+            {/* Balance cards skeleton */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="card h-24" />
+              <div className="card h-24" />
+              <div className="card h-24" />
+            </div>
+
+            {/* Tab content skeleton */}
+            <div className="card space-y-4">
+              <div className="h-6 w-32 bg-market-500/10 rounded" />
+              <div className="space-y-3">
+                <div className="h-16 bg-market-500/8 rounded" />
+                <div className="h-16 bg-market-500/8 rounded" />
+                <div className="h-16 bg-market-500/8 rounded" />
+              </div>
+            </div>
           </div>
         ) : tab === "posted" ? (
-          myJobs.length === 0 ? (
-            <StateMessage
-              type="empty"
-              title="You haven't posted any jobs yet"
-              description="Post your first job and find a great freelancer"
-              ctaLabel="Post a Job"
-              onCta={() => router.push('/post-job')}
-            />
-          ) : (
-            <div className="space-y-3">
-              <div className="flex justify-end mb-2">
-                <button
-                  onClick={() => exportJobsToCSV(myJobs)}
-                  className="btn-secondary text-xs px-3 py-1.5"
-                >
-                  Download CSV
-                </button>
-              </div>
-              {myJobs.map((job) => (
-                <div
-                  key={job.id}
-                  className="card-hover flex items-center justify-between gap-4"
-                >
-                  <Link
-                    href={`/jobs/${job.id}`}
-                    className="flex-1 min-w-0 block"
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={statusClass(job.status)}>
-                        {statusLabel(job.status)}
-                      </span>
-                      <span className="text-xs text-amber-800">
-                        {job.category}
-                      </span>
-                    </div>
-                    <p className="font-display font-semibold text-amber-100 truncate">
-                      {job.title}
-                    </p>
-                    <p className="text-xs text-amber-800 mt-1">
-                      {job.applicantCount} applicant
-                      {job.applicantCount !== 1 ? "s" : ""} ·{" "}
-                      {timeAgo(job.createdAt)}
-                    </p>
-                  </Link>
-                  <div className="text-right flex-shrink-0">
-                    <p className="font-mono font-semibold text-market-400">
-                      {formatXLM(job.budget)}
-                    </p>
-                    <div className="flex gap-1 mt-1 justify-end">
-                      {job.status === "open" && job.expiresAt && (
-                        (() => {
-                          const daysUntilExpiry = Math.ceil(
-                            (new Date(job.expiresAt).getTime() - Date.now()) /
-                              (1000 * 60 * 60 * 24),
-                          );
-                          if (daysUntilExpiry <= 3) {
-                            return (
-                              <button
-                                className="btn-secondary text-xs px-2 py-1"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  handleExtendJob(job.id);
-                                }}
-                              >
-                                Extend
-                              </button>
-                            );
-                          }
-                          return null;
-                        })()
-                      )}
-                      {isRepostable(job.status) && (
-                        <button
-                          className="btn-secondary text-xs px-3 py-1.5"
-                          onClick={() => handleRepost(job)}
-                        >
-                          Repost Job
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )
+          <PostedJobsTab
+            myJobs={myJobs}
+            onExtendJob={handleExtendJob}
+            onRepost={handleRepost}
+            extendModalJob={extendModalJob}
+            onJobExtended={handleJobExtended}
+            onCloseExtendModal={() => setExtendModalJob(null)}
+          />
         ) : tab === "applied" ? (
-          myApplications.length === 0 ? (
-            <StateMessage
-              type="empty"
-              title="You haven't applied to any jobs yet"
-              description="Browse open jobs and submit your first proposal"
-              ctaLabel="Browse Jobs"
-              onCta={() => router.push('/jobs')}
-            />
-          ) : (
-            <div className="space-y-3">
-              <div className="flex justify-end mb-2">
-                <button
-                  onClick={() => exportApplicationsToCSV(myApplications)}
-                  className="btn-secondary text-xs px-3 py-1.5"
-                >
-                  Download CSV
-                </button>
-              </div>
-              {myApplications.map((app) => (
-                <Link
-                  key={app.id}
-                  href={`/jobs/${app.jobId}`}
-                  className="card-hover flex items-center justify-between gap-4"
-                >
-                  <div className="flex-1">
-                    <p className="text-amber-700 text-sm line-clamp-1">
-                      {app.proposal}
-                    </p>
-                    <p className="text-xs text-amber-800 mt-1">
-                      {timeAgo(app.createdAt)}
-                    </p>
-                  </div>
-                  <p className="font-mono font-semibold text-market-400">
-                    {formatXLM(app.bidAmount)}
-                  </p>
-                </Link>
-              ))}
-            </div>
-          )
+          <AppliedJobsTab myApplications={myApplications} />
         ) : tab === "analytics" ? (
           selectedJob ? (
             <JobAnalytics
@@ -669,6 +642,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
               ))}
             </div>
           )
+        ) : tab === "earnings" ? (
+          <EarningsChart publicKey={publicKey} />
         ) : tab === "spending" ? (
           <ClientSpendingTab
             analytics={spendingAnalytics}
@@ -766,95 +741,21 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                     {template.content}
                   </p>
                 </div>
-                <p className="font-mono font-semibold text-market-400">{formatXLM(app.bidAmount)}</p>
-              </Link>
-            ))}
+              )))}
           </div>
-        )
-      ) : tab === "invitations" ? (
-        myInvitations.length === 0 ? (
-          <div className="card text-center py-16">
-            <p className="font-display text-xl text-amber-100 mb-2">No invitations yet</p>
-            <p className="text-amber-800 text-sm">When a client invites you to apply to their job, it will appear here.</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {myInvitations.map((inv) => (
-              <div key={inv.id} className="card space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <Link href={`/jobs/${inv.jobId}`} className="font-display font-semibold text-amber-100 hover:text-market-300 transition-colors truncate block">
-                      {inv.jobTitle}
-                    </Link>
-                    <p className="text-xs text-amber-700 mt-0.5">
-                      From: {inv.clientName || inv.clientAddress.slice(0, 12) + "…"} · {timeAgo(inv.createdAt)}
-                    </p>
-                  </div>
-                  <span className="font-mono text-market-400 font-semibold text-sm flex-shrink-0">
-                    {formatXLM(inv.jobBudget)} {inv.jobCurrency}
-                  </span>
-                </div>
-                <p className="text-xs text-amber-700 bg-ink-800 rounded-lg px-3 py-2 border border-market-500/10">
-                  Hi! {inv.clientName || "A client"} has invited you to apply to their job: &ldquo;{inv.jobTitle}&rdquo; — {inv.jobBudget} {inv.jobCurrency}.{" "}
-                  <Link href={`/jobs/${inv.jobId}`} className="text-market-400 hover:underline">View Job</Link>
-                </p>
-                <div className="flex gap-2">
-                  <Link
-                    href={`/jobs/${inv.jobId}`}
-                    className="flex-1 btn-primary text-xs py-2 text-center"
-                  >
-                    View &amp; Apply
-                  </Link>
-                  <button
-                    onClick={async () => {
-                      try {
-                        await declineInvitation(inv.id);
-                        setMyInvitations((prev) => prev.filter((i) => i.id !== inv.id));
-                        success("Invitation declined.");
-                      } catch {
-                        // ignore
-                      }
-                    }}
-                    className="flex-1 btn-secondary text-xs py-2"
-                  >
-                    Decline
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )
-      ) : tab === "analytics" ? (
-        selectedJob ? <JobAnalytics job={selectedJob} onExtend={() => handleExtendJob(selectedJob.id)} /> : (
-          <div className="space-y-3">
-            {myJobs.map((job) => (
-              <button key={job.id} onClick={() => setSelectedJob(job)} className="btn-secondary text-sm px-3 py-2 mr-2 mb-2">{job.title}{extendingJob === job.id ? " (Extending...)" : ""}</button>
-            ))}
-          </div>
-        )
-      ) : tab === "spending" ? (
-        <ClientSpendingTab analytics={spendingAnalytics} loading={spendingLoading} xlmPriceUsd={xlmPriceUsd} />
-      ) : tab === "send" ? (
-        <SendPaymentForm fromPublicKey={publicKey} />
-      ) : tab === "templates" ? (
-        <div className="space-y-4">
-          <div className="card space-y-3">
-            <input value={templateName} onChange={(e) => setTemplateName(e.target.value)} className="input-field" placeholder="Template name" />
-            <textarea value={templateContent} onChange={(e) => setTemplateContent(e.target.value)} className="textarea-field" rows={5} placeholder="Template proposal content" />
-            <button className="btn-primary text-sm" onClick={async () => {
-              if (!templateName.trim() || !templateContent.trim()) return;
-              if (editingTemplateId) {
-                const updated = await updateProposalTemplate(editingTemplateId, { name: templateName, content: templateContent });
-                setTemplates((current) => current.map((item) => item.id === updated.id ? updated : item));
-                setEditingTemplateId(null);
-              } else {
-                const created = await createProposalTemplate({ name: templateName, content: templateContent });
-                setTemplates((current) => [created, ...current]);
+        ) : tab === "invitations" ? (
+          <InvitationsTab
+            myInvitations={myInvitations}
+            onDecline={async (id) => {
+              try {
+                await declineInvitation(id);
+                setMyInvitations((prev) => prev.filter((i) => i.id !== id));
+                success("Invitation declined.");
+              } catch {
+                // ignore
               }
-              setTemplateName("");
-              setTemplateContent("");
-            }}>{editingTemplateId ? "Update Template" : "Create Template"}</button>
-          </div>
+            }}
+          />
         ) : tab === "price_alerts" ? (
           (!minPrice && !maxPrice && !emailEnabled) ? (
             <StateMessage
@@ -930,6 +831,87 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                   <p className="font-display font-semibold text-amber-100">
                     {entry.amount} {entry.asset} → {entry.fiatCurrency}
                   </p>
+                </div>
+              ))}
+            </div>
+          )
+        ) : tab === "saved_searches" ? (
+          savedSearchesLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="card animate-pulse h-20" />
+              ))}
+            </div>
+          ) : savedSearches.length === 0 ? (
+            <StateMessage
+              type="empty"
+              title="No saved searches"
+              description="Save a search on the Jobs page to get notified when matching jobs are posted"
+              ctaLabel="Browse Jobs"
+              onCta={() => router.push("/jobs")}
+            />
+          ) : (
+            <div className="space-y-3">
+              {savedSearches.map((s) => (
+                <div key={s.id} className="card flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {Object.entries(s.query_params).map(([key, val]) => (
+                        <span
+                          key={key}
+                          className="text-xs bg-market-500/10 text-market-400 border border-market-500/20 px-2 py-0.5 rounded-md"
+                        >
+                          {key}: {val}
+                        </span>
+                      ))}
+                      {Object.keys(s.query_params).length === 0 && (
+                        <span className="text-xs text-amber-700">All jobs</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-amber-800">
+                      Saved {new Date(s.created_at).toLocaleDateString()} ·
+                      In-app: {s.notify_in_app ? "\u2713" : "\u2715"} ·
+                      Email: {s.notify_email ? "\u2713" : "\u2715"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={async () => {
+                        try {
+                          const updated = await updateSavedSearch(s.id, {
+                            notify_in_app: !s.notify_in_app,
+                          });
+                          setSavedSearches((prev) =>
+                            prev.map((x) => (x.id === updated.id ? updated : x))
+                          );
+                          success("Notification preference updated");
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      className={`text-xs px-3 py-2 rounded-lg border min-h-[44px] transition-colors ${
+                        s.notify_in_app
+                          ? "bg-market-500/15 text-market-300 border-market-500/30"
+                          : "bg-ink-800 text-amber-700 border-market-500/10"
+                      }`}
+                    >
+                      In-app
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await deleteSavedSearch(s.id);
+                          setSavedSearches((prev) => prev.filter((x) => x.id !== s.id));
+                          success("Saved search removed");
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      className="text-xs px-3 py-2 rounded-lg border border-red-500/20 text-red-400 hover:bg-red-500/10 min-h-[44px] transition-colors"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

@@ -1,6 +1,6 @@
 /**
  * pages/admin.tsx
- * Admin moderation dashboard — gated to admin wallet addresses only.
+ * Admin moderation dashboard gated by the server-issued admin JWT role.
  * Non-admin wallets are immediately redirected to /jobs.
  */
 import { useEffect, useState, useCallback } from "react";
@@ -15,22 +15,47 @@ import {
   adminCancelJob,
   freezeWallet,
   unfreezeWallet,
+  fetchAdmin2FAStatus,
+  fetchCostReport,
+  generateCostReport,
+  fetchTimeSeriesMetrics,
+  getJwtToken,
 } from "@/lib/api";
 import { shortenAddress, timeAgo } from "@/utils/format";
-import AdminAnalytics from "@/components/AdminAnalytics";
+import dynamic from "next/dynamic";
 import Admin2FAModal from "@/components/Admin2FAModal";
-import { fetchAdmin2FAStatus } from "@/lib/api";
 
-// Wallet addresses with admin access — can also be overridden by env var
-const ADMIN_ADDRESSES = (
-  process.env.NEXT_PUBLIC_ADMIN_ADDRESSES || ""
-).split(",").map((a) => a.trim()).filter(Boolean);
+// Dynamic import for heavy AdminAnalytics component
+const AdminAnalytics = dynamic(() => import("@/components/AdminAnalytics"), {
+  loading: () => <div className="animate-pulse bg-market-900/30 h-64 rounded-xl" />,
+  ssr: false,
+});
 
 interface AdminPageProps {
   publicKey: string | null;
 }
 
-type ActiveTab = "analytics" | "disputes" | "reports" | "wallets" | "logs";
+type ActiveTab = "analytics" | "disputes" | "reports" | "wallets" | "logs" | "cost" | "metrics";
+type AdminState = "checking" | "authorized" | "denied";
+
+function getJwtRole() {
+  if (typeof window === "undefined") return null;
+
+  const token = getJwtToken();
+  if (!token) return null;
+
+  try {
+    const encodedPayload = token.split(".")[1] || "";
+    const base64Payload = encodedPayload
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(encodedPayload.length / 4) * 4, "=");
+    const payload = JSON.parse(window.atob(base64Payload));
+    return typeof payload.role === "string" ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
 
 function Badge({ label, color }: { label: string; color: "red" | "amber" | "emerald" | "blue" | "gray" }) {
   const colorMap = {
@@ -90,6 +115,14 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Cost report & time-series state
+  const [costReport, setCostReport] = useState<any>(null);
+  const [costLoading, setCostLoading] = useState(false);
+  const [timeSeriesData, setTimeSeriesData] = useState<any[]>([]);
+  const [tsMetric, setTsMetric] = useState("total_jobs");
+  const [tsGranularity, setTsGranularity] = useState("day");
+  const [tsLoading, setTsLoading] = useState(false);
+
   // Per-row modal state
   const [resolveModal, setResolveModal] = useState<{ jobId: string; title: string } | null>(null);
   const [resolveNote, setResolveNote] = useState("");
@@ -102,15 +135,41 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
   const [freezeReason, setFreezeReason] = useState("");
 
   const [twoFaState, setTwoFaState] = useState<"loading" | "setup" | "verify" | "ready">("loading");
+  const [adminState, setAdminState] = useState<AdminState>("checking");
 
-  const isAdmin = Boolean(publicKey && ADMIN_ADDRESSES.includes(publicKey));
+  const isAdmin = adminState === "authorized";
 
   useEffect(() => {
-    if (!publicKey) return;
-    if (!isAdmin) {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+
+    function verifyAdminToken() {
+      if (!publicKey) {
+        setAdminState("checking");
+        return;
+      }
+
+      if (getJwtRole() === "admin") {
+        setAdminState("authorized");
+        return;
+      }
+
+      if (!getJwtToken() && attempts < 20) {
+        attempts += 1;
+        timeout = setTimeout(verifyAdminToken, 250);
+        return;
+      }
+
+      setAdminState("denied");
       router.replace("/jobs");
     }
-  }, [publicKey, isAdmin, router]);
+
+    verifyAdminToken();
+
+    return () => {
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [publicKey, router]);
 
   useEffect(() => {
     if (!isAdmin || !publicKey) return;
@@ -219,10 +278,18 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
     );
   }
 
-  if (!isAdmin) {
+  if (adminState === "checking") {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-red-400">Access denied. Admin wallets only.</p>
+        <p className="text-amber-800">Verifying admin session...</p>
+      </div>
+    );
+  }
+
+  if (adminState === "denied") {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-red-400">Access denied. Admin role required.</p>
       </div>
     );
   }
@@ -255,6 +322,8 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
     { id: "reports",  label: "Flagged Jobs",  count: reports.length },
     { id: "wallets",  label: "Frozen Wallets", count: frozenWallets.length },
     { id: "logs",     label: "Audit Log",      count: logs.length },
+    { id: "cost",     label: "Cost Report" },
+    { id: "metrics",  label: "Time-Series" },
   ];
 
   return (
@@ -526,6 +595,157 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                       </tbody>
                     </table>
                   </div>
+                )}
+              </Section>
+            )}
+
+            {/* ── Cost Report Tab ──────────────────────────────────────────── */}
+            {activeTab === "cost" && (
+              <Section title="Infrastructure Cost Report">
+                <div className="mb-4 flex gap-3">
+                  <button
+                    onClick={async () => {
+                      setCostLoading(true);
+                      try {
+                        const data = await fetchCostReport();
+                        setCostReport(data);
+                      } catch { }
+                      setCostLoading(false);
+                    }}
+                    className="btn-primary text-sm py-2 px-5"
+                  >
+                    {costLoading ? "Loading..." : "Load Cost Report"}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await generateCostReport();
+                      alert("Cost report generation triggered. Check audit log.");
+                    }}
+                    className="btn-ghost text-sm py-2 px-5"
+                  >
+                    Generate Report
+                  </button>
+                </div>
+                {costReport && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                        <p className="text-xs text-amber-800 uppercase tracking-wider">Estimated Monthly</p>
+                        <p className="text-2xl font-bold text-amber-400">
+                          ${costReport.totalEstimatedMonthlyCost.toFixed(2)}
+                        </p>
+                        <p className="text-xs text-amber-800">Threshold: ${costReport.monthlySpendThresholdUsd}</p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                        <p className="text-xs text-amber-800 uppercase tracking-wider">Top Cost Driver</p>
+                        <p className="text-lg font-bold text-blue-400">{costReport.topCostDrivers[0]?.resource}</p>
+                        <p className="text-xs text-amber-800">${costReport.topCostDrivers[0]?.monthlyEstimateUsd}/mo</p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
+                        <p className="text-xs text-amber-800 uppercase tracking-wider">Resources Tagged</p>
+                        <p className="text-lg font-bold text-green-400">{costReport.resourceTagging.project}</p>
+                        <p className="text-xs text-amber-800">{costReport.resourceTagging.untaggedResourcesFound} untagged</p>
+                      </div>
+                    </div>
+                    <div className="bg-market-800 p-4 rounded-lg">
+                      <h4 className="font-medium text-amber-100 mb-3">Top Cost Drivers</h4>
+                      <div className="space-y-2">
+                        {costReport.topCostDrivers.map((driver: any, i: number) => (
+                          <div key={i} className="flex items-center justify-between p-3 bg-market-700 rounded">
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-amber-100">{driver.resource}</p>
+                              <p className="text-xs text-amber-800">{driver.recommendation}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-bold text-amber-400">${driver.monthlyEstimateUsd.toFixed(2)}</p>
+                              <p className="text-xs text-amber-800">{driver.percentage}%</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="bg-market-800 p-4 rounded-lg">
+                      <h4 className="font-medium text-amber-100 mb-3">Right-Sizing Recommendations</h4>
+                      <div className="space-y-2">
+                        {costReport.rightSizingRecommendations.map((rec: any, i: number) => (
+                          <div key={i} className="p-3 bg-market-700 rounded">
+                            <p className="text-sm font-medium text-amber-100">{rec.resource}</p>
+                            <p className="text-xs text-amber-800">{rec.current} → {rec.recommended}</p>
+                            <p className="text-xs text-green-400">Save {rec.estimatedSavings} — {rec.rationale}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Section>
+            )}
+
+            {/* ── Time-Series Metrics Tab ──────────────────────────────────────── */}
+            {activeTab === "metrics" && (
+              <Section title="Time-Series Platform Metrics">
+                <div className="flex flex-wrap gap-3 mb-4">
+                  <select
+                    value={tsMetric}
+                    onChange={(e) => setTsMetric(e.target.value)}
+                    className="bg-market-800 border border-market-600 rounded-lg px-3 py-2 text-sm text-amber-100"
+                  >
+                    <option value="total_jobs">Total Jobs</option>
+                    <option value="total_escrow_volume_xlm">Escrow Volume (XLM)</option>
+                    <option value="active_users">Active Users</option>
+                    <option value="dispute_rate">Dispute Rate</option>
+                  </select>
+                  <select
+                    value={tsGranularity}
+                    onChange={(e) => setTsGranularity(e.target.value)}
+                    className="bg-market-800 border border-market-600 rounded-lg px-3 py-2 text-sm text-amber-100"
+                  >
+                    <option value="hour">Hourly</option>
+                    <option value="day">Daily</option>
+                  </select>
+                  <button
+                    onClick={async () => {
+                      setTsLoading(true);
+                      try {
+                        const data = await fetchTimeSeriesMetrics({
+                          metric: tsMetric,
+                          granularity: tsGranularity,
+                        });
+                        setTimeSeriesData(data);
+                      } catch { }
+                      setTsLoading(false);
+                    }}
+                    className="btn-primary text-sm py-2 px-5"
+                  >
+                    {tsLoading ? "Loading..." : "Load Metrics"}
+                  </button>
+                </div>
+                {timeSeriesData.length > 0 && (
+                  <div className="overflow-x-auto rounded-xl border border-market-500/10">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-market-500/10 text-xs text-amber-800 uppercase tracking-wider">
+                          <th className="text-left px-4 py-3">Metric</th>
+                          <th className="text-left px-4 py-3">Value</th>
+                          <th className="text-left px-4 py-3">Granularity</th>
+                          <th className="text-left px-4 py-3">Bucket</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-market-500/8">
+                        {timeSeriesData.map((row: any, i: number) => (
+                          <tr key={i} className="hover:bg-market-500/5 transition-colors">
+                            <td className="px-4 py-3 text-amber-100 font-mono text-xs">{row.metric_name}</td>
+                            <td className="px-4 py-3 text-amber-800 font-mono text-xs">{Number(row.value).toFixed(4)}</td>
+                            <td className="px-4 py-3 text-amber-800 text-xs">{row.granularity}</td>
+                            <td className="px-4 py-3 text-amber-900 text-xs whitespace-nowrap">{row.bucket}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {timeSeriesData.length === 0 && !tsLoading && (
+                  <EmptyState message="No metrics data yet. Data is collected hourly." />
                 )}
               </Section>
             )}

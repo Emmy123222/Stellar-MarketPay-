@@ -6,6 +6,7 @@ const express = require("express");
 const router = express.Router();
 const { createRateLimiter } = require("../middleware/rateLimiter");
 const statsService = require("../services/statsService");
+const { getXlmUsd7dHistory, PRICE_HISTORY_TTL_SECONDS } = require("../services/xlmPriceService");
 
 const statsRateLimiter = createRateLimiter(30, 1); // 30 requests per minute
 
@@ -42,6 +43,17 @@ router.get("/categories", statsRateLimiter, async (req, res, next) => {
     const categories = await statsService.getTopCategories(limit);
     res.json({ success: true, data: categories });
   } catch (e) { next(e); }
+});
+
+// GET /api/stats/xlm-price-history — 7-day XLM/USD history for dashboard widget
+router.get("/xlm-price-history", statsRateLimiter, async (req, res, next) => {
+  try {
+    const data = await getXlmUsd7dHistory();
+    res.set("Cache-Control", `public, max-age=${PRICE_HISTORY_TTL_SECONDS}`);
+    res.json({ success: true, data });
+  } catch (e) {
+    next(e);
+  }
 });
 
 module.exports = router;
