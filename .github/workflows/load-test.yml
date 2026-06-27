@@ -1,0 +1,177 @@
+# .github/workflows/load-test.yml
+#
+# Weekly k6 load test for the Stellar MarketPay API.
+#
+# What it does
+#   1. Brings up a production-like stack (Postgres + Redis + backend) via
+#      docker-compose.loadtest.yml.
+#   2. Seeds deterministic test data (jobs + freelancer profiles).
+#   3. Runs the three k6 scripts against the live API and enforces the SLA:
+#        • p(95) < 200 ms at 100 VUs
+#        • 0 % error rate at 50 VUs
+#   4. Compares the results to the previous run and emits a trend report.
+#   5. Uploads the results + logs as CI artifacts (retained 90 days).
+#
+# Triggers
+#   • Weekly schedule (Monday 03:00 UTC)
+#   • Manual (workflow_dispatch)
+#   • On pushes to main that touch the load-test stack
+#
+# Must match the JWT_SECRET in docker-compose.loadtest.yml so the seed
+# script's signed token is accepted by the backend.
+
+name: Load Test (k6)
+
+on:
+  schedule:
+    # Every Monday at 03:00 UTC
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      k6_tag:
+        description: "grafana/k6 image tag to use"
+        required: false
+        default: "latest"
+  push:
+    branches: [main]
+    paths:
+      - "k6/**"
+      - "docker-compose.loadtest.yml"
+      - ".github/workflows/load-test.yml"
+
+# Avoid overlapping scheduled runs clobbering the shared "previous run" artifact.
+concurrency:
+  group: load-test
+  cancel-in-progress: false
+
+env:
+  K6_BASE_URL: http://localhost:4000
+  JWT_SECRET: loadtest-jwt-secret-with-sufficient-length-for-signing
+  K6_IMAGE: grafana/k6:${{ github.event.inputs.k6_tag || 'latest' }}
+
+jobs:
+  load-test:
+    name: Run k6 load tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Prepare output directories
+        run: mkdir -p k6/results k6/logs k6/previous-results
+
+      # ── 1. Bring up the stack ──────────────────────────────────────────────
+      - name: Start load-test stack
+        run: |
+          docker compose -f docker-compose.loadtest.yml up -d --build
+          docker compose -f docker-compose.loadtest.yml ps
+
+      - name: Wait for backend to be reachable
+        run: |
+          echo "Polling ${K6_BASE_URL}/health …"
+          for i in $(seq 1 90); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" ${K6_BASE_URL}/health || echo 000)
+            echo "attempt $i → HTTP $CODE"
+            if [ "$CODE" = "200" ] || [ "$CODE" = "503" ]; then
+              echo "Backend is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Backend did not become reachable in time."
+          docker compose -f docker-compose.loadtest.yml logs backend
+          exit 1
+
+      # ── 2. Seed deterministic test data ────────────────────────────────────
+      - name: Seed test data
+        run: |
+          node k6/seed-data.js
+          echo "::group::test-fixtures.json"
+          cat k6/test-fixtures.json | head -c 800
+          echo
+          echo "::endgroup::"
+
+      # ── 3. Fetch the previous run for trend comparison ─────────────────────
+      - name: Download previous results
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: load-test-results
+          path: k6/previous-results
+
+      # ── 4. Run the k6 scripts ──────────────────────────────────────────────
+      - name: Run k6 scripts
+        id: k6
+        continue-on-error: true
+        run: |
+          set +e
+          mkdir -p k6/results k6/logs
+          : > k6/.k6-status
+          for SCRIPT in get-jobs get-profiles post-applications; do
+            echo "::group::k6 → ${SCRIPT}"
+            docker run --rm --network host \
+              -v "$PWD/k6":/work -w /work \
+              -e K6_BASE_URL=${K6_BASE_URL} \
+              -e K6_ENV=ci \
+              -e K6_RUN_ID=${{ github.run_id }} \
+              ${K6_IMAGE} run ${SCRIPT}.js 2>&1 | tee k6/logs/${SCRIPT}.log
+            CODE=${PIPESTATUS[0]}
+            echo "${SCRIPT}=${CODE}" >> k6/.k6-status
+            echo "::endgroup::"
+          done
+          cat k6/.k6-status
+
+      # ── 5. Trend report (current vs. previous) ─────────────────────────────
+      - name: Generate trend report
+        id: trend
+        continue-on-error: true
+        run: |
+          node k6/lib/trend-report.js \
+            --current k6/results \
+            --previous k6/previous-results | tee k6/logs/trend-report.log
+
+      # ── 6. Publish artifacts + job summary ─────────────────────────────────
+      - name: Upload results & logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-results
+          path: |
+            k6/results/
+            k6/logs/
+          retention-days: 90
+
+      - name: Publish trend report to job summary
+        if: always()
+        run: |
+          if [ -f k6/results/trend-report.md ]; then
+            cat k6/results/trend-report.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # ── 7. Gate: fail the job if any script broke its SLA thresholds ───────
+      - name: Check SLA results
+        if: always()
+        run: |
+          FAIL=0
+          if [ ! -f k6/.k6-status ]; then
+            echo "No k6 status file found — treating as failure."
+            exit 1
+          fi
+          while IFS='=' read -r name code; do
+            if [ "$code" != "0" ]; then
+              echo "❌ $name failed its SLA (exit $code)"
+              FAIL=1
+            else
+              echo "✅ $name passed its SLA"
+            fi
+          done < k6/.k6-status
+          # Also surface the trend-report regression exit (code 2) if present.
+          if [ "${{ steps.trend.outcome }}" = "failure" ]; then
+            echo "⚠️ Trend report flagged a regression vs. the previous run."
+          fi
+          exit $FAIL

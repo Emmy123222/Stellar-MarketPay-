@@ -6,7 +6,17 @@
  */
 "use strict";
 
+const { MOCK_FREELANCERS, makeJob } = require("./__fixtures__/weeklyDigestFixtures");
+
 // ── Mock dependencies before requiring the module under test ──────────────────
+
+jest.mock("nodemailer", () => require("nodemailer-mock"));
+
+jest.mock("nodemailer-mock", () => ({
+  createTransport: jest.fn(() => ({
+    sendMail: jest.fn().mockResolvedValue({}),
+  })),
+}));
 
 jest.mock("../db/pool", () => ({
   query: jest.fn(),
@@ -32,6 +42,7 @@ jest.mock("../utils/logger", () => ({
 // ── Imports ───────────────────────────────────────────────────────────────────
 
 const pool = require("../db/pool");
+const nodemailerMock = require("nodemailer-mock");
 const { getRecommendations } = require("./recommendationService");
 const { isNotificationEnabled } = require("./notificationPreferencesService");
 const {
@@ -39,35 +50,6 @@ const {
   generateDigestEmail,
   getActiveFreelancers,
 } = require("./weeklyDigestService");
-
-// ── Fixtures ──────────────────────────────────────────────────────────────────
-
-const MOCK_FREELANCERS = [
-  {
-    public_key: "GFREELANCER1",
-    email: "freelancer1@example.com",
-    digest_unsubscribe_token: "token-aaa-111",
-  },
-  {
-    public_key: "GFREELANCER2",
-    email: "freelancer2@example.com",
-    digest_unsubscribe_token: "token-bbb-222",
-  },
-];
-
-function makeJob(overrides = {}) {
-  return {
-    id: "job-uuid-001",
-    title: "Rust Smart Contract Developer",
-    description: "We need an experienced Rust developer to build Soroban contracts.",
-    budget: 1500,
-    currency: "XLM",
-    category: "Blockchain",
-    match_score: 87.5,
-    created_at: new Date().toISOString(), // now = within 7 days
-    ...overrides,
-  };
-}
 
 // ── Tests: getActiveFreelancers ───────────────────────────────────────────────
 
@@ -131,6 +113,13 @@ describe("generateDigestEmail()", () => {
     expect(text).toContain(token);
   });
 
+  it("includes a user activity summary in the generated email", () => {
+    const { text, html } = generateDigestEmail(jobs, token, baseUrl, apiBaseUrl);
+    expect(text).toContain("Your weekly activity summary:");
+    expect(text).toContain("2 new job matches were found for your profile this week.");
+    expect(html).toContain("2 new job matches were found for your profile this week.");
+  });
+
   it("HTML contains budget in XLM", () => {
     const { html } = generateDigestEmail(jobs, token, baseUrl, apiBaseUrl);
     expect(html).toContain("1,500 XLM");
@@ -146,18 +135,32 @@ describe("generateDigestEmail()", () => {
 
 describe("sendWeeklyDigest()", () => {
   let sendEmailFn;
+  let mockTransport;
 
   beforeEach(() => {
     sendEmailFn = jest.fn().mockResolvedValue(undefined);
     jest.clearAllMocks();
 
+    mockTransport = {
+      sendMail: jest.fn().mockResolvedValue({}),
+    };
+    nodemailerMock.createTransport.mockReturnValue(mockTransport);
+
     process.env.FRONTEND_URL = "https://app.example.com";
     process.env.API_BASE_URL = "https://api.example.com";
+    process.env.SMTP_HOST = "smtp.example.com";
+    process.env.SMTP_USER = "mailer@example.com";
+    process.env.SMTP_PASS = "secret";
+    process.env.SMTP_FROM = "digest@example.com";
   });
 
   afterEach(() => {
     delete process.env.FRONTEND_URL;
     delete process.env.API_BASE_URL;
+    delete process.env.SMTP_HOST;
+    delete process.env.SMTP_USER;
+    delete process.env.SMTP_PASS;
+    delete process.env.SMTP_FROM;
   });
 
   it("sends to all active freelancers with matching recent jobs", async () => {
@@ -171,6 +174,17 @@ describe("sendWeeklyDigest()", () => {
     expect(stats.sent).toBe(2);
     expect(stats.skipped).toBe(0);
     expect(stats.failed).toBe(0);
+  });
+
+  it("uses the mocked SMTP transport to send digest emails", async () => {
+    pool.query.mockResolvedValueOnce({ rows: [MOCK_FREELANCERS[0]] });
+    isNotificationEnabled.mockResolvedValue(true);
+    getRecommendations.mockResolvedValue([makeJob()]);
+
+    const stats = await sendWeeklyDigest();
+
+    expect(mockTransport.sendMail).toHaveBeenCalledTimes(1);
+    expect(stats.sent).toBe(1);
   });
 
   it("skips freelancers who have opted out", async () => {
@@ -256,5 +270,32 @@ describe("sendWeeklyDigest()", () => {
     expect(stats.sent).toBe(0);
     expect(stats.skipped).toBe(0);
     expect(stats.failed).toBe(0);
+  });
+
+  it("uses a unique unsubscribe token for each user", async () => {
+    pool.query.mockResolvedValueOnce({ rows: MOCK_FREELANCERS });
+    isNotificationEnabled.mockResolvedValue(true);
+    getRecommendations.mockResolvedValue([makeJob()]);
+
+    await sendWeeklyDigest(sendEmailFn);
+
+    const firstCall = sendEmailFn.mock.calls[0][0];
+    const secondCall = sendEmailFn.mock.calls[1][0];
+
+    expect(firstCall.html).toContain(MOCK_FREELANCERS[0].digest_unsubscribe_token);
+    expect(secondCall.html).toContain(MOCK_FREELANCERS[1].digest_unsubscribe_token);
+    expect(firstCall.html).not.toContain(MOCK_FREELANCERS[1].digest_unsubscribe_token);
+  });
+
+  it("excludes unsubscribed users from the digest run", async () => {
+    pool.query.mockResolvedValueOnce({ rows: [MOCK_FREELANCERS[0]] });
+    isNotificationEnabled.mockResolvedValue(false);
+    getRecommendations.mockResolvedValue([makeJob()]);
+
+    const stats = await sendWeeklyDigest(sendEmailFn);
+
+    expect(sendEmailFn).not.toHaveBeenCalled();
+    expect(stats.skipped).toBe(1);
+    expect(stats.sent).toBe(0);
   });
 });

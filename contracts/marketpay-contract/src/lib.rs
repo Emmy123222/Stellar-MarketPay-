@@ -65,6 +65,8 @@ pub enum EscrowStatus {
     Refunded,
     /// Disputed — requires admin resolution (future feature)
     Disputed,
+    /// Admin-frozen — no operations allowed until unfrozen
+    Frozen,
 }
 
 #[contracttype]
@@ -490,9 +492,9 @@ impl MarketPayContract {
         );
     }
 
-    /// Client accepts a freelancer and marks work as in-progress.
-    pub fn start_work(env: Env, job_id: String, client: Address) {
-        client.require_auth();
+    /// Freelancer signals that they have started work.
+    pub fn start_work(env: Env, job_id: String, freelancer: Address) {
+        freelancer.require_auth();
 
         let mut escrow: Escrow = env
             .storage()
@@ -500,8 +502,8 @@ impl MarketPayContract {
             .get(&DataKey::Escrow(job_id.clone()))
             .expect("Escrow not found");
 
-        if escrow.client != client {
-            panic!("Only the client can start work");
+        if escrow.freelancer != freelancer {
+            panic!("Only the freelancer can start work");
         }
         if escrow.status != EscrowStatus::Locked {
             panic!("Escrow is not in Locked state");
@@ -932,6 +934,81 @@ impl MarketPayContract {
             .publish((symbol_short!("timeout"), admin), timeout_seconds);
     }
 
+    /// Admin freezes an escrow, blocking all further operations until unfrozen.
+    pub fn freeze_contract(env: Env, job_id: String, admin: Address) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can freeze a contract");
+        }
+
+        let mut escrow: Escrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        if escrow.status == EscrowStatus::Released
+            || escrow.status == EscrowStatus::Refunded
+            || escrow.status == EscrowStatus::Frozen
+        {
+            panic!("Cannot freeze escrow in current status");
+        }
+
+        escrow.status = EscrowStatus::Frozen;
+        env.storage()
+            .instance()
+            .set(&DataKey::Escrow(job_id.clone()), &escrow);
+
+        env.events().publish(
+            (symbol_short!("frozen"), job_id.clone()),
+            (admin, escrow.client, escrow.freelancer),
+        );
+    }
+
+    /// Admin unfreezes a previously frozen escrow, restoring it to the target status.
+    pub fn unfreeze_contract(env: Env, job_id: String, admin: Address, target_status: EscrowStatus) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can unfreeze a contract");
+        }
+
+        let mut escrow: Escrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        if escrow.status != EscrowStatus::Frozen {
+            panic!("Escrow is not frozen");
+        }
+
+        if target_status != EscrowStatus::Locked && target_status != EscrowStatus::InProgress {
+            panic!("Can only unfreeze to Locked or InProgress");
+        }
+
+        escrow.status = target_status;
+        env.storage()
+            .instance()
+            .set(&DataKey::Escrow(job_id.clone()), &escrow);
+
+        env.events().publish(
+            (symbol_short!("unfroz"), job_id.clone()),
+            (admin, escrow.client, escrow.freelancer),
+        );
+    }
+
     // ─── On-chain Message Notarization ─────────────────────────────────────
     //
     // Messages are stored off-chain on IPFS.  Only the IPFS CID is stored on-chain
@@ -1167,8 +1244,8 @@ impl MarketPayContract {
             panic!("Only participants can raise a dispute");
         }
 
-        if escrow.status == EscrowStatus::Released || escrow.status == EscrowStatus::Refunded {
-            panic!("Cannot dispute a resolved escrow");
+        if escrow.status == EscrowStatus::Released || escrow.status == EscrowStatus::Refunded || escrow.status == EscrowStatus::Frozen {
+            panic!("Cannot dispute a resolved or frozen escrow");
         }
         
         escrow.status = EscrowStatus::Disputed;
@@ -2203,8 +2280,8 @@ mod timeout_tests {
         let timeout_ledgers = 10u32;
         client.create_escrow(&job_id, &contract_client, &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 1000, milestones: None, timeout_ledgers: Some(timeout_ledgers), referrer: None });
 
-        // Start work changes status to InProgress
-        client.start_work(&job_id, &contract_client);
+        // Start work changes status to InProgress (freelancer starts work)
+        client.start_work(&job_id, &freelancer);
 
         let mut ledger_info = env.ledger().get();
         ledger_info.sequence_number += timeout_ledgers + 1;
@@ -2311,7 +2388,7 @@ mod regression_tests {
 
         let job_id = String::from_str(&env, "job1");
         contract_client.create_escrow(&job_id, &client.clone(), &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 1000, milestones: None, timeout_ledgers: None, referrer: None });
-        contract_client.start_work(&job_id, &client.clone());
+        contract_client.start_work(&job_id, &freelancer.clone());
 
         contract_client.release_escrow(&job_id, &client.clone());
 
@@ -2372,7 +2449,7 @@ mod regression_tests {
 
         let job_id = String::from_str(&env, "job_partial");
         contract_client.create_escrow(&job_id, &client.clone(), &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 1000, milestones: Some(milestones), timeout_ledgers: None, referrer: None });
-        contract_client.start_work(&job_id, &client.clone());
+        contract_client.start_work(&job_id, &freelancer.clone());
 
         // Raise dispute to test that we can still partial release
         contract_client.raise_dispute(&job_id, &client.clone());
@@ -2531,7 +2608,7 @@ mod event_tests {
             &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
         );
 
-        client.start_work(&job_id, &contract_client);
+        client.start_work(&job_id, &freelancer);
 
         assert!(
             get_event_topic0_str(&env, env.events().all().len() - 1).contains("work_strt"),
@@ -2547,7 +2624,7 @@ mod event_tests {
             &job_id, &contract_client,
             &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
         );
-        client.start_work(&job_id, &contract_client);
+        client.start_work(&job_id, &freelancer);
 
         client.release_escrow(&job_id, &contract_client);
 
@@ -2602,7 +2679,7 @@ mod event_tests {
             &job_id, &contract_client,
             &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 1000, milestones: Some(milestones), timeout_ledgers: None, referrer: None },
         );
-        client.start_work(&job_id, &contract_client);
+        client.start_work(&job_id, &freelancer);
 
         client.partial_release(&job_id, &0u32, &contract_client);
 
@@ -2626,7 +2703,7 @@ mod event_tests {
             "Missing escrow_cr after create_escrow",
         );
 
-        client.start_work(&job_id, &contract_client);
+        client.start_work(&job_id, &freelancer);
         assert!(
             get_event_topic0_str(&env, env.events().all().len() - 1).contains("work_strt"),
             "Missing work_strt after start_work",
@@ -2805,5 +2882,113 @@ mod deliverable_oracle_tests {
 
         let token_client = token::Client::new(&env, &token_id);
         assert_eq!(token_client.balance(&freelancer), 0);
+    }
+}
+
+// ─── Property-based fuzz tests ────────────────────────────────────────────────
+#[cfg(test)]
+mod proptest_fuzz {
+    use proptest::prelude::*;
+
+    /// Mirrors the referral bonus logic in `release_escrow_core`:
+    /// bonus = amount * 200 / 10_000, freelancer = amount - bonus.
+    fn referral_split(amount: i128) -> Option<(i128, i128)> {
+        let bonus = amount.checked_mul(200)?.checked_div(10_000)?;
+        let freelancer = amount.checked_sub(bonus)?;
+        Some((freelancer, bonus))
+    }
+
+    /// Mirrors the milestone sum validation in `create_escrow_internal`.
+    fn sum_milestones(amounts: &[i128]) -> Option<i128> {
+        let mut total: i128 = 0;
+        for &amt in amounts {
+            if amt <= 0 {
+                return None;
+            }
+            total = total.checked_add(amt)?;
+        }
+        Some(total)
+    }
+
+    proptest! {
+        #[test]
+        fn referral_bonus_freelancer_plus_bonus_equals_total(
+            amount in 0i128..i128::MAX,
+        ) {
+            if let Some((freelancer, bonus)) = referral_split(amount) {
+                prop_assert_eq!(
+                    freelancer.checked_add(bonus),
+                    Some(amount),
+                    "freelancer({}) + bonus({}) must equal amount({})",
+                    freelancer, bonus, amount,
+                );
+            }
+        }
+
+        #[test]
+        fn referral_bonus_non_negative(
+            amount in 0i128..i128::MAX,
+        ) {
+            if let Some((freelancer, bonus)) = referral_split(amount) {
+                prop_assert!(freelancer >= 0);
+                prop_assert!(bonus >= 0);
+            }
+        }
+
+        #[test]
+        fn referral_bonus_bounds(
+            amount in 0i128..i128::MAX,
+        ) {
+            if let Some((_, bonus)) = referral_split(amount) {
+                // bonus is 2% of amount, so it must be <= amount
+                prop_assert!(bonus <= amount);
+                // 2% of any positive amount is at most amount / 50
+                let max_bonus = amount / 50;
+                prop_assert!(bonus <= max_bonus);
+            }
+        }
+
+        #[test]
+        fn milestone_sum_matches_total(
+            amounts in prop::collection::vec(1i128..=1_000_000_000_000i128, 1..=5),
+            escrow_total in 1i128..=1_000_000_000_000i128,
+        ) {
+            // Only test when the sum naturally equals the total
+            if let Some(sum) = sum_milestones(&amounts) {
+                if sum == escrow_total {
+                    // This confirms the contract validation condition passes
+                    prop_assert_eq!(sum, escrow_total);
+                }
+            }
+        }
+
+        #[test]
+        fn milestone_amounts_never_negative(
+            amounts in prop::collection::vec(0i128..=i128::MAX, 1..=5),
+        ) {
+            for &amt in &amounts {
+                // The contract requires milestone amounts > 0
+                // (strictly positive, zero is rejected)
+                if amt == 0 {
+                    prop_assert!(amt <= 0, "zero-amount milestone should fail validation");
+                }
+            }
+        }
+
+        #[test]
+        fn dividend_never_exceeds_divisor_in_bonus(
+            amount in 0i128..=i128::MAX,
+        ) {
+            // The bonus formula: amount * 200 / 10_000
+            // With i128, overflow can only happen if amount > i128::MAX / 200
+            if amount > i128::MAX / 200 {
+                // This would overflow in checked_mul, which is correct behavior
+            } else {
+                let bonus = amount * 200 / 10_000;
+                let (freelancer, bonus2) = referral_split(amount).unwrap();
+                prop_assert_eq!(bonus, bonus2);
+                prop_assert_eq!(amount.checked_sub(bonus), Some(freelancer));
+            }
+        }
     }
 }

@@ -5,6 +5,7 @@ import {
   createDeveloperApiKey,
   fetchDeveloperApiKeys,
   revokeDeveloperApiKey,
+  rotateDeveloperApiKey,
   type DeveloperApiKey,
 } from "@/lib/api";
 import { timeAgo } from "@/utils/format";
@@ -27,6 +28,7 @@ export default function DeveloperPage({ publicKey, onConnect }: DeveloperPagePro
   const [keys, setKeys] = useState<DeveloperApiKey[]>([]);
   const [label, setLabel] = useState("");
   const [newKey, setNewKey] = useState<string | null>(null);
+  const [rotatedKey, setRotatedKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +78,23 @@ export default function DeveloperPage({ publicKey, onConnect }: DeveloperPagePro
       await loadKeys();
     } catch {
       setError("Failed to revoke API key.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRotateKey(id: string) {
+    setLoading(true);
+    setMessage(null);
+    setError(null);
+    setRotatedKey(null);
+    try {
+      const result = await rotateDeveloperApiKey(id);
+      setRotatedKey(result.apiKey);
+      setMessage("API key rotated. The old key remains valid for 24 hours. Copy the new key now.");
+      await loadKeys();
+    } catch {
+      setError("Failed to rotate API key.");
     } finally {
       setLoading(false);
     }
@@ -181,6 +200,20 @@ export default function DeveloperPage({ publicKey, onConnect }: DeveloperPagePro
                   </button>
                 </div>
               )}
+              {rotatedKey && (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
+                  <p className="text-sm text-amber-100 font-medium">New API key (rotation)</p>
+                  <p className="text-xs text-amber-800">
+                    The old key remains valid for 24 hours. Store this new key now.
+                  </p>
+                  <div className="rounded-lg bg-ink-950/60 border border-market-500/10 p-3 font-mono text-xs break-all text-market-300">
+                    {rotatedKey}
+                  </div>
+                  <button type="button" className="btn-primary text-sm" onClick={() => { if (typeof navigator !== "undefined") navigator.clipboard.writeText(rotatedKey); setMessage("New API key copied to clipboard."); }}>
+                    Copy New Key
+                  </button>
+                </div>
+              )}
             </div>
           </Panel>
 
@@ -232,6 +265,10 @@ export default function DeveloperPage({ publicKey, onConnect }: DeveloperPagePro
                         <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
                           Revoked
                         </span>
+                      ) : key.rotating_at ? (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          Rotating
+                        </span>
                       ) : (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                           Active
@@ -247,6 +284,14 @@ export default function DeveloperPage({ publicKey, onConnect }: DeveloperPagePro
                     </p>
                   </div>
                   <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="btn-ghost text-sm px-4 text-amber-400/80 hover:text-amber-400 disabled:opacity-50"
+                      disabled={Boolean(key.revoked_at) || Boolean(key.rotating_at) || loading}
+                      onClick={() => handleRotateKey(key.id)}
+                    >
+                      Rotate
+                    </button>
                     <button
                       type="button"
                       className="btn-ghost text-sm px-4 text-red-400/80 hover:text-red-400 disabled:opacity-50"

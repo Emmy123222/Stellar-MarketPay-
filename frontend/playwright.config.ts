@@ -2,8 +2,13 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  snapshotDir: "./e2e/snapshots",
+  snapshotPathTemplate: "{snapshotDir}/{arg}{ext}",
   timeout: 60_000,
-  expect: { timeout: 10_000 },
+  expect: {
+    timeout: 10_000,
+    toHaveScreenshot: { maxDiffPixelRatio: 0.001 },
+  },
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 2 : undefined,
@@ -28,7 +33,17 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      // Pin locale to en-US so SSR and client both render English nav text.
+      // Without this the OS locale (Spanish) leaks into Accept-Language;
+      // the server renders "Inicio" while the client renders "Home", causing
+      // a hydration-error overlay that blocks the admin page in tests.
+      use: {
+        ...devices["Desktop Chrome"],
+        locale: "en-US",
+        // Fixed viewport prevents components from collapsing or re-stacking
+        // when running headed for visual inspection.
+        viewport: { width: 1280, height: 800 },
+      },
     },
   ],
 });

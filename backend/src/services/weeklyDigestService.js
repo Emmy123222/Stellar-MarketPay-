@@ -10,6 +10,7 @@
  */
 "use strict";
 
+const nodemailer = require("nodemailer");
 const pool = require("../db/pool");
 const { getRecommendations } = require("./recommendationService");
 const { isNotificationEnabled } = require("./notificationPreferencesService");
@@ -51,14 +52,22 @@ function formatBudget(budget, currency = "XLM") {
  * @returns {Promise<Array<{public_key: string, email: string, digest_unsubscribe_token: string}>>}
  */
 async function getActiveFreelancers() {
+  const encKey = process.env.DATABASE_ENCRYPTION_KEY || "";
   const { rows } = await pool.query(
-    `SELECT public_key, email, digest_unsubscribe_token
+    `SELECT public_key,
+            COALESCE(
+              CASE WHEN encrypted_email IS NOT NULL
+                THEN pgp_sym_decrypt(encrypted_email, $1)
+              END,
+              email
+            ) AS email,
+            digest_unsubscribe_token
      FROM profiles
      WHERE role IN ('freelancer', 'both')
-       AND email IS NOT NULL
-       AND email <> ''
+       AND (email IS NOT NULL AND email <> '' OR encrypted_email IS NOT NULL)
        AND last_login_at IS NOT NULL
-       AND last_login_at >= NOW() - INTERVAL '30 days'`
+       AND last_login_at >= NOW() - INTERVAL '30 days'`,
+    [encKey]
   );
   return rows;
 }
@@ -149,6 +158,9 @@ function generateDigestEmail(jobs, unsubToken, baseUrl, apiBaseUrl) {
   const subject = "5 new jobs matching your skills this week";
   const unsubUrl = `${apiBaseUrl}/api/notifications/unsubscribe?token=${unsubToken}`;
   const browseUrl = `${baseUrl}/jobs`;
+  const activitySummary = jobs.length > 0
+    ? `${jobs.length} new job matches were found for your profile this week.`
+    : "No new job matches were found for your profile this week.";
 
   // ── Plain-text fallback ──────────────────────────────────────────────────
   const textLines = [
@@ -156,6 +168,7 @@ function generateDigestEmail(jobs, unsubToken, baseUrl, apiBaseUrl) {
     "=".repeat(subject.length),
     "",
     `Hi there,`,
+    `Your weekly activity summary: ${activitySummary}`,
     `Here are your top ${jobs.length} job matches from this week on Stellar MarketPay:`,
     "",
   ];
@@ -216,7 +229,7 @@ function generateDigestEmail(jobs, unsubToken, baseUrl, apiBaseUrl) {
                       Your weekly job matches
                     </p>
                     <p style="margin:10px 0 0 0;font-size:15px;color:#bfdbfe;line-height:1.5;">
-                      We found <strong>${jobs.length} new jobs</strong> that match your skills this week.
+                      <strong>${activitySummary}</strong>
                     </p>
                   </td>
                 </tr>
@@ -285,6 +298,33 @@ function generateDigestEmail(jobs, unsubToken, baseUrl, apiBaseUrl) {
 
 // ─── Main orchestration ───────────────────────────────────────────────────────
 
+async function sendDigestMessage(payload, sendEmailFn) {
+  if (typeof sendEmailFn === "function") {
+    return sendEmailFn(payload);
+  }
+
+  const smtpEnabled = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  if (!smtpEnabled) {
+    logger.warn("SMTP credentials are not configured; skipping digest email send");
+    return null;
+  }
+
+  const transport = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: false,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+
+  return transport.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    ...payload,
+  });
+}
+
 /**
  * Run the weekly digest for all eligible freelancers.
  *
@@ -337,7 +377,7 @@ async function sendWeeklyDigest(sendEmailFn) {
         apiBaseUrl
       );
 
-      await sendEmailFn({ to: email, subject, text, html });
+      await sendDigestMessage({ to: email, subject, text, html }, sendEmailFn);
       sent++;
       logger.info({ publicKey: public_key, jobCount: recentMatches.length }, "Digest sent");
     } catch (err) {

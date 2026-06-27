@@ -3,7 +3,8 @@
  * Admin analytics dashboard with charts and metrics
  */
 import { useEffect, useState } from "react";
-import { fetchAdminMetrics } from "@/lib/api";
+import { fetchAdminMetrics, fetchAuditLogs } from "@/lib/api";
+import type { AuditLogEntry } from "@/utils/types";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -103,10 +104,15 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState<Period>("30d");
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [auditLoading, setAuditLoading] = useState(true);
+  const [auditNextCursor, setAuditNextCursor] = useState<string | null>(null);
+  const [auditActionFilter, setAuditActionFilter] = useState("");
+  const [auditResourceTypeFilter, setAuditResourceTypeFilter] = useState("");
 
   useEffect(() => {
     if (!publicKey) return;
-    
+
     const loadMetrics = async () => {
       try {
         setLoading(true);
@@ -122,6 +128,28 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
 
     loadMetrics();
   }, [publicKey, period]);
+
+  useEffect(() => {
+    if (!publicKey) return;
+
+    const loadAuditLogs = async () => {
+      try {
+        setAuditLoading(true);
+        const { logs, nextCursor } = await fetchAuditLogs({
+          action: auditActionFilter || undefined,
+          resource_type: auditResourceTypeFilter || undefined,
+        });
+        setAuditLogs(logs);
+        setAuditNextCursor(nextCursor);
+      } catch {
+        setAuditLogs([]);
+      } finally {
+        setAuditLoading(false);
+      }
+    };
+
+    loadAuditLogs();
+  }, [publicKey, auditActionFilter, auditResourceTypeFilter]);
 
   const exportCSV = () => {
     if (!metrics) return;
@@ -350,6 +378,64 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
           <MetricCard title="Average Rating" value={`${Number(metrics.qualityMetrics.avg_rating).toFixed(1)} ⭐`} color="green" />
           <MetricCard title="Total Ratings" value={metrics.qualityMetrics.total_ratings} color="blue" />
           <MetricCard title="Repeat Hires" value={metrics.qualityMetrics.repeat_hires} color="amber" />
+        </div>
+      </section>
+
+      {/* Audit Log Table */}
+      <section>
+        <h3 className="font-semibold text-amber-100 mb-4">Audit Log</h3>
+        <div className="bg-market-800 p-4 rounded-lg">
+          <div className="flex gap-3 mb-4">
+            <input
+              type="text"
+              placeholder="Filter by action..."
+              value={auditActionFilter}
+              onChange={(e) => setAuditActionFilter(e.target.value)}
+              className="bg-market-700 border border-market-600 rounded px-3 py-1 text-sm text-amber-100 placeholder-amber-800"
+            />
+            <input
+              type="text"
+              placeholder="Filter by resource type..."
+              value={auditResourceTypeFilter}
+              onChange={(e) => setAuditResourceTypeFilter(e.target.value)}
+              className="bg-market-700 border border-market-600 rounded px-3 py-1 text-sm text-amber-100 placeholder-amber-800"
+            />
+          </div>
+          {auditLoading ? (
+            <div className="text-center py-4">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-amber-400 mx-auto"></div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-market-600">
+                    <th className="text-left py-2 text-amber-100">Admin Address</th>
+                    <th className="text-left py-2 text-amber-100">Action</th>
+                    <th className="text-left py-2 text-amber-100">Resource</th>
+                    <th className="text-left py-2 text-amber-100">Timestamp</th>
+                    <th className="text-left py-2 text-amber-100">Changes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.map((log) => (
+                    <tr key={log.id} className="border-b border-market-700/50">
+                      <td className="py-2 font-mono text-amber-200">{log.adminAddress?.slice(0, 8)}...</td>
+                      <td className="py-2 text-amber-100">{log.action}</td>
+                      <td className="py-2 text-amber-100">{log.resource || "—"}</td>
+                      <td className="py-2 text-amber-800">{format(new Date(log.timestamp), "PPp")}</td>
+                      <td className="py-2 text-amber-800">
+                        {log.changesDiff ? JSON.stringify(log.changesDiff).slice(0, 50) + (JSON.stringify(log.changesDiff).length > 50 ? "…" : "") : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!auditLogs.length && (
+                <p className="text-center py-4 text-amber-800">No audit logs found.</p>
+              )}
+            </div>
+          )}
         </div>
       </section>
     </div>
