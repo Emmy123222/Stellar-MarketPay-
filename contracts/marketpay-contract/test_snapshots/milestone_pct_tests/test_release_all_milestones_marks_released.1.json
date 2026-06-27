@@ -40,7 +40,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 2000
+                    "lo": 1000
                   }
                 }
               ]
@@ -57,44 +57,106 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "create_escrow",
+              "function_name": "create_escrow_with_milestones",
               "args": [
                 {
-                  "string": "job-milestones"
+                  "string": "ms-job-4"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 1000
-                  }
-                },
-                {
-                  "vec": [
+                  "map": [
                     {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 300
+                      "key": {
+                        "symbol": "amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 1000
+                        }
                       }
                     },
                     {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 700
+                      "key": {
+                        "symbol": "freelancer"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "milestones"
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "description"
+                                },
+                                "val": {
+                                  "string": "Phase 1"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "percentage"
+                                },
+                                "val": {
+                                  "u32": 40
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "description"
+                                },
+                                "val": {
+                                  "string": "Phase 2"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "percentage"
+                                },
+                                "val": {
+                                  "u32": 60
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "referrer"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "timeout_ledgers"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "token"
+                      },
+                      "val": {
+                        "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                       }
                     }
                   ]
-                },
-                "void",
-                "void"
+                }
               ]
             }
           },
@@ -136,7 +198,7 @@
               "function_name": "start_work",
               "args": [
                 {
-                  "string": "job-milestones"
+                  "string": "ms-job-4"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -155,10 +217,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "partial_release",
+              "function_name": "release_milestone",
               "args": [
                 {
-                  "string": "job-milestones"
+                  "string": "ms-job-4"
                 },
                 {
                   "u32": 0
@@ -173,8 +235,6 @@
         }
       ]
     ],
-    [],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
@@ -182,10 +242,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "partial_release",
+              "function_name": "release_milestone",
               "args": [
                 {
-                  "string": "job-milestones"
+                  "string": "ms-job-4"
                 },
                 {
                   "u32": 1
@@ -343,10 +403,22 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "DefaultTimeoutSeconds"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 604800
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Escrow"
                             },
                             {
-                              "string": "job-milestones"
+                              "string": "ms-job-4"
                             }
                           ]
                         },
@@ -381,6 +453,12 @@
                             },
                             {
                               "key": {
+                                "symbol": "deliverable_hash"
+                              },
+                              "val": "void"
+                            },
+                            {
+                              "key": {
                                 "symbol": "freelancer"
                               },
                               "val": {
@@ -392,7 +470,7 @@
                                 "symbol": "job_id"
                               },
                               "val": {
-                                "string": "job-milestones"
+                                "string": "ms-job-4"
                               }
                             },
                             {
@@ -405,18 +483,31 @@
                                     "map": [
                                       {
                                         "key": {
-                                          "symbol": "amount"
+                                          "symbol": "description"
                                         },
                                         "val": {
-                                          "i128": {
-                                            "hi": 0,
-                                            "lo": 300
-                                          }
+                                          "string": "Phase 1"
                                         }
                                       },
                                       {
                                         "key": {
-                                          "symbol": "is_completed"
+                                          "symbol": "id"
+                                        },
+                                        "val": {
+                                          "u32": 0
+                                        }
+                                      },
+                                      {
+                                        "key": {
+                                          "symbol": "percentage"
+                                        },
+                                        "val": {
+                                          "u32": 40
+                                        }
+                                      },
+                                      {
+                                        "key": {
+                                          "symbol": "released"
                                         },
                                         "val": {
                                           "bool": true
@@ -428,18 +519,31 @@
                                     "map": [
                                       {
                                         "key": {
-                                          "symbol": "amount"
+                                          "symbol": "description"
                                         },
                                         "val": {
-                                          "i128": {
-                                            "hi": 0,
-                                            "lo": 700
-                                          }
+                                          "string": "Phase 2"
                                         }
                                       },
                                       {
                                         "key": {
-                                          "symbol": "is_completed"
+                                          "symbol": "id"
+                                        },
+                                        "val": {
+                                          "u32": 1
+                                        }
+                                      },
+                                      {
+                                        "key": {
+                                          "symbol": "percentage"
+                                        },
+                                        "val": {
+                                          "u32": 60
+                                        }
+                                      },
+                                      {
+                                        "key": {
+                                          "symbol": "released"
                                         },
                                         "val": {
                                           "bool": true
@@ -803,7 +907,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 1000
+                          "lo": 0
                         }
                       }
                     },
