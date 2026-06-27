@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/router";
+import dynamic from "next/dynamic";
+
+// This page is already code-split by Next.js as a dynamic route
+// The collaborative editor is loaded on-demand when users navigate to /scope/[sessionId]
+// No additional dynamic import needed here as Next.js handles automatic code splitting
 
 type CursorMap = Record<string, { start: number; end: number; updatedAt: number }>;
 
@@ -424,6 +429,18 @@ export default function ScopeSessionPage() {
               if (finalized) return;
               const target = e.target as HTMLTextAreaElement;
               sendUpdate(documentText, target.selectionStart, target.selectionEnd);
+            }}
+            onKeyDown={(e) => {
+              if (finalized) return;
+              if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+                e.preventDefault();
+                const target = e.target as HTMLTextAreaElement;
+                if (saveTimer.current) clearTimeout(saveTimer.current);
+                sendUpdate(documentText, target.selectionStart, target.selectionEnd);
+              } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                e.preventDefault();
+                if (documentText.trim()) finalizeScope();
+              }
             }}
             rows={16}
             className="textarea-field"

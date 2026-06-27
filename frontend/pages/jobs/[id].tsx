@@ -104,7 +104,7 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
       })
       .catch(() => router.push("/jobs"))
       .finally(() => setLoading(false));
-  }, [jobId, router.isReady]);
+  }, [jobId, router.isReady, router]);
 
   const handleAcceptApplication = async (applicationId: string) => {
     if (!publicKey || !jobId) return;
@@ -204,12 +204,58 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 animate-pulse">
-        <div className="h-8 bg-market-500/8 rounded w-2/3 mb-4" />
-        <div className="h-4 bg-market-500/5 rounded w-1/3 mb-8" />
-        <div className="card space-y-4">
-          {[1, 2, 3, 4].map((item) => (
-            <div key={item} className="h-4 bg-market-500/8 rounded w-full" />
-          ))}
+        {/* Back button */}
+        <div className="h-6 w-24 bg-market-500/8 rounded mb-6" />
+
+        {/* Job detail card */}
+        <div className="card space-y-6">
+          {/* Status badges */}
+          <div className="flex gap-2">
+            <div className="h-6 w-20 bg-market-500/10 rounded-full" />
+            <div className="h-6 w-16 bg-market-500/10 rounded-full" />
+          </div>
+
+          {/* Title */}
+          <div className="h-10 bg-market-500/10 rounded w-3/4" />
+
+          {/* Meta info row */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex gap-3">
+              <div className="h-4 w-24 bg-market-500/8 rounded" />
+              <div className="h-4 w-20 bg-market-500/8 rounded" />
+            </div>
+            <div className="space-y-2">
+              <div className="h-4 w-16 bg-market-500/8 rounded" />
+              <div className="h-8 w-32 bg-market-500/10 rounded" />
+            </div>
+          </div>
+
+          {/* Description section */}
+          <div className="space-y-3 pt-4 border-t border-market-500/10">
+            <div className="h-5 w-32 bg-market-500/10 rounded" />
+            <div className="h-4 bg-market-500/8 rounded w-full" />
+            <div className="h-4 bg-market-500/8 rounded w-11/12" />
+            <div className="h-4 bg-market-500/8 rounded w-5/6" />
+          </div>
+
+          {/* Skills section */}
+          <div className="space-y-3 pt-4 border-t border-market-500/10">
+            <div className="h-5 w-28 bg-market-500/10 rounded" />
+            <div className="flex flex-wrap gap-2">
+              <div className="h-7 w-20 bg-market-500/10 rounded-full" />
+              <div className="h-7 w-24 bg-market-500/10 rounded-full" />
+              <div className="h-7 w-16 bg-market-500/10 rounded-full" />
+            </div>
+          </div>
+
+          {/* Applications section */}
+          <div className="space-y-3 pt-4 border-t border-market-500/10">
+            <div className="h-5 w-36 bg-market-500/10 rounded" />
+            <div className="space-y-3">
+              <div className="h-16 bg-market-500/8 rounded" />
+              <div className="h-16 bg-market-500/8 rounded" />
+            </div>
+          </div>
         </div>
       </div>
     );

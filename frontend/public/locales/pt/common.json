@@ -9,7 +9,8 @@
     "dao": "DAO",
     "connectWallet": "Conectar carteira",
     "disconnect": "Desconectar",
-    "skipToContent": "Ir para o conteúdo principal"
+    "skipToContent": "Ir para o conteúdo principal",
+    "browseFreelancers": "[TRANSLATE] Browse Freelancers"
   },
   "jobs": {
     "title": "Explorar vagas",
