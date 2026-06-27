@@ -4,6 +4,7 @@
 "use strict";
 
 const pool = require("../db/pool");
+const { refreshFreelancerTier } = require("./profileService");
 
 async function createRating({ jobId, raterAddress, ratedAddress, stars, review }) {
   const client = await pool.connect();
@@ -24,19 +25,10 @@ async function createRating({ jobId, raterAddress, ratedAddress, stars, review }
       throw e;
     }
 
-    // Recalculate and persist average rating on the profile
-    await client.query(
-      `UPDATE profiles
-       SET rating = (
-         SELECT ROUND(AVG(stars)::numeric, 2)
-         FROM ratings WHERE rated_address = $1
-       )
-       WHERE public_key = $1`,
-      [ratedAddress]
-    );
+    const freelancerTier = await refreshFreelancerTier(ratedAddress, client);
 
     await client.query("COMMIT");
-    return rows[0];
+    return { ...rows[0], freelancer_tier: freelancerTier };
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;

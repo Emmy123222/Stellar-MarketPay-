@@ -22,5 +22,15 @@ Thumbs.db
 .idea/
 *.swp
 
+# Coverage
+coverage/
+backend/coverage/
+frontend/coverage/
+
+# Stryker mutation testing
+backend/stryker-tmp/
+backend/reports/mutation/
+backend/.stryker-tmp/
+
 # Cargo
 Cargo.lock

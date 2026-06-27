@@ -1,0 +1,91 @@
+version: 2
+updates:
+  # Frontend dependencies
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    labels:
+      - dependencies
+      - frontend
+    reviewers:
+      - Emmy123222
+    assignees:
+      - Emmy123222
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "feat(deps)"
+      include: "scope"
+    allow:
+      - dependency-type: direct
+    versioning-strategy: increase
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+  # Backend dependencies  
+  - package-ecosystem: npm
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    labels:
+      - dependencies
+      - backend
+    reviewers:
+      - Emmy123222
+    assignees:
+      - Emmy123222
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "feat(deps)"
+      include: "scope"
+    allow:
+      - dependency-type: direct
+    versioning-strategy: increase
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+  # Smart contract dependencies
+  - package-ecosystem: cargo
+    directory: /contracts/marketpay-contract
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    labels:
+      - dependencies
+      - smart-contract
+    reviewers:
+      - Emmy123222
+    assignees:
+      - Emmy123222
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "feat(deps)"
+      include: "scope"
+
+  # GitHub Actions dependencies
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    labels:
+      - dependencies
+      - github-actions
+    reviewers:
+      - Emmy123222
+    assignees:
+      - Emmy123222
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "feat(deps)"
+      include: "scope"

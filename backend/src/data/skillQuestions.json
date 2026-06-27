@@ -1,0 +1,642 @@
+{
+  "javascript": {
+    "label": "JavaScript",
+    "questions": [
+      {
+        "id": 1,
+        "question": "What does `typeof null` return in JavaScript?",
+        "options": ["null", "undefined", "object", "boolean"],
+        "answer": 2
+      },
+      {
+        "id": 2,
+        "question": "Which method creates a shallow copy of an array?",
+        "options": ["Array.from(arr)", "arr.slice()", "arr.concat()", "All of the above"],
+        "answer": 3
+      },
+      {
+        "id": 3,
+        "question": "What is the output of `0.1 + 0.2 === 0.3` in JavaScript?",
+        "options": ["true", "false", "NaN", "undefined"],
+        "answer": 1
+      },
+      {
+        "id": 4,
+        "question": "Which keyword declares a block-scoped variable?",
+        "options": ["var", "let", "function", "global"],
+        "answer": 1
+      },
+      {
+        "id": 5,
+        "question": "What does the `Promise.all()` method do?",
+        "options": [
+          "Runs promises sequentially",
+          "Resolves when the first promise resolves",
+          "Resolves when all promises resolve",
+          "Ignores rejected promises"
+        ],
+        "answer": 2
+      },
+      {
+        "id": 6,
+        "question": "What is a closure in JavaScript?",
+        "options": [
+          "A function with no return value",
+          "A function that retains access to its outer scope after the outer function has returned",
+          "A method that closes the browser window",
+          "An immediately invoked function"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 7,
+        "question": "Which array method returns a new array with elements that pass a test?",
+        "options": ["map()", "reduce()", "filter()", "find()"],
+        "answer": 2
+      },
+      {
+        "id": 8,
+        "question": "What does the spread operator `...` do when used with an array?",
+        "options": [
+          "Deletes array elements",
+          "Expands the array into individual elements",
+          "Sorts the array",
+          "Reverses the array"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 9,
+        "question": "What is event delegation?",
+        "options": [
+          "Attaching an event listener to each child element",
+          "Attaching a single event listener to a parent to handle events from children",
+          "Preventing event bubbling",
+          "Firing events manually"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 10,
+        "question": "Which statement correctly describes `async/await`?",
+        "options": [
+          "It replaces Promises entirely",
+          "It is syntactic sugar over Promises",
+          "It makes code run in parallel by default",
+          "It only works with fetch()"
+        ],
+        "answer": 1
+      }
+    ]
+  },
+  "react": {
+    "label": "React",
+    "questions": [
+      {
+        "id": 1,
+        "question": "What hook is used to manage local component state?",
+        "options": ["useEffect", "useContext", "useState", "useRef"],
+        "answer": 2
+      },
+      {
+        "id": 2,
+        "question": "When does `useEffect` with an empty dependency array `[]` run?",
+        "options": [
+          "On every render",
+          "Only on mount",
+          "Only on unmount",
+          "Never"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 3,
+        "question": "What is the purpose of the `key` prop in a list?",
+        "options": [
+          "To style list items",
+          "To help React identify which items changed",
+          "To sort the list",
+          "To pass data to children"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 4,
+        "question": "What does `React.memo` do?",
+        "options": [
+          "Memoizes the return value of a function",
+          "Prevents a component from re-rendering if props haven't changed",
+          "Caches API responses",
+          "Stores component state between renders"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 5,
+        "question": "Which hook lets you access a DOM element directly?",
+        "options": ["useState", "useCallback", "useRef", "useMemo"],
+        "answer": 2
+      },
+      {
+        "id": 6,
+        "question": "What is prop drilling?",
+        "options": [
+          "Passing props through many nested components that don't need them",
+          "Validating prop types",
+          "Destructuring props in a component",
+          "Passing functions as props"
+        ],
+        "answer": 0
+      },
+      {
+        "id": 7,
+        "question": "What does the Context API solve?",
+        "options": [
+          "Performance issues",
+          "Prop drilling by providing a way to share values without passing props",
+          "State persistence across sessions",
+          "Server-side rendering"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 8,
+        "question": "What is a controlled component?",
+        "options": [
+          "A component with no state",
+          "A component whose form data is handled by React state",
+          "A component wrapped in React.memo",
+          "A component that uses useReducer"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 9,
+        "question": "What does `useCallback` return?",
+        "options": [
+          "A memoized value",
+          "A memoized callback function",
+          "A ref object",
+          "A context value"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 10,
+        "question": "In React, what triggers a re-render?",
+        "options": [
+          "State or prop changes",
+          "Only state changes",
+          "Only prop changes",
+          "Calling any function inside the component"
+        ],
+        "answer": 0
+      }
+    ]
+  },
+  "typescript": {
+    "label": "TypeScript",
+    "questions": [
+      {
+        "id": 1,
+        "question": "What is the difference between `interface` and `type` in TypeScript?",
+        "options": [
+          "They are identical",
+          "Interfaces can be extended and merged; types are more flexible with unions",
+          "Types support classes; interfaces do not",
+          "Interfaces are only for functions"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 2,
+        "question": "What does the `unknown` type represent?",
+        "options": [
+          "A value that is always undefined",
+          "A type-safe counterpart to `any` that requires type checking before use",
+          "A nullable type",
+          "An empty object type"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 3,
+        "question": "What is a generic in TypeScript?",
+        "options": [
+          "A type that can only be a string or number",
+          "A placeholder type that is specified when the function or class is used",
+          "A built-in utility type",
+          "A type alias for `any`"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 4,
+        "question": "What does `Partial<T>` do?",
+        "options": [
+          "Makes all properties of T required",
+          "Makes all properties of T optional",
+          "Picks a subset of T's properties",
+          "Removes null from T's properties"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 5,
+        "question": "What is a union type?",
+        "options": [
+          "A type that combines two interfaces",
+          "A type that can be one of several types",
+          "A type that must satisfy all listed types",
+          "A type for arrays only"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 6,
+        "question": "What does the `readonly` modifier do?",
+        "options": [
+          "Makes a property optional",
+          "Prevents a property from being reassigned after initialization",
+          "Makes a property private",
+          "Converts a property to a getter"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 7,
+        "question": "What is a type guard?",
+        "options": [
+          "A way to prevent runtime errors",
+          "A runtime check that narrows a type within a conditional block",
+          "A decorator for classes",
+          "A way to cast types"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 8,
+        "question": "What does `keyof T` produce?",
+        "options": [
+          "The values of T",
+          "A union of the keys of T",
+          "An array of T's properties",
+          "The type of T's constructor"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 9,
+        "question": "What is the `never` type used for?",
+        "options": [
+          "Values that are always null",
+          "Functions that never return (throw or infinite loop)",
+          "Optional parameters",
+          "Empty arrays"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 10,
+        "question": "What does `as const` do to an object literal?",
+        "options": [
+          "Makes it immutable at runtime",
+          "Infers the narrowest literal types for all properties",
+          "Converts it to a class",
+          "Freezes the object"
+        ],
+        "answer": 1
+      }
+    ]
+  },
+  "nodejs": {
+    "label": "Node.js",
+    "questions": [
+      {
+        "id": 1,
+        "question": "What is the event loop in Node.js?",
+        "options": [
+          "A loop that iterates over arrays",
+          "A mechanism that handles asynchronous callbacks in a non-blocking way",
+          "A built-in HTTP server",
+          "A module for scheduling tasks"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 2,
+        "question": "Which module is used to create an HTTP server in Node.js without frameworks?",
+        "options": ["fs", "path", "http", "net"],
+        "answer": 2
+      },
+      {
+        "id": 3,
+        "question": "What does `process.env` provide?",
+        "options": [
+          "The current working directory",
+          "Environment variables",
+          "Command-line arguments",
+          "System memory info"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 4,
+        "question": "What is the purpose of `package.json`?",
+        "options": [
+          "To store application logs",
+          "To define project metadata, dependencies, and scripts",
+          "To configure the Node.js runtime",
+          "To list environment variables"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 5,
+        "question": "What does `require()` do in Node.js?",
+        "options": [
+          "Imports an ES module",
+          "Loads and caches a CommonJS module",
+          "Fetches a remote package",
+          "Declares a dependency"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 6,
+        "question": "What is middleware in Express.js?",
+        "options": [
+          "A database connector",
+          "A function that has access to req, res, and next in the request-response cycle",
+          "A template engine",
+          "A route handler"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 7,
+        "question": "What does `fs.readFile` do by default?",
+        "options": [
+          "Reads a file synchronously",
+          "Reads a file asynchronously and calls a callback",
+          "Streams a file",
+          "Watches a file for changes"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 8,
+        "question": "What is a stream in Node.js?",
+        "options": [
+          "A type of Promise",
+          "An object that lets you read or write data piece by piece",
+          "A real-time database connection",
+          "A WebSocket connection"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 9,
+        "question": "What does `npm install --save-dev` do?",
+        "options": [
+          "Installs a package globally",
+          "Installs a package as a development dependency",
+          "Updates all packages",
+          "Removes a package"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 10,
+        "question": "What is the purpose of `cluster` module in Node.js?",
+        "options": [
+          "To manage database connections",
+          "To spawn child processes that share the same server port for load balancing",
+          "To cache HTTP responses",
+          "To handle WebSocket connections"
+        ],
+        "answer": 1
+      }
+    ]
+  },
+  "solidity": {
+    "label": "Solidity",
+    "questions": [
+      {
+        "id": 1,
+        "question": "What is a smart contract?",
+        "options": [
+          "A legal document stored on a server",
+          "Self-executing code deployed on a blockchain",
+          "An API endpoint",
+          "A database trigger"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 2,
+        "question": "What does the `payable` modifier do in Solidity?",
+        "options": [
+          "Allows a function to modify state",
+          "Allows a function to receive Ether",
+          "Makes a function public",
+          "Prevents reentrancy"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 3,
+        "question": "What is a mapping in Solidity?",
+        "options": [
+          "An ordered list of values",
+          "A key-value store similar to a hash map",
+          "A function selector",
+          "An event log"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 4,
+        "question": "What does `msg.sender` refer to?",
+        "options": [
+          "The contract owner",
+          "The address that called the current function",
+          "The miner of the block",
+          "The contract address"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 5,
+        "question": "What is a reentrancy attack?",
+        "options": [
+          "Calling a contract function twice in the same transaction",
+          "An exploit where a malicious contract repeatedly calls back into the victim contract before state is updated",
+          "Overflowing an integer variable",
+          "Accessing private state variables"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 6,
+        "question": "What is the purpose of the `emit` keyword?",
+        "options": [
+          "To deploy a contract",
+          "To trigger an event and log it on the blockchain",
+          "To send Ether",
+          "To call an external contract"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 7,
+        "question": "What does `view` mean on a function?",
+        "options": [
+          "The function can modify state",
+          "The function reads state but does not modify it",
+          "The function is private",
+          "The function accepts Ether"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 8,
+        "question": "What is an ABI in the context of Solidity?",
+        "options": [
+          "A binary encoding of the contract bytecode",
+          "A JSON description of a contract's functions and events used to interact with it",
+          "A type of storage variable",
+          "An access control list"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 9,
+        "question": "What does `require()` do in Solidity?",
+        "options": [
+          "Imports a library",
+          "Validates a condition and reverts the transaction if it fails",
+          "Emits an event",
+          "Sends Ether"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 10,
+        "question": "What is the difference between `storage` and `memory` in Solidity?",
+        "options": [
+          "Storage is temporary; memory is permanent",
+          "Storage is persistent on-chain; memory is temporary during function execution",
+          "They are identical",
+          "Memory is cheaper than storage"
+        ],
+        "answer": 1
+      }
+    ]
+  },
+  "stellar": {
+    "label": "Stellar / Soroban",
+    "questions": [
+      {
+        "id": 1,
+        "question": "What is the native asset on the Stellar network?",
+        "options": ["ETH", "XLM (Lumens)", "USDC", "BTC"],
+        "answer": 1
+      },
+      {
+        "id": 2,
+        "question": "What is SEP-0010 used for?",
+        "options": [
+          "Token issuance",
+          "Stellar Web Authentication (challenge-response auth)",
+          "Cross-border payments",
+          "Decentralized exchange orders"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 3,
+        "question": "What is a Soroban smart contract written in?",
+        "options": ["JavaScript", "Solidity", "Rust", "Go"],
+        "answer": 2
+      },
+      {
+        "id": 4,
+        "question": "What is the minimum account balance required on Stellar?",
+        "options": [
+          "0 XLM",
+          "1 XLM base reserve",
+          "10 XLM",
+          "100 XLM"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 5,
+        "question": "What does Horizon provide?",
+        "options": [
+          "A Soroban smart contract runtime",
+          "An HTTP API to interact with the Stellar network",
+          "A wallet interface",
+          "A DEX aggregator"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 6,
+        "question": "What is a trustline on Stellar?",
+        "options": [
+          "A connection between two wallets",
+          "An account's opt-in to hold a specific non-native asset",
+          "A payment channel",
+          "A multi-signature requirement"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 7,
+        "question": "What is the Freighter wallet used for?",
+        "options": [
+          "Mining XLM",
+          "A browser extension wallet for signing Stellar transactions",
+          "Running a Stellar validator node",
+          "Issuing new assets"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 8,
+        "question": "What does `invoke_contract` do in Soroban?",
+        "options": [
+          "Deploys a new contract",
+          "Calls a function on an already-deployed Soroban contract",
+          "Upgrades a contract",
+          "Reads contract storage"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 9,
+        "question": "What is the purpose of the Stellar Consensus Protocol (SCP)?",
+        "options": [
+          "To mine new XLM",
+          "To achieve network consensus without proof-of-work via federated Byzantine agreement",
+          "To validate smart contracts",
+          "To manage trustlines"
+        ],
+        "answer": 1
+      },
+      {
+        "id": 10,
+        "question": "What is a claimable balance on Stellar?",
+        "options": [
+          "A locked escrow contract",
+          "An asset amount set aside that specific accounts can claim under defined conditions",
+          "A pending payment channel",
+          "A staking reward"
+        ],
+        "answer": 1
+      }
+    ]
+  }
+}

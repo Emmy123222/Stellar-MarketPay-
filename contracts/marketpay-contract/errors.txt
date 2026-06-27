@@ -1,0 +1,70 @@
+    Checking marketpay-contract v0.1.0 (/Users/amankoli/Stellar-MarketPay-/contracts/marketpay-contract)
+error: cannot find macro `format` in this scope
+    --> src/lib.rs:1377:50
+     |
+1377 |             let job_id = String::from_str(&env, &format!("lifecycle_{}", i));
+     |                                                  ^^^^^^
+
+error: cannot find macro `format` in this scope
+    --> src/lib.rs:1347:50
+     |
+1347 |             let job_id = String::from_str(&env, &format!("fuzz_job_{}", i));
+     |                                                  ^^^^^^
+
+error[E0689]: can't call method `checked_add` on ambiguous numeric type `{integer}`
+   --> src/lib.rs:319:53
+    |
+319 |                 remaining_amount = remaining_amount.checked_add(ms.amount).expect("Arithmetic overflow");
+    |                                                     ^^^^^^^^^^^
+    |
+help: you must specify a type for this binding, like `i32`
+    |
+316 |         let mut remaining_amount: i32 = 0;
+    |                                 +++++
+
+error[E0689]: can't call method `checked_add` on ambiguous numeric type `{integer}`
+   --> src/lib.rs:390:53
+    |
+390 |                 remaining_amount = remaining_amount.checked_add(ms.amount).expect("Arithmetic overflow");
+    |                                                     ^^^^^^^^^^^
+    |
+help: you must specify a type for this binding, like `i32`
+    |
+387 |         let mut remaining_amount: i32 = 0;
+    |                                 +++++
+
+warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+    --> src/lib.rs:1238:28
+     |
+1238 |         let token_id = env.register_stellar_asset_contract(admin.clone());
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+    --> src/lib.rs:1267:28
+     |
+1267 |         let token_id = env.register_stellar_asset_contract(admin.clone());
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+    --> src/lib.rs:1293:28
+     |
+1293 |         let token_id = env.register_stellar_asset_contract(admin.clone());
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+    --> src/lib.rs:1341:28
+     |
+1341 |         let token_id = env.register_stellar_asset_contract(admin.clone());
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated method `soroban_sdk::Env::register_stellar_asset_contract`: use [Env::register_stellar_asset_contract_v2]
+    --> src/lib.rs:1371:28
+     |
+1371 |         let token_id = env.register_stellar_asset_contract(admin.clone());
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0689`.
+warning: `marketpay-contract` (lib test) generated 5 warnings
+error: could not compile `marketpay-contract` (lib test) due to 4 previous errors; 5 warnings emitted

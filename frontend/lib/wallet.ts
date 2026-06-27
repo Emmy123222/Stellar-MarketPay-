@@ -110,7 +110,13 @@ export async function performSEP0010Auth(
   }
 }
 
-export async function signTransactionWithWallet(transactionXDR: string): Promise<{ signedXDR: string | null; error: string | null }> {
+export async function signTransactionWithWallet(transactionXDR: string, mockParams?: any): Promise<{ signedXDR: string | null; error: string | null; mockParams?: any }> {
+  // Mock mode: bypass Freighter entirely
+  if (process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true" && transactionXDR === "MOCK_UNSIGNED_XDR") {
+    console.log("[WALLET] Mock mode: skipping Freighter signature");
+    return { signedXDR: "MOCK_SIGNED_XDR", error: null, mockParams };
+  }
+
   const freighter = getWindowFreighter();
   try {
     const network = process.env.NEXT_PUBLIC_STELLAR_NETWORK === "mainnet" ? "MAINNET" : "TESTNET";
@@ -126,4 +132,38 @@ export async function signTransactionWithWallet(transactionXDR: string): Promise
     if (msg.includes("User declined") || msg.includes("rejected")) return { signedXDR: null, error: "Transaction signing rejected." };
     return { signedXDR: null, error: `Signing failed: ${msg}` };
   }
+}
+
+/**
+ * Issue #499 — Subscribe to Freighter account changes.
+ *
+ * Freighter exposes `window.freighter.on('accountChanged', callback)` in newer
+ * versions. This helper wraps that API with a polling fallback for older builds.
+ *
+ * @returns Unsubscribe function, or null if not supported (caller should poll).
+ */
+export function subscribeToAccountChanges(
+  callback: (publicKey: string | null) => void
+): (() => void) | null {
+  if (typeof window === "undefined") return null;
+
+  const w = window as Window & {
+    freighter?: {
+      on?: (event: string, cb: (data: unknown) => void) => void;
+      off?: (event: string, cb: (data: unknown) => void) => void;
+    };
+  };
+
+  if (w.freighter?.on && w.freighter?.off) {
+    const handler = (data: unknown) => {
+      // Freighter passes the new public key (string) or undefined on disconnect
+      const pk = typeof data === "string" && data.length > 0 ? data : null;
+      callback(pk);
+    };
+    w.freighter.on("accountChanged", handler);
+    return () => w.freighter?.off?.("accountChanged", handler);
+  }
+
+  // No native event support — return null so caller can poll
+  return null;
 }
