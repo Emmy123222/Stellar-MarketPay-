@@ -423,6 +423,51 @@ router.get("/:publicKey/encryption-key", generalProfileRateLimiter, async (req, 
   } catch (e) { next(e); }
 });
 
+// PUT /api/profiles/:publicKey/encryption-key — store user's X25519 public key (Issue #474)
+router.put("/:publicKey/encryption-key", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+
+    if (req.user.publicKey !== publicKey) {
+      return next(createError(ErrorCodes.FORBIDDEN, "You can only update your own encryption key", 403));
+    }
+
+    const { encryptionPublicKey } = req.body;
+
+    if (!encryptionPublicKey || typeof encryptionPublicKey !== "string") {
+      return next(createError(ErrorCodes.VALIDATION_ERROR, "encryptionPublicKey is required", 400));
+    }
+
+    // Validate: must be a base64-encoded 32-byte X25519 key
+    let keyBytes;
+    try {
+      keyBytes = Buffer.from(encryptionPublicKey, "base64");
+    } catch {
+      return next(createError(ErrorCodes.ENCRYPTION_KEY_INVALID, "encryptionPublicKey must be base64-encoded", 400));
+    }
+
+    if (keyBytes.length !== 32) {
+      return next(createError(ErrorCodes.ENCRYPTION_KEY_INVALID, "encryptionPublicKey must be a 32-byte X25519 key (base64)", 400));
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE profiles
+         SET encryption_public_key = $2, updated_at = NOW()
+       WHERE public_key = $1
+       RETURNING encryption_public_key`,
+      [publicKey, encryptionPublicKey],
+    );
+
+    if (!rows.length) {
+      return next(createError(ErrorCodes.PROFILE_NOT_FOUND, "Profile not found", 404));
+    }
+
+    await cache.del(cache.profileKey(publicKey));
+
+    res.json({ success: true, data: { encryptionPublicKey: rows[0].encryption_public_key } });
+  } catch (e) { next(e); }
+});
+
 // DELETE /api/profiles/:publicKey/data — GDPR deletion request
 router.delete("/:publicKey/data", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
   try {

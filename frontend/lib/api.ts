@@ -2145,8 +2145,7 @@ export async function publishMyEncryptionKey(
   userPublicKey: string,
   naclPublicKey: string,
 ): Promise<void> {
-  await api.post(`/api/profiles/${encodeURIComponent(userPublicKey)}`, {
-    publicKey: userPublicKey,
+  await api.put(`/api/profiles/${encodeURIComponent(userPublicKey)}/encryption-key`, {
     encryptionPublicKey: naclPublicKey,
   });
 }
