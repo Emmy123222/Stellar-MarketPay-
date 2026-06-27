@@ -27,3 +27,21 @@ groups:
         annotations:
           summary: "PostgreSQL pool is near capacity"
           description: "The shared PostgreSQL pool is using more than 80 connections."
+
+      - alert: MonthlySpendWarning
+        expr: sum(container_memory_usage_bytes{project="stellar-marketpay"}) by (environment) > 0
+        for: 24h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Infrastructure cost threshold warning"
+          description: "Project stellar-marketpay estimated monthly spend may exceed $100 threshold. Review cost report."
+
+      - alert: HighComputeUtilization
+        expr: node_cpu_seconds_total{mode="idle"} < 20
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "High CPU utilization detected"
+          description: "Compute resources are above 80% utilization — review right-sizing recommendations."

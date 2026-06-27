@@ -14,6 +14,20 @@ Object.defineProperty(window, "matchMedia", {
   })),
 });
 
+Element.prototype.scrollIntoView = jest.fn();
+
+Object.defineProperty(window, "crypto", {
+  configurable: true,
+  value: {
+    ...window.crypto,
+    getRandomValues: (arr: Uint8Array) => {
+      for (let i = 0; i < arr.length; i += 1) arr[i] = 0;
+      return arr;
+    },
+    subtle: window.crypto?.subtle,
+  },
+});
+
 jest.mock("next/router", () => ({
   useRouter: () => ({
     pathname: "/",
