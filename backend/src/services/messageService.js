@@ -48,15 +48,20 @@ function validateMessageContent(content) {
 /** Convert snake_case DB row → camelCase API object */
 function rowToMessage(row) {
   return {
-    id:             row.id,
-    jobId:          row.job_id,
-    senderAddress:  row.sender_address,
+    id:              row.id,
+    jobId:           row.job_id,
+    senderAddress:   row.sender_address,
     receiverAddress: row.receiver_address,
-    content:        row.content,
-    ipfsCid:        row.ipfs_cid,
-    txHash:         row.tx_hash,
-    read:           row.read,
-    createdAt:      row.created_at,
+    content:         row.content,
+    ipfsCid:         row.ipfs_cid,
+    txHash:          row.tx_hash,
+    read:            row.read,
+    attachmentCid:   row.attachment_cid  || null,
+    attachmentName:  row.attachment_name || null,
+    attachmentSize:  row.attachment_size || null,
+    attachmentMime:  row.attachment_mime || null,
+    senderNaclPub:   row.sender_nacl_pub || null,
+    createdAt:       row.created_at,
   };
 }
 
@@ -261,6 +266,39 @@ async function attachTxHash(messageId, txHash) {
   return rowToMessage(rows[0]);
 }
 
+/**
+ * Create a message with an encrypted file attachment (uploaded to IPFS by the route).
+ */
+async function createFileAttachment({ jobId, senderAddress, cid, fileName, fileSize, fileMime, senderNaclPub }) {
+  const { rows: jobRows } = await pool.query(
+    `SELECT client_address, freelancer_address FROM jobs WHERE id = $1`,
+    [jobId],
+  );
+  if (!jobRows.length) {
+    const e = new Error("Job not found");
+    e.status = 404;
+    throw e;
+  }
+  const job = jobRows[0];
+  if (job.client_address !== senderAddress && job.freelancer_address !== senderAddress) {
+    const e = new Error("Not a job participant");
+    e.status = 403;
+    throw e;
+  }
+  const receiverAddress =
+    job.client_address === senderAddress ? job.freelancer_address : job.client_address;
+
+  const { rows } = await pool.query(
+    `INSERT INTO messages
+       (job_id, sender_address, receiver_address, content,
+        attachment_cid, attachment_name, attachment_size, attachment_mime, sender_nacl_pub)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [jobId, senderAddress, receiverAddress, "[encrypted file]",
+     cid, fileName, fileSize, fileMime, senderNaclPub || null],
+  );
+  return rowToMessage(rows[0]);
+}
+
 module.exports = {
   createMessage,
   getMessagesByJob,
@@ -268,4 +306,5 @@ module.exports = {
   getUnreadCount,
   attachTxHash,
   verifyJobParticipant,
+  createFileAttachment,
 };

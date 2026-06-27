@@ -30,8 +30,7 @@ jobs:
             export IMAGE_TAG=${{ github.event.inputs.image_tag }}
             export IMAGE_TAG=$(echo "$IMAGE_TAG" | tr '[:upper:]' '[:lower:]')
             cd ${{ secrets.PRODUCTION_APP_DIR }}
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d
+            ./scripts/blue-green-deploy.sh
 
       - name: Notify Discord success
         if: success()

@@ -284,12 +284,14 @@ stellar-marketpay/
 ### For Developers
 
 1. [Architecture Overview](./architecture.md)
-2. [ADR-001: Escrow Design](./ADR-001-soroban-escrow-design.md)
-3. [ADR-002: Horizon API](./ADR-002-horizon-api-indexing.md)
-4. [ADR-003: Database Schema](./ADR-003-database-schema-escrow.md)
-5. [API Documentation](./API_DOCUMENTATION.md)
-6. [Pinata IPFS Setup](./PINATA_IPFS_SETUP.md)
-7. [Deployment Guide](./deployment.md)
+2. [Contributing Guide](../CONTRIBUTING.md)
+3. [Database Schema & ERD](./database-schema.md)
+4. [ADR-001: Escrow Design](./ADR-001-soroban-escrow-design.md)
+5. [ADR-002: Horizon API](./ADR-002-horizon-api-indexing.md)
+6. [ADR-003: Database Schema](./ADR-003-database-schema-escrow.md)
+7. [API Documentation](./API_DOCUMENTATION.md)
+8. [Pinata IPFS Setup](./PINATA_IPFS_SETUP.md)
+9. [Deployment Guide](./deployment.md)
 
 ### For DevOps/Infrastructure
 
@@ -312,6 +314,7 @@ stellar-marketpay/
 
 **Database & Backend**
 
+- [Database Schema & ERD](./database-schema.md)
 - [ADR-003: Database Schema](./ADR-003-database-schema-escrow.md)
 - [API Documentation](./API_DOCUMENTATION.md)
 - [Deployment Guide](./deployment.md)
