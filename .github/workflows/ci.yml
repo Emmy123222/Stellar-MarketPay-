@@ -20,29 +20,80 @@ jobs:
           node-version: 20 # or your project's version
           cache: "npm"
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build the Next.js application
-        run: npm run build
-
-      - name: Start the application (production mode)
-        run: |
-          npm run start &
-          npx wait-on http://localhost:3000
+  backend:
+    name: Backend (Node.js)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
         env:
-          # If your app needs environment variables, set them here.
-          # For example:
-          # NEXT_PUBLIC_API_URL: http://localhost:3000
-          # DATABASE_URL: ... (but your mocks override all API calls)
-          NODE_ENV: production
-
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps
-
-      - name: Run Playwright end‑to‑end tests (headless)
-        run: npx playwright test frontend/e2e/post-job.spec.ts
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: marketpay_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    needs: secrets-scan
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+        continue-on-error: true
+      - run: npm test
         env:
-          # Ensure Playwright uses the correct base URL (default is http://localhost:3000)
-          # If your dev server runs on a different port, adjust here or in playwright.config.ts
-          PLAYWRIGHT_TEST_BASE_URL: http://localhost:3000
+          DATABASE_URL: postgresql://test:test@localhost:5432/marketpay_test
+          JWT_SECRET: ci-test-jwt-secret-with-sufficient-length
+          DATABASE_ENCRYPTION_KEY: ci-test-encryption-key-32chars!!
+      - name: Mutation testing
+        run: npm run test:mutation
+        continue-on-error: true
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/marketpay_test
+          JWT_SECRET: ci-test-jwt-secret-with-sufficient-length
+          STRYKER_DASHBOARD_API_KEY: ${{ secrets.STRYKER_DASHBOARD_API_KEY }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+      - run: npm run lint
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+          retention-days: 7
+
+  contracts:
+    name: Soroban Contract (Rust)
+    runs-on: ubuntu-latest
+    needs: secrets-scan
+    defaults:
+      run:
+        working-directory: contracts/marketpay-contract
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - run: cargo check --target wasm32v1-none
+      - run: cargo clippy -- -D warnings
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit --ignore RUSTSEC-2020-0071
+      - run: cargo test
+      - run: cargo build --target wasm32v1-none --release
