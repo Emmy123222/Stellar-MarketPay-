@@ -146,7 +146,11 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
         {/* Header row */}
         <div className="flex items-start justify-between gap-3 mb-3">
           <h3 className="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2">
-            {job.title}
+            {job.searchHeadline ? (
+              <span dangerouslySetInnerHTML={{ __html: job.searchHeadline }} />
+            ) : (
+              job.title
+            )}
           </h3>
           <span className={statusClass(job.status) + " flex-shrink-0 text-xs"}>
             {statusLabel(job.status)}
@@ -155,7 +159,11 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
 
         {/* Description */}
         <p className="text-amber-800/80 text-sm leading-relaxed line-clamp-3 mb-4">
-          {job.description}
+          {job.descriptionHeadline ? (
+            <span dangerouslySetInnerHTML={{ __html: job.descriptionHeadline }} />
+          ) : (
+            job.description
+          )}
         </p>
 
         {/* Skills */}

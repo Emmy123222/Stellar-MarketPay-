@@ -17,6 +17,7 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
 const { logger, requestLoggerMiddleware, logError, createServiceLogger } = require('./utils/logger');
 const { sanitizeMiddleware } = require('./middleware/sanitize');
+const { idempotencyMiddleware, cleanupExpiredIdempotencyKeys } = require('./middleware/idempotency');
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -33,6 +34,7 @@ const adminRoutes     = require("./routes/admin");
 const admin2faRoutes  = require("./routes/admin2fa");
 const timeEntryRoutes = require("./routes/timeEntries");
 const referralRoutes  = require("./routes/referrals");
+const graphqlHandler  = require("./graphql");
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
@@ -171,6 +173,7 @@ app.use(requestLoggerMiddleware);
 
 app.use(express.json({ limit: "20kb" }));
 app.use(sanitizeMiddleware({ strict: false }));
+app.use(idempotencyMiddleware());
 
 // Swagger UI
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
@@ -182,7 +185,7 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").
 app.use(cors({
   origin: (origin, cb) => (!origin || allowedOrigins.includes(origin)) ? cb(null, true) : cb(new Error("CORS blocked")),
   methods: ["GET", "POST", "PATCH", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
   credentials: true,
 }));
 
@@ -205,6 +208,7 @@ app.use("/api/admin/2fa",     admin2faRoutes);
 app.use("/api/admin",         adminRoutes);
 app.use("/api/time-entries",  timeEntryRoutes);
 app.use("/api/referrals",     referralRoutes);
+app.use("/api/graphql",       graphqlHandler);
 
 app.use((err, req, res, next) => {
   logError(req.logger || serviceLogger, err, {
@@ -352,6 +356,13 @@ async function bootstrap() {
 
   // Start notification processor - run every 2 minutes
   startNotificationProcessor();
+
+  // Clean up expired idempotency keys every hour
+  setInterval(() => {
+    cleanupExpiredIdempotencyKeys().catch((err) => {
+      logError(serviceLogger, err, { operation: 'idempotency_cleanup' });
+    });
+  }, 60 * 60 * 1000).unref();
 
   server.listen(PORT, () => {
     serviceLogger.info({

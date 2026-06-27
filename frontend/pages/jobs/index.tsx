@@ -181,6 +181,8 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     }
   };
 
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (!router.isReady) return;
 
@@ -197,12 +199,18 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
         let allJobs: Job[] = [];
 
         const activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
+        const activeSearch = search.trim() || undefined;
+
+        if (activeSearch && pageFromQuery > 1) {
+          return;
+        }
 
         for (let page = 1; page <= pageFromQuery; page += 1) {
           const result = await fetchJobs({
             category: category || undefined,
             status: status || undefined,
             limit: 20,
+            search: activeSearch,
             cursor,
             timezone: activeTimezone || undefined,
             viewerAddress: viewerAddress || undefined,
@@ -230,10 +238,19 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
       }
     }
 
-    loadJobs();
+    if (searchDebounce.current) {
+      clearTimeout(searchDebounce.current);
+    }
 
-    return () => { isCancelled = true; };
-  }, [category, status, pageFromQuery, router.isReady, manualTimezone, useGeolocation, userTimezone, viewerAddress]);
+    searchDebounce.current = setTimeout(() => {
+      loadJobs();
+    }, 300);
+
+    return () => {
+      isCancelled = true;
+      if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    };
+  }, [category, status, pageFromQuery, router.isReady, manualTimezone, useGeolocation, userTimezone, viewerAddress, search]);
 
   // Fetch suggestions with debounce
   const fetchSuggestions = useCallback(async (query: string) => {
@@ -320,13 +337,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const searchFiltered = search.trim()
-    ? jobs.filter((j) =>
-      j.title.toLowerCase().includes(search.toLowerCase()) ||
-      j.description.toLowerCase().includes(search.toLowerCase()) ||
-      j.skills.some((s) => s.toLowerCase().includes(search.toLowerCase()))
-    )
-    : jobs;
+  const searchFiltered = jobs;
 
   const minN = minBudget.trim() ? parseFloat(minBudget) : NaN;
   const maxN = maxBudget.trim() ? parseFloat(maxBudget) : NaN;
@@ -367,6 +378,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
         category: category || undefined,
         status: status || undefined,
         limit: 20,
+        search: search.trim() || undefined,
         cursor: nextCursor,
         timezone: activeTimezone || undefined,
         viewerAddress: viewerAddress || undefined,

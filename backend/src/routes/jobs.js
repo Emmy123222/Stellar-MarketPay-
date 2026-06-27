@@ -6,7 +6,7 @@
 const express = require("express");
 const router = express.Router();
 
-const { createRateLimiter } = require("../middleware/rateLimiter");
+const { createRateLimiter, createDisputeRateLimiter } = require("../middleware/rateLimiter");
 
 const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per minute
 const generalJobRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for listing/getting jobs
@@ -492,6 +492,7 @@ router.post(
   "/:id/dispute",
   verifyJWT,
   generalJobRateLimiter,
+  createDisputeRateLimiter,
   async (req, res, next) => {
     try {
       const { reason, description } = req.body;
