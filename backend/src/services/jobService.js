@@ -272,11 +272,17 @@ async function createJob({
  * Retrieves a job by its ID.
  *
  * @param {number|string} id - The ID of the job to retrieve.
+ * @param {Object} [options] - Options.
+ * @param {boolean} [options.includeDeleted=false] - Include soft-deleted records.
  * @returns {Promise<Object>} The job object.
  * @throws {Error} If the job is not found.
  */
-async function getJob(id) {
-  const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [id]);
+async function getJob(id, { includeDeleted = false } = {}) {
+  const deletedFilter = includeDeleted ? "" : "AND deleted_at IS NULL";
+  const { rows } = await pool.query(
+    `SELECT * FROM jobs WHERE id = $1 ${deletedFilter}`,
+    [id]
+  );
   if (!rows.length) {
     const e = new Error("Job not found");
     e.status = 404;
@@ -347,9 +353,14 @@ async function listJobs({
   timezone,
   includeExpired,
   viewerAddress,
+  includeDeleted = false,
 } = {}) {
   const conditions = [];
   const params = [];
+
+  if (!includeDeleted) {
+    conditions.push("deleted_at IS NULL");
+  }
 
   if (status && status !== "all") {
     params.push(status);
@@ -423,13 +434,16 @@ async function listJobs({
  * Retrieve all jobs posted by a specific client.
  *
  * @param {string} clientAddress - The Stellar public key of the client.
+ * @param {Object} [options] - Options.
+ * @param {boolean} [options.includeDeleted=false] - Include soft-deleted records.
  * @returns {Promise<Object[]>} An array of job objects.
  * @throws {Error} If the clientAddress is an invalid Stellar public key.
  */
-async function listJobsByClient(clientAddress) {
+async function listJobsByClient(clientAddress, { includeDeleted = false } = {}) {
   validatePublicKey(clientAddress);
+  const deletedFilter = includeDeleted ? "" : "AND deleted_at IS NULL";
   const { rows } = await pool.query(
-    "SELECT * FROM jobs WHERE client_address = $1 ORDER BY created_at DESC",
+    `SELECT * FROM jobs WHERE client_address = $1 ${deletedFilter} ORDER BY created_at DESC`,
     [clientAddress],
   );
   return rows.map(rowToJob);
@@ -522,21 +536,38 @@ async function updateJobEscrowId(jobId, escrowContractId) {
 }
 
 /**
- * Delete a job by its ID.
+ * Soft-delete a job by its ID (sets deleted_at instead of removing).
  *
  * @param {number|string} jobId - The ID of the job to delete.
- * @returns {Promise<void>} Resolves when the job is deleted.
+ * @returns {Promise<void>} Resolves when the job is soft-deleted.
  * @throws {Error} If the job is not found.
  */
 async function deleteJob(jobId) {
-  const { rowCount } = await pool.query("DELETE FROM jobs WHERE id = $1", [
-    jobId,
-  ]);
+  const { rowCount } = await pool.query(
+    "UPDATE jobs SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
+    [jobId]
+  );
   if (!rowCount) {
     const e = new Error("Job not found");
     e.status = 404;
     throw e;
   }
+}
+
+/**
+ * Permanently purge soft-deleted jobs older than the given number of days.
+ *
+ * @param {number} [days=90] - Number of days after soft-delete to purge.
+ * @returns {Promise<number>} Count of purged rows.
+ */
+async function purgeDeletedJobs(days = 90) {
+  const { rowCount } = await pool.query(
+    `DELETE FROM jobs
+     WHERE deleted_at IS NOT NULL
+       AND deleted_at < NOW() - INTERVAL '1 day' * $1`,
+    [days]
+  );
+  return rowCount || 0;
 }
 
 /**
@@ -655,6 +686,7 @@ async function getCategoryAnalytics() {
         EXTRACT(EPOCH FROM (updated_at - created_at)) / 86400.0
       ) FILTER (WHERE freelancer_address IS NOT NULL)                 AS avg_days_to_fill
     FROM jobs
+    WHERE deleted_at IS NULL
     GROUP BY category
     ORDER BY job_count DESC
   `);
@@ -685,6 +717,7 @@ async function getAnalyticsOverview() {
         EXTRACT(EPOCH FROM (updated_at - created_at)) / 86400.0
       ) FILTER (WHERE freelancer_address IS NOT NULL)                 AS avg_days_to_fill
     FROM jobs
+    WHERE deleted_at IS NULL
   `);
 
   const r = rows[0];
@@ -848,6 +881,7 @@ async function expireOldJobs() {
     `UPDATE jobs
      SET status = 'expired', updated_at = NOW()
      WHERE status = 'open'
+       AND deleted_at IS NULL
        AND expires_at IS NOT NULL
        AND expires_at < NOW()`
   );
@@ -863,6 +897,7 @@ async function getExpiringJobs(daysFromNow = 3) {
   const { rows } = await pool.query(
     `SELECT * FROM jobs
      WHERE status = 'open'
+       AND deleted_at IS NULL
        AND expires_at IS NOT NULL
        AND expires_at > NOW()
        AND expires_at <= NOW() + INTERVAL '1 day' * $1
@@ -884,7 +919,7 @@ async function bulkCancelJobs(jobIds, clientAddress) {
     try {
       const { rows } = await pool.query(
         `UPDATE jobs SET status = 'cancelled', updated_at = NOW()
-         WHERE id = $1 AND client_address = $2 AND status = 'open'
+         WHERE id = $1 AND client_address = $2 AND status = 'open' AND deleted_at IS NULL
          RETURNING id`,
         [id, clientAddress]
       );
@@ -956,6 +991,7 @@ async function getRecommendedJobs(publicKey) {
   const { rows } = await pool.query(
     `SELECT * FROM jobs
      WHERE status = 'open'
+       AND deleted_at IS NULL
        AND visibility = 'public'
        AND skills && $1
      ORDER BY created_at DESC
@@ -977,11 +1013,11 @@ async function getSuggestions(query) {
   try {
     const [titleResults, skillResults] = await Promise.all([
       pool.query(
-        `SELECT DISTINCT title FROM jobs WHERE title ILIKE $1 AND status = 'open' ORDER BY title LIMIT 5`,
+        `SELECT DISTINCT title FROM jobs WHERE title ILIKE $1 AND status = 'open' AND deleted_at IS NULL ORDER BY title LIMIT 5`,
         [likePattern]
       ),
       pool.query(
-        `SELECT DISTINCT skill FROM (SELECT unnest(skills) as skill FROM jobs WHERE status = 'open') skills WHERE skill ILIKE $1 ORDER BY skill LIMIT 3`,
+        `SELECT DISTINCT skill FROM (SELECT unnest(skills) as skill FROM jobs WHERE status = 'open' AND deleted_at IS NULL) skills WHERE skill ILIKE $1 ORDER BY skill LIMIT 3`,
         [likePattern]
       ),
     ]);
@@ -1010,6 +1046,7 @@ module.exports = {
   assignFreelancer,
   updateJobEscrowId,
   deleteJob,
+  purgeDeletedJobs,
   boostJob,
   incrementShareCount,
   raiseDispute,
