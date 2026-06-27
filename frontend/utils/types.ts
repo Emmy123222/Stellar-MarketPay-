@@ -35,9 +35,10 @@ export interface Availability {
 export interface JobMilestone {
   description: string;
   amount: string;
-  status: "pending" | "released" | "disputed";
+  status: "pending" | "released" | "disputed" | "rejected";
   releasedAt?: string | null;
   disputedAt?: string | null;
+  rejectedAt?: string | null;
 }
 
 export interface NotificationItem {

@@ -17,7 +17,11 @@ const {
   EVENT_TYPES,
 } = require("../services/notificationService");
 const { processReferralPayout } = require("../services/referralService");
-const { releaseMilestone, disputeMilestone } = require("../services/escrowService");
+const {
+  releaseMilestone,
+  rejectMilestone,
+  disputeMilestone,
+} = require("../services/escrowService");
 
 /**
  * POST /api/escrow/:jobId/release
@@ -151,6 +155,38 @@ router.post(
       }
 
       const result = await releaseMilestone(
+        jobId,
+        milestoneIndex,
+        clientAddress,
+        contractTxHash,
+      );
+      res.json({ success: true, data: result });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+/**
+ * POST /api/escrow/:jobId/reject-milestone
+ * Client rejects a single milestone; its share is refunded to the client
+ * while the remaining milestones stay locked.
+ */
+router.post(
+  "/:jobId/reject-milestone",
+  escrowActionRateLimiter,
+  async (req, res, next) => {
+    try {
+      const { jobId } = req.params;
+      const { clientAddress, contractTxHash, milestoneIndex } = req.body;
+
+      if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
+        const e = new Error("Invalid client address");
+        e.status = 400;
+        throw e;
+      }
+
+      const result = await rejectMilestone(
         jobId,
         milestoneIndex,
         clientAddress,

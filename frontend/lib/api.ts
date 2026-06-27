@@ -629,6 +629,20 @@ export async function releaseMilestone(
   return data.data;
 }
 
+export async function rejectMilestone(
+  jobId: string,
+  clientAddress: string,
+  milestoneIndex: number,
+  contractTxHash?: string,
+) {
+  const { data } = await api.post(`/api/escrow/${jobId}/reject-milestone`, {
+    clientAddress,
+    milestoneIndex,
+    ...(contractTxHash ? { contractTxHash } : {}),
+  });
+  return data.data;
+}
+
 export async function disputeMilestone(
   jobId: string,
   raisedBy: string,

@@ -83,6 +83,8 @@ pub struct Milestone {
     pub description: String,
     pub percentage: u32,
     pub released: bool,
+    /// Set to true when the client rejects this milestone and its share is refunded
+    pub rejected: bool,
 }
 
 /// An escrow record stored on-chain.
@@ -449,6 +451,7 @@ impl MarketPayContract {
         description: m.description.clone(),
         percentage: m.percentage,
         released: false,
+        rejected: false,
     });
 }
             if total_percentage != 100 {
@@ -1336,6 +1339,9 @@ impl MarketPayContract {
         if milestone.released {
             panic!("Milestone already released");
         }
+        if milestone.rejected {
+            panic!("Milestone already rejected");
+        }
 
         milestone.released = true;
         escrow.milestones.set(milestone_index, milestone.clone());
@@ -1355,10 +1361,10 @@ impl MarketPayContract {
             &payout,
         );
 
-        // Check if all milestones are now completed
+        // Check if all milestones are now resolved (released or rejected)
         let mut all_completed = true;
         for ms in escrow.milestones.iter() {
-            if !ms.released {
+            if !ms.released && !ms.rejected {
                 all_completed = false;
                 break;
             }
@@ -1401,6 +1407,90 @@ impl MarketPayContract {
         env.events().publish(
             (Symbol::new(&env, "milestone_released"), job_id.clone()),
             (escrow.client.clone(), escrow.freelancer.clone(), milestone_id, payout),
+        );
+    }
+
+    /// Partial milestone refund — the client rejects a single milestone and its
+    /// share of the escrow is returned to the client. Remaining milestones stay
+    /// locked in the contract.
+    ///
+    /// Only the client may call this. The milestone is identified by its id
+    /// (the index assigned at creation time).
+    pub fn reject_milestone(env: Env, job_id: String, milestone_index: u32, client: Address) {
+        client.require_auth();
+
+        let mut escrow: Escrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        if escrow.client != client {
+            panic!("Only the client can reject a milestone");
+        }
+        if escrow.status != EscrowStatus::InProgress
+            && escrow.status != EscrowStatus::Locked
+            && escrow.status != EscrowStatus::Disputed
+        {
+            panic!("Cannot reject milestone in current status");
+        }
+
+        let mut idx: Option<u32> = None;
+        for i in 0..escrow.milestones.len() {
+            if escrow.milestones.get(i).unwrap().id == milestone_index {
+                idx = Some(i);
+                break;
+            }
+        }
+        let position = idx.expect("Invalid milestone id");
+
+        let mut milestone = escrow.milestones.get(position).unwrap();
+        if milestone.released {
+            panic!("Milestone already released");
+        }
+        if milestone.rejected {
+            panic!("Milestone already rejected");
+        }
+
+        milestone.rejected = true;
+        escrow.milestones.set(position, milestone.clone());
+
+        // Compute this milestone's percentage of the total and refund to client
+        let refund = escrow.amount
+            .checked_mul(milestone.percentage as i128)
+            .expect("Arithmetic overflow")
+            .checked_div(100)
+            .expect("Arithmetic overflow");
+
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &escrow.client,
+            &refund,
+        );
+
+        // If every milestone is now resolved (released or rejected), close out the escrow
+        let mut all_resolved = true;
+        for ms in escrow.milestones.iter() {
+            if !ms.released && !ms.rejected {
+                all_resolved = false;
+                break;
+            }
+        }
+        if all_resolved {
+            escrow.status = EscrowStatus::Released;
+            env.storage()
+                .instance()
+                .remove(&DataKey::TimeoutTimestamp(job_id.clone()));
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Escrow(job_id.clone()), &escrow);
+
+        env.events().publish(
+            (Symbol::new(&env, "milestone_rejected"), job_id.clone()),
+            (escrow.client.clone(), escrow.freelancer.clone(), milestone_index, refund),
         );
     }
 

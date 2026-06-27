@@ -352,6 +352,72 @@ async function releaseMilestone(jobId, milestoneIndex, clientAddress, contractTx
   };
 }
 
+async function rejectMilestone(jobId, milestoneIndex, clientAddress, contractTxHash) {
+  const job = await getJob(jobId);
+  if (job.clientAddress !== clientAddress) {
+    const e = new Error("Only the job client can reject milestones");
+    e.status = 403;
+    throw e;
+  }
+
+  if (job.status !== "in_progress") {
+    const e = new Error("Job is not in progress");
+    e.status = 400;
+    throw e;
+  }
+
+  const milestones = await getMilestonesForJob(jobId, job);
+  const index = validateMilestoneIndex(milestones, milestoneIndex);
+  const milestone = milestones[index];
+
+  if (milestone.status === "released") {
+    const e = new Error("Released milestones cannot be rejected");
+    e.status = 400;
+    throw e;
+  }
+  if (milestone.status === "rejected") {
+    const e = new Error("Milestone already rejected");
+    e.status = 400;
+    throw e;
+  }
+
+  milestones[index] = {
+    ...milestone,
+    status: "rejected",
+    rejectedAt: new Date().toISOString(),
+  };
+  await persistMilestones(jobId, milestones);
+
+  await logContractInteraction({
+    functionName: "reject_milestone",
+    callerAddress: clientAddress,
+    jobId,
+    txHash: contractTxHash || `offchain-${Date.now()}`,
+  });
+
+  await notifyEscrowEvent({
+    eventType: EVENT_TYPES.REFUND_ISSUED,
+    jobId,
+    clientAddress: job.clientAddress,
+    freelancerAddress: job.freelancerAddress,
+    data: {
+      jobTitle: job.title,
+      jobId,
+      milestoneIndex: index,
+      milestoneDescription: milestone.description,
+      amount: milestone.amount,
+      currency: job.currency,
+    },
+  });
+
+  return {
+    success: true,
+    message: `Milestone ${index + 1} rejected and refunded to client`,
+    milestone: milestones[index],
+    milestones,
+  };
+}
+
 async function disputeMilestone(jobId, milestoneIndex, raisedBy) {
   const job = await getJob(jobId);
   if (job.clientAddress !== raisedBy && job.freelancerAddress !== raisedBy) {
@@ -448,6 +514,7 @@ module.exports = {
   markDisputed,
   partialRelease,
   releaseMilestone,
+  rejectMilestone,
   disputeMilestone,
   getEscrow,
   startEscrowTimeoutChecker,
