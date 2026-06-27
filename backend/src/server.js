@@ -85,6 +85,96 @@ dbConnectionGauge.collect = function collectDbConnections() {
   this.set({ state: "waiting" }, pool.waitingCount);
 };
 
+const pgPoolTotal = new promClient.Gauge({
+  name: "pg_pool_total",
+  help: "Total PostgreSQL pool connections",
+  registers: [metricsRegistry],
+});
+
+const pgPoolIdle = new promClient.Gauge({
+  name: "pg_pool_idle",
+  help: "Idle PostgreSQL pool connections",
+  registers: [metricsRegistry],
+});
+
+const pgPoolWaiting = new promClient.Gauge({
+  name: "pg_pool_waiting",
+  help: "Waiting PostgreSQL pool requests",
+  registers: [metricsRegistry],
+});
+
+pgPoolTotal.collect = function collectPgPoolTotal() {
+  this.set(pool.totalCount);
+};
+pgPoolIdle.collect = function collectPgPoolIdle() {
+  this.set(pool.idleCount);
+};
+pgPoolWaiting.collect = function collectPgPoolWaiting() {
+  this.set(pool.waitingCount);
+};
+
+const wsConnectionsActive = new promClient.Gauge({
+  name: "ws_connections_active",
+  help: "Active WebSocket connections",
+  registers: [metricsRegistry],
+});
+
+const notificationQueuePending = new promClient.Gauge({
+  name: "notification_queue_pending",
+  help: "Pending notifications in the queue",
+  registers: [metricsRegistry],
+});
+
+notificationQueuePending.collect = async function collectNotificationQueue() {
+  try {
+    const { rows } = await pool.query(
+      "SELECT COUNT(*)::int AS cnt FROM notification_queue WHERE status = 'pending'"
+    );
+    this.set(rows[0]?.cnt || 0);
+  } catch {
+    this.set(0);
+  }
+};
+
+let poolWaitingSince = null;
+const POOL_ALERT_THRESHOLD = 5;
+const POOL_ALERT_INTERVAL_MS = 10_000;
+
+function checkPoolHealth() {
+  const waiting = pool.waitingCount;
+  if (waiting > POOL_ALERT_THRESHOLD) {
+    if (!poolWaitingSince) {
+      poolWaitingSince = Date.now();
+    } else if (Date.now() - poolWaitingSince > POOL_ALERT_INTERVAL_MS) {
+      serviceLogger.error({
+        waiting,
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        duration_ms: Date.now() - poolWaitingSince,
+      }, "Database pool exhausted: requests queuing for >10s");
+      const webhookUrl = process.env.POOL_ALERT_WEBHOOK_URL;
+      if (webhookUrl) {
+        fetch(webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            alert: "pg_pool_exhausted",
+            waiting,
+            total: pool.totalCount,
+            idle: pool.idleCount,
+            timestamp: new Date().toISOString(),
+          }),
+        }).catch(() => {});
+      }
+      poolWaitingSince = Date.now();
+    }
+  } else {
+    poolWaitingSince = null;
+  }
+}
+
+setInterval(checkPoolHealth, 1000).unref();
+
 const realtimeClients = new Set();
 const scopeSessionClients = new Map();
 
@@ -94,6 +184,7 @@ function broadcastRealtime(event, payload) {
   for (const ws of realtimeClients) {
     if (ws.readyState === WS_OPEN) ws.send(message);
   }
+  wsConnectionsActive.set(realtimeClients.size);
 }
 
 async function upsertScopeSession(sessionId, patch) {
@@ -259,6 +350,14 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 150, standardHeaders: true, l
 
 app.get("/metrics", async (req, res, next) => {
   try {
+    const metricsSecret = process.env.METRICS_SECRET;
+    if (metricsSecret) {
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+      if (token !== metricsSecret) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+    }
     res.set("Content-Type", metricsRegistry.contentType);
     res.end(await metricsRegistry.metrics());
   } catch (error) {
@@ -330,8 +429,12 @@ wsServer.on("connection", async (ws, request) => {
 
   if (url.pathname === "/ws/realtime") {
     realtimeClients.add(ws);
+    wsConnectionsActive.set(realtimeClients.size);
     sendJson(ws, "connected", { channel: "realtime" });
-    ws.on("close", () => realtimeClients.delete(ws));
+    ws.on("close", () => {
+      realtimeClients.delete(ws);
+      wsConnectionsActive.set(realtimeClients.size);
+    });
     return;
   }
 
@@ -437,6 +540,9 @@ async function bootstrap() {
 
   // Start weekly digest scheduler - fires every Monday at 09:00 UTC
   startWeeklyDigestScheduler();
+
+  // Start purge job for soft-deleted records - run daily
+  startPurgeDeletedRecords();
 
   server.listen(PORT, () => {
     serviceLogger.info({
@@ -620,6 +726,29 @@ function startWeeklyDigestScheduler() {
     // Then run every 7 days from that point onward
     setInterval(runDigest, 7 * 24 * 60 * 60 * 1000).unref();
   }, delay).unref();
+}
+
+/**
+ * Periodically purge soft-deleted jobs and profiles older than 90 days (runs daily).
+ */
+function startPurgeDeletedRecords() {
+  const { purgeDeletedJobs } = require("./services/jobService");
+  const { purgeDeletedProfiles } = require("./services/profileService");
+  const purgeLogger = createServiceLogger("purge-deleted");
+
+  async function purge() {
+    try {
+      const jobsCount = await purgeDeletedJobs(90);
+      const profilesCount = await purgeDeletedProfiles(90);
+      if (jobsCount > 0 || profilesCount > 0) {
+        purgeLogger.info({ jobsPurged: jobsCount, profilesPurged: profilesCount }, "Purged soft-deleted records older than 90 days");
+      }
+    } catch (err) {
+      logError(purgeLogger, err, { operation: "purge_deleted_records" });
+    }
+  }
+
+  setInterval(purge, 24 * 60 * 60 * 1000).unref();
 }
 
 bootstrap();
