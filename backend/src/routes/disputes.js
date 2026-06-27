@@ -21,6 +21,7 @@ const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT }         = require("../middleware/auth");
 const ipfsService            = require("../services/ipfsService");
 const { validateIpfsCid }    = require("../services/disputeService");
+const { createError, ErrorCodes } = require("../utils/errors");
 
 const MAX_FILES_PER_PARTY = 10;
 const MAX_FILE_SIZE       = 5 * 1024 * 1024; // 5 MB
@@ -54,9 +55,7 @@ router.get("/:jobId", readRateLimiter, async (req, res, next) => {
     );
 
     if (!jobRows.length) {
-      const e = new Error("Job not found");
-      e.status = 404;
-      throw e;
+      throw createError(ErrorCodes.JOB_NOT_FOUND, "Job not found", 404);
     }
 
     const { rows: evidence } = await pool.query(
@@ -98,9 +97,7 @@ router.post(
       const uploaderAddress    = req.user.publicKey;
 
       if (!req.file) {
-        const e = new Error("No file provided");
-        e.status = 400;
-        throw e;
+        throw createError(ErrorCodes.BAD_REQUEST, "No file provided", 400);
       }
 
       const { rows: jobRows } = await pool.query(
@@ -109,16 +106,12 @@ router.post(
       );
 
       if (!jobRows.length) {
-        const e = new Error("Job not found");
-        e.status = 404;
-        throw e;
+        throw createError(ErrorCodes.JOB_NOT_FOUND, "Job not found", 404);
       }
 
       const job = jobRows[0];
       if (job.client_address !== uploaderAddress && job.freelancer_address !== uploaderAddress) {
-        const e = new Error("Only the client or freelancer can upload evidence");
-        e.status = 403;
-        throw e;
+        throw createError(ErrorCodes.FORBIDDEN, "Only the client or freelancer can upload evidence", 403);
       }
 
       const { rows: countRows } = await pool.query(
@@ -127,9 +120,7 @@ router.post(
       );
 
       if (parseInt(countRows[0].count, 10) >= MAX_FILES_PER_PARTY) {
-        const e = new Error(`Maximum ${MAX_FILES_PER_PARTY} files allowed per party`);
-        e.status = 400;
-        throw e;
+        throw createError(ErrorCodes.EVIDENCE_LIMIT_REACHED, `Maximum ${MAX_FILES_PER_PARTY} files allowed per party`, 400);
       }
 
       let ipfsResult;
@@ -140,11 +131,11 @@ router.post(
           req.file.mimetype
         );
       } catch (ipfsError) {
-        // Return user-friendly error for IPFS failures
-        const e = new Error(ipfsError.message || "Upload service temporarily unavailable. Please try again later.");
-        e.status = ipfsError.status || 503;
-        e.code = ipfsError.code || "IPFS_UPLOAD_FAILED";
-        throw e;
+        throw createError(
+          ipfsError.code || ErrorCodes.IPFS_UPLOAD_FAILED,
+          ipfsError.message || "Upload service temporarily unavailable. Please try again later.",
+          ipfsError.status || 503
+        );
       }
 
       const ipfsCid = validateIpfsCid(ipfsResult?.cid);

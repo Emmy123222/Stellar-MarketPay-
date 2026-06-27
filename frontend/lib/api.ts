@@ -28,6 +28,67 @@ import type {
   AuditLogEntry,
 } from "@/utils/types";
 
+// ─── Structured error code → user-facing string map (#461) ───────────────────
+export const API_ERROR_MESSAGES: Record<string, string> = {
+  INTERNAL_SERVER_ERROR:      "Something went wrong. Please try again.",
+  VALIDATION_ERROR:           "Invalid input. Please check your data.",
+  NOT_FOUND:                  "The requested resource was not found.",
+  UNAUTHORIZED:               "You need to sign in to do that.",
+  FORBIDDEN:                  "You don't have permission to do that.",
+  RATE_LIMITED:               "Too many requests. Please slow down.",
+  BAD_REQUEST:                "Bad request. Please check your input.",
+  INVALID_TOKEN:              "Your session is invalid. Please sign in again.",
+  TOKEN_EXPIRED:              "Your session has expired. Please sign in again.",
+  ADDRESS_MISMATCH:           "Wallet address does not match.",
+  PROFILE_NOT_FOUND:          "Profile not found.",
+  PROFILE_DELETED:            "This profile has been deleted.",
+  ENCRYPTION_KEY_INVALID:     "Invalid encryption key format.",
+  JOB_NOT_FOUND:              "Job not found.",
+  JOB_ALREADY_EXPIRED:        "This job has already expired.",
+  JOB_NOT_OPEN:               "This job is no longer accepting applications.",
+  APPLICATION_NOT_FOUND:      "Application not found.",
+  ALREADY_APPLIED:            "You have already applied to this job.",
+  ESCROW_ALREADY_EXISTS:      "An escrow already exists for this job.",
+  ESCROW_NOT_FOUND:           "Escrow not found.",
+  INSUFFICIENT_BALANCE:       "Insufficient balance for this operation.",
+  ESCROW_ALREADY_RELEASED:    "Escrow has already been released.",
+  ESCROW_TIMEOUT_NOT_REACHED: "The escrow timeout period has not been reached yet.",
+  DISPUTE_NOT_FOUND:          "Dispute not found.",
+  DISPUTE_ALREADY_EXISTS:     "A dispute already exists for this job.",
+  EVIDENCE_LIMIT_REACHED:     "You have reached the maximum number of evidence files.",
+  EVIDENCE_NOT_FOUND:         "Evidence file not found.",
+  MESSAGE_NOT_FOUND:          "Message not found.",
+  MESSAGE_TOO_LONG:           "Message exceeds the maximum length.",
+  NOT_JOB_PARTICIPANT:        "You are not a participant in this job.",
+  FILE_TOO_LARGE:             "File is too large.",
+  FILE_TYPE_NOT_ALLOWED:      "This file type is not allowed.",
+  PORTFOLIO_LIMIT_REACHED:    "You have reached the maximum number of portfolio items.",
+  IPFS_UPLOAD_FAILED:         "File upload failed. Please try again.",
+  PINATA_NOT_CONFIGURED:      "File storage is temporarily unavailable.",
+  SIGNED_URL_EXPIRED:         "This download link has expired. Please request a new one.",
+  SIGNED_URL_INVALID:         "This download link is invalid.",
+  JSONB_DEPTH_EXCEEDED:       "Input data is too deeply nested.",
+  JSONB_SCHEMA_INVALID:       "Input data does not match the expected format.",
+};
+
+/**
+ * Extract a user-facing message from an API error response.
+ * Handles both the new structured { error: { code, message } } shape
+ * and the legacy { error: "string" } shape.
+ */
+export function getApiErrorMessage(error: unknown, fallback = "An unexpected error occurred."): string {
+  if (!axios.isAxiosError(error)) return fallback;
+  const data = error.response?.data;
+  if (!data) return fallback;
+  // Structured shape
+  if (data.error && typeof data.error === "object" && data.error.code) {
+    return API_ERROR_MESSAGES[data.error.code] ?? data.error.message ?? fallback;
+  }
+  // Legacy shape
+  if (typeof data.error === "string") return data.error;
+  return fallback;
+}
+
 const api = axios.create({
   baseURL: optionalClientEnv("NEXT_PUBLIC_API_URL", "http://localhost:4000"),
   headers: { "Content-Type": "application/json" },
