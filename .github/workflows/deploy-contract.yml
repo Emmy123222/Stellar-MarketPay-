@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -35,7 +35,7 @@ jobs:
     environment: testnet
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Install stellar-cli
         run: cargo install --locked stellar-cli
@@ -73,7 +73,7 @@ jobs:
       url: https://stellar.expert/explorer/public/contract/${{ env.MAINNET_CONTRACT_ID }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
         
       - name: Download contract-ids
         uses: actions/download-artifact@v3
