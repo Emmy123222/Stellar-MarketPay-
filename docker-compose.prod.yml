@@ -1,22 +1,145 @@
 version: "3.9"
+
+x-logging: &default-logging
+  options:
+    max-size: "10m"
+    max-file: "3"
+x-default-labels: &default-labels
+  project: stellar-marketpay
+  environment: production
+
 services:
-  frontend:
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/lib/letsencrypt
+      - web-root:/var/www/html
+    depends_on:
+      certbot:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    logging: *default-logging
+
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/lib/letsencrypt
+      - web-root:/var/www/html
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 128M
+
+  frontend-blue:
     image: ${IMAGE_TAG}
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    profiles: ["blue"]
     environment:
       NODE_ENV: production
+      NEXT_PUBLIC_API_URL_FILE: /run/secrets/next_public_api_url
+    secrets:
+      - next_public_api_url
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    logging: *default-logging
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    labels:
+      <<: *default-labels
+      service: frontend
 
-  backend:
+  backend-blue:
     image: ${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
     restart: unless-stopped
-    ports:
-      - "4000:4000"
+    profiles: ["blue"]
     environment:
       NODE_ENV: production
+      DATABASE_URL_FILE: /run/secrets/database_url
+    secrets:
+      - database_url
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    logging: *default-logging
+
+  frontend-green:
+    image: ${IMAGE_TAG}
+    restart: unless-stopped
+    profiles: ["green"]
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL_FILE: /run/secrets/next_public_api_url
+    secrets:
+      - next_public_api_url
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    logging: *default-logging
+
+  backend-green:
+    image: ${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
+    restart: unless-stopped
+    profiles: ["green"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL_FILE: /run/secrets/database_url
+    secrets:
+      - database_url
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    logging: *default-logging
       DATABASE_URL: ${DATABASE_URL}
+    labels:
+      <<: *default-labels
+      service: backend
 
   node-exporter:
     image: prom/node-exporter:v1.8.2
@@ -29,32 +152,86 @@ services:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/rootfs:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
     ports:
       - "9100:9100"
+    labels:
+      <<: *default-labels
+      service: node-exporter
 
   prometheus:
     image: prom/prometheus:v2.55.1
     restart: unless-stopped
     depends_on:
-      - backend
       - node-exporter
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
     ports:
       - "9090:9090"
+    labels:
+      <<: *default-labels
+      service: prometheus
 
   grafana:
     image: grafana/grafana:11.4.0
     restart: unless-stopped
     depends_on:
       - prometheus
+    secrets:
+      - grafana_admin_user
+      - grafana_admin_password
     environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_USER__FILE: /run/secrets/grafana_admin_user
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  watchtower:
+    image: containrrr/watchtower
+    profiles:
+      - watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 3600
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 128M
+
+volumes:
+  certbot-etc:
+  certbot-var:
+  web-root:
+
+secrets:
+  database_url:
+    external: true
+  next_public_api_url:
+    external: true
+  grafana_admin_user:
+    external: true
+  grafana_admin_password:
+    external: true
     ports:
       - "3001:3000"
+    labels:
+      <<: *default-labels
+      service: grafana

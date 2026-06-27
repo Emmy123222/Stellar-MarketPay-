@@ -195,8 +195,14 @@ export interface ClientSpendingFreelancer {
   totalPaidXlm: string;
 }
 
+export interface ClientSpendingMonthly {
+  month: string; // "YYYY-MM"
+  totalSpentXlm: number;
+}
+
 export interface ClientSpendingAnalytics {
   totalSpentXlm: string;
+  totalBudgetXlm?: string;
   jobsBreakdown: {
     posted: number;
     completed: number;
@@ -207,6 +213,7 @@ export interface ClientSpendingAnalytics {
   averagePaidXlm: string;
   topFreelancers: ClientSpendingFreelancer[];
   hasCompletedJobs: boolean;
+  monthly?: ClientSpendingMonthly[];
 }
 
 export interface EscrowState {
@@ -229,6 +236,11 @@ export interface Message {
   createdAt: string;
   ipfsCid?: string;
   txHash?: string;
+  attachmentCid?:  string | null;
+  attachmentName?: string | null;
+  attachmentSize?: number | null;
+  attachmentMime?: string | null;
+  senderNaclPub?:  string | null;
 }
 
 export interface PortfolioFile {
@@ -377,4 +389,13 @@ export interface JobInvitation {
   jobCurrency: Currency;
   status: "pending" | "accepted" | "declined";
   createdAt: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  adminAddress: string;
+  action: string;
+  resource: string;
+  timestamp: string;
+  changesDiff?: Record<string, any>;
 }

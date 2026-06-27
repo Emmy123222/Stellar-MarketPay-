@@ -108,11 +108,18 @@ function StepCircle({ state }: { state: StepState }) {
   return (
     <div
       className={[
-        "flex items-center justify-center rounded-full border-2 font-bold transition-all duration-300 w-7 h-7 text-xs",
+        "flex items-center justify-center rounded-full border-2 font-bold transition-all duration-500 w-7 h-7 text-xs",
         circleClasses(state),
+        state === "current" ? "motion-safe:animate-pulse-soft" : "",
       ].join(" ")}
     >
-      {state === "complete" ? "✓" : state === "branch" ? "!" : ""}
+      {state === "complete" ? (
+        <span className="inline-block motion-safe:animate-scale-in">✓</span>
+      ) : state === "branch" ? (
+        "!"
+      ) : (
+        ""
+      )}
     </div>
   );
 }

@@ -20,13 +20,17 @@ Welcome to Stellar MarketPay documentation. This index helps you find what you n
 
 - **[Architecture Overview](./architecture.md)** - System design and components
 - **[Deployment Guide](./deployment.md)** - How to deploy Stellar MarketPay
+- **[Data Archiving Strategy](./data-archiving.md)** - Archiving old completed jobs for database performance
+- **[Authentication Flow (SEP-10)](./auth-flow.md)** - Complete SEP-10 auth flow with sequence diagrams
 - **[Soroban Contract Deployment](./contract-deployment.md)** - Build, deploy, and configure the escrow contract
+- **[Smart Contract API Reference](./contract-api-reference.md)** - Complete function reference for the MarketPay Soroban contract
 - **[Environment Variables](./environment-variables.md)** - Single source of truth for runtime config
 
 ### API Documentation
 
 - **[API Documentation](./API_DOCUMENTATION.md)** - REST API endpoints
 - **[API Reference](./api.md)** - Detailed API reference
+- **[Smart Contract API Reference](./contract-api-reference.md)** - Every public function, event, and error in the Soroban contract
 - **[Scope WebSocket Protocol](./websocket-scope-protocol.md)** - Realtime session protocol and client schema
 
 ---
@@ -280,12 +284,14 @@ stellar-marketpay/
 ### For Developers
 
 1. [Architecture Overview](./architecture.md)
-2. [ADR-001: Escrow Design](./ADR-001-soroban-escrow-design.md)
-3. [ADR-002: Horizon API](./ADR-002-horizon-api-indexing.md)
-4. [ADR-003: Database Schema](./ADR-003-database-schema-escrow.md)
-5. [API Documentation](./API_DOCUMENTATION.md)
-6. [Pinata IPFS Setup](./PINATA_IPFS_SETUP.md)
-7. [Deployment Guide](./deployment.md)
+2. [Contributing Guide](../CONTRIBUTING.md)
+3. [Database Schema & ERD](./database-schema.md)
+4. [ADR-001: Escrow Design](./ADR-001-soroban-escrow-design.md)
+5. [ADR-002: Horizon API](./ADR-002-horizon-api-indexing.md)
+6. [ADR-003: Database Schema](./ADR-003-database-schema-escrow.md)
+7. [API Documentation](./API_DOCUMENTATION.md)
+8. [Pinata IPFS Setup](./PINATA_IPFS_SETUP.md)
+9. [Deployment Guide](./deployment.md)
 
 ### For DevOps/Infrastructure
 
@@ -308,6 +314,7 @@ stellar-marketpay/
 
 **Database & Backend**
 
+- [Database Schema & ERD](./database-schema.md)
 - [ADR-003: Database Schema](./ADR-003-database-schema-escrow.md)
 - [API Documentation](./API_DOCUMENTATION.md)
 - [Deployment Guide](./deployment.md)

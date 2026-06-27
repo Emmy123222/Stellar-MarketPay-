@@ -164,7 +164,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
         .catch(console.error)
         .finally(() => setLoading(false));
     }
-  }, [job?.id]);
+  }, [job]);
 
   const handleExtend = async () => {
     try {
