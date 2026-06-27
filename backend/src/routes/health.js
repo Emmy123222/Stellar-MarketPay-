@@ -25,10 +25,12 @@
 const express = require("express");
 const pool = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
+const ipfsService = require("../services/ipfsService");
 
 const router = express.Router();
 // Generous limit — probes hit this frequently
 const healthRateLimiter = createRateLimiter(120, 1);
+const subscribeRateLimiter = createRateLimiter(5, 1);
 
 const SERVER_START = Date.now();
 const VERSION = process.env.npm_package_version || "1.0.0";
@@ -99,6 +101,14 @@ async function checkStellar() {
 }
 
 /**
+ * Check IPFS/Pinata configuration status.
+ * @returns {{ status: "ok" | "not_configured" }}
+ */
+function checkIpfs() {
+  return { status: ipfsService.isConfigured() ? "ok" : "not_configured" };
+}
+
+/**
  * @swagger
  * /health:
  *   get:
@@ -139,6 +149,7 @@ router.get("/", healthRateLimiter, async (req, res) => {
     checkDatabase(),
     checkStellar(),
   ]);
+  const ipfs = checkIpfs();
 
   const healthy = database.status === "ok" && stellar.status === "ok";
 
@@ -146,15 +157,78 @@ router.get("/", healthRateLimiter, async (req, res) => {
     status: healthy ? "healthy" : "degraded",
     database,
     stellar,
+    ipfs,
     uptime_seconds: Math.floor((Date.now() - SERVER_START) / 1000),
     version: VERSION,
-    // Keep the indexer field for backwards compatibility
     indexer: req.app.locals.indexerService
       ? req.app.locals.indexerService.getHealth()
       : null,
   };
 
+  // Fire-and-forget: persist check results (failure is non-fatal)
+  const now = new Date().toISOString();
+  [
+    { service: "database", status: database.status },
+    { service: "stellar",  status: stellar.status },
+    { service: "ipfs",     status: ipfs.status },
+  ].forEach(({ service, status }) => {
+    pool
+      .query(
+        `INSERT INTO health_checks (service, status, checked_at) VALUES ($1, $2, $3)`,
+        [service, status, now],
+      )
+      .catch((err) =>
+        console.warn("[health] health_checks insert failed:", err.message),
+      );
+  });
+
   res.status(healthy ? 200 : 503).json(body);
+});
+
+// GET /history — last 90 entries per service
+router.get("/history", healthRateLimiter, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT service, status, checked_at
+       FROM health_checks
+       ORDER BY checked_at DESC
+       LIMIT 270`,
+    );
+
+    const grouped = {};
+    for (const row of rows) {
+      if (!grouped[row.service]) grouped[row.service] = [];
+      if (grouped[row.service].length < 90) {
+        grouped[row.service].push({
+          status: row.status,
+          checkedAt: row.checked_at,
+        });
+      }
+    }
+
+    res.json({ success: true, data: grouped });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /subscribe — email subscription for status alerts
+router.post("/subscribe", subscribeRateLimiter, async (req, res, next) => {
+  try {
+    const { email } = req.body || {};
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ success: false, error: "Valid email required" });
+    }
+
+    await pool.query(
+      `INSERT INTO status_subscriptions (email) VALUES ($1) ON CONFLICT (email) DO NOTHING`,
+      [email.trim().toLowerCase()],
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = router;

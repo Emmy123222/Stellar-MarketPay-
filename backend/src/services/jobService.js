@@ -5,7 +5,8 @@
  */
 "use strict";
 
-const pool = require("../db/pool");
+const { readPool, writePool } = require("../db/pool");
+const pool = writePool; // default alias — write-safe; read-only paths use readPool
 const { refreshFreelancerTier } = require("./profileService");
 const { createJobNotification, EVENT_TYPES } = require("./notificationService");
 
@@ -68,6 +69,19 @@ const VALID_STATUSES = [
   "cancelled",
   "disputed",
 ];
+
+// Single-pass skill aggregation via LEFT JOIN — eliminates the correlated
+// subquery that previously ran once per job row (N+1 pattern).
+const JOB_SELECT_CLAUSE = `
+  SELECT jobs.*,
+         COALESCE(agg.skills, '{}') AS skills
+  FROM   jobs
+  LEFT JOIN LATERAL (
+    SELECT array_agg(s.display_name ORDER BY s.display_name) AS skills
+    FROM   job_skills js
+    JOIN   skills s ON s.id = js.skill_id
+    WHERE  js.job_id = jobs.id
+  ) agg ON true`;
 
 const VALID_CATEGORIES = [
   "Smart Contracts",
@@ -277,36 +291,85 @@ async function createJob({ title, description, budget, currency, category, skill
     throw e;
   }
 
-  const safeSkills = Array.isArray(skills) ? skills.slice(0, 8) : [];
+  const safeSkills = Array.isArray(skills) ? skills.slice(0, 8).map(s => s.trim()).filter(Boolean) : [];
   const safeScreeningQuestions = Array.isArray(screeningQuestions)
     ? screeningQuestions.slice(0, 5).filter((q) => q && q.trim().length > 0)
     : [];
   const safeMilestones = validateMilestones(milestones, budget);
 
-  const { rows } = await pool.query(
-    `
-    INSERT INTO jobs
-      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, milestones, visibility, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, $11, $12, NOW(), NOW())
-    RETURNING *
-    `,
-    [
-      title.trim(),
-      description.trim(),
-      parseFloat(budget).toFixed(7),
-      currency || "XLM",
-      category,
-      safeSkills,
-      clientAddress,
-      deadline || null,
-      timezone || null,
-      safeScreeningQuestions,
-      JSON.stringify(safeMilestones),
-      jobVisibility,
-    ],
-  );
+  const client = await pool.connect();
+  let job;
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `
+      INSERT INTO jobs
+        (title, description, budget, currency, category, status, client_address, deadline, timezone, screening_questions, milestones, visibility, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8, $9, $10, $11, NOW(), NOW())
+      RETURNING *
+      `,
+      [
+        title.trim(),
+        description.trim(),
+        parseFloat(budget).toFixed(7),
+        currency || "XLM",
+        category,
+        clientAddress,
+        deadline || null,
+        timezone || null,
+        safeScreeningQuestions,
+        JSON.stringify(safeMilestones),
+        jobVisibility,
+      ],
+    );
+    job = rows[0];
 
-  return rowToJob(rows[0]);
+    if (safeSkills.length > 0) {
+      // Normalize and insert missing skills
+      const skillValues = safeSkills.map((s) => `(LOWER(TRIM($$${s}$$)), TRIM($$${s}$$))`).join(",");
+      await client.query(`
+        INSERT INTO skills (slug, display_name)
+        VALUES ${skillValues}
+        ON CONFLICT (slug) DO NOTHING
+      `);
+
+      // Fetch skill IDs
+      const slugs = safeSkills.map((s) => s.toLowerCase().trim());
+      const { rows: skillRows } = await client.query(
+        "SELECT id FROM skills WHERE slug = ANY($1::text[])",
+        [slugs]
+      );
+
+      // Insert into job_skills
+      if (skillRows.length > 0) {
+        const jobSkillValues = skillRows.map((r) => `('${job.id}', ${r.id})`).join(",");
+        await client.query(`
+          INSERT INTO job_skills (job_id, skill_id)
+          VALUES ${jobSkillValues}
+          ON CONFLICT DO NOTHING
+        `);
+      }
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  // To return the job with skills, we fetch the newly mapped skills
+  if (safeSkills.length > 0) {
+    const { rows: updatedSkills } = await pool.query(
+      "SELECT s.display_name FROM skills s JOIN job_skills js ON s.id = js.skill_id WHERE js.job_id = $1",
+      [job.id]
+    );
+    job.skills = updatedSkills.map(s => s.display_name);
+  } else {
+    job.skills = [];
+  }
+
+  return rowToJob(job);
 }
 
 /**
@@ -317,7 +380,7 @@ async function createJob({ title, description, budget, currency, category, skill
  * @throws {Error} If the job is not found.
  */
 async function getJob(id) {
-  const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [id]);
+  const { rows } = await readPool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1`, [id]);
   if (!rows.length) {
     const e = new Error("Job not found");
     e.status = 404;
@@ -426,11 +489,11 @@ async function listJobs({
 
   const skillList = String(skills || "")
     .split(",")
-    .map((s) => s.trim())
+    .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
   if (skillList.length > 0) {
     params.push(skillList);
-    conditions.push(`skills && $${params.length}::text[]`);
+    conditions.push(`EXISTS (SELECT 1 FROM job_skills js JOIN skills s ON js.skill_id = s.id WHERE js.job_id = jobs.id AND s.slug = ANY($${params.length}::text[]))`);
   }
 
   const minRating = parseFloat(min_client_rating);
@@ -521,8 +584,8 @@ async function listJobs({
 
   params.push(limit);
 
-  const { rows } = await pool.query(
-    `SELECT * FROM jobs ${where} ORDER BY
+  const { rows } = await readPool.query(
+    `${JOB_SELECT_CLAUSE} ${where} ORDER BY
        CASE WHEN boosted = true AND (boosted_until IS NULL OR boosted_until > NOW()) THEN 0 ELSE 1 END,
        created_at DESC, id DESC LIMIT $${params.length}`,
     params,
@@ -547,8 +610,8 @@ async function listJobs({
  */
 async function listJobsByClient(clientAddress) {
   validatePublicKey(clientAddress);
-  const { rows } = await pool.query(
-    "SELECT * FROM jobs WHERE client_address = $1 ORDER BY created_at DESC",
+  const { rows } = await readPool.query(
+    `${JOB_SELECT_CLAUSE} WHERE client_address = $1 ORDER BY created_at DESC`,
     [clientAddress]
   );
   return rows.map(rowToJob);
@@ -688,7 +751,7 @@ async function deleteJob(jobId) {
  */
 async function boostJob(jobId, txHash, boostDays = 7) {
   // Verify job exists
-  const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [
+  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1`, [
     jobId,
   ]);
   if (!rows.length) {
@@ -870,7 +933,7 @@ async function extendJobExpiry(jobId, days = 30, clientAddress) {
     throw e;
   }
 
-  const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [jobId]);
+  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1`, [jobId]);
   if (!rows.length) {
     const e = new Error("Job not found");
     e.status = 404;
@@ -949,7 +1012,7 @@ async function incrementViewCount(jobId) {
  */
 async function getJobAnalytics(jobId) {
   const { rows: jobRows } = await pool.query(
-    "SELECT * FROM jobs WHERE id = $1",
+    `${JOB_SELECT_CLAUSE} WHERE id = $1`,
     [jobId]
   );
   if (!jobRows.length) {
@@ -1010,7 +1073,7 @@ async function expireOldJobs() {
  */
 async function getExpiringJobs(daysFromNow = 3) {
   const { rows } = await pool.query(
-    `SELECT * FROM jobs
+    `${JOB_SELECT_CLAUSE}
      WHERE status = 'open'
        AND expires_at IS NOT NULL
        AND expires_at > NOW()
@@ -1101,7 +1164,7 @@ async function getRecommendedJobs(publicKey) {
   if (!skills.length) {
     // No skills, return recent open jobs excluding applied ones
     const { rows } = await pool.query(
-      `SELECT j.* FROM jobs j
+      `SELECT j.*, COALESCE((SELECT array_agg(s.display_name) FROM job_skills js JOIN skills s ON s.id = js.skill_id WHERE js.job_id = j.id), '{}') AS skills FROM jobs j
        WHERE j.status = 'open'
          AND j.visibility = 'public'
          AND NOT EXISTS (
@@ -1116,10 +1179,10 @@ async function getRecommendedJobs(publicKey) {
   }
 
   const { rows } = await pool.query(
-    `SELECT j.* FROM jobs j
+    `SELECT j.*, COALESCE((SELECT array_agg(s.display_name) FROM job_skills js JOIN skills s ON s.id = js.skill_id WHERE js.job_id = j.id), '{}') AS skills FROM jobs j
      WHERE j.status = 'open'
        AND j.visibility = 'public'
-       AND j.skills && $1
+       AND EXISTS (SELECT 1 FROM job_skills js JOIN skills s ON js.skill_id = s.id WHERE js.job_id = j.id AND s.display_name = ANY($1::text[]))
        AND NOT EXISTS (
          SELECT 1 FROM applications a
          WHERE a.job_id = j.id AND a.freelancer_address = $2
@@ -1147,7 +1210,7 @@ async function getSuggestions(query) {
         [likePattern]
       ),
       pool.query(
-        `SELECT DISTINCT skill FROM (SELECT unnest(skills) as skill FROM jobs WHERE status = 'open') skills WHERE skill ILIKE $1 ORDER BY skill LIMIT 3`,
+        `SELECT display_name AS skill FROM skills WHERE display_name ILIKE $1 ORDER BY display_name LIMIT 3`,
         [likePattern]
       ),
     ]);

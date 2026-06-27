@@ -786,6 +786,18 @@ router.delete("/drafts/:id", verifyJWT, async (req, res, next) => {
   }
 });
 
+// PUT /api/jobs/drafts/:id — upsert a job draft (partial data)
+router.put("/drafts/:id", verifyJWT, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const draftData = { id, ...req.body };
+    const draft = await jobDraftService.saveDraft(req.user.publicKey, draftData);
+    res.json({ success: true, data: draft });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // GET /api/jobs/recommended — get personalized job recommendations
 router.get("/recommended", verifyJWT, async (req, res, next) => {
   try {

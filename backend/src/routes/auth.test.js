@@ -207,6 +207,55 @@ describe("SEP-10 Authentication Flow", () => {
       const decoded = jwt.verify(res.body.token, process.env.JWT_SECRET);
       expect(decoded.publicKey).toBe(WRONG_KEYPAIR.publicKey());
     });
+
+    it("rejects challenge signed by wrong key", async () => {
+      Utils.verifyChallengeTx.mockImplementation(() => {
+        throw new Error("Signatures do not match");
+      });
+
+      const res = await request(app)
+        .post("/api/auth")
+        .send({ transaction: SIGNED_XDR });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain("Signatures do not match");
+    });
+
+    it("rejects mainnet challenge used for testnet account", async () => {
+      // Simulate a network/passphrase mismatch during verification
+      Utils.verifyChallengeTx.mockImplementation(() => {
+        throw new Error("Invalid network passphrase");
+      });
+
+      const res = await request(app)
+        .post("/api/auth")
+        .send({ transaction: SIGNED_XDR });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain("Invalid network passphrase");
+    });
+
+    it("rejects replayed challenge (nonce reuse)", async () => {
+      // First login succeeds
+      Utils.verifyChallengeTx.mockReturnValue(TEST_KEYPAIR.publicKey());
+
+      const first = await request(app)
+        .post("/api/auth")
+        .send({ transaction: SIGNED_XDR });
+      expect(first.status).toBe(200);
+
+      // Subsequent attempt with same transaction/nonce is rejected
+      Utils.verifyChallengeTx.mockImplementation(() => {
+        throw new Error("Nonce already used");
+      });
+
+      const second = await request(app)
+        .post("/api/auth")
+        .send({ transaction: SIGNED_XDR });
+
+      expect(second.status).toBe(401);
+      expect(second.body.error).toContain("Nonce already used");
+    });
   });
 
   describe("Protected endpoint — missing/invalid JWT", () => {
@@ -222,6 +271,22 @@ describe("SEP-10 Authentication Flow", () => {
       const res = await request(app)
         .post("/api/disputes/job-123/evidence")
         .set("Authorization", "Bearer invalid.jwt.token");
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain("Invalid or expired token");
+    });
+
+    it("expired JWT: returns 401 on protected endpoint", async () => {
+      // Create a short-lived token and let it expire
+      const shortLived = jwt.sign({ publicKey: TEST_KEYPAIR.publicKey() }, process.env.JWT_SECRET, {
+        expiresIn: "1s",
+      });
+      // Wait for expiration
+      await new Promise((r) => setTimeout(r, 1100));
+
+      const res = await request(app)
+        .post("/api/disputes/job-123/evidence")
+        .set("Authorization", `Bearer ${shortLived}`);
 
       expect(res.status).toBe(401);
       expect(res.body.error).toContain("Invalid or expired token");

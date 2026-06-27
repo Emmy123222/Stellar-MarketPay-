@@ -13,22 +13,35 @@ const resources = {
   pt: { common: require("../public/locales/pt/common.json") },
 };
 
-i18next
-  .use(LanguageDetector)
-  .use(initReactI18next)
-  .init({
-    resources,
-    fallbackLng: "en",
-    supportedLngs: ["en", "es", "fr", "pt"],
-    ns: ["common"],
-    defaultNS: "common",
-    detection: {
-      order: ["localStorage", "navigator"],
-      lookupLocalStorage: "preferredLocale",
-      caches: ["localStorage"],
-    },
-    interpolation: { escapeValue: false },
-  });
+// Node.js 18+ exposes navigator.language reflecting the OS locale. If we
+// run LanguageDetector on the server it picks up the OS locale (e.g. "es")
+// and SSR renders translated text in that language, while the client (which
+// starts from fallbackLng "en" before the detector fires) renders "en" —
+// causing a React hydration mismatch. Skip the detector during SSR and pin
+// the server to "en"; the detector only runs in the browser where it can
+// safely read localStorage/navigator without affecting the SSR output.
+const isBrowser = typeof window !== "undefined";
+
+if (isBrowser) {
+  i18next.use(LanguageDetector);
+}
+
+i18next.use(initReactI18next).init({
+  resources,
+  lng: isBrowser ? undefined : "en",
+  fallbackLng: "en",
+  supportedLngs: ["en", "es", "fr", "pt"],
+  ns: ["common"],
+  defaultNS: "common",
+  detection: isBrowser
+    ? {
+        order: ["localStorage", "navigator"],
+        lookupLocalStorage: "preferredLocale",
+        caches: ["localStorage"],
+      }
+    : undefined,
+  interpolation: { escapeValue: false },
+});
 
 i18next.on("languageChanged", (lng) => {
   if (typeof window !== "undefined") {

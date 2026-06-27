@@ -18,6 +18,13 @@ updates:
     commit-message:
       prefix: "feat(deps)"
       include: "scope"
+    allow:
+      - dependency-type: direct
+    versioning-strategy: increase
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
 
   # Backend dependencies  
   - package-ecosystem: npm
@@ -37,6 +44,13 @@ updates:
     commit-message:
       prefix: "feat(deps)"
       include: "scope"
+    allow:
+      - dependency-type: direct
+    versioning-strategy: increase
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
 
   # Smart contract dependencies
   - package-ecosystem: cargo
