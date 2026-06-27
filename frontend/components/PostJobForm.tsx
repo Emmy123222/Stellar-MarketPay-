@@ -10,8 +10,8 @@
  */
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft } from "@/lib/api";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft, updateDraft } from "@/lib/api";
 import { performSEP0010Auth } from "@/lib/wallet";
 import { createEscrowOnChain } from "@/lib/stellar";
 import { usePriceContext } from "@/contexts/PriceContext";
@@ -167,8 +167,12 @@ export default function PostJobForm({
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [draftSaved, setDraftSaved] = useState(false);
-  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftId, setDraftId] = useState<string | null>(() => {
+    const draft = loadLocalDraft();
+    return draft?.id || null;
+  });
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isMockMode = process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
   const budgetValue = parseFloat(form.budget) || 0;
@@ -295,33 +299,55 @@ export default function PostJobForm({
     setCurrentStep((s) => Math.max(s - 1, 1) as FormStep);
   }
 
-  // ── Save draft ─────────────────────────────────────────────────────────────
-  const handleSaveDraft = useCallback(async () => {
-    setSavingDraft(true);
-    setDraftSaved(false);
-    try {
-      if (!getJwtToken()) {
-        const { error } = await performSEP0010Auth(publicKey);
-        if (error) throw new Error(error);
-      }
-      await saveDraft({
-        title: form.title,
-        description: form.description,
-        budget: form.budget,
-        category: form.category,
-        deadline: form.deadline,
-      });
-      setDraftSaved(true);
-      setTimeout(() => setDraftSaved(false), 3000);
-    } catch {
-      // Fall back to localStorage only
-      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(form));
-      setDraftSaved(true);
-      setTimeout(() => setDraftSaved(false), 3000);
-    } finally {
-      setSavingDraft(false);
+  // ── Auto-save draft with debouncing ───────────────────────────────────
+  useEffect(() => {
+    if (!hasFormContent(form)) return;
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
     }
-  }, [form, publicKey]);
+
+    saveTimerRef.current = setTimeout(async () => {
+      setSaveStatus("saving");
+      try {
+        if (!getJwtToken()) {
+          const { error } = await performSEP0010Auth(publicKey);
+          if (error) throw new Error(error);
+        }
+
+        const skillsArray = form.skills.split(",").map((s) => s.trim()).filter(Boolean);
+        const draftData: any = {
+          title: form.title,
+          description: form.description,
+          budget: form.budget,
+          category: form.category,
+          skills: skillsArray,
+          deadline: form.deadline,
+        };
+
+        if (draftId) {
+          draftData.id = draftId;
+          const result = await updateDraft(draftData);
+          setDraftId(result.id);
+        } else {
+          const result = await saveDraft(draftData);
+          setDraftId(result.id);
+        }
+
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 3000);
+      } catch {
+        setSaveStatus("failed");
+        setTimeout(() => setSaveStatus("idle"), 3000);
+      }
+    }, 2000);
+
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, [form, publicKey, draftId]);
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
@@ -433,18 +459,18 @@ export default function PostJobForm({
 
   const isSubmitting = submitStep === "posting" || submitStep === "signing";
 
-  // ── Draft button ───────────────────────────────────────────────────────────
-  const saveDraftButton = (
-    <button
-      type="button"
-      onClick={handleSaveDraft}
-      disabled={savingDraft}
-      className="btn-secondary text-xs px-4 py-2 flex items-center gap-1.5"
-    >
-      {savingDraft ? (
-        <span className="inline-block w-3 h-3 border-2 border-amber-700 border-t-transparent rounded-full animate-spin" />
-      ) : draftSaved ? "✓ Draft Saved" : "Save Draft"}
-    </button>
+  // ── Draft indicator ─────────────────────────────────────────────────────────
+  const saveDraftIndicator = (
+    <div className="text-xs text-amber-700 flex items-center gap-1.5" aria-live="polite">
+      {saveStatus === "saving" && (
+        <>
+          <span className="inline-block w-3 h-3 border-2 border-amber-700 border-t-transparent rounded-full animate-spin" />
+          Saving…
+        </>
+      )}
+      {saveStatus === "saved" && <span className="text-green-400">✓ Saved</span>}
+      {saveStatus === "failed" && <span className="text-red-400">✗ Save failed</span>}
+    </div>
   );
 
   return (
@@ -456,7 +482,7 @@ export default function PostJobForm({
             <h1 className="text-2xl font-bold text-gray-900 dark:text-amber-100">Post a Job</h1>
             <p className="text-gray-500 dark:text-amber-700 text-sm mt-0.5">Step {currentStep} of {FORM_STEPS.length}</p>
           </div>
-          {saveDraftButton}
+          {saveDraftIndicator}
         </div>
 
         <StepIndicator currentStep={currentStep} completedSteps={completedSteps} />

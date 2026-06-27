@@ -13,6 +13,7 @@ const { uploadFile, getGatewayUrl, MAX_FILE_SIZE } = require("../services/ipfsSe
 const profileUpdateRateLimiter = createRateLimiter(5, 1); // 5 profile updates per minute
 const generalProfileRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for getting profiles
 const cache = require("../services/cacheService");
+const { sendEmail } = require("../utils/email");
 
 const {
   getProfile,
@@ -27,6 +28,7 @@ const {
   getResponseTime,
   blockFreelancer,
   unblockFreelancer,
+  markProfileForDeletion,
 } = require("../services/profileService");
 const {
   upsertPriceAlertPreference,
@@ -419,6 +421,32 @@ router.get("/:publicKey/encryption-key", generalProfileRateLimiter, async (req, 
   } catch (e) { next(e); }
 });
 
-module.exports = router;
+// DELETE /api/profiles/:publicKey/data — GDPR deletion request
+router.delete("/:publicKey/data", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+    if (req.user.publicKey !== publicKey) {
+      return res.status(403).json({ error: "You can only delete your own profile data" });
+    }
+    
+    const profile = await markProfileForDeletion(publicKey);
+    
+    await cache.del(cache.profileKey(publicKey));
+    
+    if (profile.email) {
+      await sendEmail({
+        to: profile.email,
+        subject: "Profile Deletion Request Received",
+        text: "We have received your request to delete your profile. Your profile is now hidden and will be permanently deleted after a 30-day grace period.",
+        html: "<p>We have received your request to delete your profile.</p><p>Your profile is now hidden and will be permanently deleted after a 30-day grace period.</p>"
+      });
+    }
 
+    res.json({ success: true, message: "Profile marked for deletion" });
+  } catch (e) {
+    next(e);
+  }
+});
+
+module.exports = router;
 

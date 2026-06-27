@@ -207,33 +207,6 @@ function validateAvailability(availability) {
  * @param {Object} row
  * @returns {UserProfile}
  */
-function rowToProfile(row) {
-  return {
-    publicKey: row.public_key,
-    displayName: row.display_name,
-    bio: row.bio,
-    skills: row.skills,
-    portfolioItems: Array.isArray(row.portfolio_items) ? row.portfolio_items : [],
-    portfolioFiles: Array.isArray(row.portfolio_files) ? row.portfolio_files : [],
-    availability: row.availability && typeof row.availability === "object" ? row.availability : null,
-    role: row.role,
-    completedJobs: row.completed_jobs,
-    totalEarnedXLM: row.total_earned_xlm,
-    rating: row.rating !== null ? parseFloat(row.rating) : null,
-    referralCount: Number(row.referral_count || 0),
-    reputationPoints: Number(row.reputation_points || 0),
-    blockedAddresses: Array.isArray(row.blocked_addresses) ? row.blocked_addresses : [],
-    email: row.email || null,
-    emailNotificationsEnabled: row.email_notifications_enabled !== null ? row.email_notifications_enabled : null,
-    webhookUrl: row.webhook_url || null,
-    webhookSecret: row.webhook_secret || null,
-    isKycVerified: row.is_kyc_verified !== null ? row.is_kyc_verified : null,
-    didHash: row.did_hash || null,
-    encryptionPublicKey: row.encryption_public_key || null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
 
 function rowToProfile(row) {
   const decryptedEmail = row.email || null;
@@ -311,7 +284,7 @@ async function getProfile(publicKey) {
        ) AS avg_release_hours
      FROM profiles p
      LEFT JOIN ratings r ON r.rated_address = p.public_key
-     WHERE p.public_key = $1
+     WHERE p.public_key = $1 AND (p.deletion_status IS NULL OR p.deletion_status = 'active')
      GROUP BY p.public_key`,
     [publicKey, encKey, encKey]
   );
@@ -487,7 +460,7 @@ async function updateAvailability(publicKey, availability) {
 }
 
 async function listProfiles({ role, availability, search, limit = 50 } = {}) {
-  const conditions = [];
+  const conditions = ["(deletion_status IS NULL OR deletion_status = 'active')"];
   const values = [];
   let idx = 1;
 
@@ -798,7 +771,6 @@ async function getClientSpendingAnalytics(publicKey) {
     `,
     [publicKey]
   );
-
   const summary = rows[0];
   const { rows: topRows } = await pool.query(
     `
@@ -965,6 +937,47 @@ async function getResponseTime(publicKey) {
   return { averageDays: value == null ? null : Number(value) };
 }
 
+/**
+ * Mark a profile for deletion (GDPR compliance).
+ * Starts the 30-day grace period.
+ * 
+ * @param {string} publicKey 
+ * @returns {Promise<Object>}
+ */
+async function markProfileForDeletion(publicKey) {
+  validatePublicKey(publicKey);
+  
+  const { rows } = await pool.query(
+    `UPDATE profiles 
+     SET deletion_status = 'pending_deletion', deleted_at = NOW(), updated_at = NOW()
+     WHERE public_key = $1 AND (deletion_status IS NULL OR deletion_status = 'active')
+     RETURNING *`,
+    [publicKey]
+  );
+  
+  if (!rows.length) {
+    const e = new Error("Profile not found or already marked for deletion");
+    e.status = 404;
+    throw e;
+  }
+  
+  return rowToProfile(rows[0]);
+}
+
+/**
+ * Permanently delete profiles whose grace period has expired.
+ * 
+ * @returns {Promise<string[]>} Array of deleted public keys
+ */
+async function permanentlyDeleteExpiredProfiles() {
+  const { rows } = await pool.query(
+    `DELETE FROM profiles
+     WHERE deletion_status = 'pending_deletion' AND deleted_at < NOW() - INTERVAL '30 days'
+     RETURNING public_key`
+  );
+  return rows.map(r => r.public_key);
+}
+
 module.exports = {
   getProfile,
   upsertProfile,
@@ -986,4 +999,6 @@ module.exports = {
   VALID_PORTFOLIO_TYPES,
   VALID_AVAILABILITY_STATUSES,
   MAX_PORTFOLIO_ITEMS,
+  markProfileForDeletion,
+  permanentlyDeleteExpiredProfiles
 };

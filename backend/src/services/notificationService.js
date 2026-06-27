@@ -6,8 +6,15 @@
 
 const pool = require("../db/pool");
 const axios = require("axios");
+const { emailQueue } = require("../utils/queue");
 
 const MAX_RETRIES = 3;
+
+let _broadcastToUser = null;
+
+function setBroadcastToUser(fn) {
+  _broadcastToUser = fn;
+}
 
 /**
  * Event types that trigger notifications
@@ -71,7 +78,25 @@ async function queueNotification({ recipientAddress, notificationType, eventType
     [recipientAddress, notificationType, eventType, jobId, JSON.stringify(payload)]
   );
 
-  return rows[0];
+  const notification = rows[0];
+
+  if (notificationType === "email") {
+    await emailQueue.add({
+      notificationId: notification.id,
+      recipientAddress,
+      eventType,
+      jobId,
+      payload,
+    }, {
+      attempts: 3,
+      backoff: {
+        type: "exponential",
+        delay: 5000,
+      },
+    });
+  }
+
+  return notification;
 }
 
 async function createInAppNotification(
@@ -88,7 +113,13 @@ async function createInAppNotification(
     [userAddress, type, title, body, jobId, linkPath],
   );
 
-  return rowToInAppNotification(rows[0]);
+  const notification = rowToInAppNotification(rows[0]);
+
+  if (_broadcastToUser) {
+    _broadcastToUser(userAddress, 'notification:created', notification);
+  }
+
+  return notification;
 }
 
 async function listInAppNotifications(userAddress, { limit = 20, cursor = null } = {}) {
@@ -186,7 +217,7 @@ async function createJobNotification({
  * @returns {Promise<Object>} User preferences
  */
 async function getUserPreferences(publicKey) {
-  const crypto = require("crypto");
+
   const encKey = process.env.DATABASE_ENCRYPTION_KEY || "";
   const { rows } = await pool.query(
     `SELECT
@@ -586,4 +617,5 @@ module.exports = {
   generateEmailContent,
   generateInAppContent,
   EVENT_TYPES,
+  setBroadcastToUser,
 };

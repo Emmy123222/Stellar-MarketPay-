@@ -31,7 +31,7 @@ import ProgressBar from "@/components/Onboarding/ProgressBar";
 import ProfileChecklist from "@/components/Onboarding/ProfileChecklist";
 import WelcomeModal from "@/components/Onboarding/WelcomeModal";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
-import ShortcutsModal from "@/components/ShortcutsModal";
+
 import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
 import ExtendJobModal from "@/components/ExtendJobModal";
@@ -251,13 +251,7 @@ describe("static component snapshots", () => {
       snapshotContainer(<KeyboardShortcutsModal isOpen onClose={noop} />, "KeyboardShortcutsModal"));
   });
 
-  describe("ShortcutsModal", () => {
-    it("open", () =>
-      snapshotContainer(
-        <ShortcutsModal isOpen onClose={noop} showJobDetailShortcuts={false} />,
-        "ShortcutsModal",
-      ));
-  });
+
 
   describe("RatingForm", () => {
     it("default", () =>

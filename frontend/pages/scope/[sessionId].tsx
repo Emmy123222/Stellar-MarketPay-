@@ -430,6 +430,18 @@ export default function ScopeSessionPage() {
               const target = e.target as HTMLTextAreaElement;
               sendUpdate(documentText, target.selectionStart, target.selectionEnd);
             }}
+            onKeyDown={(e) => {
+              if (finalized) return;
+              if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+                e.preventDefault();
+                const target = e.target as HTMLTextAreaElement;
+                if (saveTimer.current) clearTimeout(saveTimer.current);
+                sendUpdate(documentText, target.selectionStart, target.selectionEnd);
+              } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                e.preventDefault();
+                if (documentText.trim()) finalizeScope();
+              }
+            }}
             rows={16}
             className="textarea-field"
             placeholder="Write requirements, milestones, and acceptance criteria together..."
