@@ -368,3 +368,16 @@ ALTER TABLE job_invitations ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAUL
 -- Allow 'in_app' as a notification_type in addition to 'email' and 'webhook'
 -- The notification_queue table was created without a CHECK constraint on
 -- notification_type so this is a no-op schema change (just documentation).
+
+-- Exponential backoff retry support
+ALTER TABLE notification_queue
+  ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
+
+-- ─────────────────────────────────────────
+-- Soft-delete support (Issue #469)
+-- ─────────────────────────────────────────
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
