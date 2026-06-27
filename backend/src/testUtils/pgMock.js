@@ -49,9 +49,106 @@ function createPgMock() {
   const jobs = new Map();
   const applications = new Map();
   const invitations = new Set();
+  const skillsMap = new Map();
+  const jobSkillsMap = new Map();
+  const wsEvents = new Map();
 
   const query = jest.fn(async (sql, params = []) => {
     const text = sql.replace(/\s+/g, " ").trim();
+
+    if (text.startsWith("INSERT INTO ws_event_queue")) {
+      const id = wsEvents.size + 1;
+      let createdAt = new Date().toISOString();
+      if (text.includes("INTERVAL '8 days'")) {
+        createdAt = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+      }
+      const eventJson = typeof params[0] === "string" ? JSON.parse(params[0]) : params[0];
+      const row = { id, event: eventJson, created_at: createdAt };
+      wsEvents.set(id, row);
+      return { rows: [row] };
+    }
+
+    if (text.startsWith("SELECT id, event FROM ws_event_queue")) {
+      const lastId = params[0] || 0;
+      const limit = params[1] || 50;
+      const rows = [...wsEvents.values()]
+        .filter(r => r.id > lastId)
+        .sort((a, b) => a.id - b.id)
+        .slice(0, limit);
+      return { rows };
+    }
+
+    if (text === "SELECT COUNT(*) FROM ws_event_queue") {
+      return { rows: [{ count: wsEvents.size }] };
+    }
+
+    if (text === "SELECT event FROM ws_event_queue") {
+      return { rows: [...wsEvents.values()] };
+    }
+
+    if (text.startsWith("DELETE FROM ws_event_queue")) {
+      if (text.includes("created_at < NOW() - INTERVAL '7 days'")) {
+        const threshold = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        for (const [id, r] of wsEvents.entries()) {
+          if (new Date(r.created_at).getTime() < threshold) {
+            wsEvents.delete(id);
+          }
+        }
+      } else {
+        wsEvents.clear();
+      }
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (text.startsWith("INSERT INTO skills")) {
+      const matches = text.match(/\$\$(.*?)\$\$/g);
+      if (matches) {
+        matches.forEach(m => {
+          const name = m.replace(/\$\$/g, '');
+          const slug = name.toLowerCase().trim();
+          if (!skillsMap.has(slug)) {
+            skillsMap.set(slug, { id: skillsMap.size + 1, display_name: name });
+          }
+        });
+      }
+      return { rows: [] };
+    }
+
+    if (text.startsWith("SELECT id FROM skills WHERE slug = ANY")) {
+      const slugs = params[0] || [];
+      const rows = slugs.map(s => {
+        const found = skillsMap.get(s);
+        return found ? { id: found.id } : null;
+      }).filter(Boolean);
+      return { rows };
+    }
+
+    if (text.startsWith("INSERT INTO job_skills")) {
+      const matches = text.match(/\('([^']+)',\s*(\d+)\)/g);
+      if (matches) {
+        matches.forEach(m => {
+          const parts = m.match(/\('([^']+)',\s*(\d+)\)/);
+          if (parts) {
+            const jobId = parts[1];
+            const skillId = parseInt(parts[2], 10);
+            if (!jobSkillsMap.has(jobId)) {
+              jobSkillsMap.set(jobId, new Set());
+            }
+            jobSkillsMap.get(jobId).add(skillId);
+          }
+        });
+      }
+      return { rows: [] };
+    }
+
+    if (text.startsWith("SELECT s.display_name FROM skills s JOIN job_skills js")) {
+      const jobId = params[0];
+      const skillIds = jobSkillsMap.get(jobId) || new Set();
+      const rows = [...skillsMap.values()]
+        .filter(s => skillIds.has(s.id))
+        .map(s => ({ display_name: s.display_name }));
+      return { rows };
+    }
 
     if (text.startsWith("INSERT INTO jobs")) {
       const row = defaultJobRow({
@@ -61,24 +158,23 @@ function createPgMock() {
         budget: params[2],
         currency: params[3],
         category: params[4],
-        skills: params[5],
-        client_address: params[6],
-        deadline: params[7],
-        timezone: params[8],
-        screening_questions: params[9],
-        milestones: typeof params[10] === "string" ? JSON.parse(params[10]) : params[10],
-        visibility: params[11],
+        client_address: params[5],
+        deadline: params[6],
+        timezone: params[7],
+        screening_questions: params[8],
+        milestones: typeof params[9] === "string" ? JSON.parse(params[9]) : params[9],
+        visibility: params[10],
       });
       jobs.set(row.id, row);
       return { rows: [row] };
     }
 
-    if (text === "SELECT * FROM jobs WHERE id = $1") {
+    if (text.includes("FROM jobs WHERE id = $1")) {
       const row = jobs.get(params[0]);
       return { rows: row ? [row] : [] };
     }
 
-    if (text.startsWith("SELECT * FROM jobs WHERE client_address")) {
+    if (text.includes("FROM jobs WHERE client_address = $1")) {
       const rows = [...jobs.values()].filter(
         (job) => job.client_address === params[0],
       );
@@ -195,7 +291,7 @@ function createPgMock() {
       return { rows: [row] };
     }
 
-    if (text.startsWith("SELECT * FROM jobs") && text.includes("ORDER BY")) {
+    if (text.includes("FROM jobs") && text.includes("ORDER BY") && !text.includes("WHERE id = $1") && !text.includes("WHERE client_address = $1")) {
       let rows = [...jobs.values()].filter((job) => job.visibility === "public");
       if (text.includes("status = $1")) {
         rows = rows.filter((job) => job.status === params[0]);
@@ -246,11 +342,14 @@ function createPgMock() {
     jobs.clear();
     applications.clear();
     invitations.clear();
+    skillsMap.clear();
+    jobSkillsMap.clear();
+    wsEvents.clear();
     query.mockClear();
     connect.mockClear();
   }
 
-  return { query, connect, jobs, applications, invitations, reset };
+  return { query, connect, jobs, applications, invitations, reset, end: jest.fn() };
 }
 
 module.exports = { createPgMock, defaultJobRow, defaultApplicationRow };

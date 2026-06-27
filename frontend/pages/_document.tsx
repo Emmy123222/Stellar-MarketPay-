@@ -1,6 +1,7 @@
 import Document, { Html, Head, Main, NextScript, DocumentContext, DocumentInitialProps } from "next/document";
 
-// Inline script applied before hydration to prevent flash of wrong theme
+// Inline script applied before hydration to prevent flash of wrong theme.
+// Must remain synchronous and inline — do NOT move to next/script.
 const themeScript = `
 (function(){
   try {

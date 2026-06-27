@@ -10,11 +10,11 @@ const http = require("http");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
-const compression = require("compression");
+const compressionMiddleware = require("./middleware/compression");
 const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
-const nodemailer = require("nodemailer");
+const { sendEmail, smtpTransport } = require("./utils/email");
 const promClient = require("prom-client");
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
@@ -22,6 +22,11 @@ const { requestLoggerMiddleware, logError, createServiceLogger } = require('./ut
 const { sanitizeMiddleware } = require('./middleware/sanitize');
 const { requireChoice } = require("./config/env");
 const { createCorsOptions } = require("./config/cors");
+const { verifyJWT, requireAdminRole } = require("./middleware/auth");
+const { ExpressAdapter } = require('@bull-board/express');
+const { createBullBoard } = require('@bull-board/api');
+const { BullAdapter } = require('@bull-board/api/bullAdapter');
+const { emailQueue } = require('./utils/queue');
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -50,6 +55,7 @@ const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
+const { setBroadcastToUser } = require("./services/notificationService");
 
 const serviceLogger = createServiceLogger('server');
 const app  = express();
@@ -96,6 +102,7 @@ dbConnectionGauge.collect = function collectDbConnections() {
 };
 
 const realtimeClients = new Set();
+const userClients = new Map(); // userAddress -> Set<WebSocket>
 const scopeSessionClients = new Map();
 
 function broadcastRealtime(event, payload) {
@@ -103,6 +110,18 @@ function broadcastRealtime(event, payload) {
   serviceLogger.debug({ event, payload }, 'Broadcasting realtime message');
   for (const ws of realtimeClients) {
     if (ws.readyState === WS_OPEN) ws.send(message);
+  }
+  // Store the event for later reconnection pagination
+  wsQueue.enqueueEvent({ event, payload }).catch(err => serviceLogger.error({ err }, 'Failed to enqueue WS event'));
+}
+
+function broadcastToUser(userAddress, event, payload) {
+  const message = JSON.stringify({ event, payload });
+  const clients = userClients.get(userAddress);
+  if (clients) {
+    for (const ws of clients) {
+      if (ws.readyState === WS_OPEN) ws.send(message);
+    }
   }
 }
 
@@ -161,33 +180,18 @@ const indexerService = new IndexerService({
   contractId: process.env.CONTRACT_ID || process.env.ESCROW_CONTRACT_ID,
   broadcast: broadcastRealtime,
 });
-const smtpEnabled = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-const smtpTransport = smtpEnabled
-  ? nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: false,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    })
-  : null;
+
 const priceAlertService = new PriceAlertService({
   broadcast: broadcastRealtime,
   sendEmail: async ({ to, subject, text }) => {
-    if (!smtpTransport || !to) return;
-    await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to,
-      subject,
-      text,
-    });
+    await sendEmail({ to, subject, text });
   },
 });
 
 app.locals.indexerService = indexerService;
 app.locals.broadcastRealtime = broadcastRealtime;
+app.locals.broadcastToUser = broadcastToUser;
+setBroadcastToUser(broadcastToUser);
 
 // Middleware
 app.use(helmet({
@@ -221,7 +225,7 @@ app.use(helmet({
 // Request logging middleware
 app.use(requestLoggerMiddleware);
 
-app.use(compression());
+app.use(compressionMiddleware());
 
 app.use(express.json({ limit: "20kb" }));
 app.use(sanitizeMiddleware({ strict: false }));
@@ -303,6 +307,17 @@ app.use("/api/invitations",   invitationRoutes);
 app.use("/api/stats",         statsRoutes);
 app.use("/api/skills",        skillsRoutes);
 
+// Bull Board setup
+const serverAdapter = new ExpressAdapter();
+serverAdapter.setBasePath('/admin/queues');
+
+createBullBoard({
+  queues: [new BullAdapter(emailQueue)],
+  serverAdapter: serverAdapter,
+});
+
+app.use('/admin/queues', verifyJWT, requireAdminRole, serverAdapter.getRouter());
+
 app.use((err, req, res, next) => {
   void next;
 
@@ -346,9 +361,45 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
-    realtimeClients.add(ws);
-    sendJson(ws, "connected", { channel: "realtime" });
-    ws.on("close", () => realtimeClients.delete(ws));
+    const token = url.searchParams.get("token");
+    let userAddress = null;
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        userAddress = decoded.publicKey;
+      } catch {
+        serviceLogger.warn('Invalid WebSocket JWT token, falling back to anonymous');
+      }
+    }
+
+    if (userAddress) {
+      if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
+      userClients.get(userAddress).add(ws);
+      sendJson(ws, "connected", { channel: "realtime", userAddress });
+
+      ws.on("close", () => {
+        const clients = userClients.get(userAddress);
+        if (clients) {
+          clients.delete(ws);
+          if (clients.size === 0) userClients.delete(userAddress);
+        }
+      });
+
+      // Send unread notifications on reconnect
+      try {
+        const notificationService = require("./services/notificationService");
+        const result = await notificationService.listInAppNotifications(userAddress, { limit: 50 });
+        for (const notification of result.notifications) {
+          sendJson(ws, "notification:created", notification);
+        }
+      } catch (err) {
+        logError(serviceLogger, err, { operation: 'send_unread_notifications' });
+      }
+    } else {
+      realtimeClients.add(ws);
+      sendJson(ws, "connected", { channel: "realtime" });
+      ws.on("close", () => realtimeClients.delete(ws));
+    }
     return;
   }
 
@@ -455,11 +506,18 @@ async function bootstrap() {
   // Start notification processor - run every 2 minutes
   startNotificationProcessor();
 
-  // Start weekly digest scheduler - fires every Monday at 09:00 UTC
+  // Start WS event cleanup job (purge old events after 7 days)
+  startWsEventCleanup();
   startWeeklyDigestScheduler();
 
   // Start platform metrics aggregator - runs hourly for Issue #561
   startPlatformMetricsAggregator();
+
+  // Start GDPR cleanup worker - runs daily
+  startGdprCleanupWorker();
+
+  // Start Bull email worker
+  require("./workers/emailWorker");
 
   server.listen(PORT, () => {
     serviceLogger.info({
@@ -531,14 +589,7 @@ async function startNotificationProcessor() {
   const notificationLogger = createServiceLogger('notifications');
   
   const sendEmailFn = async ({ to, subject, text, html }) => {
-    if (!smtpTransport || !to) return;
-    await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to,
-      subject,
-      text,
-      html,
-    });
+    await sendEmail({ to, subject, text, html });
   };
 
   // Run immediately on startup
@@ -610,14 +661,7 @@ function startWeeklyDigestScheduler() {
 
   // Reuse the same sendEmail transport already wired for notifications
   const sendEmailFn = async ({ to, subject, text, html }) => {
-    if (!smtpTransport || !to) return;
-    await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to,
-      subject,
-      text,
-      html,
-    });
+    await sendEmail({ to, subject, text, html });
   };
 
   /**
@@ -695,6 +739,29 @@ function startPlatformMetricsAggregator() {
 
   runAggregation();
   setInterval(runAggregation, 60 * 60 * 1000).unref();
+}
+
+/**
+ * Periodically permanently delete profiles that have passed the 30-day grace period.
+ * Runs daily.
+ */
+function startGdprCleanupWorker() {
+  const { permanentlyDeleteExpiredProfiles } = require("./services/profileService");
+  const gdprLogger = createServiceLogger('gdpr-cleanup');
+
+  async function checkAndDelete() {
+    try {
+      const deletedKeys = await permanentlyDeleteExpiredProfiles();
+      if (deletedKeys.length > 0) {
+        gdprLogger.info({ count: deletedKeys.length }, 'Permanently deleted expired GDPR profiles');
+      }
+    } catch (err) {
+      logError(gdprLogger, err, { operation: 'gdpr_cleanup' });
+    }
+  }
+
+  // Run daily
+  setInterval(checkAndDelete, 24 * 60 * 60 * 1000).unref();
 }
 
 bootstrap();

@@ -1,6 +1,7 @@
 import type { AppProps } from "next/app";
 import { useState, useEffect, useCallback } from "react";
 import Head from "next/head";
+import Script from "next/script";
 import { useRouter } from "next/router";
 import Navbar from "@/components/Navbar";
 import FaucetButton from "@/components/FaucetButton";
@@ -24,7 +25,7 @@ import "@/styles/globals.css";
 import { ToastProvider } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
-import ShortcutsModal from "@/components/ShortcutsModal";
+
 import OfflineBanner from "@/components/OfflineBanner";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useBackgroundSync } from "@/hooks/useBackgroundSync";
@@ -230,6 +231,18 @@ function App({ Component, pageProps }: AppProps) {
 
   return (
     <>
+      {/*
+       * Non-critical third-party scripts — loaded after the page is interactive
+       * so they don't block TTI. Add any analytics, widgets, or tracking scripts
+       * here using strategy="lazyOnload". They run after hydration completes.
+       *
+       * Example (uncomment and replace src with your script URL):
+       *   <Script src="https://example.com/analytics.js" strategy="lazyOnload" />
+       *
+       * For CPU-intensive scripts (analytics, chat widgets), consider Partytown:
+       *   npm install @builder.io/partytown
+       *   Then use strategy="worker" to offload to a web worker thread.
+       */}
       <ThemeProvider>
         <ToastProvider>
           <PriceProvider>
@@ -258,7 +271,7 @@ function App({ Component, pageProps }: AppProps) {
               </main>
               {publicKey && <FaucetButton publicKey={publicKey} />}
               <ThemeToggle />
-              <ShortcutsModal
+              <KeyboardShortcutsModal
                 isOpen={shortcutsModalOpen}
                 onClose={() => setShortcutsModalOpen(false)}
                 showJobDetailShortcuts={isJobDetailPage}

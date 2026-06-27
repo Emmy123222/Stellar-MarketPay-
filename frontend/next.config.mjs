@@ -15,14 +15,18 @@ const withPWA = withPWAInit({
   disable: process.env.NODE_ENV === "development",
 });
 
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  assetPrefix: process.env.NEXT_PUBLIC_CDN_URL || '',
   i18n: {
     defaultLocale: "en",
     locales: ["en", "es", "fr", "pt"],
   },
   images: {
+    loader: 'custom',
+    path: process.env.IMAGE_CDN_URL || '',
     formats: ['image/webp', 'image/avif'],
     remotePatterns: [
       { protocol: 'https', hostname: 'ipfs.io' },
@@ -75,6 +79,7 @@ const nextConfig = {
   // HTTP/2 Server Push headers for critical assets
   async headers() {
     return [
+      // Preload critical assets
       {
         source: '/:path*',
         headers: [
@@ -82,6 +87,20 @@ const nextConfig = {
             key: 'Link',
             value: '</_next/static/css/app/layout.css>; rel=preload; as=style, </_next/static/chunks/webpack.js>; rel=preload; as=script, </_next/static/chunks/framework.js>; rel=preload; as=script',
           },
+        ],
+      },
+      // Cache static assets with long TTL
+      {
+        source: '/_next/static/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
+      // Cache profile images with shorter TTL
+      {
+        source: '/profile/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=3600' },
         ],
       },
     ];
