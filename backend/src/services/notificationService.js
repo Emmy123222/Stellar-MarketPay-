@@ -198,7 +198,7 @@ async function createJobNotification({
  * @returns {Promise<Object>} User preferences
  */
 async function getUserPreferences(publicKey) {
-  const crypto = require("crypto");
+
   const encKey = process.env.DATABASE_ENCRYPTION_KEY || "";
   const { rows } = await pool.query(
     `SELECT

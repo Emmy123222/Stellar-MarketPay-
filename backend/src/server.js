@@ -10,7 +10,7 @@ const http = require("http");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
-const compression = require("compression");
+const compressionMiddleware = require("./middleware/compression");
 const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
@@ -107,6 +107,8 @@ function broadcastRealtime(event, payload) {
   for (const ws of realtimeClients) {
     if (ws.readyState === WS_OPEN) ws.send(message);
   }
+  // Store the event for later reconnection pagination
+  wsQueue.enqueueEvent({ event, payload }).catch(err => serviceLogger.error({ err }, 'Failed to enqueue WS event'));
 }
 
 function broadcastToUser(userAddress, event, payload) {
@@ -236,7 +238,7 @@ app.use(helmet({
 // Request logging middleware
 app.use(requestLoggerMiddleware);
 
-app.use(compression());
+app.use(compressionMiddleware());
 
 app.use(express.json({ limit: "20kb" }));
 app.use(sanitizeMiddleware({ strict: false }));
@@ -506,7 +508,8 @@ async function bootstrap() {
   // Start notification processor - run every 2 minutes
   startNotificationProcessor();
 
-  // Start weekly digest scheduler - fires every Monday at 09:00 UTC
+  // Start WS event cleanup job (purge old events after 7 days)
+  startWsEventCleanup();
   startWeeklyDigestScheduler();
 
   // Start platform metrics aggregator - runs hourly for Issue #561

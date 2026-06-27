@@ -25,6 +25,7 @@ import type {
   NotificationItem,
   ProfileStats,
   ResponseTime,
+  AuditLogEntry,
 } from "@/utils/types";
 
 const api = axios.create({
@@ -932,6 +933,19 @@ export async function saveDraft(draft: {
   return data.data;
 }
 
+export async function updateDraft(draft: {
+  id: string;
+  title?: string;
+  description?: string;
+  budget?: number;
+  category?: string;
+  skills?: string[];
+  deadline?: string;
+}) {
+  const { data } = await api.put<{ success: boolean; data: { id: string } }>(`/api/jobs/drafts/${draft.id}`, draft);
+  return data.data;
+}
+
 export async function deleteDraft(draftId: string) {
   await api.delete(`/api/jobs/drafts/${draftId}`);
 }
@@ -1696,6 +1710,24 @@ export async function fetchAdminLogs() {
     "/api/admin/logs",
   );
   return data.data;
+}
+
+export async function fetchAuditLogs(params?: {
+  action?: string;
+  resource_type?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  after?: string;
+}) {
+  const { data } = await api.get<{
+    success: boolean;
+    data: AuditLogEntry[];
+    nextCursor: string | null;
+  }>("/api/audit", {
+    params,
+  });
+  return { logs: data.data, nextCursor: data.nextCursor };
 }
 
 export async function fetchFrozenWallets() {
