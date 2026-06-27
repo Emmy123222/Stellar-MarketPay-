@@ -7,7 +7,7 @@ const express = require("express");
 const QRCode = require("qrcode");
 const speakeasy = require("speakeasy");
 const pool = require("../db/pool");
-const { verifyJWT } = require("../middleware/auth");
+const { verifyJWT, requireAdminRole } = require("../middleware/auth");
 const { signAccessToken } = require("../services/authTokens");
 const { encrypt } = require("../utils/encryption");
 const {
@@ -21,23 +21,12 @@ const {
 
 const router = express.Router();
 
-function requireAdminWallet(req, res, next) {
-  const adminAddresses = (process.env.ADMIN_WALLET_ADDRESSES || "")
-    .split(",")
-    .map((a) => a.trim())
-    .filter(Boolean);
-  if (!adminAddresses.includes(req.user.publicKey) && req.user.role !== "admin") {
-    return res.status(403).json({ success: false, error: "Admin access required" });
-  }
-  next();
-}
-
 function issueAdminToken(publicKey, twoFaVerified) {
   return signAccessToken({ publicKey, role: "admin", "2fa_verified": twoFaVerified });
 }
 
 // POST /api/admin/2fa/setup — generate TOTP secret and QR code
-router.post("/setup", verifyJWT, requireAdminWallet, async (req, res, next) => {
+router.post("/setup", verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const { publicKey } = req.user;
     await ensureAdminProfile(publicKey);
@@ -68,7 +57,7 @@ router.post("/setup", verifyJWT, requireAdminWallet, async (req, res, next) => {
 });
 
 // POST /api/admin/2fa/verify — verify TOTP, enable 2FA (setup), upgrade JWT
-router.post("/verify", verifyJWT, requireAdminWallet, async (req, res, next) => {
+router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const { publicKey } = req.user;
     const { token, setup } = req.body;
@@ -127,7 +116,7 @@ router.post("/verify", verifyJWT, requireAdminWallet, async (req, res, next) => 
 });
 
 // GET /api/admin/2fa/status
-router.get("/status", verifyJWT, requireAdminWallet, async (req, res, next) => {
+router.get("/status", verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const status = await get2FAStatus(req.user.publicKey);
     res.json({

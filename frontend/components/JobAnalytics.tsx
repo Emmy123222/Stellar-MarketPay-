@@ -97,7 +97,7 @@ function BidAmountChart({ data }: { data: JobAnalytics["averageBidAmount"] }) {
  * Status breakdown mini pie/donut.
  */
 function StatusBreakdown({ data }: { data: JobAnalytics["applicationStatusCounts"] }) {
-  const total = Object.values(data).reduce((a, b) => a + (b || 0), 0);
+  const total = Object.values(data).reduce<number>((a, b) => a + (b || 0), 0);
   if (total === 0) {
     return <p className="text-sm text-amber-800 text-center py-4">No applications</p>;
   }
@@ -115,7 +115,7 @@ function StatusBreakdown({ data }: { data: JobAnalytics["applicationStatusCounts
           {statuses.map((s, i) => {
             const value = data[s.key] || 0;
             const pct = total > 0 ? value / total : 0;
-            const offset = statuses.slice(0, i).reduce((acc, prev) => acc + ((data[prev.key] || 0) / total), 0);
+            const offset = statuses.slice(0, i).reduce<number>((acc, prev) => acc + ((data[prev.key] || 0) / (total || 1)), 0);
             return pct > 0 ? (
               <circle
                 key={s.key}
@@ -164,7 +164,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
         .catch(console.error)
         .finally(() => setLoading(false));
     }
-  }, [job?.id]);
+  }, [job]);
 
   const handleExtend = async () => {
     try {
@@ -236,7 +236,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
               "font-mono text-sm",
               isExpired ? "text-red-400" : isExpiringSoon ? "text-amber-400" : "text-amber-400"
             )}>
-              {job.expiresAt ? new Date(job.expiresAt).toLocaleDateString() : "-"}
+              {job.expiresAt ? new Date(job.expiresAt).toLocaleDateString() : "—"}
             </p>
           </div>
           <div>
@@ -311,7 +311,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
               </div>
             ) : (
               <div className="text-center">
-                {analytics && analytics.daysToHire !== null ? (
+                {analytics != null && analytics.daysToHire !== null ? (
                   <>
                     <p className="font-display text-4xl font-bold text-emerald-400">
                       {analytics.daysToHire.toFixed(1)}

@@ -382,6 +382,12 @@
                             },
                             {
                               "key": {
+                                "symbol": "deliverable_hash"
+                              },
+                              "val": "void"
+                            },
+                            {
+                              "key": {
                                 "symbol": "freelancer"
                               },
                               "val": {

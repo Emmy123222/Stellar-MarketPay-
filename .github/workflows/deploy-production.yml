@@ -17,10 +17,10 @@ jobs:
       contents: read
       packages: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Deploy on production VPS via SSH
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.PRODUCTION_SSH_HOST }}
           username: ${{ secrets.PRODUCTION_SSH_USER }}
@@ -28,9 +28,9 @@ jobs:
           script: |
             set -e
             export IMAGE_TAG=${{ github.event.inputs.image_tag }}
+            export IMAGE_TAG=$(echo "$IMAGE_TAG" | tr '[:upper:]' '[:lower:]')
             cd ${{ secrets.PRODUCTION_APP_DIR }}
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d
+            ./scripts/blue-green-deploy.sh
 
       - name: Notify Discord success
         if: success()

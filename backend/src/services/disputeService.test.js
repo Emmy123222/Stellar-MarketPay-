@@ -20,6 +20,7 @@ const {
   getDispute,
   MAX_EVIDENCE_FILES,
   MAX_FILE_SIZE,
+  validateIpfsCid,
 } = require("./disputeService");
 
 const CLIENT_ADDRESS = "GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
@@ -27,6 +28,8 @@ const FREELANCER_ADDRESS = "GBBCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXY
 const ADMIN_ADDRESS = "GADMIN1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEF";
 const OTHER_ADDRESS = "GCCCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
 const JOB_ID = "job-456";
+const VALID_CID_V0 = "QmYwAPJzv5CZsnAzt8auVZRnApMEfM4kQh6wxbN4p5M6Za";
+const VALID_CID_V1 = `bafy${"a".repeat(55)}`;
 
 function makeJob(overrides = {}) {
   return {
@@ -48,7 +51,7 @@ function makeEvidenceRow(overrides = {}) {
     file_name: "evidence.pdf",
     file_size: 1024,
     mime_type: "application/pdf",
-    ipfs_cid: "QmTest123",
+    ipfs_cid: VALID_CID_V0,
     created_at: new Date().toISOString(),
     ...overrides,
   };
@@ -139,12 +142,12 @@ describe("disputeService", () => {
         .mockResolvedValueOnce({ rows: [{ count: "0" }] })
         .mockResolvedValueOnce({ rows: [makeEvidenceRow()] });
 
-      ipfsService.uploadFile.mockResolvedValue({ cid: "QmTest123" });
+      ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V0 });
 
       const result = await uploadEvidence(JOB_ID, CLIENT_ADDRESS, fileBuffer, fileName, mimeType);
 
       expect(result.success).toBe(true);
-      expect(result.data.ipfsCid).toBe("QmTest123");
+      expect(result.data.ipfsCid).toBe(VALID_CID_V0);
     });
 
     it("rejects evidence upload from non-participant", async () => {
@@ -204,14 +207,47 @@ describe("disputeService", () => {
         .mockResolvedValueOnce({ rows: [makeJob()] })
         .mockResolvedValueOnce({ rows: [{ id: "dispute-1", status: "open" }] })
         .mockResolvedValueOnce({ rows: [{ count: "0" }] })
-        .mockResolvedValueOnce({ rows: [makeEvidenceRow({ ipfs_cid: "QmValidIpfsCid123" })] });
+        .mockResolvedValueOnce({ rows: [makeEvidenceRow({ ipfs_cid: VALID_CID_V1 })] });
 
-      ipfsService.uploadFile.mockResolvedValue({ cid: "QmValidIpfsCid123" });
+      ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V1 });
 
       const result = await uploadEvidence(JOB_ID, CLIENT_ADDRESS, fileBuffer, fileName, mimeType);
 
-      expect(result.data.ipfsCid).toBe("QmValidIpfsCid123");
-      expect(result.data.gatewayUrl).toContain("QmValidIpfsCid123");
+      expect(result.data.ipfsCid).toBe(VALID_CID_V1);
+      expect(result.data.gatewayUrl).toContain(VALID_CID_V1);
+    });
+
+    it.each([
+      ["short CID", "QmTest123"],
+      ["CID with script payload", "<script>alert(1)</script>"],
+      ["CID with special characters", "QmYwAPJzv5CZsnAzt8auVZRnApMEfM4kQh6wxbN4p5M!"],
+      ["non-string CID", null],
+    ])("rejects %s before storing evidence", async (_label, cid) => {
+      pool.query
+        .mockResolvedValueOnce({ rows: [makeJob()] })
+        .mockResolvedValueOnce({ rows: [{ id: "dispute-1", status: "open" }] })
+        .mockResolvedValueOnce({ rows: [{ count: "0" }] });
+
+      ipfsService.uploadFile.mockResolvedValue({ cid });
+
+      await expect(
+        uploadEvidence(JOB_ID, CLIENT_ADDRESS, fileBuffer, fileName, mimeType),
+      ).rejects.toMatchObject({
+        message: "Invalid IPFS CID returned from upload service",
+        status: 422,
+      });
+
+      expect(pool.query).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe("validateIpfsCid", () => {
+    it.each([VALID_CID_V0, VALID_CID_V1])("accepts valid CID format %s", (cid) => {
+      expect(validateIpfsCid(cid)).toBe(cid);
+    });
+
+    it("rejects a CID with unexpected length", () => {
+      expect(() => validateIpfsCid("bafyshort")).toThrow("Invalid IPFS CID returned from upload service");
     });
   });
 

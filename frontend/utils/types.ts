@@ -14,9 +14,9 @@ export type Currency = "XLM" | "USDC";
 export type JobVisibility = "public" | "private" | "invite_only";
 export type FreelancerTier =
   | "Newcomer"
-  | "Rising Star"
-  | "Expert"
-  | "Top Talent";
+  | "Rising Talent"
+  | "Top Rated"
+  | "Expert";
 export type AvailabilityStatus = "available" | "busy" | "unavailable";
 export type PortfolioItemType = "link" | "image" | "pdf" | "github" | "live" | "stellar_tx" | "file";
 
@@ -38,6 +38,18 @@ export interface JobMilestone {
   status: "pending" | "released" | "disputed";
   releasedAt?: string | null;
   disputedAt?: string | null;
+}
+
+export interface NotificationItem {
+  id: string;
+  userAddress: string;
+  type: string;
+  title: string;
+  body: string;
+  read: boolean;
+  jobId?: string | null;
+  linkPath?: string | null;
+  createdAt: string;
 }
 
 export interface Job {
@@ -66,7 +78,12 @@ export interface Job {
   expiresAt?: string; // ISO date when job expires if not hired
   extendedCount?: number; // Number of times expiry has been extended
   extendedUntil?: string; // Final expiry after all extensions
+  biddingClosedAt?: string | null;
   clientReputationScore?: number | null;
+  disputedBy?: string;
+  disputedAt?: string | null;
+  disputeReason?: string | null;
+  disputeDescription?: string | null;
 }
 
 export interface ClientReputation {
@@ -97,7 +114,12 @@ export interface Application {
   status: "pending" | "accepted" | "rejected";
   screeningAnswers?: Record<string, string>;
   estimatedDuration?: string;
+  bidCommitment?: string | null;
+  bidRevealed?: boolean;
+  revealedBidAmount?: string | null;
+  revealedAt?: string | null;
   createdAt: string;
+  acceptedAt?: string;
 }
 
 export interface UserProfile {
@@ -116,10 +138,26 @@ export interface UserProfile {
   ratingCount?: number;
   referralCount?: number;
   reputationPoints?: number;
+  reputationScore?: number;
+  reputationMetrics?: {
+    avgAcceptHours: number;
+    avgReleaseHours: number;
+  };
   didHash?: string;
   isKycVerified?: boolean;
   createdAt: string;
   updatedAt?: string;
+  blockedAddresses?: string[];
+}
+
+export interface ProfileStats {
+  totalApplications: number;
+  acceptedApplications: number;
+  successRate: number;
+}
+
+export interface ResponseTime {
+  averageDays: number | null;
 }
 
 export interface Rating {
@@ -157,8 +195,14 @@ export interface ClientSpendingFreelancer {
   totalPaidXlm: string;
 }
 
+export interface ClientSpendingMonthly {
+  month: string; // "YYYY-MM"
+  totalSpentXlm: number;
+}
+
 export interface ClientSpendingAnalytics {
   totalSpentXlm: string;
+  totalBudgetXlm?: string;
   jobsBreakdown: {
     posted: number;
     completed: number;
@@ -169,6 +213,7 @@ export interface ClientSpendingAnalytics {
   averagePaidXlm: string;
   topFreelancers: ClientSpendingFreelancer[];
   hasCompletedJobs: boolean;
+  monthly?: ClientSpendingMonthly[];
 }
 
 export interface EscrowState {
@@ -191,6 +236,11 @@ export interface Message {
   createdAt: string;
   ipfsCid?: string;
   txHash?: string;
+  attachmentCid?:  string | null;
+  attachmentName?: string | null;
+  attachmentSize?: number | null;
+  attachmentMime?: string | null;
+  senderNaclPub?:  string | null;
 }
 
 export interface PortfolioFile {
@@ -306,11 +356,12 @@ export interface JobAnalytics {
     bidAmount: string;
     createdAt: string;
   }>;
-  applicationsPerDay: Array<{ day: string; count: number }>;
-  averageBidAmount: Array<{ currency: string; avgBid: number; count: number }>;
+  applicationsPerDay: { day: string; count: number }[];
+  averageBidAmount: { currency: string; avgBid: number; count: number }[];
+  applicationStatusCounts: { pending?: number; accepted?: number; rejected?: number; [key: string]: number | undefined };
   skillDistribution: Record<string, number>;
   daysToHire: number | null;
-  applicationStatusCounts: Record<string, number>;
+  timeToHire?: number | null;
 }
 
 // ─── Bulk Actions ────────────────────────────────────────────────────────────
@@ -338,4 +389,13 @@ export interface JobInvitation {
   jobCurrency: Currency;
   status: "pending" | "accepted" | "declined";
   createdAt: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  adminAddress: string;
+  action: string;
+  resource: string;
+  timestamp: string;
+  changesDiff?: Record<string, any>;
 }

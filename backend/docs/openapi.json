@@ -203,7 +203,6 @@
     "/api/jobs": {
       "get": {
         "summary": "List jobs",
-        "description": "Returns a paginated list of jobs with optional filtering",
         "tags": [
           "Jobs"
         ],
@@ -333,11 +332,11 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "description": "Job title"
-                  },
-                  "description": {
-                    "type": "string",
                     "description": "Detailed job description"
+                  },
+                  "clientAddress": {
+                    "type": "string",
+                    "description": "Client's Stellar address"
                   },
                   "budget": {
                     "type": "number",

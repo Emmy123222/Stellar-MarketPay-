@@ -1,0 +1,10 @@
+-- Issue #338: sealed-bid commitments
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS bidding_closed_at TIMESTAMPTZ;
+
+ALTER TABLE applications
+  ADD COLUMN IF NOT EXISTS bid_commitment TEXT,
+  ADD COLUMN IF NOT EXISTS bid_nonce TEXT,
+  ADD COLUMN IF NOT EXISTS bid_revealed BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS revealed_bid_amount NUMERIC(20,7),
+  ADD COLUMN IF NOT EXISTS revealed_at TIMESTAMPTZ;

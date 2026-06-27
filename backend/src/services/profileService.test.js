@@ -9,6 +9,7 @@ const {
   updateAvailability,
   getProfileStats,
   getResponseTime,
+  calculateFreelancerTier,
   MAX_PORTFOLIO_ITEMS,
 } = require("./profileService");
 
@@ -124,31 +125,38 @@ describe("profileService", () => {
 
   describe("getProfile", () => {
     it("returns portfolioItems from the profile row", async () => {
-      pool.query.mockResolvedValueOnce({
-        rows: [
-          {
-            public_key: publicKey,
-            display_name: "Jane Doe",
-            bio: "Freelancer bio",
-            skills: ["React"],
-            portfolio_items: [
-              { title: "Repo", url: "https://github.com/example/repo", type: "github" },
-            ],
-            availability: {
-              status: "busy",
-              availableFrom: "2026-06-01T00:00:00.000Z",
-              availableUntil: "2026-06-30T00:00:00.000Z",
-            },
-            role: "freelancer",
+      const profileRow = {
+        public_key: publicKey,
+        display_name: "Jane Doe",
+        bio: "Freelancer bio",
+        skills: ["React"],
+        portfolio_items: [
+          { title: "Repo", url: "https://github.com/example/repo", type: "github" },
+        ],
+        availability: {
+          status: "busy",
+          availableFrom: "2026-06-01T00:00:00.000Z",
+          availableUntil: "2026-06-30T00:00:00.000Z",
+        },
+        role: "freelancer",
+        completed_jobs: 3,
+        total_earned_xlm: "150.0000000",
+        avg_rating: "4.80",
+        rating_count: 2,
+        created_at: "2026-04-23T00:00:00.000Z",
+        updated_at: "2026-04-23T00:00:00.000Z",
+      };
+      pool.query
+        .mockResolvedValueOnce({ rows: [profileRow] })
+        .mockResolvedValueOnce({
+          rows: [{
+            created_at: profileRow.created_at,
             completed_jobs: 3,
+            total_jobs: 3,
             total_earned_xlm: "150.0000000",
             avg_rating: "4.80",
-            rating_count: 2,
-            created_at: "2026-04-23T00:00:00.000Z",
-            updated_at: "2026-04-23T00:00:00.000Z",
-          },
-        ],
-      });
+          }],
+        });
 
       const profile = await getProfile(publicKey);
 
@@ -162,6 +170,29 @@ describe("profileService", () => {
       });
       expect(profile.rating).toBe(4.8);
       expect(profile.ratingCount).toBe(2);
+      expect(profile.tier).toBe("Rising Talent");
+    });
+  });
+
+  describe("calculateFreelancerTier", () => {
+    it("returns Expert for high volume, rating, and earnings", () => {
+      expect(calculateFreelancerTier({
+        completedJobs: 20,
+        totalJobs: 20,
+        rating: 4.8,
+        totalEarnedXlm: 500,
+        createdAt: "2025-01-01T00:00:00.000Z",
+      })).toBe("Expert");
+    });
+
+    it("returns Top Rated for strong rating and completion rate", () => {
+      expect(calculateFreelancerTier({
+        completedJobs: 9,
+        totalJobs: 10,
+        rating: 4.5,
+        totalEarnedXlm: 300,
+        createdAt: "2025-01-01T00:00:00.000Z",
+      })).toBe("Top Rated");
     });
   });
 

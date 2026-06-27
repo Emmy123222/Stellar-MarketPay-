@@ -1,5 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/router";
+import dynamic from "next/dynamic";
+
+// This page is already code-split by Next.js as a dynamic route
+// The collaborative editor is loaded on-demand when users navigate to /scope/[sessionId]
+// No additional dynamic import needed here as Next.js handles automatic code splitting
 
 type CursorMap = Record<string, { start: number; end: number; updatedAt: number }>;
 
@@ -10,14 +15,21 @@ type ScopeMessage =
   | { event: "scope:error"; payload: { error: string } }
   | { event: "connected"; payload: { channel: string } };
 
-// Distinct colours for up to 6 peer cursors
-const CURSOR_COLORS = ["#f59e0b", "#34d399", "#60a5fa", "#f472b6", "#a78bfa", "#fb923c"];
+type ConnectionStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
 
+type OutboundMessage = { type: string; content?: string; cursors?: CursorMap; payload?: Record<string, string> };
+
+const CURSOR_COLORS = ["#f59e0b", "#34d399", "#60a5fa", "#f472b6", "#a78bfa", "#fb923c"];
 const PREFILL_KEY = "marketpay_scope_prefill";
+const MAX_RECONNECT_ATTEMPTS = 5;
 
 function randomSessionId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function reconnectDelay(attempt: number) {
+  return Math.min(1000 * 2 ** attempt, 30000);
 }
 
 export default function ScopeSessionPage() {
@@ -31,16 +43,67 @@ export default function ScopeSessionPage() {
   const [participantId, setParticipantId] = useState("");
   const [documentText, setDocumentText] = useState("");
   const [cursors, setCursors] = useState<CursorMap>({});
-  const [status, setStatus] = useState("Connecting...");
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
   const [shareUrl, setShareUrl] = useState("");
   const [error, setError] = useState("");
   const [finalized, setFinalized] = useState(false);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [showExpiryWarning, setShowExpiryWarning] = useState(false);
-  const socketRef   = useRef<WebSocket | null>(null);
+
+  const socketRef = useRef<WebSocket | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const saveTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const participantIdRef = useRef("");
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const messageQueueRef = useRef<OutboundMessage[]>([]);
+  const intentionalCloseRef = useRef(false);
+
+  const flushMessageQueue = useCallback(() => {
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+    while (messageQueueRef.current.length > 0) {
+      const msg = messageQueueRef.current.shift();
+      if (msg) socket.send(JSON.stringify(msg));
+    }
+  }, []);
+
+  const sendOrQueue = useCallback((message: OutboundMessage) => {
+    const socket = socketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(message));
+      return;
+    }
+    messageQueueRef.current.push(message);
+  }, []);
+
+  const handleScopeMessage = useCallback((msg: ScopeMessage) => {
+    if (msg.event === "scope:init") {
+      setDocumentText(msg.payload.content || "");
+      setCursors(msg.payload.cursors || {});
+      setParticipantId(msg.payload.participantId);
+      participantIdRef.current = msg.payload.participantId;
+      if (msg.payload.finalized) setFinalized(true);
+      if (msg.payload.expiresAt) setExpiresAt(msg.payload.expiresAt);
+      return;
+    }
+    if (msg.event === "scope:update") {
+      setDocumentText(msg.payload.content || "");
+      setCursors(msg.payload.cursors || {});
+      return;
+    }
+    if (msg.event === "scope:finalized") {
+      setDocumentText(msg.payload.content || "");
+      setFinalized(true);
+      setConnectionStatus("connected");
+      return;
+    }
+    if (msg.event === "scope:error") {
+      setError(msg.payload.error || "Session error");
+    }
+  }, []);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -51,61 +114,82 @@ export default function ScopeSessionPage() {
 
   useEffect(() => {
     if (!sessionId || typeof window === "undefined") return;
+
+    if (!participantIdRef.current) {
+      participantIdRef.current = randomSessionId().slice(0, 12);
+    }
+
+    intentionalCloseRef.current = false;
+    reconnectAttemptRef.current = 0;
+    messageQueueRef.current = [];
+
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
     const api = new URL(apiUrl);
     const protocol = api.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${api.host}/ws/scope/${encodeURIComponent(sessionId)}?participantId=${encodeURIComponent(
-      randomSessionId().slice(0, 12)
-    )}`;
-
-    const socket = new WebSocket(wsUrl);
-    socketRef.current = socket;
-    setStatus("Connecting...");
     setShareUrl(window.location.href);
 
-    socket.onopen = () => setStatus("Connected");
-    socket.onclose = () => setStatus("Disconnected");
-    socket.onerror = () => {
-      setStatus("Connection error");
-      setError("Unable to connect realtime scope session.");
+    const connect = (attempt = 0) => {
+      const wsUrl = `${protocol}//${api.host}/ws/scope/${encodeURIComponent(sessionId)}?participantId=${encodeURIComponent(
+        participantIdRef.current,
+      )}`;
+
+      setConnectionStatus(attempt === 0 ? "connecting" : "reconnecting");
+      if (attempt === 0) setError("");
+
+      const socket = new WebSocket(wsUrl);
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        reconnectAttemptRef.current = 0;
+        setConnectionStatus("connected");
+        flushMessageQueue();
+      };
+
+      socket.onclose = () => {
+        socketRef.current = null;
+        if (intentionalCloseRef.current) return;
+
+        if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
+          setConnectionStatus("disconnected");
+          setError("Connection lost. Please reload the page to reconnect.");
+          return;
+        }
+
+        const delay = reconnectDelay(reconnectAttemptRef.current);
+        reconnectAttemptRef.current += 1;
+        setConnectionStatus("reconnecting");
+
+        reconnectTimerRef.current = setTimeout(() => {
+          connect(reconnectAttemptRef.current);
+        }, delay);
+      };
+
+      socket.onerror = () => {
+        if (reconnectAttemptRef.current === 0) {
+          setError("Unable to connect to realtime scope session.");
+        }
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const msg: ScopeMessage = JSON.parse(event.data);
+          handleScopeMessage(msg);
+        } catch {
+          setError("Received invalid realtime message");
+        }
+      };
     };
-    socket.onmessage = (event) => {
-      try {
-        const msg: ScopeMessage = JSON.parse(event.data);
-        if (msg.event === "scope:init") {
-          setDocumentText(msg.payload.content || "");
-          setCursors(msg.payload.cursors || {});
-          setParticipantId(msg.payload.participantId);
-          if (msg.payload.finalized) setFinalized(true);
-          if (msg.payload.expiresAt) setExpiresAt(msg.payload.expiresAt);
-          return;
-        }
-        if (msg.event === "scope:update") {
-          setDocumentText(msg.payload.content || "");
-          setCursors(msg.payload.cursors || {});
-          return;
-        }
-        if (msg.event === "scope:finalized") {
-          setDocumentText(msg.payload.content || "");
-          setFinalized(true);
-          setStatus("Scope finalized — document is now locked");
-          return;
-        }
-        if (msg.event === "scope:error") {
-          setError(msg.payload.error || "Session error");
-        }
-      } catch (_) {
-        setError("Received invalid realtime message");
-      }
-    };
+
+    connect();
 
     return () => {
-      socket.close();
+      intentionalCloseRef.current = true;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [sessionId]);
+  }, [sessionId, flushMessageQueue, handleScopeMessage]);
 
-  // Timer to track session expiry and show warning
   useEffect(() => {
     if (!expiresAt) return;
 
@@ -113,19 +197,17 @@ export default function ScopeSessionPage() {
       const now = Date.now();
       const expiryTime = new Date(expiresAt).getTime();
       const remaining = expiryTime - now;
-      
+
       setTimeRemaining(remaining);
-      
-      // Show warning when less than 30 minutes remain
+
       if (remaining > 0 && remaining <= 30 * 60 * 1000) {
         setShowExpiryWarning(true);
       } else {
         setShowExpiryWarning(false);
       }
 
-      // Session expired
       if (remaining <= 0) {
-        setStatus("Session expired");
+        setConnectionStatus("disconnected");
         setError("This session has expired. Please save your content.");
       }
     };
@@ -137,28 +219,24 @@ export default function ScopeSessionPage() {
   }, [expiresAt]);
 
   const sendUpdate = (content: string, selectionStart: number, selectionEnd: number) => {
-    const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN || !participantId) return;
+    if (!participantIdRef.current) return;
     const nextCursors = {
-      [participantId]: {
+      [participantIdRef.current]: {
         start: selectionStart,
         end: selectionEnd,
         updatedAt: Date.now(),
       },
     };
-    socket.send(
-      JSON.stringify({
-        type: "scope:update",
-        content,
-        cursors: nextCursors,
-      })
-    );
+    sendOrQueue({
+      type: "scope:update",
+      content,
+      cursors: nextCursors,
+    });
   };
 
   const handleTextChange = (value: string) => {
     if (finalized) return;
     setDocumentText(value);
-    // Debounce WS send to ~2 seconds to avoid per-keystroke saves
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       const el = textareaRef.current;
@@ -176,11 +254,7 @@ export default function ScopeSessionPage() {
       window.localStorage.setItem(PREFILL_KEY, JSON.stringify(payload));
     }
 
-    const socket = socketRef.current;
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "scope:finalize", content: documentText, payload }));
-    }
-
+    sendOrQueue({ type: "scope:finalize", content: documentText, payload });
     router.push("/post-job?fromScope=1");
   };
 
@@ -203,7 +277,7 @@ export default function ScopeSessionPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setExpiresAt(data.expiresAt);
@@ -212,7 +286,7 @@ export default function ScopeSessionPage() {
       } else {
         setError("Failed to renew session");
       }
-    } catch (err) {
+    } catch {
       setError("Failed to renew session");
     }
   };
@@ -224,6 +298,20 @@ export default function ScopeSessionPage() {
     return `${seconds}s`;
   };
 
+  const statusLabel = {
+    connected: "Connected",
+    connecting: "Connecting...",
+    reconnecting: "Reconnecting...",
+    disconnected: "Disconnected",
+  }[connectionStatus];
+
+  const statusDotClass = {
+    connected: "bg-emerald-400 animate-pulse",
+    connecting: "bg-amber-400 animate-pulse",
+    reconnecting: "bg-amber-400 animate-pulse",
+    disconnected: "bg-red-400",
+  }[connectionStatus];
+
   const activePeerCursors = Object.entries(cursors).filter(([id]) => id !== participantId);
 
   return (
@@ -233,8 +321,8 @@ export default function ScopeSessionPage() {
           <div>
             <h1 className="font-display text-2xl font-bold text-amber-100">Scope Collaboration Session</h1>
             <div className="flex items-center gap-2 mt-1">
-              <span className={`w-2 h-2 rounded-full ${finalized ? "bg-emerald-400" : status === "Connected" ? "bg-emerald-400 animate-pulse" : "bg-amber-600"}`} />
-              <p className="text-sm text-amber-800">{status}</p>
+              <span className={`w-2 h-2 rounded-full ${finalized ? "bg-emerald-400" : statusDotClass}`} />
+              <p className="text-sm text-amber-800">{finalized ? "Scope finalized — document is now locked" : statusLabel}</p>
             </div>
           </div>
           {!finalized && (
@@ -259,7 +347,6 @@ export default function ScopeSessionPage() {
           </div>
         )}
 
-        {/* Session expiry warning banner */}
         {showExpiryWarning && !finalized && timeRemaining !== null && timeRemaining > 0 && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-3">
             <div className="flex items-start gap-3">
@@ -272,25 +359,16 @@ export default function ScopeSessionPage() {
               </div>
             </div>
             <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={downloadContent}
-                className="btn-secondary px-3 py-1.5 text-xs"
-              >
+              <button type="button" onClick={downloadContent} className="btn-secondary px-3 py-1.5 text-xs">
                 Download Content
               </button>
-              <button
-                type="button"
-                onClick={renewSession}
-                className="btn-primary px-3 py-1.5 text-xs"
-              >
+              <button type="button" onClick={renewSession} className="btn-primary px-3 py-1.5 text-xs">
                 Extend Session (24h)
               </button>
             </div>
           </div>
         )}
 
-        {/* Session expired banner */}
         {timeRemaining !== null && timeRemaining <= 0 && (
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
             <div className="flex items-start gap-3">
@@ -302,11 +380,7 @@ export default function ScopeSessionPage() {
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={downloadContent}
-              className="btn-secondary px-3 py-1.5 text-xs mt-3"
-            >
+            <button type="button" onClick={downloadContent} className="btn-secondary px-3 py-1.5 text-xs mt-3">
               Download Content
             </button>
           </div>
@@ -322,7 +396,6 @@ export default function ScopeSessionPage() {
           </div>
         </div>
 
-        {/* Live presence indicators */}
         {activePeerCursors.length > 0 && (
           <div className="flex flex-wrap gap-2 items-center">
             <p className="text-xs text-amber-800/70 uppercase tracking-wider">Online:</p>
@@ -356,6 +429,18 @@ export default function ScopeSessionPage() {
               if (finalized) return;
               const target = e.target as HTMLTextAreaElement;
               sendUpdate(documentText, target.selectionStart, target.selectionEnd);
+            }}
+            onKeyDown={(e) => {
+              if (finalized) return;
+              if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+                e.preventDefault();
+                const target = e.target as HTMLTextAreaElement;
+                if (saveTimer.current) clearTimeout(saveTimer.current);
+                sendUpdate(documentText, target.selectionStart, target.selectionEnd);
+              } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                e.preventDefault();
+                if (documentText.trim()) finalizeScope();
+              }
             }}
             rows={16}
             className="textarea-field"

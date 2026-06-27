@@ -123,6 +123,19 @@ export function availabilitySummary(availability?: Availability | null): string 
   return availabilityStatusLabel(availability.status);
 }
 
+export function availabilityBadgeClass(status?: Availability["status"] | null): string {
+  if (status === "available") {
+    return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+  }
+  if (status === "busy") {
+    return "bg-amber-500/10 text-amber-300 border-amber-500/20";
+  }
+  if (status === "unavailable") {
+    return "bg-red-500/10 text-red-400 border-red-500/20";
+  }
+  return "bg-market-500/10 text-market-300 border-market-500/20";
+}
+
 export async function copyToClipboard(text: string): Promise<boolean> {
   try { await navigator.clipboard.writeText(text); return true; }
   catch { return false; }

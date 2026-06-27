@@ -13,6 +13,7 @@ const { uploadFile, getGatewayUrl, MAX_FILE_SIZE } = require("../services/ipfsSe
 const profileUpdateRateLimiter = createRateLimiter(5, 1); // 5 profile updates per minute
 const generalProfileRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for getting profiles
 const cache = require("../services/cacheService");
+const { sendEmail } = require("../utils/email");
 
 const {
   getProfile,
@@ -21,16 +22,33 @@ const {
   getSkillEndorsements,
   endorseSkill,
   getClientSpendingAnalytics,
+  listProfiles,
   getClientReputation,
   getProfileStats,
   getResponseTime,
   blockFreelancer,
   unblockFreelancer,
+  markProfileForDeletion,
 } = require("../services/profileService");
 const {
   upsertPriceAlertPreference,
   getPriceAlertPreference,
 } = require("../services/priceAlertService");
+
+router.get("/", generalProfileRateLimiter, async (req, res, next) => {
+  try {
+    const { role, availability, search, limit } = req.query;
+    const profiles = await listProfiles({
+      role: typeof role === "string" && role.trim() ? role : undefined,
+      availability: typeof availability === "string" && availability.trim() ? availability : undefined,
+      search: typeof search === "string" && search.trim() ? search : undefined,
+      limit: typeof limit === "string" ? Number(limit) : undefined,
+    });
+    res.json({ success: true, data: profiles });
+  } catch (e) {
+    next(e);
+  }
+});
 
 router.get("/:publicKey", generalProfileRateLimiter, async (req, res, next) => {
   try {
@@ -149,6 +167,29 @@ router.post("/:publicKey/price-alerts", profileUpdateRateLimiter, async (req, re
       email: req.body.email,
     });
     res.json({ success: true, data: pref });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get("/:publicKey/endorsements", generalProfileRateLimiter, async (req, res, next) => {
+  try {
+    const endorsements = await getSkillEndorsements(req.params.publicKey);
+    res.json({ success: true, data: endorsements });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post("/:publicKey/endorse", profileUpdateRateLimiter, async (req, res, next) => {
+  try {
+    const { skill, endorserAddress } = req.body;
+    await endorseSkill({
+      skill,
+      endorserAddress,
+      recipientAddress: req.params.publicKey,
+    });
+    res.json({ success: true, data: null });
   } catch (e) {
     next(e);
   }
@@ -367,6 +408,45 @@ router.delete("/:publicKey/portfolio/:itemId", verifyJWT, async (req, res, next)
     res.json({ success: true, data: { deleted: true } });
   } catch (e) { next(e); }
 });
-module.exports = router;
 
+// GET /api/profiles/:publicKey/encryption-key — NaCl public key lookup (no auth required)
+router.get("/:publicKey/encryption-key", generalProfileRateLimiter, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT encryption_public_key FROM profiles WHERE public_key = $1`,
+      [req.params.publicKey],
+    );
+    if (!rows.length) return res.status(404).json({ success: false, error: "Profile not found" });
+    res.json({ success: true, data: { encryptionPublicKey: rows[0].encryption_public_key || null } });
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/profiles/:publicKey/data — GDPR deletion request
+router.delete("/:publicKey/data", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+    if (req.user.publicKey !== publicKey) {
+      return res.status(403).json({ error: "You can only delete your own profile data" });
+    }
+    
+    const profile = await markProfileForDeletion(publicKey);
+    
+    await cache.del(cache.profileKey(publicKey));
+    
+    if (profile.email) {
+      await sendEmail({
+        to: profile.email,
+        subject: "Profile Deletion Request Received",
+        text: "We have received your request to delete your profile. Your profile is now hidden and will be permanently deleted after a 30-day grace period.",
+        html: "<p>We have received your request to delete your profile.</p><p>Your profile is now hidden and will be permanently deleted after a 30-day grace period.</p>"
+      });
+    }
+
+    res.json({ success: true, message: "Profile marked for deletion" });
+  } catch (e) {
+    next(e);
+  }
+});
+
+module.exports = router;
 

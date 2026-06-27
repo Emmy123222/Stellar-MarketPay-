@@ -10,7 +10,7 @@ const escrowActionRateLimiter = createRateLimiter(30, 1);
 
 const router = express.Router();
 const pool = require("../db/pool");
-const { getJob } = require("../services/jobService");
+const { getJob, updateJobStatus } = require("../services/jobService");
 const { logContractInteraction } = require("../services/contractAuditService");
 const {
   notifyEscrowEvent,
@@ -63,6 +63,7 @@ router.post("/:jobId/release", async (req, res, next) => {
       amountXlm,
       contractTxHash || null,
     );
+    await updateJobStatus(jobId, "completed");
 
     res.json({
       success: true,

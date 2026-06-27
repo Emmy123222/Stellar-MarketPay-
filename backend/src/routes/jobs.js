@@ -7,23 +7,35 @@ const express = require("express");
 const router = express.Router();
 
 const { createRateLimiter } = require("../middleware/rateLimiter");
-
-const jobCreationRateLimiter = createRateLimiter(10, 1);
-const generalJobRateLimiter = createRateLimiter(30, 1);
-const suggestRateLimiter = createRateLimiter(60, 1);
-const reportJobRateLimiter = createRateLimiter(5, 1);
-
-const {
-  createJob, getJob, listJobs, listJobsByClient, updateJobEscrowId, deleteJob,
-  boostJob, incrementShareCount, raiseDispute, resolveDispute,
-  getRecommendedJobs, getSuggestions, extendJobExpiry, incrementViewCount,
-} = require("../services/jobService");
-const { logContractInteraction } = require("../services/contractAuditService");
 const { verifyJWT } = require("../middleware/auth");
+const jobService = require("../services/jobService");
+const {
+  createJob,
+  getJob,
+  listJobs,
+  listJobsByClient,
+  updateJobEscrowId,
+  deleteJob,
+  boostJob,
+  incrementShareCount,
+  raiseDispute,
+  resolveDispute,
+  getRecommendedJobs,
+  incrementViewCount,
+  extendJobExpiry,
+  getSuggestions,
+} = jobService.default || jobService;
+
+const { logContractInteraction } = require("../services/contractAuditService");
+const { getClientReputation } = require("../services/profileService");
 const cache = require("../services/cacheService");
 const jobDraftService = require("../services/jobDraftService");
 const recommendationService = require("../services/recommendationService");
-const { getClientReputation } = require("../services/profileService");
+
+const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per minute
+const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per minute
+const reportJobRateLimiter = createRateLimiter(20, 1);
+const suggestRateLimiter = createRateLimiter(20, 1);
 
 const jobReports = new Map();
 
@@ -85,6 +97,15 @@ function normalizeAddress(address) {
   return typeof address === "string" ? address.trim() : "";
 }
 
+function isAdmin(req) {
+  if (!req.user) return false;
+  const adminAddresses = (process.env.ADMIN_WALLET_ADDRESSES || "")
+    .split(",")
+    .map((a) => a.trim())
+    .filter(Boolean);
+  return adminAddresses.includes(req.user.publicKey) || req.user.role === "admin";
+}
+
 function isValidReportCategory(category) {
   return ["fraud", "suspicious", "spam", "inappropriate", "other"].includes(
     category,
@@ -114,7 +135,6 @@ async function enrichJobsWithClientReputation(jobs) {
  * /api/jobs:
  *   get:
  *     summary: List jobs
- *     description: Returns a paginated list of jobs with optional filtering
  *     tags: [Jobs]
  *     parameters:
  *       - in: query
@@ -199,6 +219,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
     } = req.query;
     const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
     const includeExpired = include_expired === "true";
+    const includeDeleted = req.query.include_deleted === "true" && isAdmin(req);
 
     // Deprecated offset-style `page` param — cursor pagination is canonical (#291).
     if (page !== undefined && cursor === undefined) {
@@ -239,13 +260,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       timezone,
       viewerAddress,
       includeExpired,
-      min_budget,
-      max_budget,
-      skills,
-      min_client_rating,
-      duration,
-      posted_since,
-      max_applications,
+      includeDeleted,
     });
 
     const jobsWithRep = await enrichJobsWithClientReputation(result.jobs);
@@ -270,9 +285,11 @@ router.get(
   generalJobRateLimiter,
   async (req, res, next) => {
     try {
-      const jobs = await listJobsByClient(req.params.publicKey);
-      const jobsWithRep = await enrichJobsWithClientReputation(jobs);
-      res.json({ success: true, data: jobsWithRep });
+      const includeDeleted = req.query.include_deleted === "true" && isAdmin(req);
+      res.json({
+        success: true,
+        data: await listJobsByClient(req.params.publicKey, { includeDeleted }),
+      });
     } catch (e) {
       next(e);
     }
@@ -296,9 +313,8 @@ router.get(
 // GET /api/jobs/:id — get single job
 router.get("/:id", generalJobRateLimiter, async (req, res, next) => {
   try {
-    const job = await getJob(req.params.id);
-    const [jobWithRep] = await enrichJobsWithClientReputation([job]);
-    res.json({ success: true, data: jobWithRep });
+    const includeDeleted = req.query.include_deleted === "true" && isAdmin(req);
+    res.json({ success: true, data: await getJob(req.params.id, { includeDeleted }) });
   } catch (e) {
     next(e);
   }
@@ -328,10 +344,10 @@ router.get("/:id", generalJobRateLimiter, async (req, res, next) => {
  *             properties:
  *               title:
  *                 type: string
- *                 description: Job title
- *               description:
- *                 type: string
  *                 description: Detailed job description
+ *               clientAddress:
+ *                 type: string
+ *                 description: Client's Stellar address
  *               budget:
  *                 type: number
  *                 description: Job budget in XLM
@@ -378,10 +394,20 @@ router.get("/:id", generalJobRateLimiter, async (req, res, next) => {
  *               $ref: '#/components/schemas/Error'
  */
 // POST /api/jobs — create a new job
-router.post("/", jobCreationRateLimiter, async (req, res, next) => {
+router.post("/", jobCreationRateLimiter, verifyJWT, async (req, res, next) => {
   try {
-    const job = await createJob(req.body);
-    await cache.delPattern("jobs:list:*");
+    const signedAddress = req.user?.publicKey;
+    const payloadClientAddress = typeof req.body.clientAddress === "string" ? req.body.clientAddress.trim() : "";
+
+    if (!signedAddress || !payloadClientAddress) {
+      return res.status(401).json({ error: "Unauthorized: clientAddress is required and must match the signed wallet address" });
+    }
+
+    if (payloadClientAddress !== signedAddress) {
+      return res.status(401).json({ error: "Unauthorized: clientAddress does not match signed wallet address" });
+    }
+
+    const job = await createJob({ ...req.body, clientAddress: signedAddress });
     res.status(201).json({ success: true, data: job });
   } catch (e) {
     next(e);
@@ -760,6 +786,18 @@ router.delete("/drafts/:id", verifyJWT, async (req, res, next) => {
   try {
     await jobDraftService.deleteDraft(req.params.id, req.user.publicKey);
     res.json({ success: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// PUT /api/jobs/drafts/:id — upsert a job draft (partial data)
+router.put("/drafts/:id", verifyJWT, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const draftData = { id, ...req.body };
+    const draft = await jobDraftService.saveDraft(req.user.publicKey, draftData);
+    res.json({ success: true, data: draft });
   } catch (e) {
     next(e);
   }

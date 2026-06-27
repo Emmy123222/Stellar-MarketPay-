@@ -16,6 +16,8 @@ import {
   fetchSkillEndorsements,
   endorseSkill,
   fetchSkillBadges,
+ 
+  fetchResponseTime,
   fetchUserCertificates,
   type CertificateData,
 } from "@/lib/api";
@@ -25,14 +27,17 @@ import {
   availabilitySummary,
   formatXLM,
   shortenAddress,
+  availabilityBadgeClass,
 } from "@/utils/format";
 import { accountUrl, isValidStellarAddress } from "@/lib/stellar";
 import type {
   AvailabilityStatus,
   PortfolioItem,
+  ProfileStats,
+  ResponseTime,
+  SkillBadge,
   SkillEndorsement,
   UserProfile,
-  SkillBadge,
 } from "@/utils/types";
 
 type LoadState =
@@ -62,15 +67,6 @@ function getPortfolioTypeLabel(item: PortfolioItem) {
   }
 }
 
-function getAvailabilityBadgeClass(status?: AvailabilityStatus | null) {
-  if (status === "available")
-    return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-  if (status === "busy")
-    return "bg-amber-500/10 text-amber-300 border-amber-500/20";
-  if (status === "unavailable")
-    return "bg-red-500/10 text-red-400 border-red-500/20";
-  return "bg-market-500/10 text-market-300 border-market-500/20";
-}
 
 export default function PublicFreelancerProfilePage({
   publicKey,
@@ -161,12 +157,21 @@ export default function PublicFreelancerProfilePage({
 
     (async () => {
       try {
-        const [profile, endorsementsData] = await Promise.all([
-          fetchPublicProfile(rawKey),
-          fetchSkillEndorsements(rawKey).catch(() => [] as SkillEndorsement[]),
-        ]);
+        const [profile, endorsementsData, profileStats, profileResponseTime, badgeData] =
+          await Promise.all([
+            fetchPublicProfile(rawKey),
+            fetchSkillEndorsements(rawKey).catch(() => [] as SkillEndorsement[]),
+            fetchProfileStats(rawKey).catch(() => null),
+            fetchResponseTime(rawKey).catch(() => null),
+            fetchSkillBadges(rawKey).catch(() => [] as SkillBadge[]),
+          ]);
+
         if (cancelled) return;
         setEndorsements(endorsementsData);
+        setStats(profileStats);
+        setResponseTime(profileResponseTime);
+        setBadges(badgeData.filter((b) => b.passed));
+
         if (profile === null) setState({ status: "not_found" });
         else setState({ status: "ok", profile });
       } catch (error: unknown) {
@@ -349,7 +354,7 @@ export default function PublicFreelancerProfilePage({
               <div className="flex flex-wrap items-center gap-3 mb-2">
                 <h2 className="label !mb-0">Availability</h2>
                 <span
-                  className={`text-xs px-2.5 py-1 rounded-full border ${getAvailabilityBadgeClass(
+                  className={`text-xs px-2.5 py-1 rounded-full border ${availabilityBadgeClass(
                     state.profile.availability?.status,
                   )}`}
                 >

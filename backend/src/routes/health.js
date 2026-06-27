@@ -9,6 +9,9 @@
  *   - Returns 200 when all dependencies are healthy
  *   - Returns 503 when any critical dependency is down
  *
+ * GET /health/db
+ *   - Returns pool stats: total, idle, waiting connections
+ *
  * Response shape:
  *   {
  *     "status": "healthy" | "degraded",
@@ -24,11 +27,14 @@
 
 const express = require("express");
 const pool = require("../db/pool");
+const { getPoolStats } = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
+const ipfsService = require("../services/ipfsService");
 
 const router = express.Router();
 // Generous limit — probes hit this frequently
 const healthRateLimiter = createRateLimiter(120, 1);
+const subscribeRateLimiter = createRateLimiter(5, 1);
 
 const SERVER_START = Date.now();
 const VERSION = process.env.npm_package_version || "1.0.0";
@@ -99,6 +105,14 @@ async function checkStellar() {
 }
 
 /**
+ * Check IPFS/Pinata configuration status.
+ * @returns {{ status: "ok" | "not_configured" }}
+ */
+function checkIpfs() {
+  return { status: ipfsService.isConfigured() ? "ok" : "not_configured" };
+}
+
+/**
  * @swagger
  * /health:
  *   get:
@@ -139,6 +153,7 @@ router.get("/", healthRateLimiter, async (req, res) => {
     checkDatabase(),
     checkStellar(),
   ]);
+  const ipfs = checkIpfs();
 
   const healthy = database.status === "ok" && stellar.status === "ok";
 
@@ -146,15 +161,42 @@ router.get("/", healthRateLimiter, async (req, res) => {
     status: healthy ? "healthy" : "degraded",
     database,
     stellar,
+    ipfs,
     uptime_seconds: Math.floor((Date.now() - SERVER_START) / 1000),
     version: VERSION,
-    // Keep the indexer field for backwards compatibility
     indexer: req.app.locals.indexerService
       ? req.app.locals.indexerService.getHealth()
       : null,
   };
 
+  // Fire-and-forget: persist check results (failure is non-fatal)
+  const now = new Date().toISOString();
+  [
+    { service: "database", status: database.status },
+    { service: "stellar",  status: stellar.status },
+    { service: "ipfs",     status: ipfs.status },
+  ].forEach(({ service, status }) => {
+    pool
+      .query(
+        `INSERT INTO health_checks (service, status, checked_at) VALUES ($1, $2, $3)`,
+        [service, status, now],
+      )
+      .catch((err) =>
+        console.warn("[health] health_checks insert failed:", err.message),
+      );
+  });
+
   res.status(healthy ? 200 : 503).json(body);
+});
+
+// GET /health/db — pool connection stats for monitoring
+router.get("/db", healthRateLimiter, async (req, res) => {
+  const stats = getPoolStats();
+  res.json({
+    status: "ok",
+    pool: stats,
+    pool_size: parseInt(process.env.DATABASE_POOL_SIZE, 10) || 10,
+  });
 });
 
 module.exports = router;

@@ -1,0 +1,62 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 0'
+
+jobs:
+  zap_scan:
+    name: OWASP ZAP Baseline Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Start Database and Redis
+        run: docker-compose up -d postgres redis
+
+      - name: Install and Start Backend Server
+        working-directory: backend
+        env:
+          PORT: 4000
+          NODE_ENV: development
+          DATABASE_URL: postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: ci-test-security-scan-jwt-secret-long
+          STELLAR_NETWORK: testnet
+          HORIZON_URL: https://horizon-testnet.stellar.org
+        run: |
+          npm ci
+          npm run start &
+          
+          echo "Waiting for backend server to be ready..."
+          timeout 60 bash -c 'until curl -s http://localhost:4000 > /dev/null; do sleep 5; done' || echo "Server timeout"
+
+      - name: Run OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          docker_name: 'owasp/zap2docker-stable'
+          target: 'http://172.17.0.1:4000' 
+          rules_file_name: 'zap-ignore.conf'
+          fail_action: true
+          cmd_options: '-a'
+
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-scan-report
+          path: report_html.html
+          retention-days: 14

@@ -7,6 +7,7 @@ const {
   createApiKey,
   listApiKeys,
   revokeApiKey,
+  rotateApiKey,
 } = require("../services/developerService");
 
 function requireDeveloperWallet(req, res, next) {
@@ -58,6 +59,28 @@ router.delete("/keys/:id", async (req, res, next) => {
     }
 
     res.json({ success: true, message: "API key revoked" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/keys/:id/rotate", async (req, res, next) => {
+  try {
+    const result = await rotateApiKey(req.user.publicKey, req.params.id);
+    if (!result) {
+      return res.status(404).json({ error: "API key not found or already rotating" });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        id: result.key.id,
+        label: result.key.label,
+        createdAt: result.key.created_at,
+        rotatingAt: result.key.rotating_at,
+        apiKey: result.apiKey,
+      },
+    });
   } catch (error) {
     next(error);
   }

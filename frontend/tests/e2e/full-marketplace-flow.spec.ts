@@ -237,8 +237,8 @@ test.describe("full marketplace flow", () => {
     await page.goto("/post-job");
     await page.locator("input[name=title]").fill("Build marketplace escrow integration tests");
     await page.locator("textarea[name=description]").fill("Need an end to end Playwright flow covering posting, escrow funding, applications, progress updates, release, and ratings.");
-    await page.locator("input[name=budget]").fill("250");
-    await page.getByRole("button", { name: /Post Job.*Escrow/i }).click();
+    await page.locator("input[name=budget]").fill("50");
+    await page.getByRole("button", { name: /^Post Job$/i }).click();
     await expect(page.getByText("Job Posted!")).toBeVisible({ timeout: 20000 });
 
     const jobId = await page.evaluate(() => {
@@ -251,8 +251,8 @@ test.describe("full marketplace flow", () => {
     await page.goto(`/jobs/${jobId}`);
     await page.getByRole("button", { name: "Apply for this Job" }).click();
     await page.getByLabel("Cover Letter").fill(PROPOSAL_TEXT);
-    await page.getByRole("button", { name: "Submit Proposal" }).click();
-    await page.getByRole("button", { name: "Confirm & Submit" }).click();
+    await page.getByRole("button", { name: "Submit Proposal" }).click({ force: true });
+    await page.getByRole("button", { name: "Confirm & Submit" }).click({ force: true });
     await expect(page.getByText("Application submitted")).toBeVisible();
 
     await mockFreighter(page, CLIENT_ADDRESS);

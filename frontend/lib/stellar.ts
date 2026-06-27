@@ -1,67 +1,35 @@
 import {
-  Networks,
-  TransactionBuilder,
-  BASE_FEE,
-  Contract,
-  Address,
-  nativeToScVal,
-  xdr,
-  Horizon,
-  Operation,
-  Asset,
-  Memo,
-  Transaction,
+  Horizon, Networks, Asset, Operation, TransactionBuilder, Transaction,
+  Contract, nativeToScVal, Address, BASE_FEE,
 } from "@stellar/stellar-sdk";
-import * as SorobanRpc from "@stellar/stellar-sdk/rpc";
-import { optionalClientEnv, requireClientEnv } from "./env";
-import { getUsdcContractId } from "./config/tokens";
+import { SorobanRpc } from "@stellar/stellar-sdk";
 
-// ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
-
-const NETWORK_NAME = optionalClientEnv("NEXT_PUBLIC_STELLAR_NETWORK", "testnet").toLowerCase();
-if (NETWORK_NAME !== "testnet" && NETWORK_NAME !== "mainnet") {
-  throw new Error("NEXT_PUBLIC_STELLAR_NETWORK must be either testnet or mainnet.");
-}
-
-export const NETWORK_PASSPHRASE = NETWORK_NAME === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
-const HORIZON_URL = optionalClientEnv(
-  "NEXT_PUBLIC_HORIZON_URL",
-  NETWORK_NAME === "mainnet"
-    ? "https://horizon.stellar.org"
-    : "https://horizon-testnet.stellar.org",
-);
-const SOROBAN_RPC_URL = optionalClientEnv(
-  "NEXT_PUBLIC_SOROBAN_RPC_URL",
-  NETWORK_NAME === "mainnet"
+const NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as "testnet" | "mainnet";
+const HORIZON_URL = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
+const SOROBAN_RPC_URL =
+  process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ||
+  (NETWORK === "mainnet"
     ? "https://soroban-mainnet.stellar.org"
     : "https://soroban-testnet.stellar.org",
 );
 const USE_CONTRACT_MOCK =
   process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
 
-const CONTRACT_ID = USE_CONTRACT_MOCK
-  ? ""
-  : requireClientEnv("NEXT_PUBLIC_CONTRACT_ID");
+export const NETWORK_PASSPHRASE = NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+export const server = new Horizon.Server(HORIZON_URL);
+export const sorobanServer = new SorobanRpc.Server(SOROBAN_RPC_URL, {
+  allowHttp: SOROBAN_RPC_URL.startsWith("http://"),
+});
 
 export const server = new Horizon.Server(HORIZON_URL, { allowHttp: false });
 export const sorobanServer = new SorobanRpc.Server(SOROBAN_RPC_URL, { allowHttp: false });
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface EscrowParams {
-  clientPublicKey: string;
-  jobId: string;
-  /** Budget amount in the selected currency */
-  budget: number;
-  /** Payment currency for escrow lock */
-  currency?: "XLM" | "USDC";
-  /** @deprecated Use budget */
-  budgetXlm?: number;
-}
+// USDC asset issued by Circle
+export const USDC_ISSUER =
+  NETWORK === "mainnet"
+    ? "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+    : "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+export const USDC = new Asset("USDC", USDC_ISSUER);
 
 export interface EscrowResult {
   txHash: string;
@@ -107,9 +75,31 @@ async function getFreighter() {
   return { getPublicKey, signTransaction };
 }
 
-// ---------------------------------------------------------------------------
-// Core: build the Soroban create_escrow transaction
-// ---------------------------------------------------------------------------
+export type StreamedTransaction = { id: string };
+
+export function streamAccountTransactions(
+  publicKey: string,
+  onTransaction: (transaction: StreamedTransaction) => void
+): () => void {
+  const closeStream = server
+    .transactions()
+    .forAccount(publicKey)
+    .cursor("now")
+    .stream({
+      onmessage: (transaction) => {
+        onTransaction(transaction as unknown as StreamedTransaction);
+      },
+      onerror: (error: unknown) => {
+        console.error("Horizon transaction stream error", error);
+      },
+    });
+
+  return () => {
+    closeStream();
+  };
+}
+
+// ─── Payments ─────────────────────────────────────────────────────────────────
 
 export async function buildCreateEscrowTx(
   params: EscrowParams,
@@ -123,8 +113,14 @@ export async function buildCreateEscrowTx(
     );
   }
 
-  // Fetch the source account
-  const account = await sorobanServer.getAccount(clientPublicKey);
+  // Fetch the source account and dynamic fee estimate in parallel
+  const [account, gasEstimate] = await Promise.all([
+    sorobanServer.getAccount(clientPublicKey),
+    fetchGasEstimateSafe(),
+  ]);
+
+  // Use the "medium" tier as the default inclusion fee for escrow creation
+  const inclusionFee = tierToTransactionFee(gasEstimate.medium);
 
   const amountStroops = BigInt(Math.round(budgetXlm * 10_000_000));
 
@@ -136,7 +132,7 @@ export async function buildCreateEscrowTx(
   ];
 
   const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
+    fee: inclusionFee,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
     .addOperation(contract.call("create_escrow", ...callArgs))
@@ -169,7 +165,14 @@ export async function signAndSubmitEscrowTx(
     network: "TESTNET",
     networkPassphrase: NETWORK_PASSPHRASE,
   });
-  const signedTransaction = typeof signResult === "string" ? signResult : (signResult as any).signedTransaction;
+  const signedTransaction =
+    typeof signResult === "object" && signResult !== null && "signedTransaction" in signResult
+      ? (signResult as unknown as { signedTransaction: string }).signedTransaction
+      : signResult as unknown as string;
+
+  const server = new SorobanRpc.Server(SOROBAN_RPC_URL, {
+    allowHttp: false,
+  });
 
   // Submit the signed transaction
   const sendResponse = await sorobanServer.sendTransaction(
@@ -257,8 +260,12 @@ export async function buildPublishMessageTx(
   }
 
   const { jobId, senderPublicKey, recipientPublicKey, ipfsCid } = params;
-  const account = await sorobanServer.getAccount(senderPublicKey);
+  const [account, gasEstimate] = await Promise.all([
+    sorobanServer.getAccount(senderPublicKey),
+    fetchGasEstimateSafe(),
+  ]);
 
+  const inclusionFee = tierToTransactionFee(gasEstimate.medium);
   const contract = new Contract(CONTRACT_ID);
   const callArgs = [
     nativeToScVal(jobId, { type: "string" }),
@@ -268,7 +275,7 @@ export async function buildPublishMessageTx(
   ];
 
   const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
+    fee: inclusionFee,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
     .addOperation(contract.call("publish_message", ...callArgs))
@@ -359,26 +366,19 @@ export async function getXLMBalance(publicKey: string): Promise<string> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Build a boost_job Soroban transaction (Issue #344)
-// ---------------------------------------------------------------------------
-
-export interface BoostParams {
-  clientPublicKey: string;
-  jobId: string;
-  amountXlm: number;
-  treasuryAddress: string;
-}
-
-export async function buildBoostJobTx(params: BoostParams): Promise<string> {
-  const { clientPublicKey, jobId, amountXlm, treasuryAddress } = params;
-
-  if (!CONTRACT_ID) {
-    throw new Error("NEXT_PUBLIC_CONTRACT_ID is not set.");
+  let sent: SorobanRpc.Api.SendTransactionResponse;
+  try {
+    sent = await sorobanServer.sendTransaction(tx);
+  } catch (err: unknown) {
+    throw new Error(friendlySorobanError(err));
   }
 
-  const server = sorobanServer;
-  const account = await server.getAccount(clientPublicKey);
+  const [account, gasEstimate] = await Promise.all([
+    sorobanServer.getAccount(clientPublicKey),
+    fetchGasEstimateSafe(),
+  ]);
+
+  const inclusionFee = tierToTransactionFee(gasEstimate.fast); // boost = fast tier
   const amountStroops = BigInt(Math.round(amountXlm * 10_000_000));
 
   const contract = new Contract(CONTRACT_ID);
@@ -390,7 +390,7 @@ export async function buildBoostJobTx(params: BoostParams): Promise<string> {
   ];
 
   const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
+    fee: inclusionFee,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
     .addOperation(contract.call("boost_job", ...callArgs))
@@ -430,17 +430,19 @@ export async function signAndSubmitSorobanTx(xdrString: string): Promise<string>
     );
   }
 
-  const txHash = sendResponse.hash;
-  let getResponse = await sorobanServer.getTransaction(txHash);
-  let polls = 0;
-
-  while (
-    getResponse.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND &&
-    polls < 20
-  ) {
-    await new Promise((r) => setTimeout(r, 1500));
-    getResponse = await sorobanServer.getTransaction(txHash);
-    polls++;
+  const hash = sent.hash;
+  const maxAttempts = 90;
+  for (let i = 0; i < maxAttempts; i += 1) {
+    const info = await sorobanServer.getTransaction(hash);
+    if (info.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+      return { hash };
+    }
+    if (info.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
+      throw new Error(
+        "The on-chain transaction failed. Open the explorer link to see details, or verify the escrow state matches this job."
+      );
+    }
+    await new Promise((r) => setTimeout(r, 1000));
   }
 
   if (getResponse.status !== SorobanRpc.Api.GetTransactionStatus.SUCCESS) {

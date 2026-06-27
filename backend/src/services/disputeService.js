@@ -5,6 +5,17 @@ const ipfsService = require("./ipfsService");
 
 const MAX_EVIDENCE_FILES = 10;
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const IPFS_CID_PATTERN = /^(?:Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-z2-7]{55})$/;
+
+function validateIpfsCid(cid) {
+  if (typeof cid !== "string" || !IPFS_CID_PATTERN.test(cid)) {
+    const e = new Error("Invalid IPFS CID returned from upload service");
+    e.status = 422;
+    throw e;
+  }
+
+  return cid;
+}
 
 async function createDispute(jobId, raisedBy) {
   if (!jobId || !raisedBy) {
@@ -111,13 +122,14 @@ async function uploadEvidence(jobId, uploaderAddress, fileBuffer, fileName, mime
   }
 
   const ipfsResult = await ipfsService.uploadFile(fileBuffer, fileName, mimeType);
+  const ipfsCid = validateIpfsCid(ipfsResult?.cid);
 
   const { rows } = await pool.query(
     `INSERT INTO dispute_evidence
        (job_id, uploader_address, file_name, file_size, mime_type, ipfs_cid)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
-    [jobId, uploaderAddress, fileName, fileBuffer.length, mimeType, ipfsResult.cid],
+    [jobId, uploaderAddress, fileName, fileBuffer.length, mimeType, ipfsCid],
   );
 
   const ev = rows[0];
@@ -251,4 +263,5 @@ module.exports = {
   getDispute,
   MAX_EVIDENCE_FILES,
   MAX_FILE_SIZE,
+  validateIpfsCid,
 };
