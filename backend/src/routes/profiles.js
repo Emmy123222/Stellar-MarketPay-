@@ -17,7 +17,6 @@ const { sendEmail } = require("../utils/email");
 const { createError, ErrorCodes } = require("../utils/errors");
 const { validateJsonb } = require("../middleware/jsonbValidator");
 const portfolioItemsSchema = require("../schemas/portfolioItems.schema");
-const screeningAnswersSchema = require("../schemas/screeningAnswers.schema");
 
 const {
   getProfile,
