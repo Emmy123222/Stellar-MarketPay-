@@ -78,6 +78,15 @@ function normalizeAddress(address) {
   return typeof address === "string" ? address.trim() : "";
 }
 
+function isAdmin(req) {
+  if (!req.user) return false;
+  const adminAddresses = (process.env.ADMIN_WALLET_ADDRESSES || "")
+    .split(",")
+    .map((a) => a.trim())
+    .filter(Boolean);
+  return adminAddresses.includes(req.user.publicKey) || req.user.role === "admin";
+}
+
 function isValidReportCategory(category) {
   return ["fraud", "suspicious", "spam", "inappropriate", "other"].includes(
     category,
@@ -167,6 +176,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
     } = req.query;
     const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
     const includeExpired = include_expired === "true";
+    const includeDeleted = req.query.include_deleted === "true" && isAdmin(req);
 
     // Deprecated offset-style `page` param — cursor pagination is canonical (#291).
     if (page !== undefined && cursor === undefined) {
@@ -191,6 +201,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       timezone,
       viewerAddress,
       includeExpired,
+      includeDeleted,
     });
 
     await cache.set(cacheKey, { data: result.jobs, nextCursor: result.nextCursor }, cache.TTL.JOBS_LIST);
@@ -214,9 +225,10 @@ router.get(
   generalJobRateLimiter,
   async (req, res, next) => {
     try {
+      const includeDeleted = req.query.include_deleted === "true" && isAdmin(req);
       res.json({
         success: true,
-        data: await listJobsByClient(req.params.publicKey),
+        data: await listJobsByClient(req.params.publicKey, { includeDeleted }),
       });
     } catch (e) {
       next(e);
@@ -241,7 +253,8 @@ router.get(
 // GET /api/jobs/:id — get single job
 router.get("/:id", generalJobRateLimiter, async (req, res, next) => {
   try {
-    res.json({ success: true, data: await getJob(req.params.id) });
+    const includeDeleted = req.query.include_deleted === "true" && isAdmin(req);
+    res.json({ success: true, data: await getJob(req.params.id, { includeDeleted }) });
   } catch (e) {
     next(e);
   }
