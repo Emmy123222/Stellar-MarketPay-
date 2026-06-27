@@ -202,37 +202,6 @@ function validateAvailability(availability) {
 }
 
 
-function rowToProfile(row) {
-  const decryptedEmail = row.email || null;
-  const decryptedWebhookSecret = row.webhook_secret || null;
-
-  return {
-    publicKey: row.public_key,
-    displayName: row.display_name,
-    bio: row.bio,
-    skills: row.skills,
-    portfolioItems: Array.isArray(row.portfolio_items) ? row.portfolio_items : [],
-    portfolioFiles: Array.isArray(row.portfolio_files) ? row.portfolio_files : [],
-    availability: row.availability && typeof row.availability === "object" ? row.availability : null,
-    role: row.role,
-    completedJobs: row.completed_jobs,
-    totalEarnedXLM: row.total_earned_xlm,
-    rating: row.rating !== null ? parseFloat(row.rating) : null,
-    referralCount: Number(row.referral_count || 0),
-    reputationPoints: Number(row.reputation_points || 0),
-    blockedAddresses: Array.isArray(row.blocked_addresses) ? row.blocked_addresses : [],
-    email: decryptedEmail,
-    emailNotificationsEnabled: row.email_notifications_enabled !== null ? row.email_notifications_enabled : null,
-    webhookUrl: row.webhook_url || null,
-    webhookSecret: decryptedWebhookSecret,
-    isKycVerified: row.is_kyc_verified !== null ? row.is_kyc_verified : null,
-    didHash: row.did_hash || null,
-    encryptionPublicKey: row.encryption_public_key || null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
 /**
  * Retrieve a user profile by their Stellar public key. Includes average rating and rating count.
  *

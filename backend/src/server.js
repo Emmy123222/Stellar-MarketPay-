@@ -14,8 +14,7 @@ const compressionMiddleware = require("./middleware/compression");
 const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
-const wsQueue = require("./utils/wsEventQueue");
-const { startWsEventCleanup } = require("./services/wsEventCleanupService");
+const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const promClient = require("prom-client");
 const swaggerUi = require('swagger-ui-express');
@@ -52,6 +51,7 @@ const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
+const { setBroadcastToUser } = require("./services/notificationService");
 
 const serviceLogger = createServiceLogger('server');
 const app  = express();
@@ -98,6 +98,7 @@ dbConnectionGauge.collect = function collectDbConnections() {
 };
 
 const realtimeClients = new Set();
+const userClients = new Map(); // userAddress -> Set<WebSocket>
 const scopeSessionClients = new Map();
 
 function broadcastRealtime(event, payload) {
@@ -108,6 +109,16 @@ function broadcastRealtime(event, payload) {
   }
   // Store the event for later reconnection pagination
   wsQueue.enqueueEvent({ event, payload }).catch(err => serviceLogger.error({ err }, 'Failed to enqueue WS event'));
+}
+
+function broadcastToUser(userAddress, event, payload) {
+  const message = JSON.stringify({ event, payload });
+  const clients = userClients.get(userAddress);
+  if (clients) {
+    for (const ws of clients) {
+      if (ws.readyState === WS_OPEN) ws.send(message);
+    }
+  }
 }
 
 async function upsertScopeSession(sessionId, patch) {
@@ -192,6 +203,8 @@ const priceAlertService = new PriceAlertService({
 
 app.locals.indexerService = indexerService;
 app.locals.broadcastRealtime = broadcastRealtime;
+app.locals.broadcastToUser = broadcastToUser;
+setBroadcastToUser(broadcastToUser);
 
 // Middleware
 app.use(helmet({
@@ -350,37 +363,47 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
-  // Register client for realtime broadcasts
-  realtimeClients.add(ws);
-  sendJson(ws, "connected", { channel: "realtime" });
-
-  // Listen for pagination requests from the client
-  ws.on("message", async (raw) => {
-    try {
-      const msg = JSON.parse(String(raw));
-      if (msg.type === "reconnect") {
-        const lastId = Number(msg.lastEventId) || 0;
-        const rows = await wsQueue.getEventsAfter(lastId, 50);
-        const events = rows.map(r => r.event);
-        const hasMore = rows.length === 50;
-        const lastSentId = rows.length ? rows[rows.length - 1].id : lastId;
-        sendJson(ws, "eventBatch", { events, lastSentId, hasMore });
-      } else if (msg.type === "requestNext") {
-        const afterId = Number(msg.afterId);
-        const rows = await wsQueue.getEventsAfter(afterId, 50);
-        const events = rows.map(r => r.event);
-        const hasMore = rows.length === 50;
-        const lastSentId = rows.length ? rows[rows.length - 1].id : afterId;
-        sendJson(ws, "eventBatch", { events, lastSentId, hasMore });
+    const token = url.searchParams.get("token");
+    let userAddress = null;
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        userAddress = decoded.publicKey;
+      } catch {
+        serviceLogger.warn('Invalid WebSocket JWT token, falling back to anonymous');
       }
-    } catch (err) {
-      sendJson(ws, "error", { error: "Invalid message format" });
     }
-  });
 
-  ws.on("close", () => realtimeClients.delete(ws));
-  return;
-}
+    if (userAddress) {
+      if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
+      userClients.get(userAddress).add(ws);
+      sendJson(ws, "connected", { channel: "realtime", userAddress });
+
+      ws.on("close", () => {
+        const clients = userClients.get(userAddress);
+        if (clients) {
+          clients.delete(ws);
+          if (clients.size === 0) userClients.delete(userAddress);
+        }
+      });
+
+      // Send unread notifications on reconnect
+      try {
+        const notificationService = require("./services/notificationService");
+        const result = await notificationService.listInAppNotifications(userAddress, { limit: 50 });
+        for (const notification of result.notifications) {
+          sendJson(ws, "notification:created", notification);
+        }
+      } catch (err) {
+        logError(serviceLogger, err, { operation: 'send_unread_notifications' });
+      }
+    } else {
+      realtimeClients.add(ws);
+      sendJson(ws, "connected", { channel: "realtime" });
+      ws.on("close", () => realtimeClients.delete(ws));
+    }
+    return;
+  }
 
   if (url.pathname.startsWith("/ws/scope/")) {
     const sessionId = decodeURIComponent(url.pathname.replace("/ws/scope/", "")).trim();
@@ -728,6 +751,18 @@ function startPlatformMetricsAggregator() {
   setInterval(runAggregation, 60 * 60 * 1000).unref();
 }
 
-bootstrap();
+if (process.env.NODE_ENV !== 'test') {
+  bootstrap();
+}
+
+// Expose WebSocket internals for testing
+app._ws = {
+  server,
+  wsServer,
+  realtimeClients,
+  userClients,
+  broadcastRealtime,
+  broadcastToUser,
+};
 
 module.exports = app;

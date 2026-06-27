@@ -4,8 +4,6 @@ const express = require("express");
 const pool = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
-const rateLimiter = createRateLimiter(60, 1);
-
 const router = express.Router();
 
 /**
@@ -13,7 +11,7 @@ const router = express.Router();
  * Fetches skills for autocomplete based on a 'q' query parameter.
  * Returns up to 10 matching skills.
  */
-router.get("/", rateLimiter, async (req, res, next) => {
+router.get("/", createRateLimiter(60, 1), async (req, res, next) => {
   try {
     const q = req.query.q;
     if (!q || typeof q !== "string") {
