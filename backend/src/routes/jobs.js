@@ -31,6 +31,9 @@ const { getClientReputation } = require("../services/profileService");
 const cache = require("../services/cacheService");
 const jobDraftService = require("../services/jobDraftService");
 const recommendationService = require("../services/recommendationService");
+const { validateJsonb } = require("../middleware/jsonbValidator");
+const milestonesSchema = require("../schemas/milestones.schema");
+const { createError, ErrorCodes } = require("../utils/errors");
 
 const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per minute
 const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per minute
@@ -394,7 +397,7 @@ router.get("/:id", generalJobRateLimiter, async (req, res, next) => {
  *               $ref: '#/components/schemas/Error'
  */
 // POST /api/jobs — create a new job
-router.post("/", jobCreationRateLimiter, verifyJWT, async (req, res, next) => {
+router.post("/", jobCreationRateLimiter, verifyJWT, validateJsonb({ milestones: milestonesSchema }), async (req, res, next) => {
   try {
     const signedAddress = req.user?.publicKey;
     const payloadClientAddress = typeof req.body.clientAddress === "string" ? req.body.clientAddress.trim() : "";

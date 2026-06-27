@@ -25,6 +25,7 @@ const { requireChoice } = require("./config/env");
 const { createCorsOptions } = require("./config/cors");
 const { verifyCSRF } = require("./middleware/csrf");
 const { structuredErrorHandler } = require("./utils/errors");
+const { jsonDepthLimitMiddleware } = require("./middleware/jsonbValidator");
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -307,6 +308,7 @@ app.use(compressionMiddleware());
 
 app.use(express.json({ limit: "20kb" }));
 app.use(sanitizeMiddleware({ strict: false }));
+app.use(jsonDepthLimitMiddleware);
 
 // Swagger UI
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {

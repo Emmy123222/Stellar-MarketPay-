@@ -20,6 +20,8 @@ const { FREELANCER_TIERS } = require("../services/profileService");
 const { logContractInteraction } = require("../services/contractAuditService");
 const { notifyEscrowEvent, EVENT_TYPES } = require("../services/notificationService");
 const { getJob } = require("../services/jobService");
+const { validateJsonb } = require("../middleware/jsonbValidator");
+const screeningAnswersSchema = require("../schemas/screeningAnswers.schema");
 
 /**
  * @swagger
@@ -147,7 +149,7 @@ router.get("/freelancer/:publicKey", generalApplicationRateLimiter, async (req, 
  *               $ref: '#/components/schemas/Error'
  */
 // POST /api/applications — submit a proposal
-router.post("/", applicationRateLimiter, async (req, res, next) => {
+router.post("/", applicationRateLimiter, validateJsonb({ screeningAnswers: screeningAnswersSchema }), async (req, res, next) => {
   try {
     const app = await submitApplication(req.body);
     

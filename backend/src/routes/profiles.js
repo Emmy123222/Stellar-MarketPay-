@@ -15,6 +15,9 @@ const generalProfileRateLimiter = createRateLimiter(30, 1);
 const cache = require("../services/cacheService");
 const { sendEmail } = require("../utils/email");
 const { createError, ErrorCodes } = require("../utils/errors");
+const { validateJsonb } = require("../middleware/jsonbValidator");
+const portfolioItemsSchema = require("../schemas/portfolioItems.schema");
+const screeningAnswersSchema = require("../schemas/screeningAnswers.schema");
 
 const {
   getProfile,
@@ -77,7 +80,7 @@ router.get("/:publicKey/response-time", generalProfileRateLimiter, async (req, r
   catch (e) { next(e); }
 });
 
-router.post("/", profileUpdateRateLimiter, async (req, res, next) => {
+router.post("/", profileUpdateRateLimiter, validateJsonb({ portfolio_items: portfolioItemsSchema }), async (req, res, next) => {
   try {
     const data = await upsertProfile(req.body);
     if (req.body.publicKey) await cache.del(cache.profileKey(req.body.publicKey));
