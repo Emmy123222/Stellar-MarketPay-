@@ -1,0 +1,32 @@
+[package]
+name = "marketpay-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+# Enable the testutils feature so we can build an Env in the fuzz harness.
+marketpay-contract = { path = "..", features = ["testutils"] }
+soroban-sdk = { version = "26.1.0", features = ["testutils"] }
+
+[[bin]]
+name = "fuzz_create_escrow"
+path = "fuzz_targets/fuzz_create_escrow.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_release_escrow"
+path = "fuzz_targets/fuzz_release_escrow.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_timeout_refund"
+path = "fuzz_targets/fuzz_timeout_refund.rs"
+test = false
+doc = false
