@@ -553,6 +553,9 @@ async function bootstrap() {
   startWsEventCleanup();
   startWeeklyDigestScheduler();
 
+  // Start admin PDF report scheduler - run every Monday at 08:00 UTC
+  startAdminReportScheduler();
+
   // Start purge job for soft-deleted records - run daily
   startPurgeDeletedRecords();
 
@@ -754,6 +757,57 @@ function startWeeklyDigestScheduler() {
     await runDigest();
     // Then run every 7 days from that point onward
     setInterval(runDigest, 7 * 24 * 60 * 60 * 1000).unref();
+  }, delay).unref();
+}
+
+/**
+ * Schedule the weekly admin PDF report for every Monday at 08:00 UTC
+ * (one hour before the freelancer digest at 09:00 UTC).
+ *
+ * Uses the same one-shot + 7-day interval pattern as startWeeklyDigestScheduler
+ * to avoid drift.
+ */
+function startAdminReportScheduler() {
+  const { generateAndSendAdminReport } = require("./services/adminReportService");
+  const reportLogger = createServiceLogger("admin-report-scheduler");
+
+  const sendEmailFn = async (payload) => {
+    await sendEmail(payload);
+  };
+
+  function msUntilNextMonday8amUTC() {
+    const now = new Date();
+    const target = new Date(now);
+    const currentDay = now.getUTCDay();
+    const daysUntilMonday = currentDay === 1 ? 0 : (8 - currentDay) % 7 || 7;
+    target.setUTCDate(now.getUTCDate() + daysUntilMonday);
+    target.setUTCHours(8, 0, 0, 0);
+    if (target <= now) {
+      target.setUTCDate(target.getUTCDate() + 7);
+    }
+    return target - now;
+  }
+
+  async function runReport() {
+    try {
+      const result = await generateAndSendAdminReport(sendEmailFn);
+      reportLogger.info(result, "Weekly admin PDF report complete");
+    } catch (err) {
+      logError(reportLogger, err, { operation: "weekly_admin_report" });
+    }
+  }
+
+  const delay = msUntilNextMonday8amUTC();
+  const nextRun = new Date(Date.now() + delay);
+
+  reportLogger.info(
+    { nextRunUTC: nextRun.toISOString(), delayMs: delay },
+    "Admin report scheduler armed"
+  );
+
+  setTimeout(async () => {
+    await runReport();
+    setInterval(runReport, 7 * 24 * 60 * 60 * 1000).unref();
   }, delay).unref();
 }
 

@@ -560,4 +560,39 @@ router.get("/metrics/time-series", verifyJWT, requireAdminRole, requireAdmin2FA,
   }
 });
 
+// ── GET /api/admin/reports/latest — download the most recent weekly PDF ───────
+router.get("/reports/latest", verifyJWT, requireAdminRole, async (req, res, next) => {
+  try {
+    const { downloadLatestFromS3 } = require("../services/adminReportService");
+    const pdfBuffer = await downloadLatestFromS3();
+
+    if (!pdfBuffer) {
+      return res.status(404).json({ success: false, error: "No report has been generated yet" });
+    }
+
+    const date = new Date().toISOString().split("T")[0];
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="weekly-report-${date}.pdf"`);
+    res.setHeader("Content-Length", pdfBuffer.length);
+    res.end(pdfBuffer);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── POST /api/admin/reports/generate — manually trigger report generation ─────
+router.post("/reports/generate", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
+  try {
+    const { generateAndSendAdminReport } = require("../services/adminReportService");
+    const { sendEmail } = require("../utils/email");
+
+    const sendEmailFn = async (payload) => sendEmail(payload);
+    const result = await generateAndSendAdminReport(sendEmailFn);
+
+    res.json({ success: true, data: result });
+  } catch (e) {
+    next(e);
+  }
+});
+
 module.exports = router;
