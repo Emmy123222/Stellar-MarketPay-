@@ -24,7 +24,7 @@ const { idempotencyMiddleware, cleanupExpiredIdempotencyKeys } = require('./midd
 const { getRateLimitScale } = require("./middleware/rateLimiter");
 const { requireChoice } = require("./config/env");
 const { createCorsOptions } = require("./config/cors");
-const { verifyCSRF } = require("./middleware/csrf");
+const { doubleCsrfProtection } = require("./middleware/csrf");
 const { structuredErrorHandler } = require("./utils/errors");
 const { jsonDepthLimitMiddleware } = require("./middleware/jsonbValidator");
 
@@ -319,14 +319,9 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
   customSiteTitle: 'Stellar MarketPay API Documentation'
 }));
 
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").split(",").map(o => o.trim());
-app.use(cors({
-  origin: (origin, cb) => (!origin || allowedOrigins.includes(origin)) ? cb(null, true) : cb(new Error("CORS blocked")),
-  methods: ["GET", "POST", "PATCH", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
-  credentials: true,
-}));
-app.use(verifyCSRF);
+
+app.use(cors(createCorsOptions()));
+app.use(doubleCsrfProtection);
 
 app.use((req, res, next) => {
   if (req.path === "/metrics") {
@@ -361,7 +356,6 @@ app.use(rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => getClientIp(req),
-}));
 }));
 
 app.get("/metrics", async (req, res, next) => {
