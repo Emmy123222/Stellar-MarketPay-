@@ -475,6 +475,37 @@ async function getEscrow(jobId) {
   return rows[0];
 }
 
+/**
+ * Resolve a Stellar ledger sequence number to a UTC timestamp via the
+ * `ledger_timestamps` table populated by the indexer.
+ *
+ * Returns `null` if no mapping exists yet (e.g., the ledger hasn't been
+ * processed by the indexer, or `timeout_ledger` is not set on the escrow).
+ */
+async function resolveLedgerTimestamp(ledger) {
+  if (!ledger) return null;
+  const { rows } = await pool.query(
+    "SELECT timestamp FROM ledger_timestamps WHERE ledger = $1",
+    [ledger],
+  );
+  return rows.length ? rows[0].timestamp : null;
+}
+
+/**
+ * Return escrow data enriched with a resolved `timeout_at` timestamp.
+ *
+ * The `timeout_ledger` column on the escrow row stores the on-chain ledger
+ * sequence at which the escrow expires.  This function looks up the UTC close
+ * time for that ledger in `ledger_timestamps` and attaches it as
+ * `timeout_at_resolved`, letting callers display a human-readable countdown
+ * without hardcoding ledger-time approximations.
+ */
+async function getEscrowWithTimeout(jobId) {
+  const escrow = await getEscrow(jobId);
+  const timeoutAt = await resolveLedgerTimestamp(escrow.timeout_ledger);
+  return { ...escrow, timeout_at_resolved: timeoutAt };
+}
+
 async function startEscrowTimeoutChecker() {
   const timeoutLogger = createServiceLogger('escrow-timeout');
 
@@ -517,6 +548,8 @@ module.exports = {
   rejectMilestone,
   disputeMilestone,
   getEscrow,
+  getEscrowWithTimeout,
+  resolveLedgerTimestamp,
   startEscrowTimeoutChecker,
   ESCROW_TIMEOUT_DAYS,
 };

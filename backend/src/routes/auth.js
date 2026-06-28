@@ -27,9 +27,12 @@ function getServerKeypair() {
 }
 
 const HOME_DOMAIN = process.env.HOME_DOMAIN || "localhost:4000";
-const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK === "mainnet" 
-  ? "Public Global Stellar Network ; September 2015" 
-  : "Test SDF Network ; September 2015";
+const MAINNET_PASSPHRASE = "Public Global Stellar Network ; September 2015";
+const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
+
+function resolvePassphrase(network) {
+  return network === "mainnet" ? MAINNET_PASSPHRASE : TESTNET_PASSPHRASE;
+}
 
 /**
  * @swagger
@@ -69,6 +72,8 @@ router.get("/", (req, res) => {
     if (!accountId) {
       return res.status(400).json({ error: "Missing account parameter" });
     }
+    const network = req.query.network === "mainnet" ? "mainnet" : "testnet";
+    const networkPassphrase = resolvePassphrase(network);
 
     const serverKeypair = getServerKeypair();
     const challenge = Utils.buildChallengeTx(
@@ -76,10 +81,10 @@ router.get("/", (req, res) => {
       accountId,
       HOME_DOMAIN,
       300, // 5 minutes timeout
-      NETWORK_PASSPHRASE
+      networkPassphrase
     );
 
-    res.json({ transaction: challenge });
+    res.json({ transaction: challenge, network });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -133,18 +138,20 @@ router.get("/", (req, res) => {
  */
 router.post("/", async (req, res) => {
   try {
-    const { transaction } = req.body;
+    const { transaction, network: reqNetwork } = req.body;
     if (!transaction) {
       return res.status(400).json({ error: "Missing transaction in request body" });
     }
+    const network = reqNetwork === "mainnet" ? "mainnet" : "testnet";
+    const networkPassphrase = resolvePassphrase(network);
 
     const serverKeypair = getServerKeypair();
     const accountId = Utils.verifyChallengeTx(
       transaction,
       serverKeypair.publicKey(),
-      NETWORK_PASSPHRASE,
+      networkPassphrase,
       HOME_DOMAIN,
-      "" // webAuthEndpoint is optional or typically HOME_DOMAIN if not specified differently
+      ""
     );
 
     const adminAddresses = (process.env.ADMIN_WALLET_ADDRESSES || "")
@@ -153,7 +160,7 @@ router.post("/", async (req, res) => {
       .filter(Boolean);
     const isAdmin = adminAddresses.includes(accountId);
 
-    const payload = { publicKey: accountId };
+    const payload = { publicKey: accountId, network };
     if (isAdmin) {
       await ensureAdminProfile(accountId);
       payload.role = "admin";

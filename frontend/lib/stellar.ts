@@ -85,6 +85,35 @@ async function getFreighter() {
 
 export type StreamedTransaction = { id: string };
 
+export async function connectWallet(): Promise<{ publicKey: string; network: "mainnet" | "testnet" }> {
+  if (typeof window === "undefined") {
+    throw new Error("connectWallet is only available in the browser.");
+  }
+  const { isConnected, getPublicKey, getNetworkDetails } = await import("@stellar/freighter-api");
+
+  const connected = await isConnected();
+  if (!connected) {
+    throw new Error("Freighter wallet not found. Please install the Freighter extension.");
+  }
+
+  const publicKey = await getPublicKey();
+  if (!publicKey) {
+    throw new Error("No Stellar account found in Freighter wallet.");
+  }
+
+  let network: "mainnet" | "testnet" = "testnet";
+  try {
+    const details = await getNetworkDetails();
+    if ((details as { networkPassphrase?: string })?.networkPassphrase === "Public Global Stellar Network ; September 2015") {
+      network = "mainnet";
+    }
+  } catch {
+    // fall back to testnet on error
+  }
+
+  return { publicKey, network };
+}
+
 export function streamAccountTransactions(
   publicKey: string,
   onTransaction: (transaction: StreamedTransaction) => void

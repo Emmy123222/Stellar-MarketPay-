@@ -291,6 +291,9 @@ export default function JobStatusTimeline({
                   {formatDate(step.date)}
                 </span>
               )}
+              {step.id === "in_progress" && step.state === "current" && timeoutAt && (
+                <EscrowCountdown timeoutAt={timeoutAt} />
+              )}
             </div>
             {i < steps.length - 1 && (
               <div className="flex-1 flex items-center pt-3.5 px-1">
@@ -333,6 +336,9 @@ export default function JobStatusTimeline({
                 </p>
                 {step.date && (
                   <p className="text-xs text-amber-800/60">{formatDate(step.date)}</p>
+                )}
+                {step.id === "in_progress" && step.state === "current" && timeoutAt && (
+                  <EscrowCountdown timeoutAt={timeoutAt} />
                 )}
               </div>
             </div>
