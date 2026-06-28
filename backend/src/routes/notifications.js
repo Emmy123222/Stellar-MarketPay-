@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { verifyJWT } = require("../middleware/auth");
 const notificationPreferencesService = require("../services/notificationPreferencesService");
+const pushSubscriptionService = require("../services/pushSubscriptionService");
 const {
   listInAppNotifications,
   markInAppNotificationRead,
@@ -11,6 +12,82 @@ const pool = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const adminRateLimiter = createRateLimiter(30, 1);
+
+// ─── Web Push Notifications ──────────────────────────────────────────────────
+
+/**
+ * GET /api/notifications/vapid-public-key
+ * Returns the VAPID public key for push notification subscription
+ * Public endpoint - no auth required
+ */
+router.get("/vapid-public-key", (req, res) => {
+  const publicKey = pushSubscriptionService.getVapidPublicKey();
+  if (!publicKey) {
+    return res.status(503).json({
+      success: false,
+      error: "Push notifications not configured",
+    });
+  }
+  res.json({ success: true, data: { publicKey } });
+});
+
+/**
+ * POST /api/notifications/push-subscribe
+ * Save a push notification subscription
+ * Requires authentication
+ */
+router.post("/push-subscribe", verifyJWT, async (req, res, next) => {
+  try {
+    const { subscription } = req.body;
+    if (!subscription) {
+      const err = new Error("Subscription is required");
+      err.status = 400;
+      throw err;
+    }
+
+    const result = await pushSubscriptionService.saveSubscription(
+      req.user.publicKey,
+      subscription
+    );
+
+    res.json({
+      success: true,
+      data: { subscriptionId: result.id },
+      message: "Push subscription saved successfully",
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/notifications/push-unsubscribe
+ * Remove a push notification subscription
+ * Requires authentication
+ */
+router.post("/push-unsubscribe", verifyJWT, async (req, res, next) => {
+  try {
+    const { endpoint } = req.body;
+    if (!endpoint) {
+      const err = new Error("Endpoint is required");
+      err.status = 400;
+      throw err;
+    }
+
+    const removed = await pushSubscriptionService.removeSubscription(
+      req.user.publicKey,
+      endpoint
+    );
+
+    res.json({
+      success: true,
+      data: { removed },
+      message: removed ? "Push subscription removed" : "Subscription not found",
+    });
+  } catch (e) {
+    next(e);
+  }
+});
 
 // ─── Admin: failed webhooks ──────────────────────────────────────────────────
 
