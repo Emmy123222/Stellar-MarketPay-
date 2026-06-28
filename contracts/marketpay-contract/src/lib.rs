@@ -214,6 +214,43 @@ pub struct DisputeCase {
     pub status: u32,
 }
 
+/// Admin-configured dispute bond parameters (Issue #437).
+///
+/// The admin calls `set_dispute_bond(token, amount)` to declare the bond
+/// denomination.  When unset (or amount == 0), `raise_dispute` operates as
+/// the legacy zero-cost placeholder so existing tests and pre-existing
+/// escrows continue to work unchanged.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct DisputeBondConfig {
+    /// Token in which the bond is denominated (e.g. XLM SAC).
+    /// Bonds are always paid in this token — independent of the escrow
+    /// token — so slashing and refunds do not require a DEX hop even when
+    /// the escrow is denominated in USDC.
+    pub token: Address,
+    /// Required bond amount, in the smallests unit of `token` (stroops for XLM).
+    /// A non-zero value enables the bond requirement.
+    pub amount: i128,
+}
+
+/// Per-job record of the locked dispute bond (Issue #437).
+///
+/// Created by `raise_dispute` and consumed (returned to caller or slashed
+/// to winner) by `resolve_dispute`.  Removed from storage on settlement.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct DisputeBond {
+    /// Address of the party that locked the bond (client or freelancer).
+    pub caller: Address,
+    /// Token the bond was paid in — snapshotted so a future admin re-config
+    /// of the global bond does not retroactively change what is owed.
+    pub token: Address,
+    /// Bond amount snapshotted at lock time.
+    pub amount: i128,
+    /// Ledger sequence when the bond was locked — useful for analytics and event correlation.
+    pub raised_at_ledger: u32,
+}
+
 /// Storage key per job
 #[contracttype]
 pub enum DataKey {
@@ -244,6 +281,13 @@ pub enum DataKey {
     Version,
     /// Stores list of IPFS CIDs for messages in a job thread
     MessageCid(String),
+    /// Global dispute bond configuration set by admin (Issue #437).
+    /// When this key is absent, `raise_dispute` operates as a zero-cost
+    /// placeholder (backwards compatible with pre-#437 escrows).
+    DisputeBondConfig,
+    /// Per-job locked dispute bond (Issue #437). Inserted by
+    /// `raise_dispute` and removed by `resolve_dispute` after settlement.
+    DisputeBond(String),
 }
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
@@ -1275,8 +1319,19 @@ impl MarketPayContract {
 
     // ─── Placeholders ─────────────────────────────────────────────────────────
 
-    /// [PLACEHOLDER] Raise a dispute — requires admin resolution.
-    /// See ROADMAP.md v2.1 — DAO Governance.
+    /// Raise a dispute — requires admin resolution.
+    ///
+    /// Issue #437: the caller must lock a configurable bond before the
+    /// dispute is accepted.  The bond is enforced only when the admin has
+    /// configured a non-zero bond amount via `set_dispute_bond`; if no
+    /// configuration is present, this function preserves the legacy
+    /// zero-cost behaviour so escrows created before #437 continue to
+    /// function without admin migration.
+    ///
+    /// Soroban's `caller.require_auth()` authorises every token operation
+    /// the contract performs on behalf of the caller within this call,
+    /// so the bond transfer below does NOT need a separate `token.authorize`
+    /// step.
     pub fn raise_dispute(env: Env, job_id: String, caller: Address) {
         caller.require_auth();
 
@@ -1290,10 +1345,65 @@ impl MarketPayContract {
             panic!("Only participants can raise a dispute");
         }
 
-        if escrow.status == EscrowStatus::Released || escrow.status == EscrowStatus::Refunded || escrow.status == EscrowStatus::Frozen {
-            panic!("Cannot dispute a resolved or frozen escrow");
+        if escrow.status == EscrowStatus::Released
+            || escrow.status == EscrowStatus::Refunded
+            || escrow.status == EscrowStatus::Frozen
+            || escrow.status == EscrowStatus::Disputed
+        {
+            panic!("Cannot dispute a resolved, frozen, or already-disputed escrow");
         }
-        
+
+        // Optional bond requirement (Issue #437).  When the admin has not
+        // configured a dispute bond this block is a no-op and the function
+        // falls through to the legacy behaviour preserved for backward
+        // compatibility with pre-#437 escrows and tests.
+        if let Some(bond_cfg) = env
+            .storage()
+            .instance()
+            .get::<_, DisputeBondConfig>(&DataKey::DisputeBondConfig)
+        {
+            // Snapshot the bond into per-job storage FIRST so that an event
+            // consumer / indexer never sees a `bond_lck` event for which
+            // there is no recoverable record.  We update the escrow status
+            // and persist everything before performing the external token
+            // transfer so that storage state is always the truth.
+            env.storage().instance().set(
+                &DataKey::DisputeBond(job_id.clone()),
+                &DisputeBond {
+                    caller: caller.clone(),
+                    token: bond_cfg.token.clone(),
+                    amount: bond_cfg.amount,
+                    raised_at_ledger: env.ledger().sequence(),
+                },
+            );
+
+            escrow.status = EscrowStatus::Disputed;
+            env.storage()
+                .instance()
+                .set(&DataKey::Escrow(job_id.clone()), &escrow);
+
+            // Lock the bond.  `caller.require_auth()` above has already
+            // authorised ALL token operations from this caller, so this
+            // single transfer call covers the bond lock.
+            let bond_token_client = token::Client::new(&env, &bond_cfg.token);
+            bond_token_client.transfer(
+                &caller,
+                &env.current_contract_address(),
+                &bond_cfg.amount,
+            );
+
+            env.events().publish(
+                (symbol_short!("bond_lck"), job_id.clone()),
+                (caller.clone(), bond_cfg.token, bond_cfg.amount),
+            );
+            env.events().publish(
+                (symbol_short!("escrow_ds"), job_id.clone()),
+                (escrow.client.clone(), escrow.freelancer.clone(), caller.clone()),
+            );
+            return;
+        }
+
+        // Legacy fallback (zero-cost dispute mode).
         escrow.status = EscrowStatus::Disputed;
         env.storage()
             .instance()
@@ -1303,6 +1413,165 @@ impl MarketPayContract {
             (symbol_short!("escrow_ds"), job_id.clone()),
             (escrow.client.clone(), escrow.freelancer.clone(), caller.clone()),
         );
+    }
+
+    /// Resolve a disputed escrow and settle the bond (Issue #437).
+    ///
+    /// `client_wins == true` resolves in the client's favour: the escrow
+    /// amount is refunded to the client, and the bond is routed back to
+    /// the bond-caller if they are the client, or slashed to the client
+    /// if the bond-caller was the freelancer.
+    ///
+    /// `client_wins == false` resolves in the freelancer's favour (symmetric).
+    ///
+    /// Admin-only.  Idempotency is enforced via `DisputeBond` storage which
+    /// is removed after settlement, so a second call panics.
+    pub fn resolve_dispute(env: Env, admin: Address, job_id: String, client_wins: bool) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can resolve a dispute");
+        }
+
+        let mut escrow: Escrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        if escrow.status != EscrowStatus::Disputed {
+            panic!("Escrow is not in Disputed state");
+        }
+
+        // Pull snapshot of the locked bond (may be absent if zero-cost
+        // mode was used).  We always settle — the bond absence just means
+        // we have no bond to route.
+        let bond: Option<DisputeBond> = env
+            .storage()
+            .instance()
+            .get(&DataKey::DisputeBond(job_id.clone()));
+
+        // Determine the winning party address and the escrow final status.
+        let escrow_final_status = if client_wins {
+            EscrowStatus::Refunded
+        } else {
+            EscrowStatus::Released
+        };
+        let winner: Address = if client_wins {
+            escrow.client.clone()
+        } else {
+            escrow.freelancer.clone()
+        };
+
+        // Update the escrow status BEFORE any external transfers so that
+        // an event consumer / indexer never sees a state where the bond is
+        // held but the escrow is still `Disputed` (atomic settlement order).
+        escrow.status = escrow_final_status.clone();
+        env.storage()
+            .instance()
+            .set(&DataKey::Escrow(job_id.clone()), &escrow);
+
+        // Pay out the escrow principal.
+        let escrow_token_client = token::Client::new(&env, &escrow.token);
+        if escrow.amount > 0 {
+            escrow_token_client.transfer(
+                &env.current_contract_address(),
+                &winner,
+                &escrow.amount,
+            );
+        }
+
+        // Settle the bond \u2014 caller-wins-returns it, caller-loses-slashes it.
+        if let Some(b) = bond.clone() {
+            let bond_token_client = token::Client::new(&env, &b.token);
+            if b.caller == winner {
+                bond_token_client.transfer(
+                    &env.current_contract_address(),
+                    &b.caller,
+                    &b.amount,
+                );
+                env.events().publish(
+                    (symbol_short!("bond_rtn"), job_id.clone()),
+                    (b.caller.clone(), b.amount),
+                );
+            } else {
+                bond_token_client.transfer(
+                    &env.current_contract_address(),
+                    &winner,
+                    &b.amount,
+                );
+                env.events().publish(
+                    (symbol_short!("bond_slsh"), job_id.clone()),
+                    (winner.clone(), b.amount),
+                );
+            }
+            // Consume the bond record so a second resolve_dispute panics.
+            env.storage()
+                .instance()
+                .remove(&DataKey::DisputeBond(job_id.clone()));
+        }
+
+        env.events().publish(
+            (symbol_short!("dsp_res"), job_id.clone()),
+            (winner, escrow_final_status),
+        );
+    }
+
+    /// Admin sets the global dispute bond configuration (Issue #437).
+    ///
+    /// `amount == 0` and an `Option::None` (key absent) both leave the
+/// contract in **legacy zero-cost mode** so existing escrows and tests
+    /// continue to operate without modification.  Setting a positive amount
+    /// enables the bond requirement for all SUBSEQUENT disputes (existing
+    /// disputes are unaffected — bonds are snapshotted at lock time).
+    pub fn set_dispute_bond(env: Env, admin: Address, token: Address, amount: i128) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can update the dispute bond");
+        }
+        if amount <= 0 {
+            panic!("Bond amount must be positive");
+        }
+
+        env.storage().instance().set(
+            &DataKey::DisputeBondConfig,
+            &DisputeBondConfig {
+                token: token.clone(),
+                amount,
+            },
+        );
+
+        env.events()
+            .publish((symbol_short!("bond_cfg"), admin), (token, amount));
+    }
+
+    /// Read the global dispute bond configuration.  Returns `(None, 0)` in
+    /// legacy zero-cost mode (key absent).
+    pub fn get_dispute_bond_config(env: Env) -> (Option<Address>, i128) {
+        env.storage()
+            .instance()
+            .get::<_, DisputeBondConfig>(&DataKey::DisputeBondConfig)
+            .map(|c| (Some(c.token), c.amount))
+            .unwrap_or((None, 0))
+    }
+
+    /// Read the per-job locked bond record.  Returns `None` if no bond
+    /// was locked (either legacy zero-cost mode or already settled).
+    pub fn get_dispute_bond(env: Env, job_id: String) -> Option<DisputeBond> {
+        env.storage()
+            .instance()
+            .get(&DataKey::DisputeBond(job_id))
     }
 
     /// Milestone-based partial release.
@@ -2690,10 +2959,7 @@ mod regression_tests {
     fn test_partial_release() {
     let env = Env::default();
     env.mock_all_auths();
-    let id = env.register(Market2903
-PayContract, ());
-    let contract_client = MarketPayContractClient::new(&env, &id);
-
+    let id = env.register(MarketPayContract, ());
     let admin = Address::generate(&env);
     contract_client.initialize(&admin);
 
@@ -3267,3 +3533,7 @@ mod milestone_pct_tests {
         assert_eq!(escrow.status, EscrowStatus::Released);
     }
 }
+
+// ─── Issue #437: Dispute Bond Tests ─────────────────────────────────────────
+#[cfg(test)]
+mod dispute_bond_tests;
