@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import Head from "next/head";
+import type { GetServerSideProps } from "next";
 import ApplicationForm from "@/components/ApplicationForm";
 import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
@@ -30,13 +31,118 @@ import {
   buildPartialReleaseTransaction,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
+import { optionalClientEnv } from "@/lib/env";
 import type { Transaction } from "@stellar/stellar-sdk";
 import type { Application, Job } from "@/utils/types";
+
+// ── Site-wide canonical origin used in OG/Twitter meta tags (#487) ─────────
+// RESOLVED_AT_BUILD is the build-time fallback used by client-rendered
+// meta tags (post-hydration Head updates). For server-rendered meta tags in
+// getServerSideProps we prefer the request host so staging branches do not
+// self-canonicalize to production (see OG_BASE_URL below).
+const SITE_URL =
+  optionalClientEnv(
+    "NEXT_PUBLIC_SITE_URL",
+    "https://marketpay.stellar.org",
+  ).replace(/\/$/, "");
+const BACKEND_URL =
+  optionalClientEnv("NEXT_PUBLIC_API_URL", "http://localhost:4000").replace(/\/$/, "");
+const TWITTER_SITE_HANDLE = optionalClientEnv("NEXT_PUBLIC_TWITTER_SITE", "");
 
 interface JobDetailProps {
   publicKey: string | null;
   onConnect: (pk: string) => void;
+  /** Server-rendered snapshot of the job used for SEO/social meta tags. */
+  ssrJob?: Pick<
+    Job,
+    | "id"
+    | "title"
+    | "description"
+    | "category"
+    | "budget"
+    | "currency"
+    | "status"
+    | "skills"
+    | "clientAddress"
+    | "createdAt"
+  > | null;
+  /** Origin used for canonical / og:url / og:image — request-host or build-time fallback. */
+  ogBaseUrl: string;
 }
+
+/** Trim a string for use in meta descriptions and og:description. */
+function truncate(text: string, max = 200): string {
+  if (!text) return "";
+  if (text.length <= max) return text;
+  const slice = text.slice(0, max - 1);
+  const lastSpace = slice.lastIndexOf(" ");
+  return `${(lastSpace > max * 0.6 ? slice.slice(0, lastSpace) : slice).trim()}…`;
+}
+
+/**
+ * Server-side data fetch used to populate Open Graph and Twitter Card
+ * meta tags before HTML reaches the social-media crawler.
+ *
+ * If the backend is unavailable, we fall through with `ssrJob: null` and
+ * the client-side fetch will populate the live UI; meta tags then degrade
+ * gracefully to a generic preview.
+ *
+ * `ogBaseUrl` is computed from the request host so staging / preview
+ * branches canonicalize to themselves instead of leaking production URLs.
+ */
+export const getServerSideProps: GetServerSideProps<
+  JobDetailProps & { ogBaseUrl: string }
+> = async ({ params, req }) => {
+  const jobId = typeof params?.id === "string" ? params.id : "";
+  const host =
+    (req?.headers?.["x-forwarded-host"] as string | undefined) ||
+    (req?.headers?.host as string | undefined) ||
+    "";
+  const proto =
+    (req?.headers?.["x-forwarded-proto"] as string | undefined) ||
+    (req?.headers?.["x-forwarded-protocol"] as string | undefined) ||
+    "https";
+  const ogBaseUrl = host
+    ? `${proto}://${host}`
+    : SITE_URL;
+
+  if (!jobId) return { props: { ssrJob: null, ogBaseUrl } };
+
+  try {
+    // Forward the request origin so the backend can apply any geo headers.
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (req?.headers?.cookie) headers.cookie = req.headers.cookie;
+    if (req?.headers?.["user-agent"]) headers["user-agent"] = req.headers["user-agent"];
+
+    const res = await fetch(`${BACKEND_URL}/api/jobs/${encodeURIComponent(jobId)}`, {
+      headers,
+      // Don't let ISR cache stale job data — jobs change frequently.
+      cache: "no-store",
+    });
+    if (!res.ok) return { props: { ssrJob: null, ogBaseUrl } };
+    const body = await res.json();
+    const data = body?.data;
+    if (!body?.success || !data || typeof data !== "object" || !data.id) {
+      return { props: { ssrJob: null, ogBaseUrl } };
+    }
+    // Whitelist fields we actually need in meta tags to keep payload tiny.
+    const ssrJob = {
+      id: String(data.id),
+      title: String(data.title || ""),
+      description: String(data.description || ""),
+      category: String(data.category || ""),
+      budget: String(data.budget || ""),
+      currency: String(data.currency || "XLM"),
+      status: String(data.status || "open"),
+      skills: Array.isArray(data.skills) ? data.skills.map(String) : [],
+      clientAddress: String(data.clientAddress || ""),
+      createdAt: String(data.createdAt || ""),
+    };
+    return { props: { ssrJob, ogBaseUrl } };
+  } catch {
+    return { props: { ssrJob: null, ogBaseUrl } };
+  }
+};
 
 function badgeClass(status: string) {
   if (status === "accepted") return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
@@ -53,7 +159,7 @@ function Spinner() {
   );
 }
 
-export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
+export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: JobDetailProps) {
   const router = useRouter();
   const jobId = typeof router.query.id === "string" ? router.query.id : null;
 
@@ -261,13 +367,96 @@ export default function JobDetail({ publicKey, onConnect }: JobDetailProps) {
     );
   }
 
-  if (!job) return null;
+  // Use the server-resolved base URL once available so the canonical link
+  // and og:url match the host the user actually requested. Fall back to the
+  // build-time SITE_URL while the client bundle hydrates without SSR data.
+  const baseUrl = ogBaseUrl || SITE_URL;
+
+  /** Build the OG-image URL or a sentinel that the OG route interprets as "render the branded fallback". */
+  const ogImageUrlFor = (id: string | undefined) =>
+    id ? `${baseUrl}/api/og/${id}` : `${baseUrl}/api/og/missing`;
+
+  if (!job) {
+    // Even before client hydration completes, render SEO/OG meta tags from
+    // the SSR snapshot so crawlers see a useful preview.
+    const metaJob = ssrJob ?? null;
+    const metaTitle = metaJob?.title
+      ? `${metaJob.title} - Stellar MarketPay`
+      : "Job - Stellar MarketPay";
+    const metaDescription = truncate(metaJob?.description || "", 200);
+    const metaUrl = `${baseUrl}/jobs/${metaJob?.id || ""}`;
+    const metaImage = ogImageUrlFor(metaJob?.id);
+
+    return (
+      <>
+        <Head>
+          <title>{metaTitle}</title>
+          <meta name="description" content={metaDescription} />
+          <link rel="canonical" href={metaUrl} />
+          <meta property="og:type" content="website" />
+          <meta property="og:site_name" content="Stellar MarketPay" />
+          <meta property="og:title" content={metaJob?.title || "Open job on Stellar MarketPay"} />
+          <meta property="og:description" content={metaDescription} />
+          <meta property="og:url" content={metaUrl} />
+          <meta property="og:image" content={metaImage} />
+          <meta property="og:image:secure_url" content={metaImage} />
+          <meta property="og:image:width" content="1200" />
+          <meta property="og:image:height" content="630" />
+          <meta property="og:image:alt" content={`${metaJob?.title || "Job preview"} on Stellar MarketPay`} />
+          <meta property="og:locale" content="en_US" />
+          <meta name="twitter:card" content="summary_large_image" />
+          {TWITTER_SITE_HANDLE ? (
+            <meta name="twitter:site" content={TWITTER_SITE_HANDLE} />
+          ) : null}
+          <meta name="twitter:title" content={metaJob?.title || "Open job on Stellar MarketPay"} />
+          <meta name="twitter:description" content={metaDescription} />
+          <meta name="twitter:image" content={metaImage} />
+          <meta name="twitter:image:alt" content={`${metaJob?.title || "Job preview"} on Stellar MarketPay`} />
+        </Head>
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 text-center">
+          <p className="text-amber-700">Loading job…</p>
+        </div>
+      </>
+    );
+  }
+
+  // Live job data is available — use it to populate full social meta tags
+  // including the dynamic Open Graph image rendered by /api/og/[jobId].
+  const ogTitle = job.title;
+  const ogDescription = truncate(job.description, 200);
+  const ogUrl = `${baseUrl}/jobs/${job.id}`;
+  const ogImage = ogImageUrlFor(job.id);
+  const ogBudget = `${formatXLM(job.budget, 2)} ${job.currency}`.trim();
 
   return (
     <>
       <Head>
         <title>{job.title} - Stellar MarketPay</title>
-        <meta name="description" content={job.description.substring(0, 160)} />
+        <meta name="description" content={ogDescription} />
+        <link rel="canonical" href={ogUrl} />
+
+        {/* ── Open Graph (#487) ───────────────────────────────────────── */}
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Stellar MarketPay" />
+        <meta property="og:title" content={ogTitle} />
+        <meta property="og:description" content={ogDescription} />
+        <meta property="og:url" content={ogUrl} />
+        <meta property="og:image" content={ogImage} />
+        <meta property="og:image:secure_url" content={ogImage} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content={`${job.title} — ${ogBudget} on Stellar MarketPay`} />
+        <meta property="og:locale" content="en_US" />
+
+        {/* ── Twitter Card (#487) ─────────────────────────────────────── */}
+        <meta name="twitter:card" content="summary_large_image" />
+        {TWITTER_SITE_HANDLE ? (
+          <meta name="twitter:site" content={TWITTER_SITE_HANDLE} />
+        ) : null}
+        <meta name="twitter:title" content={ogTitle} />
+        <meta name="twitter:description" content={ogDescription} />
+        <meta name="twitter:image" content={ogImage} />
+        <meta name="twitter:image:alt" content={`${job.title} — ${ogBudget} on Stellar MarketPay`} />
       </Head>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 animate-fade-in">

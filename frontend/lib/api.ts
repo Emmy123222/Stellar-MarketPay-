@@ -1529,22 +1529,6 @@ export async function fetchEvidenceSignedUrl(
   return data.data;
 }
 
-// ─── WebAuthn / Passkeys (Issue #218) ────────────────────────────────────────
-
-export interface PasskeyCredential {
-  id: string;
-  credential_name: string;
-  created_at: string;
-}
-
-export async function fetchPasskeyRegistrationOptions(publicKey: string) {
-  const { data } = await api.post<{ success: boolean; data: any }>(
-    "/api/webauthn/register-options",
-    { publicKey },
-  );
-  return data.data;
-}
-
 export async function verifyPasskeyRegistration(credential: any, name: string) {
   const { data } = await api.post<{ success: boolean; message: string }>(
     "/api/webauthn/register-verify",
@@ -2215,4 +2199,38 @@ export async function uploadMessageAttachment(
     { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
   );
   return data.data;
+}
+
+// u2500u2500u2500 Dispute Evidence On-Chain Audit (Issue #448) u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500
+/**
+ * Fetch the IPFS CIDs of dispute evidence anchored on-chain for a job.
+ * Backed by GET /api/disputes/:jobId/onchain-cids. Returns an empty array
+ * if the contract has no entries yet or the network is unreachable.
+ */
+export async function fetchDisputeOnchainCids(jobId: string): Promise<string[]> {
+  try {
+    const { data } = await api.get<{ success: boolean; data: { cids: string[] } }>(
+      `/api/disputes/${encodeURIComponent(jobId)}/onchain-cids`,
+    );
+    return Array.isArray(data?.data?.cids) ? data.data.cids : [];
+  } catch {
+    return [];
+  }
+}
+
+//  Dispute Evidence On-Chain Audit (Issue #448) 
+/**
+ * Fetch the IPFS CIDs of dispute evidence anchored on-chain for a job.
+ * Backed by GET /api/disputes/:jobId/onchain-cids. Returns an empty array
+ * if the contract has no entries yet or the network is unreachable.
+ */
+export async function fetchDisputeOnchainCids(jobId: string): Promise<string[]> {
+  try {
+    const { data } = await api.get<{ success: boolean; data: { cids: string[] } }>(
+      `/api/disputes/${encodeURIComponent(jobId)}/onchain-cids`,
+    );
+    return Array.isArray(data?.data?.cids) ? data.data.cids : [];
+  } catch {
+    return [];
+  }
 }
