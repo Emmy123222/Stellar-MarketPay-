@@ -6,7 +6,7 @@
 const express = require("express");
 const router = express.Router();
 
-const { createRateLimiter } = require("../middleware/rateLimiter");
+const { createRateLimiter, createDisputeRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT } = require("../middleware/auth");
 const jobService = require("../services/jobService");
 const {
@@ -602,6 +602,7 @@ router.post(
   "/:id/dispute",
   verifyJWT,
   generalJobRateLimiter,
+  createDisputeRateLimiter,
   async (req, res, next) => {
     try {
       const { reason, description } = req.body;

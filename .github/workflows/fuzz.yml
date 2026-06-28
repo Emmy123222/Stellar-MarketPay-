@@ -1,0 +1,41 @@
+name: Fuzz Contract
+
+on:
+  pull_request:
+    paths:
+      - "contracts/marketpay-contract/src/**"
+      - "contracts/marketpay-contract/fuzz/**"
+
+jobs:
+  fuzz:
+    name: cargo-fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - fuzz_create_escrow
+          - fuzz_release_escrow
+          - fuzz_timeout_refund
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-fuzz-${{ hashFiles('contracts/marketpay-contract/fuzz/Cargo.toml') }}
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Run fuzz target for 60 seconds
+        working-directory: contracts/marketpay-contract
+        run: |
+          cargo fuzz run ${{ matrix.target }} -- -max_total_time=60 -timeout=10

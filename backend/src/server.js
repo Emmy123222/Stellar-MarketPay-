@@ -20,6 +20,7 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
 const { requestLoggerMiddleware, logError, createServiceLogger } = require('./utils/logger');
 const { sanitizeMiddleware } = require('./middleware/sanitize');
+const { idempotencyMiddleware, cleanupExpiredIdempotencyKeys } = require('./middleware/idempotency');
 const { getRateLimitScale } = require("./middleware/rateLimiter");
 const { requireChoice } = require("./config/env");
 const { createCorsOptions } = require("./config/cors");
@@ -46,10 +47,12 @@ const notificationRoutes = require("./routes/notifications");
 const developerRoutes = require("./routes/developer");
 const publicRoutes    = require("./routes/public");
 const referralRoutes  = require("./routes/referrals");
+const graphqlHandler  = require("./graphql");
 const eventsRoutes    = require("./routes/events");
 const invitationRoutes = require("./routes/invitations");
 const statsRoutes      = require("./routes/stats");
 const gasEstimatorRoutes = require("./routes/gasEstimator");
+const transactionRoutes  = require("./routes/transactions");
 
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
@@ -308,7 +311,7 @@ app.use(compressionMiddleware());
 
 app.use(express.json({ limit: "20kb" }));
 app.use(sanitizeMiddleware({ strict: false }));
-app.use(jsonDepthLimitMiddleware);
+app.use(idempotencyMiddleware());
 
 // Swagger UI
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
@@ -316,7 +319,13 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
   customSiteTitle: 'Stellar MarketPay API Documentation'
 }));
 
-app.use(cors(createCorsOptions({ logger: serviceLogger })));
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").split(",").map(o => o.trim());
+app.use(cors({
+  origin: (origin, cb) => (!origin || allowedOrigins.includes(origin)) ? cb(null, true) : cb(new Error("CORS blocked")),
+  methods: ["GET", "POST", "PATCH", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
+  credentials: true,
+}));
 app.use(verifyCSRF);
 
 app.use((req, res, next) => {
@@ -352,6 +361,7 @@ app.use(rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => getClientIp(req),
+}));
 }));
 
 app.get("/metrics", async (req, res, next) => {
@@ -391,10 +401,12 @@ app.use("/api/developer",     developerRoutes);
 app.use("/api/public",        publicRoutes);
 app.use("/api/time-entries",  timeEntryRoutes);
 app.use("/api/referrals",     referralRoutes);
+app.use("/api/graphql",       graphqlHandler);
 app.use("/api/events",        eventsRoutes);
 app.use("/api/invitations",   invitationRoutes);
 app.use("/api/stats",         statsRoutes);
-app.use("/api/gas-estimate", gasEstimatorRoutes);
+app.use("/api/gas-estimate",   gasEstimatorRoutes);
+app.use("/api/transactions",   transactionRoutes);
 
 app.use((err, req, res, next) => {
   logError(req.logger || serviceLogger, err, {
@@ -546,6 +558,13 @@ async function bootstrap() {
 
   // Start notification processor - run every 2 minutes
   startNotificationProcessor();
+
+  // Clean up expired idempotency keys every hour
+  setInterval(() => {
+    cleanupExpiredIdempotencyKeys().catch((err) => {
+      logError(serviceLogger, err, { operation: 'idempotency_cleanup' });
+    });
+  }, 60 * 60 * 1000).unref();
 
   // Start WS event cleanup job (purge old events after 7 days)
   startWsEventCleanup();
