@@ -48,6 +48,7 @@ class IndexerService {
     };
     this.closeStream = null;
     this.closeEventStream = null;
+    this.closeContractStream = null;
     this.contractId = requireEnv("CONTRACT_ID", { fallback: contractId || process.env.ESCROW_CONTRACT_ID });
   }
 
@@ -82,6 +83,9 @@ class IndexerService {
     const txMemo = tx.memo || null;
     const ledgerNumber = tx.ledger_attr || tx.ledger || null;
     const matchedJobId = parseJobIdFromMemo(txMemo);
+
+    // Record ledger → UTC timestamp mapping for #443 (ledger_timestamps table).
+    await this.recordLedgerTimestamp(ledgerNumber, tx.created_at || null);
     const operations = await horizonClient.callWithLimit(
       () => this.horizon.operations().forTransaction(tx.hash).limit(200).call(),
       "operations.forTransaction"
@@ -321,6 +325,20 @@ class IndexerService {
     this.broadcast("contract:event", { jobId, eventType, txHash: event.transaction_hash });
   }
 
+  async recordLedgerTimestamp(ledger, closedAt) {
+    if (!ledger || !closedAt) return;
+    try {
+      await pool.query(
+        `INSERT INTO ledger_timestamps (ledger, timestamp)
+         VALUES ($1, $2)
+         ON CONFLICT (ledger) DO NOTHING`,
+        [ledger, closedAt]
+      );
+    } catch (err) {
+      console.error("[Indexer] failed to record ledger timestamp:", err.message);
+    }
+  }
+
   async start() {
     if (this.syncState.running) return;
     if (!this.platformWallet) {
@@ -354,13 +372,14 @@ class IndexerService {
       });
 
     this.startEventStream();
+    this.startContractTransactionStream();
   }
 
-  startEventStream() {
-    const cursor = "now";
+  startEventStream(retryDelay = 1000) {
+    const MAX_RETRY_DELAY = 60_000;
     this.closeEventStream = this.horizon
       .events()
-      .cursor(cursor)
+      .cursor("now")
       .stream({
         onmessage: async (event) => {
           try {
@@ -371,12 +390,49 @@ class IndexerService {
         },
         onerror: (error) => {
           console.error("[Indexer] event stream error:", error?.message);
+          if (typeof this.closeEventStream === "function") {
+            this.closeEventStream();
+            this.closeEventStream = null;
+          }
+          const nextDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
           setTimeout(() => {
             if (this.syncState.running) {
-              console.log("[Indexer] attempting to reconnect event stream...");
-              this.startEventStream();
+              console.log(`[Indexer] reconnecting event stream in ${retryDelay}ms...`);
+              this.startEventStream(nextDelay);
             }
-          }, 5000);
+          }, retryDelay);
+        },
+      });
+  }
+
+  startContractTransactionStream(retryDelay = 1000) {
+    if (!this.contractId) return;
+    const MAX_RETRY_DELAY = 60_000;
+    this.closeContractStream = this.horizon
+      .transactions()
+      .forAccount(this.contractId)
+      .cursor("now")
+      .stream({
+        onmessage: async (tx) => {
+          try {
+            await this.processTransaction(tx);
+            this.broadcast("contract:transaction", { txHash: tx.hash, contractId: this.contractId });
+          } catch (error) {
+            console.error("[Indexer] contract tx stream error:", error.message);
+          }
+        },
+        onerror: (error) => {
+          console.error("[Indexer] contract tx stream error:", error?.message);
+          if (typeof this.closeContractStream === "function") {
+            this.closeContractStream();
+            this.closeContractStream = null;
+          }
+          const nextDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
+          setTimeout(() => {
+            if (this.syncState.running) {
+              this.startContractTransactionStream(nextDelay);
+            }
+          }, retryDelay);
         },
       });
   }
@@ -392,8 +448,10 @@ class IndexerService {
   stop() {
     if (typeof this.closeStream === "function") this.closeStream();
     if (typeof this.closeEventStream === "function") this.closeEventStream();
+    if (typeof this.closeContractStream === "function") this.closeContractStream();
     this.closeStream = null;
     this.closeEventStream = null;
+    this.closeContractStream = null;
     this.syncState.running = false;
   }
 

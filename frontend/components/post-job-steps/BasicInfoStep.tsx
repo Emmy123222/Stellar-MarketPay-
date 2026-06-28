@@ -3,19 +3,8 @@
  * Step 1: Basic Info - title, description, category
  */
 import { JobFormData } from "@/components/PostJobFormtypes";
-
-const VALID_CATEGORIES = [
-  "Smart Contracts",
-  "Frontend Development",
-  "Backend Development",
-  "UI/UX Design",
-  "Technical Writing",
-  "DevOps",
-  "Security Audit",
-  "Data Analysis",
-  "Mobile Development",
-  "Other",
-];
+import { fetchCategories, type CategoryNode } from "@/lib/api";
+import { useEffect, useState } from "react";
 
 interface Props {
   form: JobFormData;
@@ -25,6 +14,12 @@ interface Props {
 }
 
 export default function BasicInfoStep({ form, touched, errors, onChange }: Props) {
+  const [categories, setCategories] = useState<CategoryNode[]>([]);
+
+  useEffect(() => {
+    fetchCategories().then(setCategories).catch(() => {});
+  }, []);
+
   return (
     <div className="space-y-5">
       <div>
@@ -65,7 +60,22 @@ export default function BasicInfoStep({ form, touched, errors, onChange }: Props
           onChange={onChange}
           className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-4 py-2.5 text-sm text-gray-900 dark:text-amber-100 focus:outline-none focus:ring-2 focus:ring-market-400/40 focus:border-transparent"
         >
-          {VALID_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          {categories.length > 0 ? (
+            categories.map((parent) => (
+              <optgroup key={parent.slug} label={parent.name}>
+                {/* The parent itself is selectable */}
+                <option value={parent.slug}>{parent.name}</option>
+                {parent.children.map((child) => (
+                  <option key={child.slug} value={child.slug}>
+                    {"\u00a0\u00a0"}{child.name}
+                  </option>
+                ))}
+              </optgroup>
+            ))
+          ) : (
+            // Fallback while categories are loading
+            <option value={form.category}>{form.category || "Loading…"}</option>
+          )}
         </select>
       </div>
     </div>
