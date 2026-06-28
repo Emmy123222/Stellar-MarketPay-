@@ -50,6 +50,10 @@ const config: Config = {
         shimmer:   { "0%": { backgroundPosition: "-200% 0" }, "100%": { backgroundPosition: "200% 0" } },
         scaleIn:   { "0%": { opacity: "0", transform: "scale(0.6)" }, "100%": { opacity: "1", transform: "scale(1)" } },
         pulseSoft: { "0%, 100%": { opacity: "1" }, "50%": { opacity: "0.55" } },
+        "progress-indeterminate": {
+          "0%":   { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(400%)" },
+        },
       },
     },
   },

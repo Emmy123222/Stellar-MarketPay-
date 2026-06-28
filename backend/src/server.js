@@ -50,7 +50,7 @@ const eventsRoutes    = require("./routes/events");
 const invitationRoutes = require("./routes/invitations");
 const statsRoutes      = require("./routes/stats");
 const gasEstimatorRoutes = require("./routes/gasEstimator");
-const categoryRoutes     = require("./routes/categories");
+const transactionRoutes  = require("./routes/transactions");
 
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
@@ -403,8 +403,8 @@ app.use("/api/graphql",       graphqlHandler);
 app.use("/api/events",        eventsRoutes);
 app.use("/api/invitations",   invitationRoutes);
 app.use("/api/stats",         statsRoutes);
-app.use("/api/gas-estimate", gasEstimatorRoutes);
-app.use("/api/categories",   categoryRoutes);
+app.use("/api/gas-estimate",   gasEstimatorRoutes);
+app.use("/api/transactions",   transactionRoutes);
 
 app.use((err, req, res, next) => {
   void next;
