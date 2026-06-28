@@ -845,10 +845,10 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
                 </button>
                 {JOB_CATEGORIES.map((cat) => (
                   <button key={cat}
-                    onClick={() => { setFilter("category", cat); setShowMobileFilters(false); }}
+                    onClick={() => { setFilter("category", categoryToSlug(cat)); setShowMobileFilters(false); }}
                     className={clsx(
                       "w-full text-left px-3 py-2.5 rounded-lg text-sm font-body min-h-[44px]",
-                      category === cat ? "bg-market-500/20 text-market-300 font-medium" : "text-amber-700 hover:text-amber-400"
+                      category === categoryToSlug(cat) ? "bg-market-500/20 text-market-300 font-medium" : "text-amber-700 hover:text-amber-400"
                     )}
                   >
                     {CATEGORY_ICONS[cat] ?? ""} {cat}
@@ -958,18 +958,19 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
                 <span className="ml-1 text-xs text-amber-800">({jobs.length})</span>
               </Link>
               {JOB_CATEGORIES.map((cat) => {
-                const count = jobs.filter((j) => j.category === cat).length;
+                const slug = categoryToSlug(cat);
+                const count = jobs.filter((j) => j.category === cat || j.categorySlug === slug).length;
                 const isAlerted = alertedCategories.includes(cat);
                 return (
                   <div key={cat} className="flex items-center gap-1 group/catrow">
-                    <button onClick={() => setFilter("category", cat)}
+                    <button onClick={() => setFilter("category", slug)}
                       className={clsx(
                         "flex-1 text-left px-3 py-2 rounded-lg text-sm font-body transition-all duration-200",
-                        category === cat
+                        category === slug
                           ? "bg-market-500/20 text-market-300 font-medium ring-1 ring-market-500/30"
                           : "text-amber-700 hover:text-amber-400 hover:bg-market-500/8 hover:translate-x-0.5"
                       )}>
-                      {CATEGORY_ICONS[cat] ?? ""} {cat}
+                      {CATEGORY_ICONS[cat] ?? CATEGORY_ICONS[slug] ?? ""} {cat}
                       <span className="ml-1 text-xs text-amber-800">({count})</span>
                     </button>
 
