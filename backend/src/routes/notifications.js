@@ -211,11 +211,31 @@ router.patch("/preferences", verifyJWT, async (req, res, next) => {
 
 router.get("/", verifyJWT, async (req, res, next) => {
   try {
+    const { limit, cursor, after, page } = req.query;
+    const effectiveCursor = after || cursor;
+
+    if (page !== undefined && !effectiveCursor) {
+      res.set("Deprecation", "true");
+      res.set("Link", '</api/notifications>; rel="deprecation"');
+      res.set("Sunset", "2025-12-31");
+    }
+
     const result = await listInAppNotifications(req.user.publicKey, {
-      limit: req.query.limit,
-      cursor: req.query.cursor,
+      limit,
+      cursor: effectiveCursor,
     });
-    res.json({ success: true, data: result });
+    res.json({
+      success: true,
+      data: {
+        notifications: result.notifications,
+        unreadCount: result.unreadCount,
+        next_cursor: result.nextCursor,
+        has_more: Boolean(result.nextCursor),
+      },
+      ...(page !== undefined && !effectiveCursor && {
+        _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `after`.",
+      }),
+    });
   } catch (e) {
     next(e);
   }
