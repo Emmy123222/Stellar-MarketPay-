@@ -135,6 +135,32 @@ describe("jobService", () => {
         frontendJobs.every((job) => job.category === "Frontend Development"),
       ).toBe(true);
     });
+
+    it("returns has_more when there are more results", async () => {
+      const { jobs, nextCursor, hasMore } = await listJobs({ limit: 1 });
+      expect(jobs.length).toBe(1);
+      expect(hasMore).toBe(true);
+      expect(nextCursor).toBeTruthy();
+    });
+
+    it("paginates with cursor and maintains consistent ordering", async () => {
+      const page1 = await listJobs({ limit: 2 });
+      expect(page1.jobs.length).toBe(2);
+      expect(page1.hasMore).toBe(true);
+
+      const page2 = await listJobs({ limit: 2, cursor: page1.nextCursor });
+      expect(page2.jobs.length).toBeGreaterThanOrEqual(1);
+
+      const ids1 = page1.jobs.map((j) => j.id);
+      const ids2 = page2.jobs.map((j) => j.id);
+      const overlap = ids1.filter((id) => ids2.includes(id));
+      expect(overlap).toEqual([]);
+    });
+
+    it("returns has_more false on last page", async () => {
+      const { jobs, hasMore } = await listJobs({ limit: 100 });
+      expect(hasMore).toBe(false);
+    });
   });
 
   describe("listJobsByClient and updateJobStatus", () => {

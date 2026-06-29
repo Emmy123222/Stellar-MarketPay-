@@ -24,7 +24,7 @@ export default function FreelancersBrowsePage() {
   // Stable cache key — changes when filters change, invalidating stale cache.
   const cacheKey = `freelancers:${availability}:${search}`;
 
-  const { data, error, isLoading, isValidating } = useApi<UserProfile[]>(
+  const { data, error, isLoading, isValidating } = useApi<{ profiles: UserProfile[]; nextCursor: string | null; hasMore: boolean }>(
     cacheKey,
     () =>
       fetchProfiles({
@@ -35,7 +35,7 @@ export default function FreelancersBrowsePage() {
       }),
   );
 
-  const profiles = data ?? [];
+  const profiles = data?.profiles ?? [];
 
   return (
     <>
