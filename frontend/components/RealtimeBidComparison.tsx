@@ -1,11 +1,20 @@
 /**
  * components/RealtimeBidComparison.tsx
- * Real-time bid comparison with WebSocket updates
+ * Real-time bid comparison — wired to WebSocket via useRealtimeBids.
+ *
+ * Events handled:
+ *   application:new        → card appended + highlighted
+ *   application:withdrawn  → card fades out then removed
+ *   application:accepted   → optimistic status badge update
+ * Fallback: polls every 30 s while WebSocket is disconnected.
+ * Toast: "X new proposals" with scroll-to-new button shown when tab is hidden.
  */
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useRef } from "react";
 import { formatXLM, shortenAddress, timeAgo } from "@/utils/format";
 import { accountUrl } from "@/lib/stellar";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
+import { useToast } from "@/components/Toast";
+import { useRealtimeBids } from "@/hooks/useRealtimeBids";
 import type { Application, FreelancerTier } from "@/utils/types";
 
 interface RealtimeBidComparisonProps {
@@ -15,12 +24,8 @@ interface RealtimeBidComparisonProps {
   biddingPhase?: "commitment" | "reveal";
   onAcceptApplication?: (applicationId: string) => void;
   onCloseBidding?: () => void;
-}
-
-interface NewBidEvent {
-  type: 'new_bid';
-  application: Application;
-  jobTitle: string;
+  /** Fetches the latest application list — used for 30 s fallback polling */
+  fetchApplications?: () => Promise<Application[]>;
 }
 
 function badgeClass(status: string) {
@@ -31,139 +36,61 @@ function badgeClass(status: string) {
 
 const tierOptions: FreelancerTier[] = ["Rising Talent", "Top Rated", "Expert"];
 
-export default function RealtimeBidComparison({ 
-  jobId, 
-  initialApplications, 
-  isClient, 
+export default function RealtimeBidComparison({
+  jobId,
+  initialApplications,
+  isClient,
   biddingPhase = "commitment",
   onAcceptApplication,
   onCloseBidding,
+  fetchApplications,
 }: RealtimeBidComparisonProps) {
-  const [applications, setApplications] = useState<Application[]>(initialApplications);
-  const [newBidsCount, setNewBidsCount] = useState(0);
-  const [isVisible, setIsVisible] = useState(true);
-  const [highlightedBids, setHighlightedBids] = useState<Set<string>>(new Set());
-  const [tierFilter, setTierFilter] = useState<FreelancerTier | "">("");
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const toast = useToast();
+  const listTopRef = useRef<HTMLDivElement | null>(null);
 
-  // WebSocket connection
-  useEffect(() => {
-    const connectWebSocket = () => {
-      const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/realtime`;
-      const ws = new WebSocket(wsUrl);
-      
-      ws.onopen = () => {
-        console.log('Connected to real-time bid updates');
-        wsRef.current = ws;
-      };
+  const {
+    applications,
+    highlightedIds,
+    fadingIds,
+    wsStatus,
+    newProposalsCount,
+    resetNewProposalsCount,
+    optimisticAccept,
+    newestCardRef,
+  } = useRealtimeBids({
+    jobId,
+    initialApplications,
+    fetchApplications: fetchApplications ?? (() => Promise.resolve(initialApplications)),
+  });
 
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          
-          // Check if this is a new bid for our job
-          if (data.event === `job:${jobId}:bids` && data.payload?.type === 'new_bid') {
-            const newApplication = data.payload.application;
-            
-            setApplications(prev => {
-              // Check if application already exists
-              const exists = prev.some(app => app.id === newApplication.id);
-              if (exists) return prev;
-              
-              return [...prev, newApplication];
-            });
-            
-            // Highlight the new bid
-            setHighlightedBids(prev => new Set([...prev, newApplication.id]));
-            
-            // Remove highlight after 3 seconds
-            setTimeout(() => {
-              setHighlightedBids(prev => {
-                const newSet = new Set(prev);
-                newSet.delete(newApplication.id);
-                return newSet;
-              });
-            }, 3000);
-            
-            // If user is not currently viewing this tab, increment counter
-            if (!isVisible) {
-              setNewBidsCount(prev => prev + 1);
-            }
-            
-            // Show browser notification if supported
-            if ('Notification' in window && Notification.permission === 'granted') {
-              new Notification('New Bid Received', {
-                body: biddingPhase === "commitment"
-                  ? `${shortenAddress(newApplication.freelancerAddress)} submitted a sealed bid`
-                  : `${shortenAddress(newApplication.freelancerAddress)} revealed ${formatXLM(newApplication.revealedBidAmount || newApplication.bidAmount)}`,
-                icon: '/icon-192x192.png',
-                tag: `bid-${newApplication.id}`,
-              });
-            }
-          }
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
-        }
-      };
+  // Show toast when new proposals arrive while the tab was hidden
+  const prevCount = useRef(0);
+  if (newProposalsCount > prevCount.current) {
+    prevCount.current = newProposalsCount;
+    toast.info(`${newProposalsCount} new proposal${newProposalsCount > 1 ? "s" : ""} — scroll down to view`);
+  }
 
-      ws.onclose = () => {
-        console.log('WebSocket connection closed, attempting to reconnect...');
-        wsRef.current = null;
-        
-        // Attempt to reconnect after 3 seconds
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connectWebSocket();
-        }, 3000);
-      };
+  const scrollToNewest = useCallback(() => {
+    newestCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    resetNewProposalsCount();
+  }, [newestCardRef, resetNewProposalsCount]);
 
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
-    };
+  const handleAccept = useCallback(
+    (applicationId: string) => {
+      optimisticAccept(applicationId);
+      onAcceptApplication?.(applicationId);
+    },
+    [optimisticAccept, onAcceptApplication],
+  );
 
-    connectWebSocket();
+  // ── derived data ────────────────────────────────────────────────────────────
 
-    // Cleanup on unmount
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, [jobId, isVisible, biddingPhase]);
+  const visibleApplications = applications;
 
-  // Track visibility for new bid counter
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      setIsVisible(!document.hidden);
-      if (!document.hidden) {
-        setNewBidsCount(0); // Reset counter when tab becomes visible
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
-
-  // Request notification permission on mount
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  const visibleApplications = tierFilter
-    ? applications.filter((application) => application.freelancerTier === tierFilter)
-    : applications;
-
-  // Sort applications by bid amount (lowest first) and creation date
   const visibleBidAmount = (app: Application) =>
     app.bidRevealed && app.revealedBidAmount ? app.revealedBidAmount : app.bidAmount;
 
-  const sortedApplications = [...applications].sort((a, b) => {
+  const sortedApplications = [...visibleApplications].sort((a, b) => {
     if (biddingPhase === "commitment") {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     }
@@ -172,60 +99,83 @@ export default function RealtimeBidComparison({
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 
-  const revealedApplications = applications.filter((app) => app.bidRevealed && app.revealedBidAmount);
-  const averageBid = revealedApplications.length > 0 
-    ? revealedApplications.reduce((sum, app) => sum + parseFloat(app.revealedBidAmount || "0"), 0) / revealedApplications.length
-    : 0;
+  const revealedApplications = applications.filter(
+    (app) => app.bidRevealed && app.revealedBidAmount,
+  );
+  const averageBid =
+    revealedApplications.length > 0
+      ? revealedApplications.reduce(
+          (sum, app) => sum + parseFloat(app.revealedBidAmount || "0"),
+          0,
+        ) / revealedApplications.length
+      : 0;
+  const lowestBid =
+    revealedApplications.length > 0
+      ? Math.min(...revealedApplications.map((app) => parseFloat(app.revealedBidAmount || "0")))
+      : 0;
+  const highestBid =
+    revealedApplications.length > 0
+      ? Math.max(...revealedApplications.map((app) => parseFloat(app.revealedBidAmount || "0")))
+      : 0;
 
-  const lowestBid = revealedApplications.length > 0 
-    ? Math.min(...revealedApplications.map(app => parseFloat(app.revealedBidAmount || "0")))
-    : 0;
-
-  const highestBid = revealedApplications.length > 0 
-    ? Math.max(...revealedApplications.map(app => parseFloat(app.revealedBidAmount || "0")))
-    : 0;
+  // ── render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
-      {/* Header with stats */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+    <div className="space-y-6" ref={listTopRef}>
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-4 flex-wrap">
           <h2 className="font-display text-xl font-bold text-amber-100">
             Applications ({applications.length})
-            {newBidsCount > 0 && (
-              <span className="ml-2 text-xs bg-red-500 text-white px-2 py-1 rounded-full animate-pulse">
-                {newBidsCount} new
-              </span>
-            )}
           </h2>
           <span className="text-xs rounded-full border border-market-500/20 px-2 py-1 text-market-300">
             {biddingPhase === "commitment" ? "Sealed phase" : "Reveal phase"}
           </span>
-          
-          {wsRef.current?.readyState === WebSocket.OPEN && (
+
+          {/* Live indicator */}
+          {wsStatus === "open" && (
             <div className="flex items-center gap-1 text-xs text-green-400">
-              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
               Live
             </div>
           )}
         </div>
 
-        {biddingPhase === "reveal" && revealedApplications.length > 0 && (
-          <div className="flex items-center gap-4 text-sm">
-            <div className="text-amber-800">
-              Avg: <span className="font-mono text-market-400">{formatXLM(averageBid.toString())}</span>
+        <div className="flex items-center gap-2">
+          {/* "X new proposals" scroll button */}
+          {newProposalsCount > 0 && (
+            <button
+              type="button"
+              onClick={scrollToNewest}
+              className="text-xs bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-1 rounded-full hover:bg-amber-500/30 transition-colors animate-pulse"
+            >
+              ↓ {newProposalsCount} new proposal{newProposalsCount > 1 ? "s" : ""}
+            </button>
+          )}
+
+          {biddingPhase === "reveal" && revealedApplications.length > 0 && (
+            <div className="flex items-center gap-4 text-sm">
+              <div className="text-amber-800">
+                Avg:{" "}
+                <span className="font-mono text-market-400">
+                  {formatXLM(averageBid.toString())}
+                </span>
+              </div>
+              <div className="text-amber-800">
+                Range:{" "}
+                <span className="font-mono text-market-400">
+                  {formatXLM(lowestBid.toString())} – {formatXLM(highestBid.toString())}
+                </span>
+              </div>
             </div>
-            <div className="text-amber-800">
-              Range: <span className="font-mono text-market-400">{formatXLM(lowestBid.toString())} - {formatXLM(highestBid.toString())}</span>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {isClient && biddingPhase === "commitment" && onCloseBidding && (
         <div className="flex justify-end">
           <button onClick={onCloseBidding} className="btn-secondary text-sm py-2 px-4">
-            Close Bidding & Start Reveal
+            Close Bidding &amp; Start Reveal
           </button>
         </div>
       )}
@@ -233,8 +183,10 @@ export default function RealtimeBidComparison({
       {/* Applications list */}
       {applications.length === 0 ? (
         <div className="border border-dashed border-market-500/20 rounded-xl p-8 text-center">
-          <p className="text-amber-800 text-sm">No applications yet. Waiting for freelancers to apply...</p>
-          {wsRef.current?.readyState === WebSocket.OPEN && (
+          <p className="text-amber-800 text-sm">
+            No applications yet. Waiting for freelancers to apply…
+          </p>
+          {wsStatus === "open" && (
             <p className="text-xs text-green-400 mt-2">🔴 Live updates enabled</p>
           )}
         </div>
@@ -245,22 +197,23 @@ export default function RealtimeBidComparison({
       ) : (
         <div className="space-y-4">
           {sortedApplications.map((application, index) => {
-            const isHighlighted = highlightedBids.has(application.id);
+            const isHighlighted = highlightedIds.has(application.id);
+            const isFading = fadingIds.has(application.id);
             const bidValue = parseFloat(visibleBidAmount(application));
-            const isLowestBid = biddingPhase === "reveal" && application.bidRevealed && bidValue === lowestBid;
+            const isLowestBid =
+              biddingPhase === "reveal" && application.bidRevealed && bidValue === lowestBid;
             const bidPercentage = averageBid > 0 ? (bidValue / averageBid) * 100 : 100;
-            
+            // Attach newestCardRef to the most recently arrived card (last in sorted list)
+            const isNewest = index === sortedApplications.length - 1;
+
             return (
               <div
                 key={application.id}
+                ref={isNewest ? newestCardRef : undefined}
                 className={`card transition-all duration-500 ${
-                  isHighlighted
-                    ? 'ring-2 ring-amber-400 bg-amber-500/5 animate-pulse'
-                    : ''
-                } ${
-                  isLowestBid
-                    ? 'border-green-500/30 bg-green-500/5'
-                    : ''
+                  isFading ? "opacity-0 scale-95" : "opacity-100 scale-100"
+                } ${isHighlighted ? "ring-2 ring-amber-400 bg-amber-500/5" : ""} ${
+                  isLowestBid ? "border-green-500/30 bg-green-500/5" : ""
                 }`}
               >
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
@@ -275,7 +228,7 @@ export default function RealtimeBidComparison({
                     </a>
                     <FreelancerTierBadge tier={application.freelancerTier} className="px-2 py-0.5" />
 
-                    {index === 0 && (
+                    {index === 0 && biddingPhase === "reveal" && (
                       <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded-full border border-green-500/30">
                         Lowest Bid
                       </span>
@@ -297,13 +250,17 @@ export default function RealtimeBidComparison({
                       </div>
                       {biddingPhase === "reveal" && application.bidRevealed && (
                         <div className="text-xs text-amber-800">
-                          {bidPercentage < 90 ? '🟢' : bidPercentage > 110 ? '🔴' : '🟡'}
+                          {bidPercentage < 90 ? "🟢" : bidPercentage > 110 ? "🔴" : "🟡"}
                           {bidPercentage.toFixed(0)}% of avg
                         </div>
                       )}
                     </div>
 
-                    <span className={`text-xs px-2.5 py-1 rounded-full border ${badgeClass(application.status)}`}>
+                    <span
+                      className={`text-xs px-2.5 py-1 rounded-full border ${badgeClass(
+                        application.status,
+                      )}`}
+                    >
                       {application.status}
                     </span>
                   </div>
@@ -320,13 +277,11 @@ export default function RealtimeBidComparison({
                 )}
 
                 <div className="flex items-center justify-between">
-                  <p className="text-xs text-amber-800">
-                    Applied {timeAgo(application.createdAt)}
-                  </p>
+                  <p className="text-xs text-amber-800">Applied {timeAgo(application.createdAt)}</p>
 
                   {isClient && application.status === "pending" && onAcceptApplication && (
                     <button
-                      onClick={() => onAcceptApplication(application.id)}
+                      onClick={() => handleAccept(application.id)}
                       className="btn-secondary text-sm py-2 px-4 min-h-[44px] min-w-[44px] hover:bg-market-500/20 transition-colors"
                     >
                       Accept Proposal
@@ -339,13 +294,13 @@ export default function RealtimeBidComparison({
         </div>
       )}
 
-      {/* Connection status */}
-      {wsRef.current?.readyState !== WebSocket.OPEN && (
+      {/* Connection status footer */}
+      {wsStatus !== "open" && (
         <div className="text-center py-2">
           <p className="text-xs text-amber-800">
-            {wsRef.current?.readyState === WebSocket.CONNECTING 
-              ? '🟡 Connecting to live updates...' 
-              : '🔴 Disconnected from live updates. Attempting to reconnect...'}
+            {wsStatus === "connecting"
+              ? "🟡 Connecting to live updates…"
+              : "🔴 Disconnected — polling every 30 s"}
           </p>
         </div>
       )}

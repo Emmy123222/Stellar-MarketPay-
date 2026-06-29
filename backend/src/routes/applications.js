@@ -229,6 +229,12 @@ router.post("/:id/accept", applicationRateLimiter, async (req, res, next) => {
       },
     });
 
+    // Broadcast acceptance so all connected clients update optimistically
+    req.app.locals.broadcastRealtime?.(`job:${app.jobId}:bids`, {
+      type: 'application:accepted',
+      applicationId: app.id,
+    });
+
     res.json({ success: true, data: app });
   } catch (e) { next(e); }
 });
@@ -237,6 +243,13 @@ router.post("/:id/accept", applicationRateLimiter, async (req, res, next) => {
 router.delete("/:id", applicationRateLimiter, async (req, res, next) => {
   try {
     const app = await withdrawApplication(req.params.id, req.body.freelancerAddress);
+
+    // Broadcast withdrawal so all connected clients remove the card
+    req.app.locals.broadcastRealtime?.(`job:${app.jobId}:bids`, {
+      type: 'application:withdrawn',
+      applicationId: app.id,
+    });
+
     res.json({ success: true, data: app });
   } catch (e) { next(e); }
 });
