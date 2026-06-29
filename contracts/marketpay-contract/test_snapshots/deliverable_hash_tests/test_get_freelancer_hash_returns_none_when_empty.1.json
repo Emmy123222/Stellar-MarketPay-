@@ -56,10 +56,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "create_escrow_with_deliverable",
+              "function_name": "create_escrow",
               "args": [
                 {
-                  "string": "deliverable-mismatch"
+                  "string": "dh-job-6"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -109,9 +109,6 @@
                       }
                     }
                   ]
-                },
-                {
-                  "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
                 }
               ]
             }
@@ -141,32 +138,6 @@
         }
       ]
     ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "submit_deliverable",
-              "args": [
-                {
-                  "string": "deliverable-mismatch"
-                },
-                {
-                  "bytes": "0202020202020202020202020202020202020202020202020202020202020202"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [],
     []
   ],
   "ledger": {
@@ -266,7 +237,7 @@
                             "symbol": "Escrow"
                           },
                           {
-                            "string": "deliverable-mismatch"
+                            "string": "dh-job-6"
                           }
                         ]
                       },
@@ -300,9 +271,7 @@
                             "key": {
                               "symbol": "deliverable_hash"
                             },
-                            "val": {
-                              "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
-                            }
+                            "val": "void"
                           },
                           {
                             "key": {
@@ -317,7 +286,7 @@
                               "symbol": "job_id"
                             },
                             "val": {
-                              "string": "deliverable-mismatch"
+                              "string": "dh-job-6"
                             }
                           },
                           {
@@ -341,7 +310,7 @@
                             "val": {
                               "vec": [
                                 {
-                                  "symbol": "Disputed"
+                                  "symbol": "Locked"
                                 }
                               ]
                             }
@@ -384,7 +353,7 @@
                             "symbol": "TimeoutTimestamp"
                           },
                           {
-                            "string": "deliverable-mismatch"
+                            "string": "dh-job-6"
                           }
                         ]
                       },
@@ -443,26 +412,6 @@
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "1033654523790656264"
-                }
-              },
-              "durability": "temporary",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 6311999
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
-              "key": {
-                "ledger_key_nonce": {
-                  "nonce": "4837995959683129791"
                 }
               },
               "durability": "temporary",

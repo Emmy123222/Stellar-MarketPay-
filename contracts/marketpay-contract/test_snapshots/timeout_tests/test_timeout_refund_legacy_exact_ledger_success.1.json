@@ -56,10 +56,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "create_escrow_with_deliverable",
+              "function_name": "create_escrow",
               "args": [
                 {
-                  "string": "deliverable-mismatch"
+                  "string": "legacy_timeout_exact"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -98,7 +98,9 @@
                       "key": {
                         "symbol": "timeout_ledgers"
                       },
-                      "val": "void"
+                      "val": {
+                        "u32": 10
+                      }
                     },
                     {
                       "key": {
@@ -109,9 +111,6 @@
                       }
                     }
                   ]
-                },
-                {
-                  "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
                 }
               ]
             }
@@ -141,23 +140,21 @@
         }
       ]
     ],
+    [],
     [
       [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
         {
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "submit_deliverable",
+              "function_name": "timeout_refund",
               "args": [
                 {
-                  "string": "deliverable-mismatch"
+                  "string": "legacy_timeout_exact"
                 },
                 {
-                  "bytes": "0202020202020202020202020202020202020202020202020202020202020202"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 }
               ]
             }
@@ -171,7 +168,7 @@
   ],
   "ledger": {
     "protocol_version": 26,
-    "sequence_number": 0,
+    "sequence_number": 10,
     "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
@@ -266,7 +263,7 @@
                             "symbol": "Escrow"
                           },
                           {
-                            "string": "deliverable-mismatch"
+                            "string": "legacy_timeout_exact"
                           }
                         ]
                       },
@@ -300,9 +297,7 @@
                             "key": {
                               "symbol": "deliverable_hash"
                             },
-                            "val": {
-                              "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
-                            }
+                            "val": "void"
                           },
                           {
                             "key": {
@@ -317,7 +312,7 @@
                               "symbol": "job_id"
                             },
                             "val": {
-                              "string": "deliverable-mismatch"
+                              "string": "legacy_timeout_exact"
                             }
                           },
                           {
@@ -341,7 +336,7 @@
                             "val": {
                               "vec": [
                                 {
-                                  "symbol": "Disputed"
+                                  "symbol": "Refunded"
                                 }
                               ]
                             }
@@ -351,7 +346,7 @@
                               "symbol": "timeout_ledger"
                             },
                             "val": {
-                              "u32": 120960
+                              "u32": 10
                             }
                           },
                           {
@@ -375,21 +370,6 @@
                       },
                       "val": {
                         "u32": 1
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "TimeoutTimestamp"
-                          },
-                          {
-                            "string": "deliverable-mismatch"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u32": 604800
                       }
                     },
                     {
@@ -459,7 +439,7 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "4837995959683129791"
@@ -471,7 +451,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6311999
+        "live_until": 6312009
       },
       {
         "entry": {
@@ -498,7 +478,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "1000"
+                      "i128": "0"
                     }
                   },
                   {
@@ -550,7 +530,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "0"
+                      "i128": "1000"
                     }
                   },
                   {

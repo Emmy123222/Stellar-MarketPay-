@@ -21,6 +21,7 @@ const {
   releaseMilestone,
   rejectMilestone,
   disputeMilestone,
+  submitDeliverableHash,
 } = require("../services/escrowService");
 
 /**
@@ -325,5 +326,47 @@ router.get("/:jobId", escrowActionRateLimiter, async (req, res, next) => {
     next(e);
   }
 });
+
+/**
+ * POST /api/escrow/:jobId/deliverable-hash
+ * Freelancer submits the SHA-256 hash of the completed deliverable.
+ * On-chain validation happens inside release_escrow; this records
+ * the hash off-chain for frontend/UI purposes.
+ */
+router.post(
+  "/:jobId/deliverable-hash",
+  escrowActionRateLimiter,
+  async (req, res, next) => {
+    try {
+      const { jobId } = req.params;
+      const { freelancerAddress, hashHex } = req.body;
+
+      if (!freelancerAddress || !/^G[A-Z0-9]{55}$/.test(freelancerAddress)) {
+        const e = new Error("Invalid wallet address");
+        e.status = 400;
+        throw e;
+      }
+
+      if (!hashHex || typeof hashHex !== "string") {
+        const e = new Error("hashHex is required");
+        e.status = 400;
+        throw e;
+      }
+
+      const result = await submitDeliverableHash(jobId, freelancerAddress, hashHex);
+
+      await logContractInteraction({
+        functionName: "submit_deliverable_hash",
+        callerAddress: freelancerAddress,
+        jobId,
+        txHash: `offchain-${Date.now()}`,
+      });
+
+      res.status(201).json(result);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 module.exports = router;
