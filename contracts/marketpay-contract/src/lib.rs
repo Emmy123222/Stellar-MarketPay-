@@ -244,6 +244,10 @@ pub enum DataKey {
     Version,
     /// Stores list of IPFS CIDs for messages in a job thread
     MessageCid(String),
+    /// Issue #440 — admin-settable ceiling on referrer bonus payouts.
+    /// Stored as a raw i128 (token stroops, same units as escrow amounts).
+    /// Absent => no cap (2% bonus applies as before, backward compat).
+    MaxReferrerBonusXlm,
 }
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
@@ -641,35 +645,63 @@ impl MarketPayContract {
         if release_amount > 0 {
             let token_client = token::Client::new(&env, &escrow.token);
 
-            // ── Referral bonus: 2% of release_amount goes to referrer ──────────
-            // The remaining 98% goes to the freelancer.
-            let (freelancer_amount, referral_amount) = match &escrow.referrer {
-                Some(referrer_addr) => {
-                    // 2% in basis points: amount * 200 / 10_000
-                    let bonus = release_amount
-                        .checked_mul(200)
-                        .expect("Arithmetic overflow")
-                        .checked_div(10_000)
-                        .expect("Arithmetic overflow");
-                    let to_freelancer = release_amount
-                        .checked_sub(bonus)
-                        .expect("Arithmetic overflow");
-                    // Transfer bonus to referrer
-                    if bonus > 0 {
-                        token_client.transfer(
-                            &env.current_contract_address(),
-                            referrer_addr,
-                            &bonus,
-                        );
-                        env.events().publish(
-                            (symbol_short!("ref_bon"), referrer_addr.clone()),
-                            (job_id.clone(), bonus),
-                        );
-                    }
-                    (to_freelancer, bonus)
+        // ── Referral bonus: 2% of release_amount goes to referrer ──────────
+        // The remaining goes to the freelancer. Issue #440 caps the
+        // bonus at `max_referrer_bonus_xlm` when the admin has set one,
+        // so a runaway large escrow cannot pay out a disproportionate
+        // bonus. When the cap is below 2%, the difference is rolled
+        // back to the freelancer — the total payout still equals
+        // `release_amount`, only the split changes.
+        let (freelancer_amount, referral_amount) = match &escrow.referrer {
+            Some(referrer_addr) => {
+                // 2% in basis points: amount * 200 / 10_000
+                let bonus_uncapped = release_amount
+                    .checked_mul(200)
+                    .expect("Arithmetic overflow")
+                    .checked_div(10_000)
+                    .expect("Arithmetic overflow");
+                // Apply admin cap (#440). Absent storage => no cap (preserves the
+                // pre-issue behaviour: 2% always applies). The cap is applied
+                // PER `release_amount`, so a milestone escrow sees the cap
+                // applied to each `release_milestone` partial release
+                // independently — not once cumulatively.
+                let cap: Option<i128> = env
+                    .storage()
+                    .instance()
+                    .get(&DataKey::MaxReferrerBonusXlm);
+                let bonus = match cap {
+                    // Fail loud — the setter rejects negative input, so a
+                    // negative in storage is a config / migration bug and
+                    // must not silently zero out referrer payouts.
+                    Some(c) if c < 0 => panic!("Negative referrer bonus cap in storage"),
+                    // Cap = 0 fully disables the referrer program.
+                    Some(0) => 0i128,
+                    // Cap below uncapped 2% — apply the cap (referrer bonus
+                    // shrinks; freelancer absorbs the saved amount).
+                    Some(c) if c < bonus_uncapped => c,
+                    // Cap at or above uncapped 2% — legacy behaviour.
+                    Some(_) => bonus_uncapped,
+                    None => bonus_uncapped,
+                };
+                let to_freelancer = release_amount
+                    .checked_sub(bonus)
+                    .expect("Arithmetic overflow");
+                // Transfer bonus to referrer
+                if bonus > 0 {
+                    token_client.transfer(
+                        &env.current_contract_address(),
+                        referrer_addr,
+                        &bonus,
+                    );
+                    env.events().publish(
+                        (symbol_short!("ref_bon"), referrer_addr.clone()),
+                        (job_id.clone(), bonus),
+                    );
                 }
-                None => (release_amount, 0i128),
-            };
+                (to_freelancer, bonus)
+            }
+            None => (release_amount, 0i128),
+        };
 
             // Transfer remaining funds to freelancer
             if freelancer_amount > 0 {
@@ -953,6 +985,48 @@ impl MarketPayContract {
             .instance()
             .get(&DataKey::DefaultTimeoutSeconds)
             .unwrap_or(DEFAULT_TIMEOUT_SECONDS)
+    }
+
+    /// Issue #440 — look up the admin-set cap on referrer bonus payouts.
+    /// Returns `None` when no cap has been set (legacy behaviour: 2% of
+    /// `release_amount` always applies).
+    pub fn get_max_referrer_bonus_xlm(env: Env) -> Option<i128> {
+        env.storage()
+            .instance()
+            .get(&DataKey::MaxReferrerBonusXlm)
+    }
+
+    /// Issue #440 — admin sets the maximum referrer bonus (in token
+    /// stroops, i.e. same units as escrow amounts). Pass `0` to disable
+    /// the referrer program entirely; pass a positive value to cap
+    /// every release's referrer-ledger entry at that amount.
+    ///
+    /// The cap is consumed at `release_escrow_core()` time so existing
+    /// escrows that have not yet been released pick up the new cap on
+    /// their first release. For milestone escrows each partial
+    /// `release_milestone` call applies the cap independently to that
+    /// release's payout — a 5-milestone escrow with cap = 10 XLM pays
+    /// the cap up to 5 times, not once cumulatively.
+    pub fn set_max_referrer_bonus_xlm(env: Env, admin: Address, cap: i128) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can set the referrer bonus cap");
+        }
+        if cap < 0 {
+            panic!("Referrer bonus cap must be non-negative");
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxReferrerBonusXlm, &cap);
+        env.events()
+            .publish((symbol_short!("ref_cap"), admin), cap);
     }
 
     /// Update the global timeout in seconds.
@@ -3265,5 +3339,266 @@ mod milestone_pct_tests {
 
         let escrow = contract.get_escrow(&job_id);
         assert_eq!(escrow.status, EscrowStatus::Released);
+    }
+}
+
+#[cfg(test)]
+mod referrer_cap_tests {
+    //! Issue #440 — admin-settable cap on the 2% referrer bonus.
+    //!
+    //! The cap is applied inside `release_escrow_core()` as
+    //!   `bonus = min(2% of release_amount, max_referrer_bonus_xlm)`
+    //! so a referrer cannot extract disproportionate rewards on huge
+    //! escrows. The difference between the uncapped 2% and the cap
+    //! (when the cap is lower) is rolled back into the freelancer's
+    //! payout — the escrow's total payout still equals `release_amount`.
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, token, Address, Env, String};
+
+    fn setup(
+        env: &Env,
+        client_funded: i128,
+    ) -> (MarketPayContractClient, Address, Address, Address, Address, Address) {
+        env.mock_all_auths();
+        let id = env.register(MarketPayContract, ());
+        let contract_client = MarketPayContractClient::new(env, &id);
+        let admin = Address::generate(env);
+        contract_client.initialize(&admin);
+
+        let depositor = Address::generate(env);
+        let freelancer = Address::generate(env);
+        let referrer = Address::generate(env);
+
+        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
+        let token_id = token_contract.address();
+        let token_admin = token::StellarAssetClient::new(env, &token_id);
+        token_admin.mint(&depositor, &client_funded);
+
+        (contract_client, admin, depositor, freelancer, referrer, token_id)
+    }
+
+    /// Below-cap: 2% (the `bonus_uncapped`) is itself below the cap,
+    /// so the cap is a no-op and legacy behaviour is preserved.
+    #[test]
+    fn test_referrer_bonus_below_cap_uses_uncapped_two_percent() {
+        let env = Env::default();
+        let (c, _admin, client, freelancer, referrer, token_id) = setup(&env, 1_000);
+
+        // cap = 5 XLM = 50_000_000 stroops; 2% of 1000 = 20 stroops
+        c.set_max_referrer_bonus_xlm(&_admin, &50_000_000);
+
+        let job_id = String::from_str(&env, "bonus_below_cap");
+        c.create_escrow(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: Some(referrer.clone()),
+            },
+        );
+        c.start_work(&job_id, &freelancer);
+        c.release_escrow(&job_id, &client);
+
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&referrer), 20);
+        assert_eq!(token_client.balance(&freelancer), 980);
+    }
+
+    /// **Cap boundary (the AC's required test).** 2% is EXACTLY at the
+    /// cap, so the cap is effectively a no-op — confirms off-by-one
+    /// arithmetic at the boundary.
+    #[test]
+    fn test_referrer_bonus_at_cap_boundary() {
+        let env = Env::default();
+        let (c, _admin, client, freelancer, referrer, token_id) = setup(&env, 1_000);
+
+        // amount = 1_000 -> uncapped 2% bonus = 20. Set cap = 19 (one
+        // BELOW the uncapped bonus). The `min()` boundary collapse picks
+        // the cap (19). The saved stroop goes to the freelancer on top
+        // of the 98% he would have received without a cap.
+        c.set_max_referrer_bonus_xlm(&_admin, &19);
+
+        let job_id = String::from_str(&env, "bonus_at_boundary");
+        c.create_escrow(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: Some(referrer.clone()),
+            },
+        );
+        c.start_work(&job_id, &freelancer);
+        c.release_escrow(&job_id, &client);
+
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&referrer), 19, "cap wins at the boundary (19 < 20)");
+        assert_eq!(token_client.balance(&freelancer), 981, "freelancer absorbs the saved stroop");
+    }
+
+    /// Cap exactly equal to the uncapped 2%% -- the cap is bypassed and
+    /// legacy behaviour applies. Companion to the "just below" boundary
+    /// test above; together they cover BOTH sides of the `min()` boundary.
+    #[test]
+    fn test_referrer_bonus_equal_to_cap_uses_full_two_percent() {
+        let env = Env::default();
+        let (c, _admin, client, freelancer, referrer, token_id) = setup(&env, 1_000);
+
+        // amount = 1_000 -> uncapped 2%% = 20. Set cap = 20 (EXACTLY equal).
+        // The `Some(c) if c < bonus_uncapped` arm is FALSE so the cap is
+        // bypassed and the referrer still gets the full 2%%.
+        c.set_max_referrer_bonus_xlm(&_admin, &20);
+
+        let job_id = String::from_str(&env, "bonus_equal_to_cap");
+        c.create_escrow(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: Some(referrer.clone()),
+            },
+        );
+        c.start_work(&job_id, &freelancer);
+        c.release_escrow(&job_id, &client);
+
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&referrer), 20, "cap == bonus so legacy 2%% wins");
+        assert_eq!(token_client.balance(&freelancer), 980);
+    }
+
+    /// Above-cap: 2% would exceed the cap, so the bonus is reduced to
+    /// `min(2%, cap)` and the difference is rolled into the freelancer
+    /// payout. Total payout still equals `release_amount`.
+    #[test]
+    fn test_referrer_bonus_above_cap_capped_and_excess_paid_to_freelancer() {
+        let env = Env::default();
+        let (c, _admin, client, freelancer, referrer, token_id) = setup(&env, 10_000);
+
+        // amount = 10_000, 2% = 200. Cap = 50 => bonus capped to 50 and
+        // freelancer receives 10_000 - 50 = 9_950.
+        c.set_max_referrer_bonus_xlm(&_admin, &50);
+
+        let job_id = String::from_str(&env, "bonus_above_cap");
+        c.create_escrow(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 10_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: Some(referrer.clone()),
+            },
+        );
+        c.start_work(&job_id, &freelancer);
+        c.release_escrow(&job_id, &client);
+
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&referrer), 50, "referrer got the cap exactly");
+        assert_eq!(
+            token_client.balance(&freelancer),
+            9_950,
+            "freelancer got the leftover (NOT the leftover subtracted from 10k)",
+        );
+    }
+
+    /// Legacy behaviour: when the admin has not set a cap the 2%
+    /// bonus should apply unchanged (backward compatibility).
+    #[test]
+    fn test_referrer_bonus_without_cap_uses_full_two_percent() {
+        let env = Env::default();
+        let (c, _admin, client, freelancer, referrer, token_id) = setup(&env, 1_000);
+
+        // No set_max_referrer_bonus call.
+        let job_id = String::from_str(&env, "bonus_no_cap");
+        c.create_escrow(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: Some(referrer.clone()),
+            },
+        );
+        c.start_work(&job_id, &freelancer);
+        c.release_escrow(&job_id, &client);
+
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&referrer), 20);
+        assert_eq!(token_client.balance(&freelancer), 980);
+    }
+
+    /// cap = 0 disables the referrer program entirely. The full
+    /// `release_amount` goes to the freelancer.
+    #[test]
+    fn test_referrer_bonus_cap_zero_disables_referrer() {
+        let env = Env::default();
+        let (c, _admin, client, freelancer, referrer, token_id) = setup(&env, 1_000);
+
+        c.set_max_referrer_bonus_xlm(&_admin, &0);
+
+        let job_id = String::from_str(&env, "bonus_cap_zero");
+        c.create_escrow(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: Some(referrer.clone()),
+            },
+        );
+        c.start_work(&job_id, &freelancer);
+        c.release_escrow(&job_id, &client);
+
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&referrer), 0, "no referrer payout when cap = 0");
+        assert_eq!(token_client.balance(&freelancer), 1_000, "freelancer gets the whole escrow");
+    }
+
+    /// Defensive: negative cap is rejected at the setter so a future
+    /// config bug cannot coerce an underflow panic on release.
+    #[test]
+    #[should_panic(expected = "Referrer bonus cap must be non-negative")]
+    fn test_set_negative_referrer_bonus_cap_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(MarketPayContract, ());
+        let c = MarketPayContractClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        c.initialize(&admin);
+        c.set_max_referrer_bonus_xlm(&admin, &-1);
+    }
+
+    /// Auth: only the stored admin can set the cap.
+    #[test]
+    #[should_panic(expected = "Only admin can set the referrer bonus cap")]
+    fn test_set_referrer_bonus_cap_rejects_non_admin() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(MarketPayContract, ());
+        let c = MarketPayContractClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        c.initialize(&admin);
+        let rando = Address::generate(&env);
+        // mock_all_auths is on so require_auth passes; the admin check fails.
+        c.set_max_referrer_bonus_xlm(&rando, &100);
     }
 }
