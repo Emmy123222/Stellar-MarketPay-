@@ -277,7 +277,7 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
         {/* Mobile Menu Toggle */}
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden w-10 h-10 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-market-500/10 transition-colors"
+          className="hidden w-10 h-10 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-market-500/10 transition-colors"
           aria-label="Toggle menu"
           aria-expanded={mobileMenuOpen}
         >
