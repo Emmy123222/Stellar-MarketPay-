@@ -37,6 +37,7 @@ const {
   releaseMilestone,
   disputeMilestone,
   getEscrow,
+  verifyFreelancerAccount,
   ESCROW_TIMEOUT_DAYS,
 } = require("./escrowService");
 
@@ -309,6 +310,53 @@ describe("escrowService", () => {
 
       await expect(getEscrow(JOB_ID)).rejects.toThrow(
         "No escrow record found for this job",
+      );
+    });
+  });
+
+  describe("verifyFreelancerAccount", () => {
+    beforeEach(() => {
+      global.fetch = jest.fn();
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it("returns true when freelancer account exists on Stellar", async () => {
+      global.fetch.mockResolvedValueOnce({ ok: true });
+
+      const result = await verifyFreelancerAccount(FREELANCER_ADDRESS);
+      expect(result).toBe(true);
+    });
+
+    it("throws 400 when freelancer account is not found on Stellar", async () => {
+      global.fetch.mockResolvedValueOnce({ ok: false, status: 404 });
+
+      await expect(verifyFreelancerAccount(FREELANCER_ADDRESS)).rejects.toThrow(
+        "Freelancer account not found on Stellar network",
+      );
+    });
+
+    it("throws 400 for invalid Stellar address format", async () => {
+      await expect(verifyFreelancerAccount("not-an-address")).rejects.toThrow(
+        "Invalid Stellar address",
+      );
+    });
+
+    it("returns false for non-existent Stellar account", async () => {
+      global.fetch.mockResolvedValueOnce({ ok: false, status: 404 });
+
+      await expect(verifyFreelancerAccount(FREELANCER_ADDRESS)).rejects.toThrow(
+        "Freelancer account not found on Stellar network",
+      );
+    });
+
+    it("propagates Horizon errors", async () => {
+      global.fetch.mockRejectedValueOnce(new Error("Network error"));
+
+      await expect(verifyFreelancerAccount(FREELANCER_ADDRESS)).rejects.toThrow(
+        "Failed to verify freelancer account on Stellar network",
       );
     });
   });
