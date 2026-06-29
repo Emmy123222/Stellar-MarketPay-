@@ -9,12 +9,26 @@ import {
   Tooltip,
   Filler,
 } from "chart.js";
-import { fetchXlmPriceHistory } from "@/lib/api";
+import { fetchXlmPriceHistory, Timeframe } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler);
 
 const COLLAPSE_KEY = "marketpay_dashboard_xlm_widget_collapsed";
+
+const gradientPlugin = {
+  id: "xlmGradient",
+  beforeDatasetsDraw(chart: ChartJS) {
+    const {
+      ctx,
+      chartArea: { top, bottom },
+    } = chart;
+    const gradient = ctx.createLinearGradient(0, top, 0, bottom);
+    gradient.addColorStop(0, "rgba(245, 158, 11, 0.35)");
+    gradient.addColorStop(1, "rgba(245, 158, 11, 0)");
+    chart.data.datasets[0].backgroundColor = gradient as unknown as string;
+  },
+};
 
 function formatUsd(value: number) {
   return `$${value.toFixed(4)}`;
@@ -22,6 +36,7 @@ function formatUsd(value: number) {
 
 export default function XlmPriceWidget() {
   const [collapsed, setCollapsed] = useState(false);
+  const [activeTimeframe, setActiveTimeframe] = useState<Timeframe>('7D');
 
   useEffect(() => {
     try {
@@ -33,8 +48,8 @@ export default function XlmPriceWidget() {
   }, []);
 
   const { data, error, isLoading, isValidating } = useApi(
-    "xlm-price-history",
-    () => fetchXlmPriceHistory(),
+    `xlm-price-history-${activeTimeframe}`,
+    () => fetchXlmPriceHistory(activeTimeframe),
     { refreshInterval: 60_000 },
   );
 
@@ -51,7 +66,6 @@ export default function XlmPriceWidget() {
         {
           data: points.map((p) => p.priceUsd),
           borderColor: "#f59e0b",
-          backgroundColor: "rgba(245, 158, 11, 0.12)",
           pointRadius: 0,
           tension: 0.35,
           fill: true,
@@ -70,6 +84,17 @@ export default function XlmPriceWidget() {
         legend: { display: false },
         tooltip: {
           callbacks: {
+            title: (items: any[]) => {
+              const ts = points[items[0].dataIndex]?.timestamp;
+              return ts !== undefined
+                ? new Date(ts).toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                : '';
+            },
             label: (ctx: any) => ` ${formatUsd(ctx.parsed.y)}`,
           },
         },
@@ -79,7 +104,7 @@ export default function XlmPriceWidget() {
         y: { display: false },
       },
     }),
-    [],
+    [points],
   );
 
   const toggleCollapsed = () => {
@@ -93,6 +118,8 @@ export default function XlmPriceWidget() {
       return next;
     });
   };
+
+  const TIMEFRAMES: Timeframe[] = ['1D', '7D', '30D'];
 
   return (
     <div className="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18">
@@ -114,6 +141,35 @@ export default function XlmPriceWidget() {
 
       {!collapsed && (
         <div className="mt-3 space-y-3">
+          {/* Timeframe toggle buttons or skeleton pills */}
+          <div className="flex items-center gap-1">
+            {isLoading
+              ? TIMEFRAMES.map((tf) => (
+                  <div
+                    key={tf}
+                    className="h-5 w-8 rounded bg-market-500/10 animate-pulse"
+                  />
+                ))
+              : TIMEFRAMES.map((tf) => {
+                  const isActive = tf === activeTimeframe;
+                  return (
+                    <button
+                      key={tf}
+                      type="button"
+                      aria-pressed={isActive ? "true" : "false"}
+                      onClick={() => setActiveTimeframe(tf)}
+                      className={`text-xs font-medium px-2 py-0.5 rounded transition-colors ${
+                        isActive
+                          ? "bg-amber-600/30 text-amber-200"
+                          : "text-amber-700 hover:text-amber-500"
+                      }`}
+                    >
+                      {tf}
+                    </button>
+                  );
+                })}
+          </div>
+
           {isLoading ? (
             <div className="h-28 rounded-lg bg-market-500/10 animate-pulse" />
           ) : error ? (
@@ -135,10 +191,13 @@ export default function XlmPriceWidget() {
                   {change24hPercent !== null ? `${change24hPercent.toFixed(2)}% (24h)` : "--"}
                 </div>
               </div>
-              <div className="h-28">
-                <Line data={chartData} options={chartOptions as any} />
+              <div
+                role="img"
+                aria-label={`XLM/USD price chart – ${activeTimeframe}`}
+                className="h-28"
+              >
+                <Line data={chartData} options={chartOptions as any} plugins={[gradientPlugin]} />
               </div>
-              <p className="text-xs text-amber-700">7-day sparkline</p>
             </>
           )}
         </div>
