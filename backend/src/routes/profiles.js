@@ -9,6 +9,9 @@ const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT } = require("../middleware/auth");
 const multer = require("multer");
 const { uploadFile, getGatewayUrl, MAX_FILE_SIZE } = require("../services/ipfsService");
+const { createServiceLogger } = require("../utils/logger");
+
+const profileLogger = createServiceLogger("profiles");
 
 const profileUpdateRateLimiter = createRateLimiter(5, 1); // 5 profile updates per minute
 const generalProfileRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for getting profiles
@@ -55,9 +58,11 @@ router.get("/:publicKey", generalProfileRateLimiter, async (req, res, next) => {
     const key = cache.profileKey(req.params.publicKey);
     const cached = await cache.get(key);
     if (cached) {
+      profileLogger.debug({ publicKey: req.params.publicKey, cacheKey: key }, "Cache HIT for profile");
       res.set("X-Cache", "HIT");
       return res.json({ success: true, data: cached });
     }
+    profileLogger.debug({ publicKey: req.params.publicKey, cacheKey: key }, "Cache MISS for profile");
     const data = await getProfile(req.params.publicKey);
     await cache.set(key, data, cache.TTL.PROFILE);
     res.set("X-Cache", "MISS");
@@ -79,7 +84,27 @@ router.get("/:publicKey/response-time", generalProfileRateLimiter, async (req, r
 router.post("/", profileUpdateRateLimiter, async (req, res, next) => {
   try {
     const data = await upsertProfile(req.body);
-    if (req.body.publicKey) await cache.del(cache.profileKey(req.body.publicKey));
+    if (req.body.publicKey) {
+      const key = cache.profileKey(req.body.publicKey);
+      await cache.del(key);
+      profileLogger.debug({ publicKey: req.body.publicKey, cacheKey: key }, "Cache invalidated after POST profile");
+    }
+    res.json({ success: true, data });
+  }
+  catch (e) { next(e); }
+});
+
+// PUT /api/profiles/:publicKey — update a profile (invalidates cache)
+router.put("/:publicKey", profileUpdateRateLimiter, verifyJWT, async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+    if (req.user.publicKey !== publicKey) {
+      return res.status(403).json({ error: "You can only update your own profile" });
+    }
+    const data = await upsertProfile({ ...req.body, publicKey });
+    const key = cache.profileKey(publicKey);
+    await cache.del(key);
+    profileLogger.debug({ publicKey, cacheKey: key }, "Cache invalidated after PUT profile");
     res.json({ success: true, data });
   }
   catch (e) { next(e); }
