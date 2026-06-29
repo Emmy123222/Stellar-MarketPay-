@@ -214,6 +214,21 @@ pub struct DisputeCase {
     pub status: u32,
 }
 
+/// Recurring escrow for retainer contracts (Issue #450)
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct RecurringEscrow {
+    pub job_id: String,
+    pub client: Address,
+    pub freelancer: Address,
+    pub token: Address,
+    pub amount_per_release: i128,
+    pub interval_ledgers: u32,
+    pub releases_remaining: u32,
+    pub last_release_ledger: u32,
+    pub status: EscrowStatus,
+}
+
 /// Storage key per job
 #[contracttype]
 pub enum DataKey {
@@ -244,6 +259,8 @@ pub enum DataKey {
     Version,
     /// Stores list of IPFS CIDs for messages in a job thread
     MessageCid(String),
+    /// Stores recurring escrow for retainer contracts (Issue #450)
+    RecurringEscrow(String),
 }
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
@@ -978,6 +995,186 @@ impl MarketPayContract {
             .set(&DataKey::DefaultTimeoutSeconds, &timeout_seconds);
         env.events()
             .publish((symbol_short!("timeout"), admin), timeout_seconds);
+    }
+
+    // ─── Recurring Escrow (Issue #450) ───────────────────────────────────────────
+
+    /// Create a recurring escrow for retainer contracts.
+    /// 
+    /// Parameters:
+    ///   job_id              — unique ID matching the backend job record
+    ///   client              — the client who locks the funds
+    ///   freelancer          — the freelancer who will receive payments
+    ///   token               — SAC address of the payment token
+    ///   amount_per_release  — amount to release per interval
+    ///   interval_ledgers    — number of ledgers between releases (e.g., ~17,280 for daily)
+    ///   total_releases      — total number of releases to make
+    pub fn create_recurring_escrow(
+        env: Env,
+        job_id: String,
+        client: Address,
+        freelancer: Address,
+        token: Address,
+        amount_per_release: i128,
+        interval_ledgers: u32,
+        total_releases: u32,
+    ) {
+        client.require_auth();
+
+        if amount_per_release <= 0 {
+            panic!("Amount per release must be positive");
+        }
+        if interval_ledgers == 0 {
+            panic!("Interval must be positive");
+        }
+        if total_releases == 0 {
+            panic!("Total releases must be positive");
+        }
+
+        // Ensure no duplicate recurring escrow for same job
+        if env
+            .storage()
+            .instance()
+            .has(&DataKey::RecurringEscrow(job_id.clone()))
+        {
+            panic!("Recurring escrow already exists for this job");
+        }
+
+        // Transfer total funds from client into the contract
+        let total_amount = amount_per_release
+            .checked_mul(total_releases as i128)
+            .expect("Arithmetic overflow");
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(&client, &env.current_contract_address(), &total_amount);
+
+        let current_ledger = env.ledger().sequence();
+
+        // Store recurring escrow record on-chain
+        let recurring_escrow = RecurringEscrow {
+            job_id: job_id.clone(),
+            client: client.clone(),
+            freelancer,
+            token,
+            amount_per_release,
+            interval_ledgers,
+            releases_remaining: total_releases,
+            last_release_ledger: current_ledger,
+            status: EscrowStatus::Locked,
+        };
+
+        env.storage()
+            .instance()
+            .set(&DataKey::RecurringEscrow(job_id.clone()), &recurring_escrow);
+
+        // Emit event
+        env.events().publish(
+            (symbol_short!("recurring_cr"), job_id.clone()),
+            (client.clone(), recurring_escrow.freelancer.clone(), total_amount, total_releases),
+        );
+    }
+
+    /// Tick a recurring escrow - releases one payment if interval has elapsed.
+    /// Callable by anyone (used by backend cron job).
+    pub fn tick_recurring(env: Env, job_id: String) {
+        let mut recurring_escrow: RecurringEscrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::RecurringEscrow(job_id.clone()))
+            .expect("Recurring escrow not found");
+
+        if recurring_escrow.releases_remaining == 0 {
+            panic!("No releases remaining");
+        }
+
+        let current_ledger = env.ledger().sequence();
+        let ledgers_since_last = current_ledger
+            .checked_sub(recurring_escrow.last_release_ledger)
+            .expect("Ledger underflow");
+
+        if ledgers_since_last < recurring_escrow.interval_ledgers {
+            panic!("Interval has not elapsed yet");
+        }
+
+        // Release one payment
+        let token_client = token::Client::new(&env, &recurring_escrow.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &recurring_escrow.freelancer,
+            &recurring_escrow.amount_per_release,
+        );
+
+        // Update state
+        recurring_escrow.last_release_ledger = current_ledger;
+        recurring_escrow.releases_remaining = recurring_escrow
+            .releases_remaining
+            .checked_sub(1)
+            .expect("Underflow");
+
+        // Mark as completed if no releases remaining
+        if recurring_escrow.releases_remaining == 0 {
+            recurring_escrow.status = EscrowStatus::Released;
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::RecurringEscrow(job_id.clone()), &recurring_escrow);
+
+        // Emit event
+        env.events().publish(
+            (symbol_short!("recurring_tick"), job_id.clone()),
+            (recurring_escrow.client.clone(), recurring_escrow.freelancer.clone(), recurring_escrow.amount_per_release, recurring_escrow.releases_remaining),
+        );
+    }
+
+    /// Cancel a recurring escrow and refund remaining funds to client.
+    pub fn cancel_recurring_escrow(env: Env, job_id: String, client: Address) {
+        client.require_auth();
+
+        let mut recurring_escrow: RecurringEscrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::RecurringEscrow(job_id.clone()))
+            .expect("Recurring escrow not found");
+
+        if recurring_escrow.client != client {
+            panic!("Only the client can cancel recurring escrow");
+        }
+        if recurring_escrow.status != EscrowStatus::Locked {
+            panic!("Can only cancel recurring escrow in Locked state");
+        }
+
+        // Calculate remaining amount
+        let remaining_amount = recurring_escrow.amount_per_release
+            .checked_mul(recurring_escrow.releases_remaining as i128)
+            .expect("Arithmetic overflow");
+
+        // Refund to client
+        let token_client = token::Client::new(&env, &recurring_escrow.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &client,
+            &remaining_amount,
+        );
+
+        recurring_escrow.status = EscrowStatus::Refunded;
+        recurring_escrow.releases_remaining = 0;
+
+        env.storage()
+            .instance()
+            .set(&DataKey::RecurringEscrow(job_id.clone()), &recurring_escrow);
+
+        env.events().publish(
+            (symbol_short!("recurring_cancel"), job_id.clone()),
+            (client.clone(), remaining_amount),
+        );
+    }
+
+    /// Get recurring escrow for a job.
+    pub fn get_recurring_escrow(env: Env, job_id: String) -> RecurringEscrow {
+        env.storage()
+            .instance()
+            .get(&DataKey::RecurringEscrow(job_id))
+            .expect("Recurring escrow not found")
     }
 
     /// Admin freezes an escrow, blocking all further operations until unfrozen.

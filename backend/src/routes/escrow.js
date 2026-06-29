@@ -22,6 +22,11 @@ const {
   rejectMilestone,
   disputeMilestone,
 } = require("../services/escrowService");
+const {
+  createRecurringEscrow,
+  cancelRecurringEscrow,
+  getRecurringEscrow,
+} = require("../services/recurringEscrowService");
 
 /**
  * POST /api/escrow/:jobId/release
@@ -320,6 +325,126 @@ router.get("/:jobId", escrowActionRateLimiter, async (req, res, next) => {
     res.json({
       success: true,
       data: rows[0],
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/:jobId/recurring
+ * Create a recurring escrow for retainer contracts (Issue #450)
+ */
+router.post("/:jobId/recurring", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { 
+      clientAddress, 
+      freelancerAddress, 
+      contractId, 
+      amountPerRelease, 
+      currency, 
+      intervalDays, 
+      totalReleases 
+    } = req.body;
+
+    if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
+      const e = new Error("Invalid client address");
+      e.status = 400;
+      throw e;
+    }
+
+    if (!freelancerAddress || !/^G[A-Z0-9]{55}$/.test(freelancerAddress)) {
+      const e = new Error("Invalid freelancer address");
+      e.status = 400;
+      throw e;
+    }
+
+    if (!amountPerRelease || parseFloat(amountPerRelease) <= 0) {
+      const e = new Error("Amount per release must be positive");
+      e.status = 400;
+      throw e;
+    }
+
+    if (!intervalDays || parseInt(intervalDays) <= 0) {
+      const e = new Error("Interval days must be positive");
+      e.status = 400;
+      throw e;
+    }
+
+    if (!totalReleases || parseInt(totalReleases) <= 0) {
+      const e = new Error("Total releases must be positive");
+      e.status = 400;
+      throw e;
+    }
+
+    const job = await getJob(jobId);
+    if (job.clientAddress !== clientAddress) {
+      const e = new Error("Only the job client can create recurring escrow");
+      e.status = 403;
+      throw e;
+    }
+
+    const recurringEscrow = await createRecurringEscrow({
+      jobId,
+      clientAddress,
+      freelancerAddress,
+      contractId,
+      amountPerRelease: parseFloat(amountPerRelease),
+      currency,
+      intervalDays: parseInt(intervalDays),
+      totalReleases: parseInt(totalReleases),
+    });
+
+    res.json({
+      success: true,
+      message: "Recurring escrow created successfully",
+      data: recurringEscrow,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/:jobId/recurring/cancel
+ * Cancel a recurring escrow and refund remaining funds (Issue #450)
+ */
+router.post("/:jobId/recurring/cancel", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { clientAddress } = req.body;
+
+    if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
+      const e = new Error("Invalid client address");
+      e.status = 400;
+      throw e;
+    }
+
+    const result = await cancelRecurringEscrow(jobId, clientAddress);
+
+    res.json({
+      success: true,
+      message: result.message,
+      data: result,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * GET /api/escrow/:jobId/recurring
+ * Get recurring escrow details (Issue #450)
+ */
+router.get("/:jobId/recurring", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const recurringEscrow = await getRecurringEscrow(jobId);
+
+    res.json({
+      success: true,
+      data: recurringEscrow,
     });
   } catch (e) {
     next(e);
