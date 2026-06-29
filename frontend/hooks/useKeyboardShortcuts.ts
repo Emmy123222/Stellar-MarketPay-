@@ -7,6 +7,7 @@ type UseKeyboardShortcutsOptions = {
   onToggleShortcutsModal: () => void;
   onFocusSearch: () => void;
   onToggleBookmark: () => void;
+  onOpenCommandPalette: () => void;
   shortcutsModalOpen: boolean;
 };
 
@@ -28,11 +29,18 @@ export function useKeyboardShortcuts({
   onToggleShortcutsModal,
   onFocusSearch,
   onToggleBookmark,
+  onOpenCommandPalette,
   shortcutsModalOpen,
 }: UseKeyboardShortcutsOptions) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        onOpenCommandPalette();
+        return;
+      }
+
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
 
@@ -93,6 +101,7 @@ export function useKeyboardShortcuts({
     onToggleShortcutsModal,
     onFocusSearch,
     onToggleBookmark,
+    onOpenCommandPalette,
     shortcutsModalOpen,
   ]);
 }
