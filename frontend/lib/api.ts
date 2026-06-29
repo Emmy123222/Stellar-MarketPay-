@@ -655,6 +655,28 @@ export async function searchFreelancers(params?: { search?: string; limit?: numb
   return data.data;
 }
 
+export async function syncOnboardingProgress(payload: {
+  publicKey: string;
+  currentStep: number;
+  completedSteps: string[];
+  dismissed: boolean;
+  completed: boolean;
+}) {
+  const { data } = await api.patch<{ success: boolean; data?: unknown }>(
+    "/api/onboarding",
+    payload,
+  );
+  return data;
+}
+
+export async function searchFreelancers(params?: { search?: string; limit?: number }) {
+  const { data } = await api.get<{ success: boolean; data: UserProfile[] }>(
+    "/api/freelancers",
+    { params },
+  );
+  return data.data;
+}
+
 export async function fetchProfileStats(publicKey: string): Promise<ProfileStats> {
   const { data } = await api.get<{ success: boolean; data: ProfileStats }>(
     `/api/profiles/${encodeURIComponent(publicKey)}/stats`,
