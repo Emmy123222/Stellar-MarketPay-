@@ -21,6 +21,7 @@ const {
   releaseMilestone,
   rejectMilestone,
   disputeMilestone,
+  verifyFreelancerAccount,
 } = require("../services/escrowService");
 const {
   createRecurringEscrow,
@@ -445,6 +446,38 @@ router.get("/:jobId/recurring", escrowActionRateLimiter, async (req, res, next) 
     res.json({
       success: true,
       data: recurringEscrow,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/verify-freelancer
+ * Verify that a freelancer Stellar account exists on the network before
+ * creating an escrow.
+ */
+router.post("/verify-freelancer", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { freelancerAddress } = req.body;
+
+    if (!freelancerAddress) {
+      const e = new Error("freelancerAddress is required");
+      e.status = 400;
+      throw e;
+    }
+
+    const exists = await verifyFreelancerAccount(freelancerAddress);
+
+    if (!exists) {
+      const e = new Error("Freelancer account not found on Stellar network");
+      e.status = 400;
+      throw e;
+    }
+
+    res.json({
+      success: true,
+      message: "Freelancer account verified on Stellar network",
     });
   } catch (e) {
     next(e);

@@ -261,6 +261,12 @@ pub enum DataKey {
     MessageCid(String),
     /// Stores recurring escrow for retainer contracts (Issue #450)
     RecurringEscrow(String),
+    /// Global contract-level frozen flag (true = all mutating operations blocked)
+    Frozen,
+    /// List of admin addresses for multi-sig unfreeze
+    Admins,
+    /// Number of admin signatures required to unfreeze (M-of-N)
+    UnfreezeThreshold,
 }
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
