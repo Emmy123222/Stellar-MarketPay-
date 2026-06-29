@@ -407,6 +407,7 @@ export async function fetchJobs(params?: {
   status?: string;
   limit?: number;
   search?: string;
+  after?: string;
   cursor?: string;
   timezone?: string;
   viewerAddress?: string;
@@ -424,16 +425,19 @@ export async function fetchJobs(params?: {
     minClientRating,
     postedSince,
     maxApplications,
+    after,
     ...rest
   } = params || {};
 
   const { data } = await api.get<{
     success: boolean;
     data: Job[];
-    nextCursor: string | null;
+    next_cursor: string | null;
+    has_more: boolean;
   }>("/api/jobs", {
     params: {
       ...rest,
+      after,
       min_budget: minBudget,
       max_budget: maxBudget,
       skills: params?.skills,
@@ -446,7 +450,8 @@ export async function fetchJobs(params?: {
 
   return {
     jobs: data.data,
-    nextCursor: data.nextCursor ?? null,
+    nextCursor: data.next_cursor ?? null,
+    hasMore: data.has_more ?? Boolean(data.next_cursor),
   };
 }
 
@@ -769,12 +774,19 @@ export async function fetchProfiles(params?: {
   availability?: string;
   search?: string;
   limit?: number;
+  after?: string;
 }) {
-  const { data } = await api.get<{ success: boolean; data: UserProfile[] }>(
-    "/api/profiles",
-    { params },
-  );
-  return data.data;
+  const { data } = await api.get<{
+    success: boolean;
+    data: UserProfile[];
+    next_cursor: string | null;
+    has_more: boolean;
+  }>("/api/profiles", { params });
+  return {
+    profiles: data.data,
+    nextCursor: data.next_cursor ?? null,
+    hasMore: data.has_more ?? false,
+  };
 }
 
 export async function fetchProfileStats(publicKey: string): Promise<ProfileStats> {
@@ -1283,11 +1295,14 @@ export async function bulkBoostJobs(jobIds: string[], txHash: string): Promise<B
 
 // ─── IPFS File Upload (Issue #202) ──────────────────────────────────────────
 
-export async function uploadPortfolioFiles(publicKey: string, files: FileList) {
+export async function uploadPortfolioFiles(
+  publicKey: string,
+  files: FileList | File[],
+  onProgress?: (fileIndex: number, percent: number) => void,
+) {
   const formData = new FormData();
-
-  // Append all files to FormData
-  Array.from(files).forEach((file) => {
+  const filesArr = Array.from(files);
+  filesArr.forEach((file) => {
     formData.append("files", file);
   });
 
@@ -1297,11 +1312,17 @@ export async function uploadPortfolioFiles(publicKey: string, files: FileList) {
       uploadedFiles: PortfolioFile[];
       gatewayUrls: string[];
     };
-  }>(`/api/profiles/${encodeURIComponent(publicKey)}/upload-files`, formData, {
+  }>(`/api/profiles/${encodeURIComponent(publicKey)}/portfolio-files`, formData, {
     headers: {
       "Content-Type": "multipart/form-data",
     },
-    timeout: 60000, // 60 seconds for file uploads
+    timeout: 120000,
+    onUploadProgress: (e) => {
+      if (onProgress && e.total) {
+        const overallPercent = Math.round((e.loaded / e.total) * 100);
+        filesArr.forEach((_, i) => onProgress(i, overallPercent));
+      }
+    },
   });
 
   return data.data;
@@ -1531,10 +1552,12 @@ export interface NotificationsResponse {
   notifications: NotificationItem[];
   unreadCount: number;
   nextCursor: string | null;
+  hasMore: boolean;
 }
 
 export async function fetchNotifications(params?: {
   limit?: number;
+  after?: string;
   cursor?: string | null;
 }): Promise<NotificationsResponse> {
   const { data } = await api.get<{
@@ -1543,10 +1566,14 @@ export async function fetchNotifications(params?: {
   }>("/api/notifications", {
     params: {
       limit: params?.limit,
+      after: params?.after,
       cursor: params?.cursor || undefined,
     },
   });
-  return data.data;
+  return {
+    ...data.data,
+    hasMore: data.data.has_more ?? Boolean(data.data.next_cursor),
+  };
 }
 
 export async function markNotificationRead(id: string): Promise<NotificationItem> {

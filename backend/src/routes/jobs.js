@@ -207,6 +207,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       limit,
       search,
       cursor,
+      after,
       timezone,
       viewerAddress,
       include_expired,
@@ -222,9 +223,9 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
     const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
     const includeExpired = include_expired === "true";
     const includeDeleted = req.query.include_deleted === "true" && isAdmin(req);
+    const effectiveCursor = after || cursor;
 
-    // Deprecated offset-style `page` param — cursor pagination is canonical (#291).
-    if (page !== undefined && cursor === undefined) {
+    if (page !== undefined && !effectiveCursor) {
       res.set("Deprecation", "true");
       res.set("Link", '</api/jobs>; rel="deprecation"');
       res.set("Sunset", "2025-12-31");
@@ -235,7 +236,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit: String(safeLimit),
       search,
-      cursor,
+      cursor: effectiveCursor,
       timezone,
       viewerAddress,
       include_expired: String(includeExpired),
@@ -250,7 +251,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
     const cached = await cache.get(cacheKey);
     if (cached) {
       res.set("X-Cache", "HIT");
-      return res.json({ success: true, ...cached, ...(page !== undefined && cursor === undefined && { _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `nextCursor`." }) });
+      return res.json({ success: true, ...cached, has_more: Boolean(cached.nextCursor), ...(page !== undefined && !effectiveCursor && { _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `after`." }) });
     }
 
     const result = await listJobs({
@@ -258,7 +259,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit: safeLimit,
       search,
-      cursor,
+      cursor: effectiveCursor,
       timezone,
       viewerAddress,
       includeExpired,
@@ -271,9 +272,10 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
     res.json({
       success: true,
       data: jobsWithRep,
-      nextCursor: result.nextCursor,
-      ...(page !== undefined && cursor === undefined && {
-        _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `nextCursor`.",
+      next_cursor: result.nextCursor,
+      has_more: Boolean(result.nextCursor),
+      ...(page !== undefined && !effectiveCursor && {
+        _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `after`.",
       }),
     });
   } catch (e) {
