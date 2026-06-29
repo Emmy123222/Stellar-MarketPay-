@@ -244,6 +244,10 @@ pub enum DataKey {
     Version,
     /// Stores list of IPFS CIDs for messages in a job thread
     MessageCid(String),
+    /// Address that receives platform fees on every escrow release
+    TreasuryAddress,
+    /// Platform fee in basis points (e.g. 100 = 1%)
+    PlatformFeeBps,
 }
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
@@ -284,12 +288,21 @@ impl MarketPayContract {
 
     // ─── Initialization ──────────────────────────────────────────────────────
 
-    /// Initialize with an admin address (called once after deployment).
-    pub fn initialize(env: Env, admin: Address) {
+    /// Initialize with an admin address and treasury (called once after deployment).
+    ///
+    /// `treasury_address` receives a configurable platform fee on every escrow
+    /// release. The initial platform fee defaults to 100 bps (1 %).
+    pub fn initialize(env: Env, admin: Address, treasury_address: Address) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("Already initialized");
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryAddress, &treasury_address);
+        env.storage()
+            .instance()
+            .set(&DataKey::PlatformFeeBps, &100u32);
         env.storage().instance().set(&DataKey::EscrowCount, &0u32);
         env.storage()
             .instance()
@@ -641,20 +654,49 @@ impl MarketPayContract {
         if release_amount > 0 {
             let token_client = token::Client::new(&env, &escrow.token);
 
-            // ── Referral bonus: 2% of release_amount goes to referrer ──────────
-            // The remaining 98% goes to the freelancer.
+            // ── Platform fee ────────────────────────────────────────────────────
+            let fee_bps: u32 = env
+                .storage()
+                .instance()
+                .get(&DataKey::PlatformFeeBps)
+                .unwrap_or(0);
+            let treasury: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::TreasuryAddress)
+                .expect("Treasury not set");
+            let fee_amount = release_amount
+                .checked_mul(fee_bps as i128)
+                .expect("Arithmetic overflow")
+                .checked_div(10_000)
+                .expect("Arithmetic overflow");
+            let after_fee = release_amount
+                .checked_sub(fee_amount)
+                .expect("Arithmetic overflow");
+
+            if fee_amount > 0 {
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &treasury,
+                    &fee_amount,
+                );
+                env.events().publish(
+                    (symbol_short!("plat_fee"), job_id.clone()),
+                    (treasury.clone(), fee_amount),
+                );
+            }
+
+            // ── Referral bonus: 2% of post-fee amount goes to referrer ─────────
             let (freelancer_amount, referral_amount) = match &escrow.referrer {
                 Some(referrer_addr) => {
-                    // 2% in basis points: amount * 200 / 10_000
-                    let bonus = release_amount
+                    let bonus = after_fee
                         .checked_mul(200)
                         .expect("Arithmetic overflow")
                         .checked_div(10_000)
                         .expect("Arithmetic overflow");
-                    let to_freelancer = release_amount
+                    let to_freelancer = after_fee
                         .checked_sub(bonus)
                         .expect("Arithmetic overflow");
-                    // Transfer bonus to referrer
                     if bonus > 0 {
                         token_client.transfer(
                             &env.current_contract_address(),
@@ -668,7 +710,7 @@ impl MarketPayContract {
                     }
                     (to_freelancer, bonus)
                 }
-                None => (release_amount, 0i128),
+                None => (after_fee, 0i128),
             };
 
             // Transfer remaining funds to freelancer
@@ -682,12 +724,12 @@ impl MarketPayContract {
 
             env.events().publish(
                 (symbol_short!("escrow_rl"), job_id.clone()),
-                (escrow.client.clone(), escrow.freelancer.clone(), freelancer_amount, referral_amount),
+                (escrow.client.clone(), escrow.freelancer.clone(), freelancer_amount, referral_amount, fee_amount),
             );
         } else {
             env.events().publish(
                 (symbol_short!("escrow_rl"), job_id.clone()),
-                (escrow.client.clone(), escrow.freelancer.clone(), 0i128, 0i128),
+                (escrow.client.clone(), escrow.freelancer.clone(), 0i128, 0i128, 0i128),
             );
         }
     }
@@ -737,12 +779,40 @@ impl MarketPayContract {
         };
 
         if release_amount > 0 {
+            let token_client = token::Client::new(&env, &escrow.token);
+
+            // ── Platform fee ────────────────────────────────────────────────────
+            let fee_bps: u32 = env
+                .storage()
+                .instance()
+                .get(&DataKey::PlatformFeeBps)
+                .unwrap_or(0);
+            let treasury: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::TreasuryAddress)
+                .expect("Treasury not set");
+            let fee_amount = release_amount
+                .checked_mul(fee_bps as i128)
+                .expect("Arithmetic overflow")
+                .checked_div(10_000)
+                .expect("Arithmetic overflow");
+            let to_freelancer = release_amount
+                .checked_sub(fee_amount)
+                .expect("Arithmetic overflow");
+
+            if fee_amount > 0 {
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &treasury,
+                    &fee_amount,
+                );
+            }
+
             // [Issue #104] Path Payment / DEX Swap
             // In a real scenario, we would call a DEX contract here.
             // For now, we simulate the conversion by transferring the source token
             // and emitting a conversion event.
-            let token_client = token::Client::new(&env, &escrow.token);
-
             // In a real implementation with a Soroban DEX:
             // let dex = DEXClient::new(&env, &DEX_ADDRESS);
             // dex.swap(&env.current_contract_address(), &escrow.freelancer, &escrow.token, &target_token, &release_amount, &min_amount_out);
@@ -751,7 +821,7 @@ impl MarketPayContract {
             token_client.transfer(
                 &env.current_contract_address(),
                 &escrow.freelancer,
-                &release_amount,
+                &to_freelancer,
             );
         }
 
@@ -945,6 +1015,68 @@ impl MarketPayContract {
             .instance()
             .get(&DataKey::Admin)
             .expect("Not initialized")
+    }
+
+    /// Get the treasury address that receives platform fees.
+    pub fn get_treasury_address(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::TreasuryAddress)
+            .expect("Treasury not set")
+    }
+
+    /// Get the platform fee in basis points (e.g. 100 = 1%).
+    pub fn get_platform_fee_bps(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::PlatformFeeBps)
+            .unwrap_or(0)
+    }
+
+    /// Update the treasury address. Only callable by admin.
+    pub fn set_treasury_address(env: Env, admin: Address, treasury_address: Address) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can set treasury address");
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryAddress, &treasury_address);
+        env.events().publish(
+            (symbol_short!("set_tres"), admin),
+            treasury_address,
+        );
+    }
+
+    /// Update the platform fee in basis points. Only callable by admin.
+    /// `bps` must be ≤ 1000 (10 %).
+    pub fn set_platform_fee_bps(env: Env, admin: Address, bps: u32) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can set platform fee");
+        }
+        if bps > 1000 {
+            panic!("Platform fee cannot exceed 10% (1000 bps)");
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::PlatformFeeBps, &bps);
+        env.events()
+            .publish((symbol_short!("set_fee"), admin), bps);
     }
 
     /// Get the current global timeout in seconds.
@@ -1353,12 +1485,45 @@ impl MarketPayContract {
             .checked_div(100)
             .expect("Arithmetic overflow");
 
-        // Transfer funds to freelancer
         let token_client = token::Client::new(&env, &escrow.token);
+
+        // ── Platform fee ────────────────────────────────────────────────────
+        let fee_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PlatformFeeBps)
+            .unwrap_or(0);
+        let treasury: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryAddress)
+            .expect("Treasury not set");
+        let fee_amount = payout
+            .checked_mul(fee_bps as i128)
+            .expect("Arithmetic overflow")
+            .checked_div(10_000)
+            .expect("Arithmetic overflow");
+        let to_freelancer = payout
+            .checked_sub(fee_amount)
+            .expect("Arithmetic overflow");
+
+        if fee_amount > 0 {
+            token_client.transfer(
+                &env.current_contract_address(),
+                &treasury,
+                &fee_amount,
+            );
+            env.events().publish(
+                (symbol_short!("plat_fee"), job_id.clone()),
+                (treasury.clone(), fee_amount),
+            );
+        }
+
+        // Transfer remaining funds to freelancer
         token_client.transfer(
             &env.current_contract_address(),
             &escrow.freelancer,
-            &payout,
+            &to_freelancer,
         );
 
         // Check if all milestones are now resolved (released or rejected)
@@ -2229,7 +2394,8 @@ mod tests {
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(&env, &id);
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
         assert_eq!(client.get_admin(), admin);
     }
 
@@ -2240,8 +2406,9 @@ mod tests {
         let id = env.register(MarketPayContract, ());
         let c = MarketPayContractClient::new(&env, &id);
         let admin = Address::generate(&env);
-        c.initialize(&admin);
-        c.initialize(&admin);
+        let treasury = Address::generate(&env);
+        c.initialize(&admin, &treasury);
+        c.initialize(&admin, &treasury);
     }
 
     #[test]
@@ -2250,7 +2417,8 @@ mod tests {
         let id = env.register(MarketPayContract, ());
         let c = MarketPayContractClient::new(&env, &id);
         let admin = Address::generate(&env);
-        c.initialize(&admin);
+        let treasury = Address::generate(&env);
+        c.initialize(&admin, &treasury);
         assert_eq!(c.get_escrow_count(), 0);
     }
 
@@ -2262,7 +2430,8 @@ mod tests {
         let client = MarketPayContractClient::new(&env, &id);
 
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
 
         let proposer = Address::generate(&env);
         let voter1 = Address::generate(&env);
@@ -2313,7 +2482,8 @@ mod tests {
         let client = MarketPayContractClient::new(&env, &id);
 
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
 
         let proposer = Address::generate(&env);
         let voter = Address::generate(&env);
@@ -2332,11 +2502,12 @@ mod timeout_tests {
     use super::*;
     use soroban_sdk::{testutils::Address as _, testutils::Ledger, Address, Env, String};
 
-    fn setup_contract(env: &Env) -> (MarketPayContractClient, Address, Address, Address, Address) {
+    fn setup_contract(env: &Env) -> (MarketPayContractClient, Address, Address, Address, Address, Address) {
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(env, &id);
         let admin = Address::generate(env);
-        client.initialize(&admin);
+        let treasury = Address::generate(env);
+        client.initialize(&admin, &treasury);
 
         let contract_client_addr = Address::generate(env);
         let freelancer = Address::generate(env);
@@ -2345,14 +2516,14 @@ mod timeout_tests {
         let token_admin = token::StellarAssetClient::new(env, &token_id);
         token_admin.mint(&contract_client_addr, &1000);
 
-        (client, contract_client_addr, freelancer, token_id, admin)
+        (client, contract_client_addr, freelancer, token_id, admin, treasury)
     }
 
     #[test]
     fn test_timeout_refund_success() {
         let env = Env::default();
         env.mock_all_auths();
-        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+        let (client, contract_client, freelancer, token_id, _admin, _treasury) = setup_contract(&env);
 
         let job_id = String::from_str(&env, "timeout_job_1");
         let timeout_ledgers = 10u32;
@@ -2385,7 +2556,7 @@ mod timeout_tests {
     fn test_timeout_refund_before_timeout_panics() {
         let env = Env::default();
         env.mock_all_auths();
-        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+        let (client, contract_client, freelancer, token_id, _admin, _treasury) = setup_contract(&env);
 
         let job_id = String::from_str(&env, "timeout_job_2");
         let timeout_ledgers = 100u32;
@@ -2400,7 +2571,7 @@ mod timeout_tests {
     fn test_timeout_refund_unauthorized_panics() {
         let env = Env::default();
         env.mock_all_auths();
-        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+        let (client, contract_client, freelancer, token_id, _admin, _treasury) = setup_contract(&env);
 
         let job_id = String::from_str(&env, "timeout_job_3");
         let timeout_ledgers = 5u32;
@@ -2419,7 +2590,7 @@ mod timeout_tests {
     fn test_timeout_refund_after_start_work_panics() {
         let env = Env::default();
         env.mock_all_auths();
-        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+        let (client, contract_client, freelancer, token_id, _admin, _treasury) = setup_contract(&env);
 
         let job_id = String::from_str(&env, "timeout_job_4");
         let timeout_ledgers = 10u32;
@@ -2439,7 +2610,7 @@ mod timeout_tests {
     fn test_timeout_refund_with_custom_timeout() {
         let env = Env::default();
         env.mock_all_auths();
-        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+        let (client, contract_client, freelancer, token_id, _admin, _treasury) = setup_contract(&env);
 
         let job_id = String::from_str(&env, "custom_timeout_job");
         let custom_timeout = 50u32;
@@ -2456,7 +2627,7 @@ mod timeout_tests {
     fn test_default_timeout_ledgers() {
         let env = Env::default();
         env.mock_all_auths();
-        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+        let (client, contract_client, freelancer, token_id, _admin, _treasury) = setup_contract(&env);
 
         let job_id = String::from_str(&env, "default_timeout_job");
         client.create_escrow(&job_id, &contract_client, &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None });
@@ -2472,7 +2643,7 @@ mod timeout_tests {
     fn test_get_timeout_ledger() {
         let env = Env::default();
         env.mock_all_auths();
-        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+        let (client, contract_client, freelancer, token_id, _admin, _treasury) = setup_contract(&env);
 
         let job_id = String::from_str(&env, "get_timeout_job");
         let timeout = 25u32;
@@ -2488,7 +2659,7 @@ mod timeout_tests {
     fn test_timeout_refund_legacy_exact_ledger_success() {
         let env = Env::default();
         env.mock_all_auths();
-        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+        let (client, contract_client, freelancer, token_id, _admin, _treasury) = setup_contract(&env);
 
         let job_id = String::from_str(&env, "legacy_timeout_exact");
         let timeout_ledgers = 10u32;
@@ -2526,7 +2697,7 @@ mod timeout_tests {
     fn test_timeout_refund_legacy_one_ledger_before_failure() {
         let env = Env::default();
         env.mock_all_auths();
-        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+        let (client, contract_client, freelancer, token_id, _admin, _treasury) = setup_contract(&env);
 
         let job_id = String::from_str(&env, "legacy_timeout_before");
         let timeout_ledgers = 10u32;
@@ -2558,7 +2729,7 @@ mod timeout_tests {
     fn test_concurrent_release_and_timeout_refund_release_first() {
         let env = Env::default();
         env.mock_all_auths();
-        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+        let (client, contract_client, freelancer, token_id, _admin, _treasury) = setup_contract(&env);
 
         let job_id = String::from_str(&env, "concurrent_release_first");
         let timeout_ledgers = 10u32;
@@ -2592,7 +2763,7 @@ mod timeout_tests {
     fn test_concurrent_release_and_timeout_refund_timeout_first() {
         let env = Env::default();
         env.mock_all_auths();
-        let (client, contract_client, freelancer, token_id, _admin) = setup_contract(&env);
+        let (client, contract_client, freelancer, token_id, _admin, _treasury) = setup_contract(&env);
 
         let job_id = String::from_str(&env, "concurrent_timeout_first");
         let timeout_ledgers = 10u32;
@@ -2636,7 +2807,8 @@ mod regression_tests {
         let contract_client = MarketPayContractClient::new(&env, &id);
 
         let admin = Address::generate(&env);
-        contract_client.initialize(&admin);
+        let treasury = Address::generate(&env);
+        contract_client.initialize(&admin, &treasury);
 
         let client = Address::generate(&env);
         let freelancer = Address::generate(&env);
@@ -2655,7 +2827,8 @@ mod regression_tests {
 
         let escrow = contract_client.get_escrow(&job_id);
         assert_eq!(escrow.status, EscrowStatus::Released);
-        assert_eq!(token_client.balance(&freelancer), 1000);
+        // Fee = 1000 * 1% = 10. Freelancer gets 990.
+        assert_eq!(token_client.balance(&freelancer), 990);
     }
 
     #[test]
@@ -2666,7 +2839,8 @@ mod regression_tests {
         let contract_client = MarketPayContractClient::new(&env, &id);
 
         let admin = Address::generate(&env);
-        contract_client.initialize(&admin);
+        let treasury = Address::generate(&env);
+        contract_client.initialize(&admin, &treasury);
 
         let client = Address::generate(&env);
         let freelancer = Address::generate(&env);
@@ -2690,12 +2864,12 @@ mod regression_tests {
     fn test_partial_release() {
     let env = Env::default();
     env.mock_all_auths();
-    let id = env.register(Market2903
-PayContract, ());
+    let id = env.register(MarketPayContract, ());
     let contract_client = MarketPayContractClient::new(&env, &id);
 
     let admin = Address::generate(&env);
-    contract_client.initialize(&admin);
+    let treasury = Address::generate(&env);
+    contract_client.initialize(&admin, &treasury);
 
     let client = Address::generate(&env);
     let freelancer = Address::generate(&env);
@@ -2721,7 +2895,8 @@ PayContract, ());
 
     let escrow = contract_client.get_escrow(&job_id);
     assert_eq!(escrow.status, EscrowStatus::Disputed);
-    assert_eq!(token_client.balance(&freelancer), 400);
+    // Milestone 0 = 40% = 400. Fee = 400 * 1% = 4. Freelancer gets 396.
+    assert_eq!(token_client.balance(&freelancer), 396);
     assert_eq!(escrow.milestones.get(0).unwrap().released, true);
     assert_eq!(escrow.milestones.get(1).unwrap().released, false);
 
@@ -2729,7 +2904,9 @@ PayContract, ());
     contract_client.release_milestone(&job_id, &1u32, &client.clone());
     let escrow2 = contract_client.get_escrow(&job_id);
     assert_eq!(escrow2.status, EscrowStatus::Released);
-    assert_eq!(token_client.balance(&freelancer), 1000);
+    // Remaining 60% = 600. Fee = 600 * 1% = 6. Freelancer gets 594.
+    // Total = 396 + 594 = 990
+    assert_eq!(token_client.balance(&freelancer), 990);
 }
 
 }
@@ -2755,7 +2932,8 @@ mod upgrade_tests {
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(&env, &id);
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
         assert_eq!(client.get_version(), 1u32);
     }
 
@@ -2769,7 +2947,8 @@ mod upgrade_tests {
         let client = MarketPayContractClient::new(&env, &id);
 
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
 
         let depositor = Address::generate(&env);
         let freelancer = Address::generate(&env);
@@ -2804,7 +2983,8 @@ mod upgrade_tests {
         let client = MarketPayContractClient::new(&env, &id);
 
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
 
         let fake_hash = BytesN::from_array(&env, &[0u8; 32]);
         // Called without admin auth → should panic
@@ -2826,7 +3006,8 @@ mod event_tests {
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(env, &id);
         let admin = Address::generate(env);
-        client.initialize(&admin);
+        let treasury = Address::generate(env);
+        client.initialize(&admin, &treasury);
 
         let contract_client = Address::generate(env);
         let freelancer = Address::generate(env);
@@ -3006,8 +3187,9 @@ mod sealed_bid_tests {
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(env, &id);
         let admin = Address::generate(env);
+        let treasury = Address::generate(env);
         let owner = Address::generate(env);
-        client.initialize(&admin);
+        client.initialize(&admin, &treasury);
         let job_id = String::from_str(env, "sealed-bid-job-1");
         client.commit_budget(&job_id, &1_000, &owner);
         (id, client, owner, admin, job_id)
@@ -3085,7 +3267,8 @@ mod deliverable_oracle_tests {
         let id = env.register(MarketPayContract, ());
         let contract = MarketPayContractClient::new(env, &id);
         let admin = Address::generate(env);
-        contract.initialize(&admin);
+        let treasury = Address::generate(env);
+        contract.initialize(&admin, &treasury);
 
         let client = Address::generate(env);
         let freelancer = Address::generate(env);
@@ -3124,7 +3307,8 @@ mod deliverable_oracle_tests {
         assert_eq!(escrow.status, EscrowStatus::Released);
 
         let token_client = token::Client::new(&env, &token_id);
-        assert_eq!(token_client.balance(&freelancer), 1_000);
+        // Fee = 1000 * 1% = 10. Freelancer gets 990.
+        assert_eq!(token_client.balance(&freelancer), 990);
     }
 
     #[test]
@@ -3169,7 +3353,8 @@ mod milestone_pct_tests {
         let id = env.register(MarketPayContract, ());
         let contract = MarketPayContractClient::new(env, &id);
         let admin = Address::generate(env);
-        contract.initialize(&admin);
+        let treasury = Address::generate(env);
+        contract.initialize(&admin, &treasury);
 
         let client = Address::generate(env);
         let freelancer = Address::generate(env);
@@ -3235,7 +3420,8 @@ mod milestone_pct_tests {
         contract.release_milestone(&job_id, &0u32, &client);
 
         let token_client = token::Client::new(&env, &token_id);
-        assert_eq!(token_client.balance(&freelancer), 400);
+        // Milestone 0 = 40% = 400. Fee = 400 * 1% = 4. Freelancer gets 396.
+        assert_eq!(token_client.balance(&freelancer), 396);
 
         let escrow = contract.get_escrow(&job_id);
         assert_eq!(escrow.status, EscrowStatus::InProgress);
@@ -3261,7 +3447,8 @@ mod milestone_pct_tests {
         contract.release_milestone(&job_id, &1u32, &client);
 
         let token_client = token::Client::new(&env, &token_id);
-        assert_eq!(token_client.balance(&freelancer), 1_000);
+        // Total fee = 1000 * 1% = 10. Freelancer gets 990.
+        assert_eq!(token_client.balance(&freelancer), 990);
 
         let escrow = contract.get_escrow(&job_id);
         assert_eq!(escrow.status, EscrowStatus::Released);

@@ -19,6 +19,8 @@ interface FeeEstimationModalProps {
   functionName: string;
   /** Wallet that will sign and pay the fee. */
   payerPublicKey: string;
+  /** Platform fee in basis points (e.g. 100 = 1%), shown for informational purposes. */
+  platformFeeBps?: number;
   /** User clicked "Confirm & Sign". */
   onConfirm: () => void;
   /** User cancelled or closed the modal. */
@@ -29,6 +31,7 @@ export default function FeeEstimationModal({
   transaction,
   functionName,
   payerPublicKey,
+  platformFeeBps,
   onConfirm,
   onCancel,
 }: FeeEstimationModalProps) {
@@ -92,6 +95,12 @@ export default function FeeEstimationModal({
                 )}
               </dd>
             </div>
+            {platformFeeBps != null && platformFeeBps > 0 && (
+              <div className="flex justify-between">
+                <dt className="text-amber-700">Platform fee</dt>
+                <dd className="font-mono text-amber-400">{(platformFeeBps / 100).toFixed(2)}%</dd>
+              </div>
+            )}
             <div className="flex justify-between">
               <dt className="text-amber-700">Wallet balance</dt>
               <dd className="font-mono">
