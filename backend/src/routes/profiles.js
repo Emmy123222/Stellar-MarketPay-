@@ -40,14 +40,30 @@ const {
 
 router.get("/", generalProfileRateLimiter, async (req, res, next) => {
   try {
-    const { role, availability, search, limit } = req.query;
-    const profiles = await listProfiles({
+    const { role, availability, search, limit, after, page } = req.query;
+
+    if (page !== undefined && after === undefined) {
+      res.set("Deprecation", "true");
+      res.set("Link", '</api/profiles>; rel="deprecation"');
+      res.set("Sunset", "2025-12-31");
+    }
+
+    const result = await listProfiles({
       role: typeof role === "string" && role.trim() ? role : undefined,
       availability: typeof availability === "string" && availability.trim() ? availability : undefined,
       search: typeof search === "string" && search.trim() ? search : undefined,
       limit: typeof limit === "string" ? Number(limit) : undefined,
+      after: typeof after === "string" && after.trim() ? after : undefined,
     });
-    res.json({ success: true, data: profiles });
+    res.json({
+      success: true,
+      data: result.profiles,
+      next_cursor: result.nextCursor,
+      has_more: result.hasMore,
+      ...(page !== undefined && after === undefined && {
+        _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `after`.",
+      }),
+    });
   } catch (e) {
     next(e);
   }
@@ -315,6 +331,11 @@ const upload = multer({
   limits: { fileSize: MAX_FILE_SIZE },
 });
 
+const uploadMultiple = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE, files: 10 },
+});
+
 router.post("/:publicKey/portfolio", verifyJWT, upload.single("file"), async (req, res, next) => {
   try {
     const { publicKey } = req.params;
@@ -342,6 +363,44 @@ router.post("/:publicKey/portfolio", verifyJWT, upload.single("file"), async (re
     await pool.query("UPDATE profiles SET portfolio_items = $2::jsonb, updated_at = NOW() WHERE public_key = $1", [publicKey, JSON.stringify(updated)]);
 
     res.json({ success: true, data: item });
+  } catch (e) { next(e); }
+});
+
+router.post("/:publicKey/portfolio-files", verifyJWT, uploadMultiple.array("files", 10), async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "Unauthorized" } });
+    if (!req.files || req.files.length === 0) return res.status(400).json({ error: { code: ErrorCodes.BAD_REQUEST, message: "At least one file is required" } });
+
+    const { rows } = await pool.query("SELECT portfolio_items FROM profiles WHERE public_key = $1", [publicKey]);
+    const current = rows[0]?.portfolio_items || [];
+    if (current.length + req.files.length > 10) {
+      return res.status(400).json({ error: { code: ErrorCodes.PORTFOLIO_LIMIT_REACHED, message: `Maximum 10 portfolio items allowed. You have ${current.length} and are trying to add ${req.files.length}.` } });
+    }
+
+    const uploadedFiles = [];
+    const gatewayUrls = [];
+    for (const file of req.files) {
+      const uploaded = await uploadFile(file.buffer, file.originalname, file.mimetype);
+      const item = {
+        id: require("crypto").randomUUID(),
+        title: file.originalname,
+        type: uploaded.mimeType.startsWith("image/") ? "image" : "pdf",
+        cid: uploaded.cid,
+        fileName: uploaded.fileName,
+        mimeType: uploaded.mimeType,
+        size: uploaded.size,
+        uploadedAt: uploaded.uploadedAt,
+        url: getGatewayUrl(uploaded.cid),
+      };
+      uploadedFiles.push(item);
+      gatewayUrls.push(item.url);
+    }
+
+    const updated = [...current, ...uploadedFiles];
+    await pool.query("UPDATE profiles SET portfolio_items = $2::jsonb, updated_at = NOW() WHERE public_key = $1", [publicKey, JSON.stringify(updated)]);
+
+    res.json({ success: true, data: { uploadedFiles, gatewayUrls } });
   } catch (e) { next(e); }
 });
 
