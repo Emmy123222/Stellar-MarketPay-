@@ -40,7 +40,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "i128": "1000"
+                  "i128": "500"
                 }
               ]
             }
@@ -56,10 +56,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "create_escrow_with_milestones",
+              "function_name": "create_escrow",
               "args": [
                 {
-                  "string": "ms-job-3"
+                  "string": "frozen-release"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -71,7 +71,7 @@
                         "symbol": "amount"
                       },
                       "val": {
-                        "i128": "1000"
+                        "i128": "500"
                       }
                     },
                     {
@@ -86,50 +86,7 @@
                       "key": {
                         "symbol": "milestones"
                       },
-                      "val": {
-                        "vec": [
-                          {
-                            "map": [
-                              {
-                                "key": {
-                                  "symbol": "description"
-                                },
-                                "val": {
-                                  "string": "Phase 1"
-                                }
-                              },
-                              {
-                                "key": {
-                                  "symbol": "percentage"
-                                },
-                                "val": {
-                                  "u32": 40
-                                }
-                              }
-                            ]
-                          },
-                          {
-                            "map": [
-                              {
-                                "key": {
-                                  "symbol": "description"
-                                },
-                                "val": {
-                                  "string": "Phase 2"
-                                }
-                              },
-                              {
-                                "key": {
-                                  "symbol": "percentage"
-                                },
-                                "val": {
-                                  "u32": 60
-                                }
-                              }
-                            ]
-                          }
-                        ]
-                      }
+                      "val": "void"
                     },
                     {
                       "key": {
@@ -170,7 +127,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                     },
                     {
-                      "i128": "1000"
+                      "i128": "500"
                     }
                   ]
                 }
@@ -191,7 +148,7 @@
               "function_name": "start_work",
               "args": [
                 {
-                  "string": "ms-job-3"
+                  "string": "frozen-release"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -205,21 +162,15 @@
     ],
     [
       [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
         {
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "release_milestone",
+              "function_name": "freeze_contract",
               "args": [
                 {
-                  "string": "ms-job-3"
-                },
-                {
-                  "u32": 0
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 }
               ]
             }
@@ -228,7 +179,6 @@
         }
       ]
     ],
-    [],
     []
   ],
   "ledger": {
@@ -344,7 +294,7 @@
                             "symbol": "Escrow"
                           },
                           {
-                            "string": "ms-job-3"
+                            "string": "frozen-release"
                           }
                         ]
                       },
@@ -355,7 +305,7 @@
                               "symbol": "amount"
                             },
                             "val": {
-                              "i128": "1000"
+                              "i128": "500"
                             }
                           },
                           {
@@ -393,7 +343,7 @@
                               "symbol": "job_id"
                             },
                             "val": {
-                              "string": "ms-job-3"
+                              "string": "frozen-release"
                             }
                           },
                           {
@@ -401,96 +351,7 @@
                               "symbol": "milestones"
                             },
                             "val": {
-                              "vec": [
-                                {
-                                  "map": [
-                                    {
-                                      "key": {
-                                        "symbol": "description"
-                                      },
-                                      "val": {
-                                        "string": "Phase 1"
-                                      }
-                                    },
-                                    {
-                                      "key": {
-                                        "symbol": "id"
-                                      },
-                                      "val": {
-                                        "u32": 0
-                                      }
-                                    },
-                                    {
-                                      "key": {
-                                        "symbol": "percentage"
-                                      },
-                                      "val": {
-                                        "u32": 40
-                                      }
-                                    },
-                                    {
-                                      "key": {
-                                        "symbol": "rejected"
-                                      },
-                                      "val": {
-                                        "bool": false
-                                      }
-                                    },
-                                    {
-                                      "key": {
-                                        "symbol": "released"
-                                      },
-                                      "val": {
-                                        "bool": true
-                                      }
-                                    }
-                                  ]
-                                },
-                                {
-                                  "map": [
-                                    {
-                                      "key": {
-                                        "symbol": "description"
-                                      },
-                                      "val": {
-                                        "string": "Phase 2"
-                                      }
-                                    },
-                                    {
-                                      "key": {
-                                        "symbol": "id"
-                                      },
-                                      "val": {
-                                        "u32": 1
-                                      }
-                                    },
-                                    {
-                                      "key": {
-                                        "symbol": "percentage"
-                                      },
-                                      "val": {
-                                        "u32": 60
-                                      }
-                                    },
-                                    {
-                                      "key": {
-                                        "symbol": "rejected"
-                                      },
-                                      "val": {
-                                        "bool": false
-                                      }
-                                    },
-                                    {
-                                      "key": {
-                                        "symbol": "released"
-                                      },
-                                      "val": {
-                                        "bool": false
-                                      }
-                                    }
-                                  ]
-                                }
-                              ]
+                              "vec": []
                             }
                           },
                           {
@@ -551,7 +412,7 @@
                         ]
                       },
                       "val": {
-                        "bool": false
+                        "bool": true
                       }
                     },
                     {
@@ -561,7 +422,7 @@
                             "symbol": "TimeoutTimestamp"
                           },
                           {
-                            "string": "ms-job-3"
+                            "string": "frozen-release"
                           }
                         ]
                       },
@@ -611,6 +472,26 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "ledger_key_nonce": {
+                  "nonce": "2032731177588607455"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "ledger_key_nonce": {
                   "nonce": "5541220902715666415"
                 }
               },
@@ -632,26 +513,6 @@
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "1033654523790656264"
-                }
-              },
-              "durability": "temporary",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 6311999
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-              "key": {
-                "ledger_key_nonce": {
-                  "nonce": "2032731177588607455"
                 }
               },
               "durability": "temporary",
@@ -707,7 +568,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "600"
+                      "i128": "500"
                     }
                   },
                   {
@@ -760,58 +621,6 @@
                     },
                     "val": {
                       "i128": "0"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "authorized"
-                    },
-                    "val": {
-                      "bool": true
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "clawback"
-                    },
-                    "val": {
-                      "bool": false
-                    }
-                  }
-                ]
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "Balance"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "map": [
-                  {
-                    "key": {
-                      "symbol": "amount"
-                    },
-                    "val": {
-                      "i128": "400"
                     }
                   },
                   {

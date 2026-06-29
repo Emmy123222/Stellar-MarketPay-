@@ -40,7 +40,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "i128": "1000"
+                  "i128": "500"
                 }
               ]
             }
@@ -56,10 +56,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "create_escrow_with_milestones",
+              "function_name": "create_escrow",
               "args": [
                 {
-                  "string": "ms-job-3"
+                  "string": "ms-oob-1"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -71,7 +71,7 @@
                         "symbol": "amount"
                       },
                       "val": {
-                        "i128": "1000"
+                        "i128": "500"
                       }
                     },
                     {
@@ -95,7 +95,7 @@
                                   "symbol": "description"
                                 },
                                 "val": {
-                                  "string": "Phase 1"
+                                  "string": "Only milestone"
                                 }
                               },
                               {
@@ -103,27 +103,7 @@
                                   "symbol": "percentage"
                                 },
                                 "val": {
-                                  "u32": 40
-                                }
-                              }
-                            ]
-                          },
-                          {
-                            "map": [
-                              {
-                                "key": {
-                                  "symbol": "description"
-                                },
-                                "val": {
-                                  "string": "Phase 2"
-                                }
-                              },
-                              {
-                                "key": {
-                                  "symbol": "percentage"
-                                },
-                                "val": {
-                                  "u32": 60
+                                  "u32": 100
                                 }
                               }
                             ]
@@ -170,7 +150,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                     },
                     {
-                      "i128": "1000"
+                      "i128": "500"
                     }
                   ]
                 }
@@ -181,54 +161,6 @@
         }
       ]
     ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "start_work",
-              "args": [
-                {
-                  "string": "ms-job-3"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "release_milestone",
-              "args": [
-                {
-                  "string": "ms-job-3"
-                },
-                {
-                  "u32": 0
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [],
     []
   ],
   "ledger": {
@@ -344,7 +276,7 @@
                             "symbol": "Escrow"
                           },
                           {
-                            "string": "ms-job-3"
+                            "string": "ms-oob-1"
                           }
                         ]
                       },
@@ -355,7 +287,7 @@
                               "symbol": "amount"
                             },
                             "val": {
-                              "i128": "1000"
+                              "i128": "500"
                             }
                           },
                           {
@@ -393,7 +325,7 @@
                               "symbol": "job_id"
                             },
                             "val": {
-                              "string": "ms-job-3"
+                              "string": "ms-oob-1"
                             }
                           },
                           {
@@ -409,7 +341,7 @@
                                         "symbol": "description"
                                       },
                                       "val": {
-                                        "string": "Phase 1"
+                                        "string": "Only milestone"
                                       }
                                     },
                                     {
@@ -425,51 +357,7 @@
                                         "symbol": "percentage"
                                       },
                                       "val": {
-                                        "u32": 40
-                                      }
-                                    },
-                                    {
-                                      "key": {
-                                        "symbol": "rejected"
-                                      },
-                                      "val": {
-                                        "bool": false
-                                      }
-                                    },
-                                    {
-                                      "key": {
-                                        "symbol": "released"
-                                      },
-                                      "val": {
-                                        "bool": true
-                                      }
-                                    }
-                                  ]
-                                },
-                                {
-                                  "map": [
-                                    {
-                                      "key": {
-                                        "symbol": "description"
-                                      },
-                                      "val": {
-                                        "string": "Phase 2"
-                                      }
-                                    },
-                                    {
-                                      "key": {
-                                        "symbol": "id"
-                                      },
-                                      "val": {
-                                        "u32": 1
-                                      }
-                                    },
-                                    {
-                                      "key": {
-                                        "symbol": "percentage"
-                                      },
-                                      "val": {
-                                        "u32": 60
+                                        "u32": 100
                                       }
                                     },
                                     {
@@ -506,7 +394,7 @@
                             "val": {
                               "vec": [
                                 {
-                                  "symbol": "InProgress"
+                                  "symbol": "Locked"
                                 }
                               ]
                             }
@@ -561,7 +449,7 @@
                             "symbol": "TimeoutTimestamp"
                           },
                           {
-                            "string": "ms-job-3"
+                            "string": "ms-oob-1"
                           }
                         ]
                       },
@@ -648,46 +536,6 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-              "key": {
-                "ledger_key_nonce": {
-                  "nonce": "2032731177588607455"
-                }
-              },
-              "durability": "temporary",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 6311999
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
-              "key": {
-                "ledger_key_nonce": {
-                  "nonce": "4837995959683129791"
-                }
-              },
-              "durability": "temporary",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 6311999
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
               "contract": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG",
               "key": {
                 "vec": [
@@ -707,7 +555,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "600"
+                      "i128": "500"
                     }
                   },
                   {
@@ -760,58 +608,6 @@
                     },
                     "val": {
                       "i128": "0"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "authorized"
-                    },
-                    "val": {
-                      "bool": true
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "clawback"
-                    },
-                    "val": {
-                      "bool": false
-                    }
-                  }
-                ]
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "Balance"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "map": [
-                  {
-                    "key": {
-                      "symbol": "amount"
-                    },
-                    "val": {
-                      "i128": "400"
                     }
                   },
                   {
