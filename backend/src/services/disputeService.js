@@ -2,6 +2,7 @@
 
 const pool = require("../db/pool");
 const ipfsService = require("./ipfsService");
+const sorobanArbitratorRegistry = require("./sorobanArbitratorRegistry");
 
 const MAX_EVIDENCE_FILES = 10;
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -165,10 +166,12 @@ async function resolveDispute(jobId, resolvedBy, resolution) {
     "SELECT id FROM admin_profiles WHERE id = $1",
     [resolvedBy],
   );
-  if (!adminRows.length) {
-    const e = new Error("Only an admin can resolve disputes");
-    e.status = 403;
-    throw e;
+  const isAdmin = adminRows.length > 0;
+  const isChainArbitrator = !isAdmin && await sorobanArbitratorRegistry.isArbitrator(resolvedBy);
+  if (!isAdmin && !isChainArbitrator) {
+    const err = new Error("Only an admin or on-chain arbitrator can resolve disputes");
+    err.statusCode = 403;
+    throw err;
   }
 
   const { rows: disputeRows } = await pool.query(
