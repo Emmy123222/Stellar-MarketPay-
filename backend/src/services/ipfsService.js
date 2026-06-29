@@ -16,8 +16,8 @@ const SIGNED_URL_SECRET = process.env.SIGNED_URL_SECRET || process.env.JWT_SECRE
 const SIGNED_URL_TTL_SECONDS = 15 * 60; // 15 minutes
 
 // File upload limits
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB in bytes
-const MAX_FILES_PER_PROFILE = 5;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB in bytes
+const MAX_FILES_PER_PROFILE = 10;
 const ALLOWED_MIME_TYPES = [
   "image/jpeg",
   "image/png", 

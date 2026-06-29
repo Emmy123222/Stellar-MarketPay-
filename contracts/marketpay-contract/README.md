@@ -6,7 +6,7 @@ This Soroban smart contract manages trustless escrow between clients and freelan
 
 | Function | Who calls it | Description |
 |----------|-------------|-------------|
-| `initialize(admin)` | Deployer | One-time setup, sets version to 1 |
+| `initialize(admin)` | Deployer | One-time setup, sets version to 1, stores admin list |
 | `create_escrow(job_id, client, freelancer, token, amount)` | Client | Lock funds in contract |
 | `start_work(job_id, client)` | Client | Mark work as started |
 | `release_escrow(job_id, client)` | Client | Release funds to freelancer |
@@ -18,11 +18,21 @@ This Soroban smart contract manages trustless escrow between clients and freelan
 | `finalize_dispute(job_id)` | Anyone | Split funds using the median vote |
 | `emergency_admin_resolve(job_id, admin, recipient)` | Admin | Force a dispute resolution |
 | `get_escrow(job_id)` | Anyone | Read escrow record |
+| `get_milestone(job_id, index)` | Anyone | Read a single milestone by index |
 | `get_status(job_id)` | Anyone | Read escrow status |
 | `get_timeout_timestamp(job_id)` | Anyone | Read the Unix timestamp used for timeout enforcement |
+| `is_frozen()` | Anyone | Check whether the contract is globally frozen |
+| `freeze_contract(admin)` | Admin | Globally freeze all state-mutating operations |
+| `unfreeze_contract(admins)` | Multiple admins | Unfreeze the contract (M-of-N threshold of admin signatures required) |
+| `add_admin(admin, new_admin)` | Admin | Add a new admin to the multi-sig list |
+| `set_unfreeze_threshold(admin, threshold)` | Admin | Set the M-of-N unfreeze threshold |
+| `get_admins()` | Anyone | Return the list of admin addresses |
+| `get_unfreeze_threshold()` | Anyone | Return the unfreeze threshold |
 | `set_default_timeout_seconds(admin, timeout_seconds)` | Admin | Override the default timeout for new escrows |
 | `upgrade(new_wasm_hash)` | Admin only | Upgrade contract WASM, bumps version and preserves storage |
 | `get_version()` | Anyone | Return current contract version number |
+| `release_milestone(job_id, milestone_id, client)` | Client | Release a single milestone's funds |
+| `reject_milestone(job_id, milestone_id, client)` | Client | Reject and refund a single milestone |
 
 ## Build & Test
 
