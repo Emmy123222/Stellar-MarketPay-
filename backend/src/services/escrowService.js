@@ -12,6 +12,44 @@ const { createServiceLogger, logError } = require("../utils/logger");
 
 const ESCROW_TIMEOUT_DAYS = 7;
 
+const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
+
+/**
+ * Verify that a Stellar account exists on the network by checking Horizon.
+ * Throws a 400 error with a descriptive message if the account is not found.
+ * Returns true if the account exists.
+ */
+async function verifyFreelancerAccount(freelancerAddress) {
+  if (!freelancerAddress || !/^G[A-Z0-9]{55}$/.test(freelancerAddress)) {
+    const e = new Error("Invalid Stellar address");
+    e.status = 400;
+    throw e;
+  }
+
+  try {
+    const res = await fetch(
+      `${HORIZON_URL}/accounts/${encodeURIComponent(freelancerAddress)}`,
+    );
+    if (!res.ok) {
+      if (res.status === 404) {
+        const e = new Error("Freelancer account not found on Stellar network");
+        e.status = 400;
+        throw e;
+      }
+      const body = await res.text();
+      const e = new Error(`Horizon request failed: ${res.status} ${body}`);
+      e.status = 502;
+      throw e;
+    }
+    return true;
+  } catch (err) {
+    if (err.status) throw err;
+    const e = new Error("Failed to verify freelancer account on Stellar network");
+    e.status = 502;
+    throw e;
+  }
+}
+
 function normalizeMilestones(milestones, fallbackAmount) {
   if (!Array.isArray(milestones) || milestones.length === 0) {
     return [
@@ -658,7 +696,11 @@ module.exports = {
   getEscrowWithTimeout,
   resolveLedgerTimestamp,
   startEscrowTimeoutChecker,
+<<<<<<< HEAD
   requestEscrowExtension,
   approveEscrowExtension,
+=======
+  verifyFreelancerAccount,
+>>>>>>> origin/main
   ESCROW_TIMEOUT_DAYS,
 };

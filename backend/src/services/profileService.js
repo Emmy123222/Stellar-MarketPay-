@@ -459,7 +459,25 @@ async function updateAvailability(publicKey, availability) {
   return rowToProfile(rows[0]);
 }
 
-async function listProfiles({ role, availability, search, limit = 50 } = {}) {
+function encodeProfileCursor(row) {
+  return Buffer.from(
+    JSON.stringify({ updatedAt: row.updated_at, publicKey: row.public_key }),
+  ).toString("base64");
+}
+
+function decodeProfileCursor(cursor) {
+  try {
+    const decoded = JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
+    if (!decoded.updatedAt || !decoded.publicKey) throw new Error("Invalid cursor");
+    return decoded;
+  } catch (_) {
+    const e = new Error("Invalid cursor");
+    e.status = 400;
+    throw e;
+  }
+}
+
+async function listProfiles({ role, availability, search, limit = 50, after } = {}) {
   const conditions = ["(deletion_status IS NULL OR deletion_status = 'active')"];
   const values = [];
   let idx = 1;
@@ -498,8 +516,19 @@ async function listProfiles({ role, availability, search, limit = 50 } = {}) {
     idx += 1;
   }
 
+  if (after) {
+    const cursor = decodeProfileCursor(after);
+    values.push(cursor.updatedAt, cursor.publicKey);
+    conditions.push(
+      `(p.updated_at < $${idx} OR (p.updated_at = $${idx} AND p.public_key < $${idx + 1}))`,
+    );
+    idx += 2;
+  }
+
   const safeLimit = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 100) : 50;
-  values.push(safeLimit);
+  values.push(safeLimit + 1);
+  const limitIdx = idx;
+  idx += 1;
   const encKey = encryptionService.getEncryptionKey();
   values.push(encKey, encKey);
 
@@ -523,11 +552,15 @@ async function listProfiles({ role, availability, search, limit = 50 } = {}) {
               END,
               p.webhook_secret
             ) AS webhook_secret
-     FROM profiles p ${whereClause} ORDER BY p.updated_at DESC LIMIT $${idx}`,
+     FROM profiles p ${whereClause} ORDER BY p.updated_at DESC, p.public_key DESC LIMIT $${limitIdx}`,
     values,
   );
 
-  return rows.map(rowToProfile);
+  const hasMore = rows.length > safeLimit;
+  const profiles = rows.slice(0, safeLimit).map(rowToProfile);
+  const nextCursor = hasMore ? encodeProfileCursor(rows[safeLimit - 1]) : null;
+
+  return { profiles, nextCursor, hasMore };
 }
 
 async function isBlocked(clientPublicKey, freelancerAddress) {

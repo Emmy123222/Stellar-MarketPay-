@@ -3,18 +3,23 @@
  * Custom hook to manage onboarding state and progress
  */
 import { useState, useEffect, useMemo } from "react";
-import { fetchProfile } from "@/lib/api";
+import { fetchProfile, syncOnboardingProgress } from "@/lib/api";
 import type { UserProfile } from "@/utils/types";
 import type { ChecklistItem } from "@/components/Onboarding/ProfileChecklist";
 
 const ONBOARDING_STORAGE_KEY = "marketpay_onboarding_completed";
 const TOOLTIPS_DISMISSED_KEY = "marketpay_tooltips_dismissed";
+const WIZARD_STORAGE_KEY = "marketpay_onboarding_wizard";
 const ONBOARDING_COMPLETE_THRESHOLD = 80;
 
 export interface OnboardingState {
   hasSeenWelcome: boolean;
   checklistDismissed: boolean;
   dismissedTooltips: string[];
+  wizardCurrentStep: number;
+  wizardCompletedSteps: string[];
+  wizardDismissed: boolean;
+  wizardCompleted: boolean;
 }
 
 export interface OnboardingProgress {
@@ -99,6 +104,16 @@ function persistOnboardingState(
     TOOLTIPS_DISMISSED_KEY,
     JSON.stringify(state.dismissedTooltips),
   );
+  localStorage.setItem(
+    WIZARD_STORAGE_KEY,
+    JSON.stringify({
+      currentStep: state.wizardCurrentStep,
+      completedSteps: state.wizardCompletedSteps,
+      dismissed: state.wizardDismissed,
+      completed: state.wizardCompleted,
+      syncedAt: new Date().toISOString(),
+    }),
+  );
 }
 
 export function useOnboarding(publicKey: string | null) {
@@ -108,6 +123,10 @@ export function useOnboarding(publicKey: string | null) {
     hasSeenWelcome: false,
     checklistDismissed: false,
     dismissedTooltips: [],
+    wizardCurrentStep: 0,
+    wizardCompletedSteps: [],
+    wizardDismissed: false,
+    wizardCompleted: false,
   });
 
   // Load onboarding state from localStorage
@@ -119,6 +138,7 @@ export function useOnboarding(publicKey: string | null) {
       const dismissedTooltips = JSON.parse(
         localStorage.getItem(TOOLTIPS_DISMISSED_KEY) || "[]",
       );
+      const wizard = JSON.parse(localStorage.getItem(WIZARD_STORAGE_KEY) || "{}");
 
       if (stored) {
         const parsed = JSON.parse(stored);
@@ -126,6 +146,10 @@ export function useOnboarding(publicKey: string | null) {
           hasSeenWelcome: parsed.hasSeenWelcome || false,
           checklistDismissed: parsed.checklistDismissed || false,
           dismissedTooltips,
+          wizardCurrentStep: wizard.currentStep || 0,
+          wizardCompletedSteps: wizard.completedSteps || [],
+          wizardDismissed: wizard.dismissed || false,
+          wizardCompleted: wizard.completed || false,
         });
       }
     } catch (error) {
@@ -298,6 +322,15 @@ export function useOnboarding(publicKey: string | null) {
     setOnboardingState(updated);
 
     persistOnboardingState(updated, progress.completionPercentage);
+    if (publicKey) {
+      syncOnboardingProgress({
+        publicKey,
+        currentStep: updated.wizardCurrentStep,
+        completedSteps: updated.wizardCompletedSteps,
+        dismissed: updated.wizardDismissed,
+        completed: updated.wizardCompleted,
+      }).catch(() => undefined);
+    }
   };
 
   // Mark welcome as seen
@@ -328,11 +361,16 @@ export function useOnboarding(publicKey: string | null) {
       hasSeenWelcome: false,
       checklistDismissed: false,
       dismissedTooltips: [],
+      wizardCurrentStep: 0,
+      wizardCompletedSteps: [],
+      wizardDismissed: false,
+      wizardCompleted: false,
     });
 
     if (typeof window !== "undefined") {
       localStorage.removeItem(ONBOARDING_STORAGE_KEY);
       localStorage.removeItem(TOOLTIPS_DISMISSED_KEY);
+      localStorage.removeItem(WIZARD_STORAGE_KEY);
     }
   };
 
@@ -341,6 +379,12 @@ export function useOnboarding(publicKey: string | null) {
     !loading &&
     !serverCompletedOnboarding &&
     !onboardingState.hasSeenWelcome &&
+    publicKey !== null;
+  const shouldShowWizard =
+    !loading &&
+    !serverCompletedOnboarding &&
+    !onboardingState.wizardCompleted &&
+    !onboardingState.wizardDismissed &&
     publicKey !== null;
   const shouldShowChecklist =
     !loading &&
@@ -356,6 +400,8 @@ export function useOnboarding(publicKey: string | null) {
     onboardingState,
     shouldShowWelcome,
     shouldShowChecklist,
+    shouldShowWizard,
+    saveOnboardingState,
     markWelcomeSeen,
     dismissChecklist,
     dismissTooltip,
