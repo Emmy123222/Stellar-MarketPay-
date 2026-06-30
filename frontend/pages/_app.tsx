@@ -7,6 +7,8 @@ import Navbar from "@/components/Navbar";
 import FaucetButton from "@/components/FaucetButton";
 import AppFooter from "@/components/AppFooter";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
+import CommandPalette from "@/components/CommandPalette";
+import OnboardingWizard from "@/components/Onboarding/OnboardingWizard";
 import {
   connectWallet,
   getConnectedPublicKey,
@@ -69,6 +71,7 @@ function ThemeToggle() {
 function App({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<{
     prompt: () => Promise<void>;
     userChoice: Promise<{ outcome: string }>;
@@ -119,6 +122,7 @@ function App({ Component, pageProps }: AppProps) {
       window.dispatchEvent(new CustomEvent("shortcut-focus-search")),
     onToggleBookmark: () =>
       window.dispatchEvent(new CustomEvent("shortcut-toggle-bookmark")),
+    onOpenCommandPalette: () => setCommandPaletteOpen(true),
     shortcutsModalOpen,
   });
 
@@ -271,6 +275,8 @@ function App({ Component, pageProps }: AppProps) {
               </main>
               {publicKey && <FaucetButton publicKey={publicKey} />}
               <ThemeToggle />
+              <OnboardingWizard publicKey={publicKey} onConnect={handleConnect} />
+              <CommandPalette isOpen={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} />
               <KeyboardShortcutsModal
                 isOpen={shortcutsModalOpen}
                 onClose={() => setShortcutsModalOpen(false)}

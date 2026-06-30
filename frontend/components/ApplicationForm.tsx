@@ -17,6 +17,8 @@ interface ApplicationFormProps {
     bidAmount?: string;
     message?: string;
   };
+  onOptimisticSubmit?: () => void;
+  onRevert?: () => void;
   onSuccess: () => void;
 }
 
@@ -38,7 +40,7 @@ async function sha256Hex(value: string): Promise<string> {
     .join("");
 }
 
-export default function ApplicationForm({ job, publicKey, biddingPhase = "commitment", prefillData, onSuccess }: ApplicationFormProps) {
+export default function ApplicationForm({ job, publicKey, biddingPhase = "commitment", prefillData, onOptimisticSubmit, onRevert, onSuccess }: ApplicationFormProps) {
   const [proposal, setProposal] = useState(prefillData?.message || "");
   const toast = useToast();
   const [bidAmount, setBidAmount] = useState(prefillData?.bidAmount || job.budget);
@@ -89,6 +91,9 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
     setShowConfirm(false);
     setLoading(true);
     setError(null);
+
+    onOptimisticSubmit?.();
+
     try {
       const referredBy = typeof window !== "undefined" ? localStorage.getItem(`referral_${job.id}`) : null;
       const commitmentInput = `${parseFloat(bidAmount).toFixed(7)}:${revealNonce}`;
@@ -106,6 +111,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
       toast.success("Sealed bid commitment submitted.");
       onSuccess();
     } catch {
+      onRevert?.();
       toast.error("Failed to submit application. Please try again.");
       setLoading(false);
     }
@@ -185,7 +191,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
               min="1" step="1" className="input-field"
               placeholder="Enter your bid amount"
             />
-            <p className="mt-1 text-xs text-amber-800/50">
+            <p className="mt-1 text-xs text-amber-600">
               This value is committed as a hash and hidden until reveal phase.
             </p>
           </div>
@@ -199,7 +205,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
               className="input-field font-mono text-xs"
               placeholder="Random nonce for reveal"
             />
-            <p className="mt-1 text-xs text-amber-800/50">
+            <p className="mt-1 text-xs text-amber-600">
               You must keep this nonce to reveal your bid later.
             </p>
           </div>
@@ -208,7 +214,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
           {job.screeningQuestions && job.screeningQuestions.length > 0 && (
             <div>
               <label className="label">Screening Questions <span className="text-red-400">*</span></label>
-              <p className="text-xs text-amber-800/50 mb-3">Please answer all questions to submit your application.</p>
+              <p className="text-xs text-amber-600 mb-3">Please answer all questions to submit your application.</p>
               <div className="space-y-4">
                 {job.screeningQuestions.map((question, index) => (
                   <div key={index}>
