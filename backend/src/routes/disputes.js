@@ -21,6 +21,7 @@ const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT }         = require("../middleware/auth");
 const ipfsService            = require("../services/ipfsService");
 const { validateIpfsCid }    = require("../services/disputeService");
+const sorobanEvidence       = require("../services/sorobanEvidence");
 const { createError, ErrorCodes } = require("../utils/errors");
 
 const MAX_FILES_PER_PARTY = 10;
@@ -42,6 +43,30 @@ const upload = multer({
 
 const readRateLimiter   = createRateLimiter(30, 1);
 const uploadRateLimiter = createRateLimiter(5, 1);
+
+// GET /api/disputes/:jobId/onchain-cids  — read the chain-attested CID list
+//
+// Issue #448 — AC #5: frontend dispute page reads CIDs from chain. This
+// endpoint delegates to `sorobanEvidence.getOnchainEvidenceCids` which reads
+// the Vec<Bytes> at DataKey::EvidenceCids via the contract's
+// get_evidence_cids view function.
+const readOnchainRateLimiter = createRateLimiter(15, 1);
+router.get("/:jobId/onchain-cids", readOnchainRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { rows: jobRows } = await pool.query(
+      "SELECT client_address, freelancer_address, status FROM jobs WHERE id = $1",
+      [jobId],
+    );
+    if (!jobRows.length) {
+      throw createError(ErrorCodes.JOB_NOT_FOUND, "Job not found", 404);
+    }
+    // Visibility: same audience as the dispute itself (anyone can read).
+    // Reserving the option to gate this further once SOROBAN_RPC is finalized.
+    const cids = await sorobanEvidence.getOnchainEvidenceCids(jobId);
+    res.json({ success: true, data: { jobId, cids } });
+  } catch (e) { next(e); }
+});
 
 // GET /api/disputes/:jobId
 router.get("/:jobId", readRateLimiter, async (req, res, next) => {

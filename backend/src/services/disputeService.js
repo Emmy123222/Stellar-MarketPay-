@@ -2,6 +2,7 @@
 
 const pool = require("../db/pool");
 const ipfsService = require("./ipfsService");
+const sorobanArbitratorRegistry = require("./sorobanArbitratorRegistry");
 
 const MAX_EVIDENCE_FILES = 10;
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -133,6 +134,18 @@ async function uploadEvidence(jobId, uploaderAddress, fileBuffer, fileName, mime
   );
 
   const ev = rows[0];
+
+  // Issue #448 — AC #4: disputeService.js calls submit_evidence_cid after the
+  // Pinata upload so the CID is anchored on-chain at DataKey::EvidenceCids.
+  // On-chain anchoring is best-effort: if the contract isn't deployed, env
+  // vars are missing, or network is unreachable, we still return the
+  // off-chain evidence record — the chain audit trail is supplementary.
+  const chainAnchor = await sorobanEvidence.recordEvidenceCidOnChain({
+    jobId,
+    cid: ipfsCid,
+    callerAddress: uploaderAddress,
+  });
+
   return {
     success: true,
     data: {
@@ -144,6 +157,9 @@ async function uploadEvidence(jobId, uploaderAddress, fileBuffer, fileName, mime
       ipfsCid: ev.ipfs_cid,
       gatewayUrl: ipfsService.getGatewayUrl(ev.ipfs_cid),
       createdAt: ev.created_at,
+      // AC #4 surface — frontend signs the returned XDR and POSTs the tx
+      // hash back via /api/disputes/:jobId/evidence/:id/tx-hash.
+      chainAnchor,
     },
   };
 }
@@ -165,10 +181,12 @@ async function resolveDispute(jobId, resolvedBy, resolution) {
     "SELECT id FROM admin_profiles WHERE id = $1",
     [resolvedBy],
   );
-  if (!adminRows.length) {
-    const e = new Error("Only an admin can resolve disputes");
-    e.status = 403;
-    throw e;
+  const isAdmin = adminRows.length > 0;
+  const isChainArbitrator = !isAdmin && await sorobanArbitratorRegistry.isArbitrator(resolvedBy);
+  if (!isAdmin && !isChainArbitrator) {
+    const err = new Error("Only an admin or on-chain arbitrator can resolve disputes");
+    err.statusCode = 403;
+    throw err;
   }
 
   const { rows: disputeRows } = await pool.query(

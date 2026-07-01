@@ -100,6 +100,94 @@ let jwtToken: string | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 
+// ── Request tracing (Issue #453) ────────────────────────────────────────────
+const REQUEST_ID_HEADER = "X-Request-ID";
+const IS_DEV = process.env.NODE_ENV !== "production";
+
+/** Generate a UUID v4 using crypto.randomUUID when available, with RFC4122 fallback. */
+function generateRequestId(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // fall through to manual generator
+  }
+  // Fallback for environments without crypto.randomUUID (older browsers / SSR):
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  // Per RFC 4122 §4.4
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex: string[] = [];
+  for (let i = 0; i < bytes.length; i += 1) {
+    hex.push(bytes[i].toString(16).padStart(2, "0"));
+  }
+  return (
+    `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex[6]}-${hex[7]}-` +
+    `${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`
+  );
+}
+
+/**
+ * Capture the server-issued X-Request-ID from a successful response so
+ * components can surface it in error toasts / support tickets. Returns
+ * `null` when the header is absent (older backends).
+ */
+export function getResponseRequestId(error: unknown): string | null {
+  if (!axios.isAxiosError(error)) return null;
+  return error.response?.headers?.[REQUEST_ID_HEADER.toLowerCase()] ?? null;
+}
+
+// ── CSRF (Issue #451) ────────────────────────────────────────────────────────
+const CSRF_HEADER = "X-CSRF-Token";
+const CSRF_TOKEN_URL = "/api/auth/csrf-token";
+const MUTATING_METHODS = new Set(["post", "put", "patch", "delete"]);
+
+let csrfToken: string | null = null;
+let csrfFetchPromise: Promise<string | null> | null = null;
+
+async function fetchCsrfToken(): Promise<string | null> {
+  if (csrfFetchPromise) return csrfFetchPromise;
+  // /api/auth/csrf-token is exempt from CSRF (it's a safe-method bootstrap
+  // endpoint), so we do NOT set the X-CSRF-Token header on this request —
+  // doing so would risk an infinite loop if the server refused it.
+  csrfFetchPromise = api
+    .get<{ csrfToken: string }>(CSRF_TOKEN_URL, { skipCsrf: true } as any)
+    .then(({ data }) => {
+      csrfToken = data.csrfToken;
+      return csrfToken;
+    })
+    .catch(() => {
+      csrfToken = null;
+      return null;
+    })
+    .finally(() => {
+      csrfFetchPromise = null;
+    });
+  return csrfFetchPromise;
+}
+
+export function clearCsrfToken() {
+  csrfToken = null;
+}
+
+/**
+ * Invalidate the cached token and mint a fresh one. Used by the response
+ * interceptor when a mutation rejects with 403 (cookie mismatch) and by
+ * `verifyAuthChallenge` / `refreshAccessToken` when the server returns a
+ * new token in-band. Deduplicates concurrent callers to avoid racing
+ * parallel mutations against different cookie versions.
+ */
+async function refreshCsrfToken(): Promise<string | null> {
+  clearCsrfToken();
+  return fetchCsrfToken();
+}
+
 const TOKEN_REFRESH_BUFFER_MS = 60 * 1000;
 
 function getJwtExpiryMs(token: string) {
@@ -155,13 +243,56 @@ api.interceptors.request.use(async (config: any) => {
   if (!config.skipAuthRefresh && shouldRefreshToken()) {
     await refreshAccessToken();
   }
+
+  // Issue #453: attach a request id so server logs can be correlated with
+  // client-side debugging. Generated fresh per request unless caller
+  // supplied one via `config.requestId` (useful for tracing flows).
+  if (!config.skipTracing && !config.headers?.[REQUEST_ID_HEADER]) {
+    config.headers = config.headers || {};
+    config.headers[REQUEST_ID_HEADER] = config.requestId || generateRequestId();
+  }
+
+  // Attach the CSRF token to every mutating request so the backend's
+  // double-submit cookie check passes (Issue #451).
+  if (!config.skipCsrf && MUTATING_METHODS.has((config.method || "").toLowerCase())) {
+    if (!csrfToken) await fetchCsrfToken();
+    if (csrfToken) {
+      config.headers = config.headers || {};
+      config.headers[CSRF_HEADER] = csrfToken;
+    }
+  }
   return config;
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Issue #453 dev-mode logging: print the correlation id so a developer
+    // can paste it straight into backend log search.
+    if (IS_DEV && typeof console !== "undefined") {
+      const serverId =
+        response.headers?.[REQUEST_ID_HEADER.toLowerCase()] ||
+        response.config?.headers?.[REQUEST_ID_HEADER];
+      if (serverId) {
+        // eslint-disable-next-line no-console
+        console.debug(`[api] ${response.config?.method?.toUpperCase()} ${response.config?.url} → ${response.status} requestId=${serverId}`);
+      }
+    }
+    return response;
+  },
   async (error) => {
+    // Capture the request id on errors too so error toasts can show it.
+    if (IS_DEV && typeof console !== "undefined" && axios.isAxiosError(error)) {
+      const serverId = error.response?.headers?.[REQUEST_ID_HEADER.toLowerCase()];
+      const clientId = error.config?.headers?.[REQUEST_ID_HEADER];
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[api] ${error.config?.method?.toUpperCase()} ${error.config?.url} → ${error.response?.status || "NETWORK"} ` +
+          `requestId=${serverId || clientId || "?"}`,
+      );
+    }
+
     const originalRequest = error.config || {};
+    // 401 → refresh the JWT once and replay (existing behavior).
     if (
       error.response?.status === 401 &&
       !originalRequest._retry &&
@@ -170,6 +301,24 @@ api.interceptors.response.use(
       originalRequest._retry = true;
       const token = await refreshAccessToken();
       if (token) {
+        return api(originalRequest);
+      }
+    }
+    // 403 on a mutating request → CSRF token may have been rotated or the
+    // cookie was replaced by another tab. Mint a fresh pair and retry once.
+    // We route through refreshCsrfToken() so concurrent 403s share a single
+    // in-flight mint instead of all racing the server independently.
+    if (
+      error.response?.status === 403 &&
+      !originalRequest._csrfRetry &&
+      !originalRequest.skipCsrf &&
+      MUTATING_METHODS.has((originalRequest.method || "").toLowerCase())
+    ) {
+      originalRequest._csrfRetry = true;
+      const fresh = await refreshCsrfToken();
+      if (fresh) {
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers[CSRF_HEADER] = fresh;
         return api(originalRequest);
       }
     }
@@ -187,23 +336,29 @@ export async function fetchAuthChallenge(publicKey: string) {
 }
 
 export async function verifyAuthChallenge(transaction: string) {
-  const { data } = await api.post<{ success: boolean; token: string }>(
+  const { data } = await api.post<{ success: boolean; token: string; csrfToken?: string }>(
     "/api/auth",
     { transaction },
   );
+  // The login response may ship a fresh CSRF token alongside the JWT so we
+  // can skip the post-login /api/auth/csrf-token round-trip (#451).
+  if (data.csrfToken) csrfToken = data.csrfToken;
   return data.token;
 }
 
 export async function refreshAccessToken() {
   if (!refreshPromise) {
     refreshPromise = api
-      .post<{ success: boolean; token: string }>(
+      .post<{ success: boolean; token: string; csrfToken?: string }>(
         "/api/auth/refresh",
         undefined,
         { skipAuthRefresh: true } as any,
       )
       .then(({ data }) => {
         setJwtToken(data.token);
+        // A token rotation also rotates the CSRF pair; pick up the new one
+        // so the next mutation doesn't hit a stale-cookie 403.
+        if (data.csrfToken) csrfToken = data.csrfToken;
         return data.token;
       })
       .catch((error) => {
@@ -223,6 +378,7 @@ export async function logout() {
     await api.post("/api/auth/logout", undefined, { skipAuthRefresh: true } as any);
   } finally {
     setJwtToken(null);
+    clearCsrfToken();
   }
 }
 
@@ -1600,22 +1756,6 @@ export async function fetchEvidenceSignedUrl(
   return data.data;
 }
 
-// ─── WebAuthn / Passkeys (Issue #218) ────────────────────────────────────────
-
-export interface PasskeyCredential {
-  id: string;
-  credential_name: string;
-  created_at: string;
-}
-
-export async function fetchPasskeyRegistrationOptions(publicKey: string) {
-  const { data } = await api.post<{ success: boolean; data: any }>(
-    "/api/webauthn/register-options",
-    { publicKey },
-  );
-  return data.data;
-}
-
 export async function verifyPasskeyRegistration(credential: any, name: string) {
   const { data } = await api.post<{ success: boolean; message: string }>(
     "/api/webauthn/register-verify",
@@ -1972,6 +2112,43 @@ export async function fetchTimeSeriesMetrics(params: {
   return data.data;
 }
 
+// ─── Admin API Key Usage Stats (Issue #452) ───────────────────────────────────
+
+export interface ApiKeyUsageEndpoint {
+  endpoint: string;
+  requests: number;
+  lastMinute: string;
+}
+
+export interface ApiKeyUsageRow {
+  id: number;
+  label: string;
+  key_prefix: string;
+  requests_today: number;
+  requests_last_hour: number;
+  endpoint_breakdown: ApiKeyUsageEndpoint[];
+}
+
+export interface ApiKeyUsageStats {
+  lookbackDays: number;
+  keys: ApiKeyUsageRow[];
+}
+
+/**
+ * Fetch per-API-key usage statistics for the admin dashboard (Issue #452).
+ * Each row includes today's request count, the rolling 60-minute request
+ * count, and a per-endpoint breakdown for the most recent activity.
+ */
+export async function fetchAdminApiKeyUsage(
+  days = 7,
+): Promise<ApiKeyUsageStats> {
+  const { data } = await api.get<{ success: boolean; data: ApiKeyUsageStats }>(
+    "/api/admin/api-keys/usage",
+    { params: { days } },
+  );
+  return data.data;
+}
+
 // ─── Referrals ────────────────────────────────────────────────────────────────
 
 /**
@@ -2286,4 +2463,38 @@ export async function uploadMessageAttachment(
     { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
   );
   return data.data;
+}
+
+// u2500u2500u2500 Dispute Evidence On-Chain Audit (Issue #448) u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500
+/**
+ * Fetch the IPFS CIDs of dispute evidence anchored on-chain for a job.
+ * Backed by GET /api/disputes/:jobId/onchain-cids. Returns an empty array
+ * if the contract has no entries yet or the network is unreachable.
+ */
+export async function fetchDisputeOnchainCids(jobId: string): Promise<string[]> {
+  try {
+    const { data } = await api.get<{ success: boolean; data: { cids: string[] } }>(
+      `/api/disputes/${encodeURIComponent(jobId)}/onchain-cids`,
+    );
+    return Array.isArray(data?.data?.cids) ? data.data.cids : [];
+  } catch {
+    return [];
+  }
+}
+
+//  Dispute Evidence On-Chain Audit (Issue #448) 
+/**
+ * Fetch the IPFS CIDs of dispute evidence anchored on-chain for a job.
+ * Backed by GET /api/disputes/:jobId/onchain-cids. Returns an empty array
+ * if the contract has no entries yet or the network is unreachable.
+ */
+export async function fetchDisputeOnchainCids(jobId: string): Promise<string[]> {
+  try {
+    const { data } = await api.get<{ success: boolean; data: { cids: string[] } }>(
+      `/api/disputes/${encodeURIComponent(jobId)}/onchain-cids`,
+    );
+    return Array.isArray(data?.data?.cids) ? data.data.cids : [];
+  } catch {
+    return [];
+  }
 }

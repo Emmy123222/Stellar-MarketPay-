@@ -174,6 +174,83 @@ async function recordApiKeyUsage(apiKeyId) {
   );
 }
 
+/**
+ * Record one request against a (apiKey, endpoint, minute_bucket) tuple.
+ * Called from the sliding-window middleware (Issue #452) so analytics live
+ * past the in-Redis TTL.
+ *
+ * @param {number|string} apiKeyId
+ * @param {string} endpoint  e.g. "/api/public/jobs"
+ * @param {number} minuteBucket  Math.floor(Date.now()/1000/60)
+ */
+async function recordApiKeyUsageMinute(apiKeyId, endpoint, minuteBucket) {
+  // Bucket stored as seconds-since-epoch aligned to the minute boundary.
+  const bucketTimestamp = new Date(minuteBucket * 60 * 1000);
+  await pool.query(
+    `INSERT INTO api_key_usage_minute
+        (api_key_id, endpoint, minute_bucket, request_count, last_updated_at)
+     VALUES ($1, $2, $3, 1, NOW())
+     ON CONFLICT (api_key_id, endpoint, minute_bucket)
+     DO UPDATE SET request_count = api_key_usage_minute.request_count + 1,
+                   last_updated_at = NOW()`,
+    [apiKeyId, endpoint, bucketTimestamp]
+  );
+}
+
+/**
+ * Aggregate minute-row usage into the daily table. Called from the
+ * admin usage route (Issue #452). Returns one row per (api_key, endpoint,
+ * day) combo so admins can see traffic distribution.
+ *
+ * @param {number} lookbackDays
+ */
+async function getApiKeyUsageStats(lookbackDays = 7) {
+  const safeLookback = Math.max(1, Math.min(Number(lookbackDays) || 7, 90));
+  const { rows } = await pool.query(
+    `SELECT
+       k.id,
+       k.label,
+       k.key_prefix,
+       COALESCE(d.request_count, 0) AS requests_today,
+       COALESCE(daily_window.requests_in_window, 0) AS requests_in_window,
+       COALESCE(m.minute_count, 0) AS requests_last_hour,
+       COALESCE(m.endpoint_breakdown, '[]'::json) AS endpoint_breakdown
+     FROM api_keys k
+     LEFT JOIN api_key_usage_daily d
+       ON d.api_key_id = k.id
+      AND d.usage_date = CURRENT_DATE
+     LEFT JOIN daily_window
+       ON daily_window.api_key_id = k.id
+     LEFT JOIN LATERAL (
+       SELECT
+         COALESCE(SUM(request_count), 0) AS minute_count,
+         COALESCE(
+           json_agg(
+             json_build_object(
+               'endpoint', endpoint,
+               'requests', request_count,
+               'lastMinute', minute_bucket
+             ) ORDER BY minute_bucket DESC
+           ) FILTER (WHERE endpoint IS NOT NULL),
+           '[]'::json
+         ) AS endpoint_breakdown
+       FROM (
+         SELECT endpoint, minute_bucket, request_count
+           FROM api_key_usage_minute
+          WHERE api_key_id = k.id
+            AND minute_bucket > NOW() - INTERVAL '1 hour'
+          ORDER BY minute_bucket DESC
+          LIMIT 25
+       ) recent
+     ) m ON true
+     WHERE k.revoked_at IS NULL
+     ORDER BY requests_today DESC, requests_in_window DESC, k.label ASC`,
+    [safeLookback]
+  );
+
+  return { lookbackDays: safeLookback, keys: rows };
+}
+
 async function listPublicJobs(limit = 20) {
   const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 50));
   const { rows } = await pool.query(
@@ -263,6 +340,8 @@ module.exports = {
   finalizeExpiredRotations,
   findApiKeyByRawValue,
   recordApiKeyUsage,
+  recordApiKeyUsageMinute,
+  getApiKeyUsageStats,
   listPublicJobs,
   getPublicJob,
   getPublicFreelancerProfile,
