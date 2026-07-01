@@ -586,6 +586,9 @@ async function bootstrap() {
   // Start purge job for soft-deleted records - run daily
   startPurgeDeletedRecords();
 
+  // Start recurring escrow ticker - run every hour (Issue #450)
+  startRecurringEscrowTicker();
+
   server.listen(PORT, () => {
     serviceLogger.info({
       port: PORT,
@@ -859,6 +862,15 @@ function startPurgeDeletedRecords() {
   }
 
   setInterval(purge, 24 * 60 * 60 * 1000).unref();
+}
+
+/**
+ * Start the recurring escrow ticker (Issue #450).
+ * Ticks recurring escrows every hour to release payments on schedule.
+ */
+function startRecurringEscrowTicker() {
+  const { startRecurringEscrowTicker: startTicker } = require("./services/recurringEscrowService");
+  startTicker();
 }
 
 bootstrap();

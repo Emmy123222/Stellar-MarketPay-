@@ -19,6 +19,10 @@ export interface JobFormData {
   milestones: Milestone[];
   visibility: "public" | "private" | "invite_only";
   screeningQuestions: string[];
+  // Issue #450: Recurring escrow fields for retainer contracts
+  isRecurring: boolean;
+  intervalDays: string;
+  totalReleases: string;
 }
 
 export type FormStep = 1 | 2 | 3 | 4;

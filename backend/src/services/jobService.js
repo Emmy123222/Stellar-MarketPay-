@@ -9,6 +9,10 @@ const { readPool, writePool } = require("../db/pool");
 const pool = writePool; // default alias — write-safe; read-only paths use readPool
 const { refreshFreelancerTier } = require("./profileService");
 const { createJobNotification, EVENT_TYPES } = require("./notificationService");
+const {
+  buildJobTfIdfVector,
+  updateVocabularyAndIdf,
+} = require("./recommendationService");
 
 /**
  * Camel-cased job record returned by this service.
@@ -397,7 +401,35 @@ async function createJob({ title, description, budget, currency, category, categ
     job.skills = [];
   }
 
+  try {
+    const tfidfVector = await buildJobTfIdfVector(
+      job.title,
+      job.description,
+      job.skills,
+    );
+    const allTerms = [
+      ...tokenize(`${job.title} ${job.description}`),
+      ...job.skills.map((s) => s.toLowerCase().trim()).filter(Boolean),
+    ];
+    await updateVocabularyAndIdf(allTerms);
+    await pool.query("UPDATE jobs SET tfidf_vector = $1 WHERE id = $2", [
+      JSON.stringify(tfidfVector),
+      job.id,
+    ]);
+  } catch (err) {
+    console.error("[tfidf] Failed to compute vector for job", job.id, err.message);
+  }
+
   return rowToJob(job);
+}
+
+function tokenize(text) {
+  if (!text) return [];
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9+#./-]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 1);
 }
 
 /**
@@ -1332,4 +1364,5 @@ module.exports = {
   bulkBoostJobs,
   getRecommendedJobs,
   getSuggestions,
+  rowToJob,
 };

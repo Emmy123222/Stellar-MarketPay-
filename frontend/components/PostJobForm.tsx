@@ -155,6 +155,10 @@ export default function PostJobForm({
       milestones: [{ description: "Final delivery", amount: "50" }],
       visibility: "public",
       screeningQuestions: [""],
+      // Issue #450: Recurring escrow fields
+      isRecurring: false,
+      intervalDays: "30",
+      totalReleases: "12",
     };
   });
 
@@ -418,6 +422,10 @@ export default function PostJobForm({
       visibility: "public",
       milestones: [{ description: "Final delivery", amount: "50" }],
       screeningQuestions: [""],
+      // Issue #450: Recurring escrow fields
+      isRecurring: false,
+      intervalDays: "30",
+      totalReleases: "12",
     });
   }
 

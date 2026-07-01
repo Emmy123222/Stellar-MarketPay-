@@ -230,41 +230,19 @@ pub struct DisputeCase {
     pub status: u32,
 }
 
-/// Admin-configured dispute bond parameters (Issue #437).
-///
-/// The admin calls `set_dispute_bond(token, amount)` to declare the bond
-/// denomination.  When unset (or amount == 0), `raise_dispute` operates as
-/// the legacy zero-cost placeholder so existing tests and pre-existing
-/// escrows continue to work unchanged.
+/// Recurring escrow for retainer contracts (Issue #450)
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct DisputeBondConfig {
-    /// Token in which the bond is denominated (e.g. XLM SAC).
-    /// Bonds are always paid in this token — independent of the escrow
-    /// token — so slashing and refunds do not require a DEX hop even when
-    /// the escrow is denominated in USDC.
+pub struct RecurringEscrow {
+    pub job_id: String,
+    pub client: Address,
+    pub freelancer: Address,
     pub token: Address,
-    /// Required bond amount, in the smallests unit of `token` (stroops for XLM).
-    /// A non-zero value enables the bond requirement.
-    pub amount: i128,
-}
-
-/// Per-job record of the locked dispute bond (Issue #437).
-///
-/// Created by `raise_dispute` and consumed (returned to caller or slashed
-/// to winner) by `resolve_dispute`.  Removed from storage on settlement.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct DisputeBond {
-    /// Address of the party that locked the bond (client or freelancer).
-    pub caller: Address,
-    /// Token the bond was paid in — snapshotted so a future admin re-config
-    /// of the global bond does not retroactively change what is owed.
-    pub token: Address,
-    /// Bond amount snapshotted at lock time.
-    pub amount: i128,
-    /// Ledger sequence when the bond was locked — useful for analytics and event correlation.
-    pub raised_at_ledger: u32,
+    pub amount_per_release: i128,
+    pub interval_ledgers: u32,
+    pub releases_remaining: u32,
+    pub last_release_ledger: u32,
+    pub status: EscrowStatus,
 }
 
 /// Storage key per job
