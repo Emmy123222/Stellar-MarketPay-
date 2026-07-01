@@ -54,6 +54,7 @@ const invitationRoutes = require("./routes/invitations");
 const statsRoutes      = require("./routes/stats");
 const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
+const daoRoutes          = require("./routes/dao");
 
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
@@ -415,6 +416,7 @@ app.use("/api/invitations",   invitationRoutes);
 app.use("/api/stats",         statsRoutes);
 app.use("/api/gas-estimate",   gasEstimatorRoutes);
 app.use("/api/transactions",   transactionRoutes);
+app.use("/api/dao",            daoRoutes);
 
 app.use((err, req, res, next) => {
   logError(req.logger || serviceLogger, err, {

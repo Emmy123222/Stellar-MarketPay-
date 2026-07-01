@@ -3,7 +3,7 @@
 const express = require("express");
 const router = express.Router();
 const { createRateLimiter } = require("../middleware/rateLimiter");
-const { verifyJWT } = require("../middleware/auth");
+const { verifyJWT, requireAdminRole } = require("../middleware/auth");
 const daoService = require("../services/daoService");
 
 const daoRateLimiter = createRateLimiter(60, 1);
@@ -118,6 +118,15 @@ router.post("/arbitrators/:publicKey/vote", verifyJWT, daoRateLimiter, async (re
       weight,
     });
     res.json({ success: true, data: arbitrators });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post("/proposals/:id/execute", verifyJWT, requireAdminRole, daoRateLimiter, async (req, res, next) => {
+  try {
+    const proposal = await daoService.executeProposal(req.params.id);
+    res.json({ success: true, data: proposal });
   } catch (e) {
     next(e);
   }
