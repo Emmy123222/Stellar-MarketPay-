@@ -596,6 +596,113 @@ async function startEscrowTimeoutChecker() {
   setInterval(checkAndRefund, 60 * 60 * 1000).unref();
 }
 
+async function requestEscrowExtension(jobId, requestedBy, newTimeoutLedger) {
+  const job = await getJob(jobId);
+  if (job.clientAddress !== requestedBy && job.freelancerAddress !== requestedBy) {
+    const e = new Error("Only the client or freelancer can request an extension");
+    e.status = 403;
+    throw e;
+  }
+
+  const { rows: pending } = await pool.query(
+    "SELECT status FROM escrow_extensions WHERE job_id = $1 AND status = 'pending'",
+    [jobId],
+  );
+  if (pending.length > 0) {
+    const e = new Error("A pending extension request already exists for this escrow");
+    e.status = 400;
+    throw e;
+  }
+
+  const { rows: escrowRows } = await pool.query(
+    "SELECT status, timeout_ledger FROM escrows WHERE job_id = $1",
+    [jobId],
+  );
+  if (!escrowRows.length) {
+    const e = new Error("No escrow found for this job");
+    e.status = 404;
+    throw e;
+  }
+
+  const escrow = escrowRows[0];
+  if (escrow.status !== "funded" && escrow.status !== "in_progress") {
+    const e = new Error("Extension is only allowed while escrow is funded or in progress");
+    e.status = 400;
+    throw e;
+  }
+
+  const currentLedger = escrow.timeout_ledger || 0;
+  if (newTimeoutLedger <= currentLedger) {
+    const e = new Error("New timeout ledger must be greater than the current timeout");
+    e.status = 400;
+    throw e;
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO escrow_extensions (job_id, requested_by, new_timeout_ledger)
+     VALUES ($1, $2, $3)
+     RETURNING *`,
+    [jobId, requestedBy, newTimeoutLedger],
+  );
+
+  return { success: true, extension: rows[0] };
+}
+
+async function approveEscrowExtension(jobId, approvedBy) {
+  const job = await getJob(jobId);
+
+  const { rows: pendingRows } = await pool.query(
+    "SELECT * FROM escrow_extensions WHERE job_id = $1 AND status = 'pending'",
+    [jobId],
+  );
+  if (!pendingRows.length) {
+    const e = new Error("No pending extension request for this job");
+    e.status = 404;
+    throw e;
+  }
+
+  const extension = pendingRows[0];
+
+  if (extension.requested_by === approvedBy) {
+    const e = new Error("Cannot approve your own extension request");
+    e.status = 403;
+    throw e;
+  }
+
+  if (job.clientAddress !== approvedBy && job.freelancerAddress !== approvedBy) {
+    const e = new Error("Only the client or freelancer can approve an extension");
+    e.status = 403;
+    throw e;
+  }
+
+  const { rows: escrowRows } = await pool.query(
+    "SELECT status FROM escrows WHERE job_id = $1",
+    [jobId],
+  );
+  if (!escrowRows.length) {
+    const e = new Error("No escrow found for this job");
+    e.status = 404;
+    throw e;
+  }
+
+  const escrow = escrowRows[0];
+  if (escrow.status !== "funded" && escrow.status !== "in_progress") {
+    const e = new Error("Extension is only allowed while escrow is funded or in progress");
+    e.status = 400;
+    throw e;
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE escrow_extensions
+     SET status = 'approved', approved_by = $2, approved_at = NOW(), updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [extension.id, approvedBy],
+  );
+
+  return { success: true, extension: rows[0] };
+}
+
 module.exports = {
   releaseFunds,
   refundClient,
@@ -609,6 +716,11 @@ module.exports = {
   getEscrowWithTimeout,
   resolveLedgerTimestamp,
   startEscrowTimeoutChecker,
+<<<<<<< HEAD
+  requestEscrowExtension,
+  approveEscrowExtension,
+=======
   verifyFreelancerAccount,
+>>>>>>> origin/main
   ESCROW_TIMEOUT_DAYS,
 };

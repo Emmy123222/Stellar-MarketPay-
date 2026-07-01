@@ -21,7 +21,12 @@ const {
   releaseMilestone,
   rejectMilestone,
   disputeMilestone,
+<<<<<<< HEAD
+  requestEscrowExtension,
+  approveEscrowExtension,
+=======
   verifyFreelancerAccount,
+>>>>>>> origin/main
 } = require("../services/escrowService");
 
 /**
@@ -322,6 +327,20 @@ router.get("/:jobId", escrowActionRateLimiter, async (req, res, next) => {
 });
 
 /**
+<<<<<<< HEAD
+ * POST /api/escrow/:jobId/extend
+ * Request an on-chain escrow timeout extension by mutual consent.
+ * The caller must be the client or freelancer. The frontend uses the
+ * returned data to submit the Soroban request_extension transaction.
+ */
+router.post("/:jobId/extend", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { requestedBy, newTimeoutLedger } = req.body;
+
+    if (!requestedBy || !/^G[A-Z0-9]{55}$/.test(requestedBy)) {
+      const e = new Error("Invalid wallet address");
+=======
  * POST /api/escrow/verify-freelancer
  * Verify that a freelancer Stellar account exists on the network before
  * creating an escrow.
@@ -332,22 +351,72 @@ router.post("/verify-freelancer", escrowActionRateLimiter, async (req, res, next
 
     if (!freelancerAddress) {
       const e = new Error("freelancerAddress is required");
+>>>>>>> origin/main
       e.status = 400;
       throw e;
     }
 
+<<<<<<< HEAD
+    if (!Number.isInteger(newTimeoutLedger) || newTimeoutLedger <= 0) {
+      const e = new Error("newTimeoutLedger must be a positive integer");
+=======
     const exists = await verifyFreelancerAccount(freelancerAddress);
 
     if (!exists) {
       const e = new Error("Freelancer account not found on Stellar network");
+>>>>>>> origin/main
       e.status = 400;
       throw e;
     }
 
+<<<<<<< HEAD
+    const result = await requestEscrowExtension(jobId, requestedBy, newTimeoutLedger);
+
+    await logContractInteraction({
+      functionName: "request_extension",
+      callerAddress: requestedBy,
+      jobId,
+      txHash: `offchain-${Date.now()}`,
+    });
+
+    res.status(201).json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/:jobId/extend/approve
+ * Approve a pending escrow timeout extension request.
+ * The caller must be the party that did NOT request the extension.
+ */
+router.post("/:jobId/extend/approve", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { approvedBy } = req.body;
+
+    if (!approvedBy || !/^G[A-Z0-9]{55}$/.test(approvedBy)) {
+      const e = new Error("Invalid wallet address");
+      e.status = 400;
+      throw e;
+    }
+
+    const result = await approveEscrowExtension(jobId, approvedBy);
+
+    await logContractInteraction({
+      functionName: "approve_extension",
+      callerAddress: approvedBy,
+      jobId,
+      txHash: `offchain-${Date.now()}`,
+    });
+
+    res.json(result);
+=======
     res.json({
       success: true,
       message: "Freelancer account verified on Stellar network",
     });
+>>>>>>> origin/main
   } catch (e) {
     next(e);
   }

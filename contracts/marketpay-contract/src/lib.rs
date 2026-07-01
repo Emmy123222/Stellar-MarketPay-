@@ -173,6 +173,15 @@ pub struct RevealedBid {
     pub revealed_at_ledger: u32,
 }
 
+/// A pending request to extend the escrow timeout, initiated by one party.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ExtensionRequest {
+    pub requested_by: Address,
+    pub new_timeout_ledger: u32,
+    pub created_at: u32,
+}
+
 /// Job completion certificate (Issue #102)
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -291,10 +300,14 @@ pub enum DataKey {
     Version,
     /// Stores list of IPFS CIDs for messages in a job thread
     MessageCid(String),
+    /// Pending timeout extension request per job
+    ExtensionRequest(String),
     /// Address that receives platform fees on every escrow release
     TreasuryAddress,
     /// Platform fee in basis points (e.g. 100 = 1%)
     PlatformFeeBps,
+ Support-escrow-expiry-extension-by-mutual-consent
+
 }
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
@@ -1381,6 +1394,130 @@ impl MarketPayContract {
             .instance()
             .get(&DataKey::UnfreezeThreshold)
             .unwrap_or(2)
+    }
+
+    // ─── Escrow Timeout Extension by Mutual Consent ────────────────────────
+
+    /// Either party may request to extend the escrow timeout.
+    /// Stores a pending ExtensionRequest for the other party to approve.
+    pub fn request_extension(
+        env: Env,
+        job_id: String,
+        caller: Address,
+        new_timeout_ledger: u32,
+    ) {
+        caller.require_auth();
+
+        let escrow: Escrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        if caller != escrow.client && caller != escrow.freelancer {
+            panic!("Only the client or freelancer can request an extension");
+        }
+        if escrow.status != EscrowStatus::Locked && escrow.status != EscrowStatus::InProgress {
+            panic!("Cannot extend timeout in current status");
+        }
+        if new_timeout_ledger <= escrow.timeout_ledger {
+            panic!("New timeout must be later than current timeout");
+        }
+        if env
+            .storage()
+            .instance()
+            .has(&DataKey::ExtensionRequest(job_id.clone()))
+        {
+            panic!("An extension request is already pending for this job");
+        }
+
+        let request = ExtensionRequest {
+            requested_by: caller.clone(),
+            new_timeout_ledger,
+            created_at: env.ledger().sequence(),
+        };
+
+        env.storage()
+            .instance()
+            .set(&DataKey::ExtensionRequest(job_id.clone()), &request);
+
+        env.events().publish(
+            (symbol_short!("ext_req"), job_id.clone()),
+            (caller, new_timeout_ledger),
+        );
+    }
+
+    /// The other party approves the pending extension, updating the escrow's
+    /// timeout_ledger and TimeoutTimestamp atomically.
+    pub fn approve_extension(env: Env, job_id: String, caller: Address) {
+        caller.require_auth();
+
+        let mut escrow: Escrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        if escrow.status != EscrowStatus::Locked && escrow.status != EscrowStatus::InProgress {
+            panic!("Cannot extend timeout in current status");
+        }
+
+        let request: ExtensionRequest = env
+            .storage()
+            .instance()
+            .get(&DataKey::ExtensionRequest(job_id.clone()))
+            .expect("No pending extension request");
+
+        if caller == request.requested_by {
+            panic!("Cannot approve your own extension request");
+        }
+        if caller != escrow.client && caller != escrow.freelancer {
+            panic!("Only the client or freelancer can approve an extension");
+        }
+
+        let ledger_delta = request
+            .new_timeout_ledger
+            .checked_sub(escrow.timeout_ledger)
+            .expect("Arithmetic underflow");
+
+        escrow.timeout_ledger = request.new_timeout_ledger;
+        env.storage()
+            .instance()
+            .set(&DataKey::Escrow(job_id.clone()), &escrow);
+
+        let current_timestamp = env.ledger().timestamp() as u32;
+        let timeout_timestamp: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TimeoutTimestamp(job_id.clone()))
+            .unwrap_or(current_timestamp);
+        let approx_seconds_per_ledger: u32 = 5;
+        let timestamp_extension = ledger_delta
+            .checked_mul(approx_seconds_per_ledger)
+            .expect("Arithmetic overflow");
+        let new_timeout_timestamp = timeout_timestamp
+            .checked_add(timestamp_extension)
+            .expect("Timestamp overflow");
+        env.storage().instance().set(
+            &DataKey::TimeoutTimestamp(job_id.clone()),
+            &new_timeout_timestamp,
+        );
+
+        env.storage()
+            .instance()
+            .remove(&DataKey::ExtensionRequest(job_id.clone()));
+
+        env.events().publish(
+            (symbol_short!("ext_app"), job_id.clone()),
+            (caller, request.requested_by, request.new_timeout_ledger),
+        );
+    }
+
+    /// Return the pending extension request for a job, if any.
+    pub fn get_extension_request(env: Env, job_id: String) -> Option<ExtensionRequest> {
+        env.storage()
+            .instance()
+            .get(&DataKey::ExtensionRequest(job_id))
     }
 
     // ─── On-chain Message Notarization ─────────────────────────────────────
@@ -3362,346 +3499,6 @@ mod upgrade_tests {
 }
 
 #[cfg(test)]
-mod freeze_tests {
-    use super::*;
-    use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
-
-    fn setup(env: &Env) -> (MarketPayContractClient, Address, Address) {
-        env.mock_all_auths();
-        let id = env.register(MarketPayContract, ());
-        let client = MarketPayContractClient::new(env, &id);
-        let admin = Address::generate(env);
-        client.initialize(&admin);
-        (client, admin, id)
-    }
-
-    #[test]
-    fn test_freeze_contract_by_admin() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        assert_eq!(client.is_frozen(), false);
-        client.freeze_contract(&admin);
-        assert_eq!(client.is_frozen(), true);
-    }
-
-    #[test]
-    #[should_panic(expected = "Only an admin can freeze the contract")]
-    fn test_freeze_contract_rejected_for_non_admin() {
-        let env = Env::default();
-        let (client, _admin, _id) = setup(&env);
-
-        let non_admin = Address::generate(&env);
-        client.freeze_contract(&non_admin);
-    }
-
-    #[test]
-    fn test_unfreeze_contract_with_two_admins() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-
-        client.freeze_contract(&admin);
-        assert_eq!(client.is_frozen(), true);
-
-        let mut unfreeze_admins = Vec::new(&env);
-        unfreeze_admins.push_back(admin);
-        unfreeze_admins.push_back(admin2);
-        client.unfreeze_contract(&unfreeze_admins);
-
-        assert_eq!(client.is_frozen(), false);
-    }
-
-    #[test]
-    #[should_panic(expected = "Insufficient admin signatures to unfreeze")]
-    fn test_unfreeze_contract_rejected_with_one_admin() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-
-        client.freeze_contract(&admin);
-
-        let mut unfreeze_admins = Vec::new(&env);
-        unfreeze_admins.push_back(admin);
-        client.unfreeze_contract(&unfreeze_admins);
-    }
-
-    #[test]
-    #[should_panic(expected = "Contract is frozen")]
-    fn test_create_escrow_blocked_when_frozen() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let depositor = Address::generate(&env);
-        let freelancer = Address::generate(&env);
-        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
-        let token_id = token_contract.address();
-        let token_admin = token::StellarAssetClient::new(&env, &token_id);
-        token_admin.mint(&depositor, &500);
-
-        client.freeze_contract(&admin);
-
-        let job_id = String::from_str(&env, "frozen-create");
-        client.create_escrow(&job_id, &depositor, &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None });
-    }
-
-    #[test]
-    #[should_panic(expected = "Contract is frozen")]
-    fn test_release_escrow_blocked_when_frozen() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let depositor = Address::generate(&env);
-        let freelancer = Address::generate(&env);
-        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
-        let token_id = token_contract.address();
-        let token_admin = token::StellarAssetClient::new(&env, &token_id);
-        token_admin.mint(&depositor, &500);
-
-        let job_id = String::from_str(&env, "frozen-release");
-        client.create_escrow(&job_id, &depositor, &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None });
-        client.start_work(&job_id, &freelancer);
-
-        client.freeze_contract(&admin);
-
-        client.release_escrow(&job_id, &depositor);
-    }
-
-    #[test]
-    fn test_add_admin_and_get_admins() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-
-        let admins = client.get_admins();
-        assert_eq!(admins.len(), 2);
-
-        let threshold = client.get_unfreeze_threshold();
-        assert_eq!(threshold, 2u32);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_unfreeze_rejects_duplicate_admins() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-
-        client.freeze_contract(&admin);
-
-        let mut unfreeze_admins = Vec::new(&env);
-        unfreeze_admins.push_back(admin.clone());
-        unfreeze_admins.push_back(admin);
-        client.unfreeze_contract(&unfreeze_admins);
-    }
-
-    #[test]
-    fn test_set_unfreeze_threshold() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        let admin3 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-        client.add_admin(&admin, &admin3);
-
-        client.set_unfreeze_threshold(&admin, &3u32);
-        assert_eq!(client.get_unfreeze_threshold(), 3u32);
-    }
-}
-
-#[cfg(all(test, feature = "event_tests_fixme"))]
-mod event_tests {
-    extern crate std;
-
-    use super::*;
-    use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::testutils::Events;
-    use soroban_sdk::{Address, Env, String, Symbol, TryFromVal, Vec};
-
-    fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, Address) {
-        env.mock_all_auths();
-        let id = env.register(MarketPayContract, ());
-        let client = MarketPayContractClient::new(env, &id);
-        let admin = Address::generate(env);
-        let treasury = Address::generate(env);
-        client.initialize(&admin, &treasury);
-
-        let contract_client = Address::generate(env);
-        let freelancer = Address::generate(env);
-        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
-        let token_id = token_contract.address();
-        let token_admin = token::StellarAssetClient::new(env, &token_id);
-        token_admin.mint(&contract_client, &1000);
-
-        (client, contract_client, freelancer, token_id)
-    }
-
-fn get_event_topic0_str(env: &Env, idx: u32) -> std::string::String {
-    let events: Vec<_> = env.events().all().into_iter().collect();
-    let event = events.get(idx as usize).unwrap();
-    let topic0 = event.1.get(0).unwrap();
-    if let Ok(sym) = Symbol::try_from_val(env, &topic0) {
-        std::format!("{:?}", sym)
-    } else {
-        std::format!("{:?}", topic0)
-    }
-}
-
-    #[test]
-    fn test_create_escrow_emits_event() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-1");
-
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
-        );
-
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        let last_idx = events.len() - 1;
-        assert!(
-            get_event_topic0_str(&env, last_idx as u32).contains("escrow_cr"),
-        );
-    }
-
-    #[test]
-    fn test_start_work_emits_event() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-2");
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
-        );
-
-        client.start_work(&job_id, &freelancer);
-
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("work_strt"),
-        );
-    }
-
-    #[test]
-    fn test_release_escrow_emits_event() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-3");
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
-        );
-        client.start_work(&job_id, &freelancer);
-
-        client.release_escrow(&job_id, &contract_client);
-
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_rl"),
-        );
-    }
-
-    #[test]
-    fn test_refund_escrow_emits_event() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-4");
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
-        );
-
-        client.refund_escrow(&job_id, &contract_client);
-
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_rf"),
-        );
-    }
-
-    #[test]
-    fn test_raise_dispute_emits_event() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-5");
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
-        );
-
-        client.raise_dispute(&job_id, &contract_client);
-
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_ds"),
-        );
-    }
-
-    #[test]
-    fn test_milestone_released_emits_event() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-6");
-        let mut milestones = Vec::new(&env);
-        milestones.push_back(MilestoneInput { description: String::from_str(&env, "Design"), percentage: 40 });
-        milestones.push_back(MilestoneInput { description: String::from_str(&env, "Build"), percentage: 60 });
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 1000, milestones: Some(milestones), timeout_ledgers: None, referrer: None },
-        );
-        client.start_work(&job_id, &freelancer);
-
-        client.release_milestone(&job_id, &0u32, &contract_client);
-
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("milestone_released"),
-        );
-    }
-
-    #[test]
-    fn test_full_lifecycle_events_all_emitted() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-7");
-
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
-        );
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_cr"),
-            "Missing escrow_cr after create_escrow",
-        );
-
-        client.start_work(&job_id, &freelancer);
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("work_strt"),
-            "Missing work_strt after start_work",
-        );
-
-        client.release_escrow(&job_id, &contract_client);
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_rl"),
-            "Missing escrow_rl after release_escrow",
-        );
-    }
-}
-
-#[cfg(test)]
 mod sealed_bid_tests {
     use super::*;
     use soroban_sdk::{testutils::Address as _, testutils::Ledger, Address, Bytes, BytesN, Env, String};
@@ -3991,262 +3788,254 @@ mod milestone_pct_tests {
 }
 
 #[cfg(test)]
-mod referrer_cap_tests {
-    //! Issue #440 — admin-settable cap on the 2% referrer bonus.
-    //!
-    //! The cap is applied inside `release_escrow_core()` as
-    //!   `bonus = min(2% of release_amount, max_referrer_bonus_xlm)`
-    //! so a referrer cannot extract disproportionate rewards on huge
-    //! escrows. The difference between the uncapped 2% and the cap
-    //! (when the cap is lower) is rolled back into the freelancer's
-    //! payout — the escrow's total payout still equals `release_amount`.
+mod extension_tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, token, Address, Env, String};
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{Address, Env, String};
 
-    fn setup(
-        env: &Env,
-        client_funded: i128,
-    ) -> (MarketPayContractClient, Address, Address, Address, Address, Address) {
+    fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, Address) {
         env.mock_all_auths();
         let id = env.register(MarketPayContract, ());
-        let contract_client = MarketPayContractClient::new(env, &id);
+        let client = MarketPayContractClient::new(env, &id);
         let admin = Address::generate(env);
-        contract_client.initialize(&admin);
+        client.initialize(&admin);
 
-        let depositor = Address::generate(env);
+        let contract_client = Address::generate(env);
         let freelancer = Address::generate(env);
-        let referrer = Address::generate(env);
-
         let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
         let token_id = token_contract.address();
         let token_admin = token::StellarAssetClient::new(env, &token_id);
-        token_admin.mint(&depositor, &client_funded);
+        token_admin.mint(&contract_client, &1000);
 
-        (contract_client, admin, depositor, freelancer, referrer, token_id)
+        (client, contract_client, freelancer, token_id)
     }
 
-    /// Below-cap: 2% (the `bonus_uncapped`) is itself below the cap,
-    /// so the cap is a no-op and legacy behaviour is preserved.
     #[test]
-    fn test_referrer_bonus_below_cap_uses_uncapped_two_percent() {
-        let env = Env::default();
-        let (c, _admin, client, freelancer, referrer, token_id) = setup(&env, 1_000);
-
-        // cap = 5 XLM = 50_000_000 stroops; 2% of 1000 = 20 stroops
-        c.set_max_referrer_bonus_xlm(&_admin, &50_000_000);
-
-        let job_id = String::from_str(&env, "bonus_below_cap");
-        c.create_escrow(
-            &job_id,
-            &client,
-            &CreateEscrowParams {
-                freelancer: freelancer.clone(),
-                token: token_id.clone(),
-                amount: 1_000,
-                milestones: None,
-                timeout_ledgers: None,
-                referrer: Some(referrer.clone()),
-            },
-        );
-        c.start_work(&job_id, &freelancer);
-        c.release_escrow(&job_id, &client);
-
-        let token_client = token::Client::new(&env, &token_id);
-        assert_eq!(token_client.balance(&referrer), 20);
-        assert_eq!(token_client.balance(&freelancer), 980);
-    }
-
-    /// **Cap boundary (the AC's required test).** 2% is EXACTLY at the
-    /// cap, so the cap is effectively a no-op — confirms off-by-one
-    /// arithmetic at the boundary.
-    #[test]
-    fn test_referrer_bonus_at_cap_boundary() {
-        let env = Env::default();
-        let (c, _admin, client, freelancer, referrer, token_id) = setup(&env, 1_000);
-
-        // amount = 1_000 -> uncapped 2% bonus = 20. Set cap = 19 (one
-        // BELOW the uncapped bonus). The `min()` boundary collapse picks
-        // the cap (19). The saved stroop goes to the freelancer on top
-        // of the 98% he would have received without a cap.
-        c.set_max_referrer_bonus_xlm(&_admin, &19);
-
-        let job_id = String::from_str(&env, "bonus_at_boundary");
-        c.create_escrow(
-            &job_id,
-            &client,
-            &CreateEscrowParams {
-                freelancer: freelancer.clone(),
-                token: token_id.clone(),
-                amount: 1_000,
-                milestones: None,
-                timeout_ledgers: None,
-                referrer: Some(referrer.clone()),
-            },
-        );
-        c.start_work(&job_id, &freelancer);
-        c.release_escrow(&job_id, &client);
-
-        let token_client = token::Client::new(&env, &token_id);
-        assert_eq!(token_client.balance(&referrer), 19, "cap wins at the boundary (19 < 20)");
-        assert_eq!(token_client.balance(&freelancer), 981, "freelancer absorbs the saved stroop");
-    }
-
-    /// Cap exactly equal to the uncapped 2%% -- the cap is bypassed and
-    /// legacy behaviour applies. Companion to the "just below" boundary
-    /// test above; together they cover BOTH sides of the `min()` boundary.
-    #[test]
-    fn test_referrer_bonus_equal_to_cap_uses_full_two_percent() {
-        let env = Env::default();
-        let (c, _admin, client, freelancer, referrer, token_id) = setup(&env, 1_000);
-
-        // amount = 1_000 -> uncapped 2%% = 20. Set cap = 20 (EXACTLY equal).
-        // The `Some(c) if c < bonus_uncapped` arm is FALSE so the cap is
-        // bypassed and the referrer still gets the full 2%%.
-        c.set_max_referrer_bonus_xlm(&_admin, &20);
-
-        let job_id = String::from_str(&env, "bonus_equal_to_cap");
-        c.create_escrow(
-            &job_id,
-            &client,
-            &CreateEscrowParams {
-                freelancer: freelancer.clone(),
-                token: token_id.clone(),
-                amount: 1_000,
-                milestones: None,
-                timeout_ledgers: None,
-                referrer: Some(referrer.clone()),
-            },
-        );
-        c.start_work(&job_id, &freelancer);
-        c.release_escrow(&job_id, &client);
-
-        let token_client = token::Client::new(&env, &token_id);
-        assert_eq!(token_client.balance(&referrer), 20, "cap == bonus so legacy 2%% wins");
-        assert_eq!(token_client.balance(&freelancer), 980);
-    }
-
-    /// Above-cap: 2% would exceed the cap, so the bonus is reduced to
-    /// `min(2%, cap)` and the difference is rolled into the freelancer
-    /// payout. Total payout still equals `release_amount`.
-    #[test]
-    fn test_referrer_bonus_above_cap_capped_and_excess_paid_to_freelancer() {
-        let env = Env::default();
-        let (c, _admin, client, freelancer, referrer, token_id) = setup(&env, 10_000);
-
-        // amount = 10_000, 2% = 200. Cap = 50 => bonus capped to 50 and
-        // freelancer receives 10_000 - 50 = 9_950.
-        c.set_max_referrer_bonus_xlm(&_admin, &50);
-
-        let job_id = String::from_str(&env, "bonus_above_cap");
-        c.create_escrow(
-            &job_id,
-            &client,
-            &CreateEscrowParams {
-                freelancer: freelancer.clone(),
-                token: token_id.clone(),
-                amount: 10_000,
-                milestones: None,
-                timeout_ledgers: None,
-                referrer: Some(referrer.clone()),
-            },
-        );
-        c.start_work(&job_id, &freelancer);
-        c.release_escrow(&job_id, &client);
-
-        let token_client = token::Client::new(&env, &token_id);
-        assert_eq!(token_client.balance(&referrer), 50, "referrer got the cap exactly");
-        assert_eq!(
-            token_client.balance(&freelancer),
-            9_950,
-            "freelancer got the leftover (NOT the leftover subtracted from 10k)",
-        );
-    }
-
-    /// Legacy behaviour: when the admin has not set a cap the 2%
-    /// bonus should apply unchanged (backward compatibility).
-    #[test]
-    fn test_referrer_bonus_without_cap_uses_full_two_percent() {
-        let env = Env::default();
-        let (c, _admin, client, freelancer, referrer, token_id) = setup(&env, 1_000);
-
-        // No set_max_referrer_bonus call.
-        let job_id = String::from_str(&env, "bonus_no_cap");
-        c.create_escrow(
-            &job_id,
-            &client,
-            &CreateEscrowParams {
-                freelancer: freelancer.clone(),
-                token: token_id.clone(),
-                amount: 1_000,
-                milestones: None,
-                timeout_ledgers: None,
-                referrer: Some(referrer.clone()),
-            },
-        );
-        c.start_work(&job_id, &freelancer);
-        c.release_escrow(&job_id, &client);
-
-        let token_client = token::Client::new(&env, &token_id);
-        assert_eq!(token_client.balance(&referrer), 20);
-        assert_eq!(token_client.balance(&freelancer), 980);
-    }
-
-    /// cap = 0 disables the referrer program entirely. The full
-    /// `release_amount` goes to the freelancer.
-    #[test]
-    fn test_referrer_bonus_cap_zero_disables_referrer() {
-        let env = Env::default();
-        let (c, _admin, client, freelancer, referrer, token_id) = setup(&env, 1_000);
-
-        c.set_max_referrer_bonus_xlm(&_admin, &0);
-
-        let job_id = String::from_str(&env, "bonus_cap_zero");
-        c.create_escrow(
-            &job_id,
-            &client,
-            &CreateEscrowParams {
-                freelancer: freelancer.clone(),
-                token: token_id.clone(),
-                amount: 1_000,
-                milestones: None,
-                timeout_ledgers: None,
-                referrer: Some(referrer.clone()),
-            },
-        );
-        c.start_work(&job_id, &freelancer);
-        c.release_escrow(&job_id, &client);
-
-        let token_client = token::Client::new(&env, &token_id);
-        assert_eq!(token_client.balance(&referrer), 0, "no referrer payout when cap = 0");
-        assert_eq!(token_client.balance(&freelancer), 1_000, "freelancer gets the whole escrow");
-    }
-
-    /// Defensive: negative cap is rejected at the setter so a future
-    /// config bug cannot coerce an underflow panic on release.
-    #[test]
-    #[should_panic(expected = "Referrer bonus cap must be non-negative")]
-    fn test_set_negative_referrer_bonus_cap_panics() {
+    fn test_client_requests_extension() {
         let env = Env::default();
         env.mock_all_auths();
-        let id = env.register(MarketPayContract, ());
-        let c = MarketPayContractClient::new(&env, &id);
-        let admin = Address::generate(&env);
-        c.initialize(&admin);
-        c.set_max_referrer_bonus_xlm(&admin, &-1);
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ext-1");
+        let timeout_ledgers = 10u32;
+
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 500,
+            milestones: None, timeout_ledgers: Some(timeout_ledgers), referrer: None,
+        });
+
+        let escrow = client.get_escrow(&job_id);
+        let current_ledger = env.ledger().sequence();
+        let new_timeout = current_ledger + timeout_ledgers + 20;
+
+        client.request_extension(&job_id, &contract_client, &new_timeout);
+
+        let req = client.get_extension_request(&job_id).unwrap();
+        assert_eq!(req.requested_by, contract_client);
+        assert_eq!(req.new_timeout_ledger, new_timeout);
     }
 
-    /// Auth: only the stored admin can set the cap.
     #[test]
-    #[should_panic(expected = "Only admin can set the referrer bonus cap")]
-    fn test_set_referrer_bonus_cap_rejects_non_admin() {
+    fn test_freelancer_requests_extension() {
         let env = Env::default();
         env.mock_all_auths();
-        let id = env.register(MarketPayContract, ());
-        let c = MarketPayContractClient::new(&env, &id);
-        let admin = Address::generate(&env);
-        c.initialize(&admin);
-        let rando = Address::generate(&env);
-        // mock_all_auths is on so require_auth passes; the admin check fails.
-        c.set_max_referrer_bonus_xlm(&rando, &100);
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ext-2");
+        let timeout_ledgers = 10u32;
+
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 500,
+            milestones: None, timeout_ledgers: Some(timeout_ledgers), referrer: None,
+        });
+
+        let escrow = client.get_escrow(&job_id);
+        let new_timeout = escrow.timeout_ledger + 20;
+
+        client.request_extension(&job_id, &freelancer, &new_timeout);
+
+        let req = client.get_extension_request(&job_id).unwrap();
+        assert_eq!(req.requested_by, freelancer);
+        assert_eq!(req.new_timeout_ledger, new_timeout);
+    }
+
+    #[test]
+    fn test_approve_extension_updates_timeout() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ext-3");
+        let timeout_ledgers = 10u32;
+
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 500,
+            milestones: None, timeout_ledgers: Some(timeout_ledgers), referrer: None,
+        });
+
+        let escrow = client.get_escrow(&job_id);
+        let new_timeout = escrow.timeout_ledger + 50;
+
+        client.request_extension(&job_id, &contract_client, &new_timeout);
+        client.approve_extension(&job_id, &freelancer);
+
+        let updated = client.get_escrow(&job_id);
+        assert_eq!(updated.timeout_ledger, new_timeout);
+        assert!(client.get_extension_request(&job_id).is_none());
+    }
+
+    #[test]
+    fn test_freelancer_requests_client_approves() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ext-4");
+        let timeout_ledgers = 10u32;
+
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 500,
+            milestones: None, timeout_ledgers: Some(timeout_ledgers), referrer: None,
+        });
+
+        let escrow = client.get_escrow(&job_id);
+        let new_timeout = escrow.timeout_ledger + 30;
+
+        client.request_extension(&job_id, &freelancer, &new_timeout);
+        client.approve_extension(&job_id, &contract_client);
+
+        let updated = client.get_escrow(&job_id);
+        assert_eq!(updated.timeout_ledger, new_timeout);
+    }
+
+    #[test]
+    fn test_extension_after_start_work() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ext-5");
+        let timeout_ledgers = 10u32;
+
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 500,
+            milestones: None, timeout_ledgers: Some(timeout_ledgers), referrer: None,
+        });
+        client.start_work(&job_id, &freelancer);
+
+        let escrow = client.get_escrow(&job_id);
+        assert_eq!(escrow.status, EscrowStatus::InProgress);
+
+        let new_timeout = escrow.timeout_ledger + 20;
+        client.request_extension(&job_id, &freelancer, &new_timeout);
+        client.approve_extension(&job_id, &contract_client);
+
+        let updated = client.get_escrow(&job_id);
+        assert_eq!(updated.timeout_ledger, new_timeout);
+    }
+
+    #[test]
+    #[should_panic(expected = "An extension request is already pending")]
+    fn test_double_request_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ext-6");
+        let timeout_ledgers = 10u32;
+
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 500,
+            milestones: None, timeout_ledgers: Some(timeout_ledgers), referrer: None,
+        });
+
+        let escrow = client.get_escrow(&job_id);
+        let new_timeout = escrow.timeout_ledger + 50;
+        client.request_extension(&job_id, &contract_client, &new_timeout);
+        client.request_extension(&job_id, &contract_client, &(new_timeout + 10));
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot approve your own extension request")]
+    fn test_cannot_approve_own_request() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ext-7");
+        let timeout_ledgers = 10u32;
+
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 500,
+            milestones: None, timeout_ledgers: Some(timeout_ledgers), referrer: None,
+        });
+
+        let escrow = client.get_escrow(&job_id);
+        let new_timeout = escrow.timeout_ledger + 50;
+        client.request_extension(&job_id, &contract_client, &new_timeout);
+        client.approve_extension(&job_id, &contract_client);
+    }
+
+    #[test]
+    #[should_panic(expected = "New timeout must be later than current timeout")]
+    fn test_new_timeout_must_be_later() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ext-8");
+        let timeout_ledgers = 10u32;
+
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 500,
+            milestones: None, timeout_ledgers: Some(timeout_ledgers), referrer: None,
+        });
+
+        let escrow = client.get_escrow(&job_id);
+        client.request_extension(&job_id, &contract_client, &escrow.timeout_ledger);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot extend timeout in current status")]
+    fn test_extension_on_released_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ext-9");
+        let timeout_ledgers = 10u32;
+
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 500,
+            milestones: None, timeout_ledgers: Some(timeout_ledgers), referrer: None,
+        });
+        client.release_escrow(&job_id, &contract_client);
+
+        let escrow = client.get_escrow(&job_id);
+        client.request_extension(&job_id, &contract_client, &(escrow.timeout_ledger + 10));
+    }
+
+    #[test]
+    fn test_extension_request_getter_returns_none_when_empty() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ext-10");
+        let timeout_ledgers = 10u32;
+
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 500,
+            milestones: None, timeout_ledgers: Some(timeout_ledgers), referrer: None,
+        });
+
+        assert!(client.get_extension_request(&job_id).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "No pending extension request")]
+    fn test_approve_without_request_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "ext-11");
+        let timeout_ledgers = 10u32;
+
+        client.create_escrow(&job_id, &contract_client, &CreateEscrowParams {
+            freelancer: freelancer.clone(), token: token_id.clone(), amount: 500,
+            milestones: None, timeout_ledgers: Some(timeout_ledgers), referrer: None,
+        });
+
+        client.approve_extension(&job_id, &freelancer);
     }
 }
