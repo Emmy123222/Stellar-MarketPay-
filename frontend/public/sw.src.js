@@ -117,6 +117,53 @@ self.addEventListener("message", (event) => {
   }
 });
 
+// ── Push Notifications ───────────────────────────────────────────────────────
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+
+  try {
+    const data = event.data.json();
+    const { title, body, icon, badge, tag, data: notifData } = data;
+
+    event.waitUntil(
+      self.registration.showNotification(title, {
+        body,
+        icon: icon || "/icon-192x192.png",
+        badge: badge || "/icon-96x96.png",
+        tag: tag || "notification",
+        data: notifData || {},
+        requireInteraction: false,
+      })
+    );
+  } catch (error) {
+    console.error("[push] Error handling push event:", error);
+  }
+});
+
+// ── Notification Click ───────────────────────────────────────────────────────
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  const { linkPath } = event.notification.data || {};
+  const targetUrl = linkPath || "/";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window" }).then((clients) => {
+      // Look for an existing window/tab with the target URL
+      for (let i = 0; i < clients.length; i++) {
+        if (clients[i].url === targetUrl) {
+          return clients[i].focus();
+        }
+      }
+
+      // If not found, open a new window
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+    })
+  );
+});
+
 // ── Caching strategies ────────────────────────────────────────────────────────
 
 /** Stale-while-revalidate: serve cached response immediately, then update cache in background. */

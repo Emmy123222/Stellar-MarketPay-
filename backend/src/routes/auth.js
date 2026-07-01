@@ -14,6 +14,7 @@ const {
   rotateRefreshToken,
   setAuthCookies,
 } = require("../services/authTokens");
+const { generateCsrfToken } = require("../middleware/csrf");
 
 const router = express.Router();
 
@@ -27,9 +28,40 @@ function getServerKeypair() {
 }
 
 const HOME_DOMAIN = process.env.HOME_DOMAIN || "localhost:4000";
-const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK === "mainnet" 
-  ? "Public Global Stellar Network ; September 2015" 
-  : "Test SDF Network ; September 2015";
+const MAINNET_PASSPHRASE = "Public Global Stellar Network ; September 2015";
+const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
+
+function resolvePassphrase(network) {
+  return network === "mainnet" ? MAINNET_PASSPHRASE : TESTNET_PASSPHRASE;
+}
+
+/**
+ * @swagger
+ * /api/auth/csrf-token:
+ *   get:
+ *     summary: Issue a CSRF token for double-submit protection
+ *     description: |
+ *       Generates a fresh CSRF token, sets it as a non-HttpOnly `csrf-token`
+ *       cookie, and returns it in the response body. The frontend Axios
+ *       instance attaches this token in the `X-CSRF-Token` header on every
+ *       subsequent state-mutating request (`POST`, `PUT`, `PATCH`, `DELETE`).
+ *     tags: [Authentication]
+ *     responses:
+ *       200:
+ *         description: CSRF token issued
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 csrfToken:
+ *                   type: string
+ *                   description: Token the client must echo in `X-CSRF-Token`
+ */
+router.get("/csrf-token", (req, res) => {
+  const csrfToken = generateCsrfToken(req, res);
+  res.json({ csrfToken });
+});
 
 /**
  * @swagger
@@ -69,6 +101,8 @@ router.get("/", (req, res) => {
     if (!accountId) {
       return res.status(400).json({ error: "Missing account parameter" });
     }
+    const network = req.query.network === "mainnet" ? "mainnet" : "testnet";
+    const networkPassphrase = resolvePassphrase(network);
 
     const serverKeypair = getServerKeypair();
     const challenge = Utils.buildChallengeTx(
@@ -76,10 +110,10 @@ router.get("/", (req, res) => {
       accountId,
       HOME_DOMAIN,
       300, // 5 minutes timeout
-      NETWORK_PASSPHRASE
+      networkPassphrase
     );
 
-    res.json({ transaction: challenge });
+    res.json({ transaction: challenge, network });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -133,18 +167,20 @@ router.get("/", (req, res) => {
  */
 router.post("/", async (req, res) => {
   try {
-    const { transaction } = req.body;
+    const { transaction, network: reqNetwork } = req.body;
     if (!transaction) {
       return res.status(400).json({ error: "Missing transaction in request body" });
     }
+    const network = reqNetwork === "mainnet" ? "mainnet" : "testnet";
+    const networkPassphrase = resolvePassphrase(network);
 
     const serverKeypair = getServerKeypair();
     const accountId = Utils.verifyChallengeTx(
       transaction,
       serverKeypair.publicKey(),
-      NETWORK_PASSPHRASE,
+      networkPassphrase,
       HOME_DOMAIN,
-      "" // webAuthEndpoint is optional or typically HOME_DOMAIN if not specified differently
+      ""
     );
 
     const adminAddresses = (process.env.ADMIN_WALLET_ADDRESSES || "")
@@ -153,7 +189,7 @@ router.post("/", async (req, res) => {
       .filter(Boolean);
     const isAdmin = adminAddresses.includes(accountId);
 
-    const payload = { publicKey: accountId };
+    const payload = { publicKey: accountId, network };
     if (isAdmin) {
       await ensureAdminProfile(accountId);
       payload.role = "admin";
@@ -174,9 +210,9 @@ router.post("/", async (req, res) => {
       console.warn("[auth] Could not stamp last_login_at:", stampErr.message);
     }
 
-    const { accessToken, refreshToken } = issueTokenPair(payload);
-    setAuthCookies(res, accessToken, refreshToken);
-    res.json({ success: true, token: accessToken });
+    const { accessToken, refreshToken, csrfToken } = issueTokenPair(payload);
+    setAuthCookies(res, accessToken, refreshToken, csrfToken);
+    res.json({ success: true, token: accessToken, csrfToken });
   } catch (e) {
     res.status(401).json({ error: "Unauthorized: " + e.message });
   }
@@ -191,8 +227,8 @@ router.post("/refresh", (req, res) => {
     return res.status(401).json({ error: "Unauthorized: Invalid refresh token" });
   }
 
-  setAuthCookies(res, rotated.accessToken, rotated.refreshToken);
-  return res.json({ success: true, token: rotated.accessToken });
+  setAuthCookies(res, rotated.accessToken, rotated.refreshToken, rotated.csrfToken);
+  return res.json({ success: true, token: rotated.accessToken, csrfToken: rotated.csrfToken });
 });
 
 router.post("/logout", (req, res) => {

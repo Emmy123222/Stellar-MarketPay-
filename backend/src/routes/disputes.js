@@ -21,6 +21,8 @@ const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT }         = require("../middleware/auth");
 const ipfsService            = require("../services/ipfsService");
 const { validateIpfsCid }    = require("../services/disputeService");
+const sorobanEvidence       = require("../services/sorobanEvidence");
+const { createError, ErrorCodes } = require("../utils/errors");
 
 const MAX_FILES_PER_PARTY = 10;
 const MAX_FILE_SIZE       = 5 * 1024 * 1024; // 5 MB
@@ -42,6 +44,30 @@ const upload = multer({
 const readRateLimiter   = createRateLimiter(30, 1);
 const uploadRateLimiter = createRateLimiter(5, 1);
 
+// GET /api/disputes/:jobId/onchain-cids  — read the chain-attested CID list
+//
+// Issue #448 — AC #5: frontend dispute page reads CIDs from chain. This
+// endpoint delegates to `sorobanEvidence.getOnchainEvidenceCids` which reads
+// the Vec<Bytes> at DataKey::EvidenceCids via the contract's
+// get_evidence_cids view function.
+const readOnchainRateLimiter = createRateLimiter(15, 1);
+router.get("/:jobId/onchain-cids", readOnchainRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { rows: jobRows } = await pool.query(
+      "SELECT client_address, freelancer_address, status FROM jobs WHERE id = $1",
+      [jobId],
+    );
+    if (!jobRows.length) {
+      throw createError(ErrorCodes.JOB_NOT_FOUND, "Job not found", 404);
+    }
+    // Visibility: same audience as the dispute itself (anyone can read).
+    // Reserving the option to gate this further once SOROBAN_RPC is finalized.
+    const cids = await sorobanEvidence.getOnchainEvidenceCids(jobId);
+    res.json({ success: true, data: { jobId, cids } });
+  } catch (e) { next(e); }
+});
+
 // GET /api/disputes/:jobId
 router.get("/:jobId", readRateLimiter, async (req, res, next) => {
   try {
@@ -54,9 +80,7 @@ router.get("/:jobId", readRateLimiter, async (req, res, next) => {
     );
 
     if (!jobRows.length) {
-      const e = new Error("Job not found");
-      e.status = 404;
-      throw e;
+      throw createError(ErrorCodes.JOB_NOT_FOUND, "Job not found", 404);
     }
 
     const { rows: evidence } = await pool.query(
@@ -98,9 +122,7 @@ router.post(
       const uploaderAddress    = req.user.publicKey;
 
       if (!req.file) {
-        const e = new Error("No file provided");
-        e.status = 400;
-        throw e;
+        throw createError(ErrorCodes.BAD_REQUEST, "No file provided", 400);
       }
 
       const { rows: jobRows } = await pool.query(
@@ -109,16 +131,12 @@ router.post(
       );
 
       if (!jobRows.length) {
-        const e = new Error("Job not found");
-        e.status = 404;
-        throw e;
+        throw createError(ErrorCodes.JOB_NOT_FOUND, "Job not found", 404);
       }
 
       const job = jobRows[0];
       if (job.client_address !== uploaderAddress && job.freelancer_address !== uploaderAddress) {
-        const e = new Error("Only the client or freelancer can upload evidence");
-        e.status = 403;
-        throw e;
+        throw createError(ErrorCodes.FORBIDDEN, "Only the client or freelancer can upload evidence", 403);
       }
 
       const { rows: countRows } = await pool.query(
@@ -127,9 +145,7 @@ router.post(
       );
 
       if (parseInt(countRows[0].count, 10) >= MAX_FILES_PER_PARTY) {
-        const e = new Error(`Maximum ${MAX_FILES_PER_PARTY} files allowed per party`);
-        e.status = 400;
-        throw e;
+        throw createError(ErrorCodes.EVIDENCE_LIMIT_REACHED, `Maximum ${MAX_FILES_PER_PARTY} files allowed per party`, 400);
       }
 
       let ipfsResult;
@@ -140,11 +156,11 @@ router.post(
           req.file.mimetype
         );
       } catch (ipfsError) {
-        // Return user-friendly error for IPFS failures
-        const e = new Error(ipfsError.message || "Upload service temporarily unavailable. Please try again later.");
-        e.status = ipfsError.status || 503;
-        e.code = ipfsError.code || "IPFS_UPLOAD_FAILED";
-        throw e;
+        throw createError(
+          ipfsError.code || ErrorCodes.IPFS_UPLOAD_FAILED,
+          ipfsError.message || "Upload service temporarily unavailable. Please try again later.",
+          ipfsError.status || 503
+        );
       }
 
       const ipfsCid = validateIpfsCid(ipfsResult?.cid);
@@ -174,5 +190,91 @@ router.post(
     } catch (e) { next(e); }
   }
 );
+
+// GET /api/disputes/:jobId/evidence/:id/url — generate signed URL (Issue #467)
+router.get("/:jobId/evidence/:id/url", verifyJWT, readRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId, id } = req.params;
+    const requesterAddress = req.user.publicKey;
+
+    // Verify requester is client or freelancer of this job
+    const { rows: jobRows } = await pool.query(
+      "SELECT client_address, freelancer_address FROM jobs WHERE id = $1",
+      [jobId]
+    );
+    if (!jobRows.length) throw createError(ErrorCodes.JOB_NOT_FOUND, "Job not found", 404);
+
+    const { client_address, freelancer_address } = jobRows[0];
+    if (requesterAddress !== client_address && requesterAddress !== freelancer_address) {
+      throw createError(ErrorCodes.FORBIDDEN, "Only the client or freelancer can access evidence URLs", 403);
+    }
+
+    // Fetch the evidence record
+    const { rows: evRows } = await pool.query(
+      "SELECT id, ipfs_cid, file_name, mime_type FROM dispute_evidence WHERE id = $1 AND job_id = $2",
+      [id, jobId]
+    );
+    if (!evRows.length) throw createError(ErrorCodes.EVIDENCE_NOT_FOUND, "Evidence not found", 404);
+
+    const evidence = evRows[0];
+
+    // Generate signed token valid for 15 min
+    const token = ipfsService.generateSignedUrlToken(evidence.ipfs_cid, jobId, requesterAddress);
+
+    // Write audit log entry
+    await pool.query(
+      `INSERT INTO audit_log (action, resource_type, resource_id, actor_address, metadata)
+       VALUES ('evidence_access', 'dispute_evidence', $1, $2, $3::jsonb)`,
+      [id, requesterAddress, JSON.stringify({ jobId, cid: evidence.ipfs_cid })]
+    ).catch(() => {}); // non-fatal if audit_log table schema differs
+
+    const expiresAt = new Date(Date.now() + ipfsService.SIGNED_URL_TTL_SECONDS * 1000).toISOString();
+
+    res.json({
+      success: true,
+      data: {
+        url:       `/api/disputes/${jobId}/evidence/${id}/proxy?token=${token}`,
+        expiresAt,
+        fileName:  evidence.file_name,
+        mimeType:  evidence.mime_type,
+      },
+    });
+  } catch (e) { next(e); }
+});
+
+// GET /api/disputes/:jobId/evidence/:id/proxy — proxy IPFS file after verifying signed token (Issue #467)
+router.get("/:jobId/evidence/:id/proxy", readRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId, id } = req.params;
+    const { token } = req.query;
+
+    if (!token || typeof token !== "string") {
+      throw createError(ErrorCodes.SIGNED_URL_INVALID, "Missing token", 403);
+    }
+
+    // Verify token — throws SIGNED_URL_EXPIRED or SIGNED_URL_INVALID on failure
+    const payload = ipfsService.verifySignedUrlToken(token);
+
+    // Confirm the CID in the token matches the requested evidence record
+    const { rows } = await pool.query(
+      "SELECT ipfs_cid, file_name, mime_type FROM dispute_evidence WHERE id = $1 AND job_id = $2",
+      [id, jobId]
+    );
+    if (!rows.length) throw createError(ErrorCodes.EVIDENCE_NOT_FOUND, "Evidence not found", 404);
+
+    if (rows[0].ipfs_cid !== payload.cid) {
+      throw createError(ErrorCodes.SIGNED_URL_INVALID, "Token does not match requested resource", 403);
+    }
+
+    // Stream file from IPFS gateway through backend
+    const { stream, headers } = await ipfsService.proxyIpfsFile(rows[0].ipfs_cid);
+
+    res.set("Content-Type", headers["content-type"] || rows[0].mime_type || "application/octet-stream");
+    res.set("Content-Disposition", `attachment; filename="${rows[0].file_name}"`);
+    res.set("Cache-Control", "no-store");
+
+    stream.pipe(res);
+  } catch (e) { next(e); }
+});
 
 module.exports = router;

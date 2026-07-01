@@ -3,6 +3,7 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("../middleware/auth");
+const { CSRF_COOKIE_NAME } = require("../middleware/csrf");
 
 const ACCESS_TOKEN_EXPIRES_IN = "15m";
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -36,11 +37,21 @@ function createRefreshToken(payload) {
   return token;
 }
 
+/**
+ * Generate a fresh CSRF token. The cookie-bound counterpart is set by the
+ * `csrf-csrf` middleware via the `/api/auth/csrf-token` endpoint; this raw
+ * token is returned so it can be issued alongside auth cookies during login
+ * and refresh so first-page-render mutations work without an extra round trip.
+ */
+function createCsrfToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
 function issueTokenPair(payload) {
-  return {
-    accessToken: signAccessToken(payload),
-    refreshToken: createRefreshToken(payload),
-  };
+  const accessToken = signAccessToken(payload);
+  const refreshToken = createRefreshToken(payload);
+  const csrfToken = createCsrfToken();
+  return { accessToken, refreshToken, csrfToken };
 }
 
 function rotateRefreshToken(token) {
@@ -54,7 +65,9 @@ function rotateRefreshToken(token) {
     return null;
   }
 
-  return issueTokenPair(session.payload);
+  // Rotate the CSRF token along with the access/refresh pair so a stale
+  // pre-refresh token cannot be replayed.
+  return { ...issueTokenPair(session.payload) };
 }
 
 function revokeRefreshToken(token) {
@@ -91,33 +104,35 @@ function getCookieOptions(maxAge) {
   };
 }
 
-function setAuthCookies(res, accessToken, refreshToken) {
-  const csrfToken = crypto.randomBytes(32).toString("hex");
-  res.cookie("token", accessToken, getCookieOptions(15 * 60 * 1000));
-  res.cookie(REFRESH_COOKIE_NAME, refreshToken, getCookieOptions(REFRESH_TOKEN_TTL_MS));
-  res.cookie("XSRF-TOKEN", csrfToken, {
+function getCsrfCookieOptions(maxAge) {
+  return {
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
-    maxAge: REFRESH_TOKEN_TTL_MS,
+    maxAge,
     httpOnly: false,
-  });
+  };
+}
+
+function setAuthCookies(res, accessToken, refreshToken, csrfToken) {
+  res.cookie("token", accessToken, getCookieOptions(15 * 60 * 1000));
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, getCookieOptions(REFRESH_TOKEN_TTL_MS));
+  if (csrfToken) {
+    res.cookie(CSRF_COOKIE_NAME, csrfToken, getCsrfCookieOptions(REFRESH_TOKEN_TTL_MS));
+  }
 }
 
 function clearAuthCookies(res) {
   res.clearCookie("token", getCookieOptions(0));
   res.clearCookie(REFRESH_COOKIE_NAME, getCookieOptions(0));
-  res.clearCookie("XSRF-TOKEN", {
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-    maxAge: 0,
-    httpOnly: false,
-  });
+  res.clearCookie(CSRF_COOKIE_NAME, getCsrfCookieOptions(0));
 }
 
 module.exports = {
   ACCESS_TOKEN_EXPIRES_IN,
   REFRESH_COOKIE_NAME,
+  CSRF_COOKIE_NAME,
   clearAuthCookies,
+  createCsrfToken,
   getRefreshTokenFromRequest,
   issueTokenPair,
   refreshSessions,

@@ -8,6 +8,7 @@ const pool = require("../db/pool");
 const axios = require("axios");
 const { createServiceLogger } = require("../utils/logger");
 const { emailQueue } = require("../utils/queue");
+const pushSubscriptionService = require("./pushSubscriptionService");
 
 const MAX_RETRIES = 5;
 
@@ -102,8 +103,48 @@ async function queueNotification({ recipientAddress, notificationType, eventType
   return notification;
 }
 
+/**
+ * Send push notification for important events
+ * These events trigger push notifications even when app is closed
+ */
+const PUSH_NOTIFICATION_EVENTS = new Set([
+  EVENT_TYPES.APPLICATION_RECEIVED,
+  EVENT_TYPES.APPLICATION_ACCEPTED,
+  EVENT_TYPES.APPLICATION_REJECTED,
+  EVENT_TYPES.ESCROW_RELEASED,
+  EVENT_TYPES.DISPUTE_OPENED,
+  EVENT_TYPES.JOB_INVITED,
+  EVENT_TYPES.NEW_MESSAGE,
+]);
+
+async function sendPushNotificationForEvent(userAddress, { type, title, body, jobId, linkPath }) {
+  if (!userAddress || !PUSH_NOTIFICATION_EVENTS.has(type)) {
+    return null;
+  }
+
+  try {
+    const result = await pushSubscriptionService.sendPushNotification(userAddress, {
+      title,
+      body,
+      jobId,
+      linkPath: linkPath || (jobId ? `/jobs/${jobId}` : "/notifications"),
+      tag: type,
+      icon: "/icon-192x192.png",
+    });
+
+    if (result.success) {
+      notificationLogger.debug(`Push notification sent for event: ${type}`);
+    }
+
+    return result;
+  } catch (error) {
+    notificationLogger.error(`Failed to send push for event ${type}: ${error.message}`);
+    return null;
+  }
+}
+
 async function createInAppNotification(
-  { userAddress, type, title, body, jobId = null, linkPath = null },
+  { userAddress, type, title, body, jobId = null, linkPath = null, sendPush = true },
   queryRunner = pool,
 ) {
   if (!userAddress) return null;
@@ -120,6 +161,13 @@ async function createInAppNotification(
 
   if (_broadcastToUser) {
     _broadcastToUser(userAddress, 'notification:created', notification);
+  }
+
+  // Send push notification for important events
+  if (sendPush) {
+    sendPushNotificationForEvent(userAddress, { type, title, body, jobId, linkPath }).catch(
+      (error) => notificationLogger.error(`Push notification error: ${error.message}`)
+    );
   }
 
   return notification;
@@ -644,6 +692,7 @@ module.exports = {
   notifyEscrowEvent,
   generateEmailContent,
   getNextRetryTime,
+  sendPushNotificationForEvent,
   EVENT_TYPES,
   setBroadcastToUser,
 };

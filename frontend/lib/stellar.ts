@@ -85,6 +85,35 @@ async function getFreighter() {
 
 export type StreamedTransaction = { id: string };
 
+export async function connectWallet(): Promise<{ publicKey: string; network: "mainnet" | "testnet" }> {
+  if (typeof window === "undefined") {
+    throw new Error("connectWallet is only available in the browser.");
+  }
+  const { isConnected, getPublicKey, getNetworkDetails } = await import("@stellar/freighter-api");
+
+  const connected = await isConnected();
+  if (!connected) {
+    throw new Error("Freighter wallet not found. Please install the Freighter extension.");
+  }
+
+  const publicKey = await getPublicKey();
+  if (!publicKey) {
+    throw new Error("No Stellar account found in Freighter wallet.");
+  }
+
+  let network: "mainnet" | "testnet" = "testnet";
+  try {
+    const details = await getNetworkDetails();
+    if ((details as { networkPassphrase?: string })?.networkPassphrase === "Public Global Stellar Network ; September 2015") {
+      network = "mainnet";
+    }
+  } catch {
+    // fall back to testnet on error
+  }
+
+  return { publicKey, network };
+}
+
 export function streamAccountTransactions(
   publicKey: string,
   onTransaction: (transaction: StreamedTransaction) => void
@@ -539,12 +568,64 @@ export async function submitSignedSorobanTransaction(
   return { hash };
 }
 
+async function simulateContractView(
+  contractId: string,
+  method: string,
+  args: any[],
+): Promise<any> {
+  if (USE_CONTRACT_MOCK || !contractId) return null;
+
+  try {
+    const contract = new Contract(contractId);
+    const latestLedger = await sorobanServer.getLatestLedger();
+    const sourceAccount = await sorobanServer.getAccount(contractId).catch(() => null);
+    const sourcePublicKey = sourceAccount
+      ? contractId
+      : "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+
+    const account = sourceAccount || new (await import("@stellar/stellar-sdk")).Account(
+      sourcePublicKey,
+      latestLedger.sequence.toString(),
+    );
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(contract.call(method, ...args))
+      .setTimeout(30)
+      .build();
+
+    const simResponse = await sorobanServer.simulateTransaction(tx);
+    if (SorobanRpc.Api.isSimulationError(simResponse)) {
+      return null;
+    }
+
+    return simResponse.result?.retval ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getEscrowState(contractId: string, jobId: string) {
-  const server = sorobanServer;
-  const contract = new Contract(contractId);
-  const account = await server.getAccount(contractId).catch(() => null);
-  if (!account) return null;
-  return null;
+  return simulateContractView(contractId, "get_escrow", [
+    nativeToScVal(jobId, { type: "string" }),
+  ]);
+}
+
+export async function getMilestoneOnChain(
+  contractId: string,
+  jobId: string,
+  index: number,
+) {
+  return simulateContractView(contractId, "get_milestone", [
+    nativeToScVal(jobId, { type: "string" }),
+    nativeToScVal(index, { type: "u32" }),
+  ]);
+}
+
+export async function isContractFrozen(contractId: string) {
+  return simulateContractView(contractId, "is_frozen", []);
 }
 
 export async function subscribeToContractEvents(
@@ -568,6 +649,35 @@ export function isValidStellarAddress(address: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Verify a freelancer Stellar account exists on the network before creating
+ * an escrow. Calls the backend escrow verification endpoint.
+ *
+ * On failure, throws an error with a user-friendly message including
+ * "Fund your wallet with at least 1 XLM to activate your account".
+ */
+export async function verifyFreelancerAccount(freelancerAddress: string): Promise<boolean> {
+  const backendUrl = process.env.NEXT_PUBLIC_API_URL || "";
+  const res = await fetch(`${backendUrl}/api/escrow/verify-freelancer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ freelancerAddress }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 400) {
+      throw new Error(
+        body.error ||
+          "Freelancer account not found on Stellar network. Fund your wallet with at least 1 XLM to activate your account.",
+      );
+    }
+    throw new Error(body.error || "Failed to verify freelancer account");
+  }
+
+  return true;
 }
 
 export function explorerUrl(txHash: string): string {

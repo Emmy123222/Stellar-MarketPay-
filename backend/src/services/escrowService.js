@@ -9,8 +9,49 @@ const {
 } = require("./notificationService");
 const { processReferralPayout } = require("./referralService");
 const { createServiceLogger, logError } = require("../utils/logger");
+const { getClientIp } = require("../utils/clientIp");
+const { signWithServiceKey, getServicePublicKey } = require("./stellarServiceKey");
 
 const ESCROW_TIMEOUT_DAYS = 7;
+const logger = createServiceLogger('escrowService');
+
+const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
+
+/**
+ * Verify that a Stellar account exists on the network by checking Horizon.
+ * Throws a 400 error with a descriptive message if the account is not found.
+ * Returns true if the account exists.
+ */
+async function verifyFreelancerAccount(freelancerAddress) {
+  if (!freelancerAddress || !/^G[A-Z0-9]{55}$/.test(freelancerAddress)) {
+    const e = new Error("Invalid Stellar address");
+    e.status = 400;
+    throw e;
+  }
+
+  try {
+    const res = await fetch(
+      `${HORIZON_URL}/accounts/${encodeURIComponent(freelancerAddress)}`,
+    );
+    if (!res.ok) {
+      if (res.status === 404) {
+        const e = new Error("Freelancer account not found on Stellar network");
+        e.status = 400;
+        throw e;
+      }
+      const body = await res.text();
+      const e = new Error(`Horizon request failed: ${res.status} ${body}`);
+      e.status = 502;
+      throw e;
+    }
+    return true;
+  } catch (err) {
+    if (err.status) throw err;
+    const e = new Error("Failed to verify freelancer account on Stellar network");
+    e.status = 502;
+    throw e;
+  }
+}
 
 function normalizeMilestones(milestones, fallbackAmount) {
   if (!Array.isArray(milestones) || milestones.length === 0) {
@@ -202,7 +243,7 @@ async function refundClient(jobId, clientAddress, contractTxHash) {
   return { success: true, message: "Escrow refunded" };
 }
 
-async function timeoutRefund(jobId, clientAddress, contractTxHash) {
+async function timeoutRefund(jobId, clientAddress, contractTxHash, req = null) {
   const job = await getJob(jobId);
   if (job.clientAddress !== clientAddress) {
     const e = new Error("Only the job client can request a timeout refund");
@@ -231,9 +272,26 @@ async function timeoutRefund(jobId, clientAddress, contractTxHash) {
     throw e;
   }
 
+  // Issue #536: Use service keypair for contract calls with IP validation
+  const clientIp = req ? getClientIp(req) : '127.0.0.1';
+  
+  try {
+    await signWithServiceKey(clientIp, async (keypair) => {
+      // In a real implementation, this would sign and submit the Soroban transaction
+      // For now, we validate the keypair is loaded and IP is allowed
+      logger.info(
+        { jobId, clientAddress, servicePublicKey: getServicePublicKey() },
+        'Service key validated for timeout refund'
+      );
+    });
+  } catch (err) {
+    logger.error({ error: err.message, jobId, clientIp }, 'Service key validation failed');
+    throw err;
+  }
+
   await logContractInteraction({
     functionName: "timeout_refund",
-    callerAddress: clientAddress,
+    callerAddress: getServicePublicKey(), // Use service key as caller
     jobId,
     txHash: contractTxHash || `offchain-${Date.now()}`,
   });
@@ -352,6 +410,72 @@ async function releaseMilestone(jobId, milestoneIndex, clientAddress, contractTx
   };
 }
 
+async function rejectMilestone(jobId, milestoneIndex, clientAddress, contractTxHash) {
+  const job = await getJob(jobId);
+  if (job.clientAddress !== clientAddress) {
+    const e = new Error("Only the job client can reject milestones");
+    e.status = 403;
+    throw e;
+  }
+
+  if (job.status !== "in_progress") {
+    const e = new Error("Job is not in progress");
+    e.status = 400;
+    throw e;
+  }
+
+  const milestones = await getMilestonesForJob(jobId, job);
+  const index = validateMilestoneIndex(milestones, milestoneIndex);
+  const milestone = milestones[index];
+
+  if (milestone.status === "released") {
+    const e = new Error("Released milestones cannot be rejected");
+    e.status = 400;
+    throw e;
+  }
+  if (milestone.status === "rejected") {
+    const e = new Error("Milestone already rejected");
+    e.status = 400;
+    throw e;
+  }
+
+  milestones[index] = {
+    ...milestone,
+    status: "rejected",
+    rejectedAt: new Date().toISOString(),
+  };
+  await persistMilestones(jobId, milestones);
+
+  await logContractInteraction({
+    functionName: "reject_milestone",
+    callerAddress: clientAddress,
+    jobId,
+    txHash: contractTxHash || `offchain-${Date.now()}`,
+  });
+
+  await notifyEscrowEvent({
+    eventType: EVENT_TYPES.REFUND_ISSUED,
+    jobId,
+    clientAddress: job.clientAddress,
+    freelancerAddress: job.freelancerAddress,
+    data: {
+      jobTitle: job.title,
+      jobId,
+      milestoneIndex: index,
+      milestoneDescription: milestone.description,
+      amount: milestone.amount,
+      currency: job.currency,
+    },
+  });
+
+  return {
+    success: true,
+    message: `Milestone ${index + 1} rejected and refunded to client`,
+    milestone: milestones[index],
+    milestones,
+  };
+}
+
 async function disputeMilestone(jobId, milestoneIndex, raisedBy) {
   const job = await getJob(jobId);
   if (job.clientAddress !== raisedBy && job.freelancerAddress !== raisedBy) {
@@ -409,6 +533,37 @@ async function getEscrow(jobId) {
   return rows[0];
 }
 
+/**
+ * Resolve a Stellar ledger sequence number to a UTC timestamp via the
+ * `ledger_timestamps` table populated by the indexer.
+ *
+ * Returns `null` if no mapping exists yet (e.g., the ledger hasn't been
+ * processed by the indexer, or `timeout_ledger` is not set on the escrow).
+ */
+async function resolveLedgerTimestamp(ledger) {
+  if (!ledger) return null;
+  const { rows } = await pool.query(
+    "SELECT timestamp FROM ledger_timestamps WHERE ledger = $1",
+    [ledger],
+  );
+  return rows.length ? rows[0].timestamp : null;
+}
+
+/**
+ * Return escrow data enriched with a resolved `timeout_at` timestamp.
+ *
+ * The `timeout_ledger` column on the escrow row stores the on-chain ledger
+ * sequence at which the escrow expires.  This function looks up the UTC close
+ * time for that ledger in `ledger_timestamps` and attaches it as
+ * `timeout_at_resolved`, letting callers display a human-readable countdown
+ * without hardcoding ledger-time approximations.
+ */
+async function getEscrowWithTimeout(jobId) {
+  const escrow = await getEscrow(jobId);
+  const timeoutAt = await resolveLedgerTimestamp(escrow.timeout_ledger);
+  return { ...escrow, timeout_at_resolved: timeoutAt };
+}
+
 async function startEscrowTimeoutChecker() {
   const timeoutLogger = createServiceLogger('escrow-timeout');
 
@@ -441,6 +596,113 @@ async function startEscrowTimeoutChecker() {
   setInterval(checkAndRefund, 60 * 60 * 1000).unref();
 }
 
+async function requestEscrowExtension(jobId, requestedBy, newTimeoutLedger) {
+  const job = await getJob(jobId);
+  if (job.clientAddress !== requestedBy && job.freelancerAddress !== requestedBy) {
+    const e = new Error("Only the client or freelancer can request an extension");
+    e.status = 403;
+    throw e;
+  }
+
+  const { rows: pending } = await pool.query(
+    "SELECT status FROM escrow_extensions WHERE job_id = $1 AND status = 'pending'",
+    [jobId],
+  );
+  if (pending.length > 0) {
+    const e = new Error("A pending extension request already exists for this escrow");
+    e.status = 400;
+    throw e;
+  }
+
+  const { rows: escrowRows } = await pool.query(
+    "SELECT status, timeout_ledger FROM escrows WHERE job_id = $1",
+    [jobId],
+  );
+  if (!escrowRows.length) {
+    const e = new Error("No escrow found for this job");
+    e.status = 404;
+    throw e;
+  }
+
+  const escrow = escrowRows[0];
+  if (escrow.status !== "funded" && escrow.status !== "in_progress") {
+    const e = new Error("Extension is only allowed while escrow is funded or in progress");
+    e.status = 400;
+    throw e;
+  }
+
+  const currentLedger = escrow.timeout_ledger || 0;
+  if (newTimeoutLedger <= currentLedger) {
+    const e = new Error("New timeout ledger must be greater than the current timeout");
+    e.status = 400;
+    throw e;
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO escrow_extensions (job_id, requested_by, new_timeout_ledger)
+     VALUES ($1, $2, $3)
+     RETURNING *`,
+    [jobId, requestedBy, newTimeoutLedger],
+  );
+
+  return { success: true, extension: rows[0] };
+}
+
+async function approveEscrowExtension(jobId, approvedBy) {
+  const job = await getJob(jobId);
+
+  const { rows: pendingRows } = await pool.query(
+    "SELECT * FROM escrow_extensions WHERE job_id = $1 AND status = 'pending'",
+    [jobId],
+  );
+  if (!pendingRows.length) {
+    const e = new Error("No pending extension request for this job");
+    e.status = 404;
+    throw e;
+  }
+
+  const extension = pendingRows[0];
+
+  if (extension.requested_by === approvedBy) {
+    const e = new Error("Cannot approve your own extension request");
+    e.status = 403;
+    throw e;
+  }
+
+  if (job.clientAddress !== approvedBy && job.freelancerAddress !== approvedBy) {
+    const e = new Error("Only the client or freelancer can approve an extension");
+    e.status = 403;
+    throw e;
+  }
+
+  const { rows: escrowRows } = await pool.query(
+    "SELECT status FROM escrows WHERE job_id = $1",
+    [jobId],
+  );
+  if (!escrowRows.length) {
+    const e = new Error("No escrow found for this job");
+    e.status = 404;
+    throw e;
+  }
+
+  const escrow = escrowRows[0];
+  if (escrow.status !== "funded" && escrow.status !== "in_progress") {
+    const e = new Error("Extension is only allowed while escrow is funded or in progress");
+    e.status = 400;
+    throw e;
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE escrow_extensions
+     SET status = 'approved', approved_by = $2, approved_at = NOW(), updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [extension.id, approvedBy],
+  );
+
+  return { success: true, extension: rows[0] };
+}
+
 module.exports = {
   releaseFunds,
   refundClient,
@@ -448,8 +710,17 @@ module.exports = {
   markDisputed,
   partialRelease,
   releaseMilestone,
+  rejectMilestone,
   disputeMilestone,
   getEscrow,
+  getEscrowWithTimeout,
+  resolveLedgerTimestamp,
   startEscrowTimeoutChecker,
+<<<<<<< HEAD
+  requestEscrowExtension,
+  approveEscrowExtension,
+=======
+  verifyFreelancerAccount,
+>>>>>>> origin/main
   ESCROW_TIMEOUT_DAYS,
 };

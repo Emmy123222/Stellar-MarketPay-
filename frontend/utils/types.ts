@@ -35,9 +35,10 @@ export interface Availability {
 export interface JobMilestone {
   description: string;
   amount: string;
-  status: "pending" | "released" | "disputed";
+  status: "pending" | "released" | "disputed" | "rejected";
   releasedAt?: string | null;
   disputedAt?: string | null;
+  rejectedAt?: string | null;
 }
 
 export interface NotificationItem {
@@ -78,6 +79,8 @@ export interface Job {
   expiresAt?: string; // ISO date when job expires if not hired
   extendedCount?: number; // Number of times expiry has been extended
   extendedUntil?: string; // Final expiry after all extensions
+  searchHeadline?: string | null; // HTML with <mark> tags from ts_headline
+  descriptionHeadline?: string | null; // HTML with <mark> tags from ts_headline
   biddingClosedAt?: string | null;
   clientReputationScore?: number | null;
   disputedBy?: string;
@@ -399,3 +402,4 @@ export interface AuditLogEntry {
   timestamp: string;
   changesDiff?: Record<string, any>;
 }
+

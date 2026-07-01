@@ -11,6 +11,8 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   fetchDisputeDetail,
+  fetchEvidenceSignedUrl,
+  fetchDisputeOnchainCids,
   uploadDisputeEvidence,
   DisputeDetail,
   DisputeEvidence,
@@ -95,6 +97,9 @@ export default function DisputePage({ publicKey }: PageProps) {
   const [pendingFiles, setPending]  = useState<PendingFile[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [dropError, setDropError]   = useState("");
+  // Issue #448 — AC #5: on-chain audit-trail CIDs (read from chain).
+  const [onchainCids, setOnchainCids] = useState<string[] | null>(null);
+  const [onchainLoading, setOnchainLoading] = useState(false);
 
   useEffect(() => {
     if (!jobId) return;
@@ -103,6 +108,27 @@ export default function DisputePage({ publicKey }: PageProps) {
       .catch(() => info("Could not load dispute details."))
       .finally(() => setLoading(false));
   }, [jobId, info]);
+
+  // Issue #448 — AC #5: read CIDs anchored on Stellar via the dispute contract
+  // (DataKey::EvidenceCids(job_id) → Vec<Bytes>). Refreshed on mount and
+  // whenever a new file is uploaded so the chain list stays in sync with the
+  // off-chain dispute_evidence table.
+  const refreshOnchainCids = useCallback(async () => {
+    if (!jobId) return;
+    setOnchainLoading(true);
+    try {
+      const cids = await fetchDisputeOnchainCids(jobId);
+      setOnchainCids(cids);
+    } catch {
+      setOnchainCids([]);
+    } finally {
+      setOnchainLoading(false);
+    }
+  }, [jobId]);
+
+  useEffect(() => {
+    void refreshOnchainCids();
+  }, [refreshOnchainCids]);
 
   const myEvidentCount = (detail?.evidence ?? []).filter((ev) => ev.uploaderAddress === publicKey).length;
   const slotsLeft = 10 - myEvidentCount - pendingFiles.filter((f) => f.status !== "error").length;
@@ -138,9 +164,12 @@ export default function DisputePage({ publicKey }: PageProps) {
     }
     const doneCount = pendingFiles.filter((f) => f.status === "done").length + queue.length;
     if (doneCount > 0) success(`${doneCount} file(s) uploaded to IPFS.`);
+    // Issue #448: refresh on-chain CID list now that disputeService has called
+    // submit_evidence_cid (or queued it for signing) for the new files.
+    void refreshOnchainCids();
     // Remove done files from queue after a short delay
     setTimeout(() => setPending((prev) => prev.filter((f) => f.status !== "done")), 1500);
-  }, [jobId, pendingFiles, success]);
+  }, [jobId, pendingFiles, success, refreshOnchainCids]);
 
   const removeFile = (id: string) => setPending((prev) => prev.filter((f) => f.id !== id));
 
@@ -239,6 +268,62 @@ export default function DisputePage({ publicKey }: PageProps) {
           </div>
         </div>
       </div>
+
+      {/* On-chain evidence audit trail (Issue #448 — AC #5) */}
+      <section
+        className="card space-y-3"
+        aria-label="On-chain evidence audit trail"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-medium text-amber-100 text-sm">
+              On-chain evidence audit trail
+            </p>
+            <p className="text-xs text-amber-800 mt-1">
+              Tamper-evident provenance on Stellar. Each CID below is anchored at{" "}
+              <code className="bg-ink-900 px-1 rounded">DataKey::EvidenceCids(job_id)</code>{" "}
+              and replayable from any full node, even if the IPFS pin is lost.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refreshOnchainCids()}
+            disabled={onchainLoading}
+            className="text-xs text-market-400 hover:text-market-300 disabled:text-ink-500"
+            aria-label="Refresh on-chain CID list"
+          >
+            {onchainLoading ? "Refreshing…" : "↻ Refresh"}
+          </button>
+        </div>
+
+        {onchainCids === null ? (
+          <p className="text-xs text-amber-800 animate-pulse">Reading chain…</p>
+        ) : onchainCids.length === 0 ? (
+          <p className="text-xs text-amber-800">
+            No CIDs have been anchored on-chain for this dispute yet. Upload an
+            evidence file above — the backend will call{" "}
+            <code className="bg-ink-900 px-1 rounded">submit_evidence_cid</code>{" "}
+            after the Pinata upload succeeds.
+          </p>
+        ) : (
+          <ol className="space-y-2 list-decimal list-inside">
+            {onchainCids.map((cid, idx) => (
+              <li key={`${cid}-${idx}`} className="text-xs">
+                <span className="font-mono text-amber-200 break-all">{cid}</span>
+                <a
+                  href={`https://ipfs.io/ipfs/${encodeURIComponent(cid)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-2 text-market-400 hover:text-market-300 underline"
+                  title="View on IPFS gateway"
+                >
+                  View ↗
+                </a>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
 
       {/* Upload evidence — drag-and-drop (#289) */}
       {isParty && (

@@ -3,6 +3,33 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ─────────────────────────────────────────
+-- categories (normalised taxonomy — V18)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS categories (
+  id        SERIAL  PRIMARY KEY,
+  slug      TEXT    UNIQUE NOT NULL,
+  name      TEXT    NOT NULL,
+  parent_id INTEGER REFERENCES categories(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS categories_parent_id_idx ON categories(parent_id);
+CREATE INDEX IF NOT EXISTS categories_slug_idx      ON categories(slug);
+
+-- Seed top-level categories (idempotent)
+INSERT INTO categories (slug, name, parent_id) VALUES
+  ('smart-contracts',      'Smart Contracts',      NULL),
+  ('frontend-development', 'Frontend Development', NULL),
+  ('backend-development',  'Backend Development',  NULL),
+  ('ui-ux-design',         'UI/UX Design',         NULL),
+  ('technical-writing',    'Technical Writing',    NULL),
+  ('devops',               'DevOps',               NULL),
+  ('security-audit',       'Security Audit',       NULL),
+  ('data-analysis',        'Data Analysis',        NULL),
+  ('mobile-development',   'Mobile Development',   NULL),
+  ('other',                'Other',                NULL)
+ON CONFLICT (slug) DO NOTHING;
+
+-- ─────────────────────────────────────────
 -- profiles
 -- ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS profiles (
@@ -112,6 +139,27 @@ ALTER TABLE jobs
 
 ALTER TABLE jobs
   ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+-- V18: normalised category FK
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS jobs_category_id_idx ON jobs(category_id);
+
+-- Back-fill category_id from legacy free-text category column
+UPDATE jobs j
+SET    category_id = c.id
+FROM   categories c
+WHERE (LOWER(TRIM(j.category)) = REPLACE(LOWER(TRIM(c.slug)), '-', ' ')
+   OR  LOWER(TRIM(j.category)) = LOWER(TRIM(c.name)))
+  AND  j.category_id IS NULL;
+
+-- Fallback unmapped rows to 'other'
+UPDATE jobs j
+SET    category_id = c.id
+FROM   categories c
+WHERE  c.slug = 'other'
+  AND  j.category_id IS NULL;
 
 CREATE INDEX IF NOT EXISTS jobs_deleted_at_idx ON jobs(deleted_at)
   WHERE deleted_at IS NOT NULL;
@@ -489,3 +537,15 @@ ALTER TABLE jobs
 
 ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+-- ─────────────────────────────────────────
+-- ledger_timestamps  (Issue #443 — V12 migration)
+-- Maps Stellar ledger sequence numbers to UTC close timestamps so that
+-- timeout_ledger values stored on escrows can be displayed as real dates.
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ledger_timestamps (
+  ledger      INTEGER     PRIMARY KEY,
+  timestamp   TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ledger_timestamps_timestamp_idx ON ledger_timestamps(timestamp);

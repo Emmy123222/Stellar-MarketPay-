@@ -27,6 +27,10 @@ coverage/
 backend/coverage/
 frontend/coverage/
 
+# Storybook
+frontend/storybook-static/
+frontend/.storybook-temp/
+
 # Stryker mutation testing
 backend/stryker-tmp/
 backend/reports/mutation/

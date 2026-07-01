@@ -47,10 +47,27 @@ const options = {
       schemas: {
         Error: {
           type: 'object',
+          description: 'Structured API error response',
           properties: {
             error: {
-              type: 'string',
-              description: 'Error message'
+              type: 'object',
+              required: ['code', 'message'],
+              properties: {
+                code: {
+                  type: 'string',
+                  description: 'Machine-readable error code',
+                  example: 'JOB_NOT_FOUND'
+                },
+                message: {
+                  type: 'string',
+                  description: 'Human-readable error message',
+                  example: 'Job not found'
+                },
+                details: {
+                  description: 'Optional additional context (e.g. validation errors)',
+                  nullable: true
+                }
+              }
             }
           }
         },

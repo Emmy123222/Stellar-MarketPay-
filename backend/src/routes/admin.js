@@ -11,6 +11,7 @@ const pool = require("../db/pool");
 const { verifyJWT, requireAdminRole, requireAdmin2FA } = require("../middleware/auth");
 const { updateJobStatus } = require("../services/jobService");
 const { logContractInteraction } = require("../services/contractAuditService");
+const { getApiKeyUsageStats } = require("../services/developerService");
 
 // Helper: log admin action
 async function logAdminAction({ action, adminAddress, targetId, targetType, details }) {

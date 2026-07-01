@@ -45,5 +45,15 @@ export default defineConfig({
         viewport: { width: 1280, height: 800 },
       },
     },
+    {
+      name: "chromium-dark",
+      // Dark mode project for testing dark theme support
+      use: {
+        ...devices["Desktop Chrome"],
+        locale: "en-US",
+        colorScheme: "dark",
+        viewport: { width: 1280, height: 800 },
+      },
+    },
   ],
 });

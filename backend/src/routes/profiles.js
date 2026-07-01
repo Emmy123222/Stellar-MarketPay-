@@ -10,10 +10,13 @@ const { verifyJWT } = require("../middleware/auth");
 const multer = require("multer");
 const { uploadFile, getGatewayUrl, MAX_FILE_SIZE } = require("../services/ipfsService");
 
-const profileUpdateRateLimiter = createRateLimiter(5, 1); // 5 profile updates per minute
-const generalProfileRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for getting profiles
+const profileUpdateRateLimiter = createRateLimiter(5, 1);
+const generalProfileRateLimiter = createRateLimiter(30, 1);
 const cache = require("../services/cacheService");
 const { sendEmail } = require("../utils/email");
+const { createError, ErrorCodes } = require("../utils/errors");
+const { validateJsonb } = require("../middleware/jsonbValidator");
+const portfolioItemsSchema = require("../schemas/portfolioItems.schema");
 
 const {
   getProfile,
@@ -37,14 +40,30 @@ const {
 
 router.get("/", generalProfileRateLimiter, async (req, res, next) => {
   try {
-    const { role, availability, search, limit } = req.query;
-    const profiles = await listProfiles({
+    const { role, availability, search, limit, after, page } = req.query;
+
+    if (page !== undefined && after === undefined) {
+      res.set("Deprecation", "true");
+      res.set("Link", '</api/profiles>; rel="deprecation"');
+      res.set("Sunset", "2025-12-31");
+    }
+
+    const result = await listProfiles({
       role: typeof role === "string" && role.trim() ? role : undefined,
       availability: typeof availability === "string" && availability.trim() ? availability : undefined,
       search: typeof search === "string" && search.trim() ? search : undefined,
       limit: typeof limit === "string" ? Number(limit) : undefined,
+      after: typeof after === "string" && after.trim() ? after : undefined,
     });
-    res.json({ success: true, data: profiles });
+    res.json({
+      success: true,
+      data: result.profiles,
+      next_cursor: result.nextCursor,
+      has_more: result.hasMore,
+      ...(page !== undefined && after === undefined && {
+        _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `after`.",
+      }),
+    });
   } catch (e) {
     next(e);
   }
@@ -76,7 +95,7 @@ router.get("/:publicKey/response-time", generalProfileRateLimiter, async (req, r
   catch (e) { next(e); }
 });
 
-router.post("/", profileUpdateRateLimiter, async (req, res, next) => {
+router.post("/", profileUpdateRateLimiter, validateJsonb({ portfolio_items: portfolioItemsSchema }), async (req, res, next) => {
   try {
     const data = await upsertProfile(req.body);
     if (req.body.publicKey) await cache.del(cache.profileKey(req.body.publicKey));
@@ -92,7 +111,7 @@ router.get("/:publicKey/notifications", generalProfileRateLimiter, async (req, r
     const prefs = await getUserPreferences(req.params.publicKey);
     
     if (!prefs) {
-      return res.status(404).json({ success: false, error: "Profile not found" });
+      return res.status(404).json({ error: { code: ErrorCodes.PROFILE_NOT_FOUND, message: "Profile not found" } });
     }
 
     res.json({
@@ -217,7 +236,7 @@ router.get("/:publicKey/client-reputation", generalProfileRateLimiter, async (re
 router.post("/:publicKey/block", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
   try {
     if (req.user.publicKey !== req.params.publicKey) {
-      return res.status(403).json({ error: "You can only manage your own block list" });
+      return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "You can only manage your own block list" } });
     }
     const { address } = req.body;
     const profile = await blockFreelancer(req.params.publicKey, address);
@@ -229,7 +248,7 @@ router.post("/:publicKey/block", verifyJWT, profileUpdateRateLimiter, async (req
 router.delete("/:publicKey/block/:address", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
   try {
     if (req.user.publicKey !== req.params.publicKey) {
-      return res.status(403).json({ error: "You can only manage your own block list" });
+      return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "You can only manage your own block list" } });
     }
     const profile = await unblockFreelancer(req.params.publicKey, req.params.address);
     res.json({ success: true, data: profile });
@@ -312,15 +331,20 @@ const upload = multer({
   limits: { fileSize: MAX_FILE_SIZE },
 });
 
+const uploadMultiple = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE, files: 10 },
+});
+
 router.post("/:publicKey/portfolio", verifyJWT, upload.single("file"), async (req, res, next) => {
   try {
     const { publicKey } = req.params;
-    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: "Unauthorized" });
-    if (!req.file) return res.status(400).json({ error: "File is required" });
+    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "Unauthorized" } });
+    if (!req.file) return res.status(400).json({ error: { code: ErrorCodes.BAD_REQUEST, message: "File is required" } });
 
     const { rows } = await pool.query("SELECT portfolio_items FROM profiles WHERE public_key = $1", [publicKey]);
     const current = rows[0]?.portfolio_items || [];
-    if (current.length >= 10) return res.status(400).json({ error: "Maximum 10 portfolio items allowed" });
+    if (current.length >= 10) return res.status(400).json({ error: { code: ErrorCodes.PORTFOLIO_LIMIT_REACHED, message: "Maximum 10 portfolio items allowed" } });
 
     const uploaded = await uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype);
     const item = {
@@ -342,6 +366,44 @@ router.post("/:publicKey/portfolio", verifyJWT, upload.single("file"), async (re
   } catch (e) { next(e); }
 });
 
+router.post("/:publicKey/portfolio-files", verifyJWT, uploadMultiple.array("files", 10), async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "Unauthorized" } });
+    if (!req.files || req.files.length === 0) return res.status(400).json({ error: { code: ErrorCodes.BAD_REQUEST, message: "At least one file is required" } });
+
+    const { rows } = await pool.query("SELECT portfolio_items FROM profiles WHERE public_key = $1", [publicKey]);
+    const current = rows[0]?.portfolio_items || [];
+    if (current.length + req.files.length > 10) {
+      return res.status(400).json({ error: { code: ErrorCodes.PORTFOLIO_LIMIT_REACHED, message: `Maximum 10 portfolio items allowed. You have ${current.length} and are trying to add ${req.files.length}.` } });
+    }
+
+    const uploadedFiles = [];
+    const gatewayUrls = [];
+    for (const file of req.files) {
+      const uploaded = await uploadFile(file.buffer, file.originalname, file.mimetype);
+      const item = {
+        id: require("crypto").randomUUID(),
+        title: file.originalname,
+        type: uploaded.mimeType.startsWith("image/") ? "image" : "pdf",
+        cid: uploaded.cid,
+        fileName: uploaded.fileName,
+        mimeType: uploaded.mimeType,
+        size: uploaded.size,
+        uploadedAt: uploaded.uploadedAt,
+        url: getGatewayUrl(uploaded.cid),
+      };
+      uploadedFiles.push(item);
+      gatewayUrls.push(item.url);
+    }
+
+    const updated = [...current, ...uploadedFiles];
+    await pool.query("UPDATE profiles SET portfolio_items = $2::jsonb, updated_at = NOW() WHERE public_key = $1", [publicKey, JSON.stringify(updated)]);
+
+    res.json({ success: true, data: { uploadedFiles, gatewayUrls } });
+  } catch (e) { next(e); }
+});
+
 // GET /api/profiles/:publicKey/endorsements — get skill endorsements
 router.get("/:publicKey/endorsements", generalProfileRateLimiter, async (req, res, next) => {
   try {
@@ -358,22 +420,20 @@ router.post("/:publicKey/endorse", verifyJWT, async (req, res, next) => {
     const endorserAddress = req.user.publicKey;
 
     if (!skill || typeof skill !== "string" || !skill.trim()) {
-      return res.status(400).json({ error: "Skill name is required" });
+      return res.status(400).json({ error: { code: ErrorCodes.VALIDATION_ERROR, message: "Skill name is required" } });
     }
 
-    // Validate skill exists in recipient's profile
     const { rows: profileRows } = await pool.query(
       "SELECT skills FROM profiles WHERE public_key = $1",
       [publicKey]
     );
     if (!profileRows.length) {
-      return res.status(404).json({ error: "Profile not found" });
+      return res.status(404).json({ error: { code: ErrorCodes.PROFILE_NOT_FOUND, message: "Profile not found" } });
     }
     if (!profileRows[0].skills || !profileRows[0].skills.includes(skill.trim())) {
-      return res.status(400).json({ error: "Skill not found in freelancer's profile" });
+      return res.status(400).json({ error: { code: ErrorCodes.VALIDATION_ERROR, message: "Skill not found in freelancer's profile" } });
     }
 
-    // Only past clients who completed a job can endorse
     const { rows: jobRows } = await pool.query(
       `SELECT 1 FROM jobs
        WHERE client_address = $1
@@ -383,7 +443,7 @@ router.post("/:publicKey/endorse", verifyJWT, async (req, res, next) => {
       [endorserAddress, publicKey]
     );
     if (!jobRows.length) {
-      return res.status(403).json({ error: "Only past clients with completed jobs can endorse" });
+      return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "Only past clients with completed jobs can endorse" } });
     }
 
     await endorseSkill({ skill: skill.trim(), endorserAddress, recipientAddress: publicKey });
@@ -395,13 +455,13 @@ router.post("/:publicKey/endorse", verifyJWT, async (req, res, next) => {
 router.delete("/:publicKey/portfolio/:itemId", verifyJWT, async (req, res, next) => {
   try {
     const { publicKey, itemId } = req.params;
-    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: "Unauthorized" });
+    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "Unauthorized" } });
 
     const { rows } = await pool.query("SELECT portfolio_items FROM profiles WHERE public_key = $1", [publicKey]);
     const current = rows[0]?.portfolio_items || [];
     const nextItems = current.filter((item) => item.id !== itemId);
 
-    if (nextItems.length === current.length) return res.status(404).json({ error: "Portfolio item not found" });
+    if (nextItems.length === current.length) return res.status(404).json({ error: { code: ErrorCodes.NOT_FOUND, message: "Portfolio item not found" } });
 
     await pool.query("UPDATE profiles SET portfolio_items = $2::jsonb, updated_at = NOW() WHERE public_key = $1", [publicKey, JSON.stringify(nextItems)]);
 
@@ -409,15 +469,60 @@ router.delete("/:publicKey/portfolio/:itemId", verifyJWT, async (req, res, next)
   } catch (e) { next(e); }
 });
 
-// GET /api/profiles/:publicKey/encryption-key — NaCl public key lookup (no auth required)
+  // GET /api/profiles/:publicKey/encryption-key — NaCl public key lookup (no auth required)
 router.get("/:publicKey/encryption-key", generalProfileRateLimiter, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT encryption_public_key FROM profiles WHERE public_key = $1`,
       [req.params.publicKey],
     );
-    if (!rows.length) return res.status(404).json({ success: false, error: "Profile not found" });
+    if (!rows.length) return res.status(404).json({ error: { code: ErrorCodes.PROFILE_NOT_FOUND, message: "Profile not found" } });
     res.json({ success: true, data: { encryptionPublicKey: rows[0].encryption_public_key || null } });
+  } catch (e) { next(e); }
+});
+
+// PUT /api/profiles/:publicKey/encryption-key — store user's X25519 public key (Issue #474)
+router.put("/:publicKey/encryption-key", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+
+    if (req.user.publicKey !== publicKey) {
+      return next(createError(ErrorCodes.FORBIDDEN, "You can only update your own encryption key", 403));
+    }
+
+    const { encryptionPublicKey } = req.body;
+
+    if (!encryptionPublicKey || typeof encryptionPublicKey !== "string") {
+      return next(createError(ErrorCodes.VALIDATION_ERROR, "encryptionPublicKey is required", 400));
+    }
+
+    // Validate: must be a base64-encoded 32-byte X25519 key
+    let keyBytes;
+    try {
+      keyBytes = Buffer.from(encryptionPublicKey, "base64");
+    } catch {
+      return next(createError(ErrorCodes.ENCRYPTION_KEY_INVALID, "encryptionPublicKey must be base64-encoded", 400));
+    }
+
+    if (keyBytes.length !== 32) {
+      return next(createError(ErrorCodes.ENCRYPTION_KEY_INVALID, "encryptionPublicKey must be a 32-byte X25519 key (base64)", 400));
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE profiles
+         SET encryption_public_key = $2, updated_at = NOW()
+       WHERE public_key = $1
+       RETURNING encryption_public_key`,
+      [publicKey, encryptionPublicKey],
+    );
+
+    if (!rows.length) {
+      return next(createError(ErrorCodes.PROFILE_NOT_FOUND, "Profile not found", 404));
+    }
+
+    await cache.del(cache.profileKey(publicKey));
+
+    res.json({ success: true, data: { encryptionPublicKey: rows[0].encryption_public_key } });
   } catch (e) { next(e); }
 });
 
@@ -426,7 +531,7 @@ router.delete("/:publicKey/data", verifyJWT, profileUpdateRateLimiter, async (re
   try {
     const { publicKey } = req.params;
     if (req.user.publicKey !== publicKey) {
-      return res.status(403).json({ error: "You can only delete your own profile data" });
+      return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "You can only delete your own profile data" } });
     }
     
     const profile = await markProfileForDeletion(publicKey);

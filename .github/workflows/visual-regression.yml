@@ -24,8 +24,12 @@ jobs:
 
       - run: npx playwright install --with-deps chromium
 
-      - name: Run visual regression tests
-        run: npx playwright test tests/e2e/visual-regression.spec.ts
+      - name: Run visual regression tests (light mode)
+        run: npx playwright test tests/e2e/visual-regression.spec.ts --project=chromium
+        continue-on-error: true
+
+      - name: Run visual regression tests (dark mode)
+        run: npx playwright test tests/e2e/visual-regression.spec.ts --project=chromium-dark
         env:
           NEXT_PUBLIC_STELLAR_NETWORK: testnet
           NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org

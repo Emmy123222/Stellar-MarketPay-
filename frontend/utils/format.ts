@@ -149,29 +149,49 @@ export function statusClass(status: JobStatus): string {
   return { open: "badge-open", in_progress: "badge-progress", completed: "badge-complete", cancelled: "badge-cancelled", disputed: "badge-disputed" }[status];
 }
 
+/** Static fallback list — used when the /api/categories endpoint hasn't loaded yet. */
 export const JOB_CATEGORIES = [
   "Smart Contracts", "Frontend Development", "Backend Development",
   "UI/UX Design", "Technical Writing", "DevOps", "Security Audit",
   "Data Analysis", "Mobile Development", "Other",
 ];
 
+/** Slug equivalents of JOB_CATEGORIES for filter chips and URL params. */
+export const JOB_CATEGORY_SLUGS = [
+  "smart-contracts", "frontend-development", "backend-development",
+  "ui-ux-design", "technical-writing", "devops", "security-audit",
+  "data-analysis", "mobile-development", "other",
+];
+
 export const CATEGORY_ICONS: Record<string, string> = {
   "Smart Contracts": "📜",
+  "smart-contracts": "📜",
   "Frontend Development": "🎨",
+  "frontend-development": "🎨",
   "Backend Development": "⚙️",
+  "backend-development": "⚙️",
   "UI/UX Design": "🖌️",
+  "ui-ux-design": "🖌️",
   "Technical Writing": "✍️",
+  "technical-writing": "✍️",
   "DevOps": "🚀",
+  "devops": "🚀",
   "Security Audit": "🔒",
+  "security-audit": "🔒",
   "Data Analysis": "📊",
+  "data-analysis": "📊",
   "Mobile Development": "📱",
+  "mobile-development": "📱",
   "Other": "📦",
+  "other": "📦",
 };
 
+/** Convert a display name to a URL-safe slug. */
 export function categoryToSlug(category: string): string {
   return category.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
+/** Reverse-lookup a display name from a slug using the static fallback list. */
 export function slugToCategory(slug: string): string | undefined {
   return JOB_CATEGORIES.find(cat => categoryToSlug(cat) === slug);
 }
