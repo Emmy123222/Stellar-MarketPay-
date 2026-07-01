@@ -1,9 +1,14 @@
 "use strict";
 
 const cache = require("./cacheService");
+const { createServiceLogger } = require("../utils/logger");
+
+const logger = createServiceLogger('xlmPriceService');
 
 const PRICE_HISTORY_CACHE_KEY = "xlm:usd:history:7d";
 const PRICE_HISTORY_TTL_SECONDS = 5 * 60;
+const PRICE_CACHE_KEY = "xlm:price:usd";
+const PRICE_TTL_SECONDS = 60;
 
 async function fetchMarketChart7d() {
   const res = await fetch(
@@ -67,7 +72,57 @@ async function getXlmUsd7dHistory() {
   return { ...normalized, cached: false };
 }
 
+/**
+ * Get current XLM price in USD with Redis caching and stale-while-revalidate.
+ * Returns cached value immediately while background refresh runs if cache is stale.
+ *
+ * @returns {Promise<{priceUsd: number, cached: boolean, updatedAt: string}>}
+ */
+async function getCurrentXlmPrice() {
+  const cached = await cache.get(PRICE_CACHE_KEY);
+  if (cached) {
+    // Return cached value immediately (stale-while-revalidate pattern)
+    // Background refresh happens asynchronously
+    refreshPriceInBackground().catch((err) => {
+      logger.warn({ error: err.message }, 'Background price refresh failed');
+    });
+    return { ...cached, cached: true };
+  }
+
+  // Cache miss - fetch fresh
+  logger.info('Cache miss for XLM price, fetching from CoinGecko');
+  const raw = await fetchMarketChart7d();
+  const normalized = normalizeMarketChartPayload(raw);
+  const priceData = {
+    priceUsd: normalized.currentPriceUsd,
+    updatedAt: normalized.updatedAt,
+  };
+  await cache.set(PRICE_CACHE_KEY, priceData, PRICE_TTL_SECONDS);
+  return { ...priceData, cached: false };
+}
+
+/**
+ * Background refresh of price data (fire-and-forget).
+ * Used for stale-while-revalidate pattern.
+ */
+async function refreshPriceInBackground() {
+  try {
+    const raw = await fetchMarketChart7d();
+    const normalized = normalizeMarketChartPayload(raw);
+    const priceData = {
+      priceUsd: normalized.currentPriceUsd,
+      updatedAt: normalized.updatedAt,
+    };
+    await cache.set(PRICE_CACHE_KEY, priceData, PRICE_TTL_SECONDS);
+    logger.debug('Background price refresh completed');
+  } catch (err) {
+    logger.warn({ error: err.message }, 'Background price refresh failed');
+  }
+}
+
 module.exports = {
   getXlmUsd7dHistory,
+  getCurrentXlmPrice,
   PRICE_HISTORY_TTL_SECONDS,
+  PRICE_TTL_SECONDS,
 };

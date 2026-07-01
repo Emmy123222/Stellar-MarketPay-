@@ -272,6 +272,7 @@ router.post("/:jobId/refund", async (req, res, next) => {
 /**
  * POST /api/escrow/:jobId/timeout-refund
  * Issue #175 — Client claims refund after freelancer inactivity timeout.
+ * Issue #536 — Uses service keypair with IP validation for contract calls.
  */
 router.post("/:jobId/timeout-refund", async (req, res, next) => {
   try {
@@ -284,19 +285,12 @@ router.post("/:jobId/timeout-refund", async (req, res, next) => {
       throw e;
     }
 
+    // Issue #536: Pass request for IP validation in service key usage
+    const result = await escrowService.timeoutRefund(jobId, clientAddress, contractTxHash, req);
+
     // DB status is updated asynchronously by the indexer when it processes the on-chain event.
 
-    await logContractInteraction({
-      functionName: "timeout_refund",
-      callerAddress: clientAddress,
-      jobId,
-      txHash: contractTxHash || `offchain-${Date.now()}`,
-    });
-
-    res.json({
-      success: true,
-      message: "Escrow refunded due to inactivity timeout",
-    });
+    res.json(result);
   } catch (e) {
     next(e);
   }

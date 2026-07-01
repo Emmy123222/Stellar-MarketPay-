@@ -110,6 +110,13 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
             <p className="text-amber-800 text-sm">
               {job.category} • {job.currency} {job.budget}
             </p>
+            <p className="text-amber-800/80 text-xs mt-2 leading-relaxed">
+              <span aria-hidden="true" className="mr-1">🪪</span>
+              Shared on Discord, X, LinkedIn, Slack, or iMessage this link
+              renders a rich preview card with the job title, budget, and
+              category — generated automatically by{" "}
+              <code className="font-mono text-[11px] text-amber-700">/api/og/[jobId]</code>.
+            </p>
           </div>
 
           {/* Share Options */}
