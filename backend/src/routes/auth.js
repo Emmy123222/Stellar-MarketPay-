@@ -14,6 +14,7 @@ const {
   rotateRefreshToken,
   setAuthCookies,
 } = require("../services/authTokens");
+const { generateCsrfToken } = require("../middleware/csrf");
 
 const router = express.Router();
 
@@ -33,6 +34,34 @@ const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
 function resolvePassphrase(network) {
   return network === "mainnet" ? MAINNET_PASSPHRASE : TESTNET_PASSPHRASE;
 }
+
+/**
+ * @swagger
+ * /api/auth/csrf-token:
+ *   get:
+ *     summary: Issue a CSRF token for double-submit protection
+ *     description: |
+ *       Generates a fresh CSRF token, sets it as a non-HttpOnly `csrf-token`
+ *       cookie, and returns it in the response body. The frontend Axios
+ *       instance attaches this token in the `X-CSRF-Token` header on every
+ *       subsequent state-mutating request (`POST`, `PUT`, `PATCH`, `DELETE`).
+ *     tags: [Authentication]
+ *     responses:
+ *       200:
+ *         description: CSRF token issued
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 csrfToken:
+ *                   type: string
+ *                   description: Token the client must echo in `X-CSRF-Token`
+ */
+router.get("/csrf-token", (req, res) => {
+  const csrfToken = generateCsrfToken(req, res);
+  res.json({ csrfToken });
+});
 
 /**
  * @swagger
@@ -181,9 +210,9 @@ router.post("/", async (req, res) => {
       console.warn("[auth] Could not stamp last_login_at:", stampErr.message);
     }
 
-    const { accessToken, refreshToken } = issueTokenPair(payload);
-    setAuthCookies(res, accessToken, refreshToken);
-    res.json({ success: true, token: accessToken });
+    const { accessToken, refreshToken, csrfToken } = issueTokenPair(payload);
+    setAuthCookies(res, accessToken, refreshToken, csrfToken);
+    res.json({ success: true, token: accessToken, csrfToken });
   } catch (e) {
     res.status(401).json({ error: "Unauthorized: " + e.message });
   }
@@ -198,8 +227,8 @@ router.post("/refresh", (req, res) => {
     return res.status(401).json({ error: "Unauthorized: Invalid refresh token" });
   }
 
-  setAuthCookies(res, rotated.accessToken, rotated.refreshToken);
-  return res.json({ success: true, token: rotated.accessToken });
+  setAuthCookies(res, rotated.accessToken, rotated.refreshToken, rotated.csrfToken);
+  return res.json({ success: true, token: rotated.accessToken, csrfToken: rotated.csrfToken });
 });
 
 router.post("/logout", (req, res) => {

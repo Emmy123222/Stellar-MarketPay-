@@ -31,11 +31,16 @@ const AdminAnalytics = dynamic(() => import("@/components/AdminAnalytics"), {
   ssr: false,
 });
 
+const AdminApiKeyUsage = dynamic(() => import("@/components/AdminApiKeyUsage"), {
+  loading: () => <div className="animate-pulse bg-market-900/30 h-64 rounded-xl" />,
+  ssr: false,
+});
+
 interface AdminPageProps {
   publicKey: string | null;
 }
 
-type ActiveTab = "analytics" | "disputes" | "reports" | "wallets" | "logs" | "cost" | "metrics";
+type ActiveTab = "analytics" | "disputes" | "reports" | "wallets" | "logs" | "cost" | "metrics" | "apiKeys";
 type AdminState = "checking" | "authorized" | "denied";
 
 function getJwtRole() {
@@ -324,6 +329,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
     { id: "logs",     label: "Audit Log",      count: logs.length },
     { id: "cost",     label: "Cost Report" },
     { id: "metrics",  label: "Time-Series" },
+    { id: "apiKeys",  label: "API Key Usage" },
   ];
 
   return (
@@ -682,6 +688,10 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
             )}
 
             {/* ── Time-Series Metrics Tab ──────────────────────────────────────── */}
+            {activeTab === "apiKeys" && (
+              <AdminApiKeyUsage publicKey={publicKey} />
+            )}
+
             {activeTab === "metrics" && (
               <Section title="Time-Series Platform Metrics">
                 <div className="flex flex-wrap gap-3 mb-4">

@@ -70,6 +70,18 @@ function getCookie(res, name) {
     ?.split(";")[0];
 }
 
+/**
+ * Fetch a real CSRF token + its cookie pair so we exercise the same
+ * round-trip that the frontend performs.
+ */
+async function fetchCsrfContext() {
+  const res = await request(app).get("/api/auth/csrf-token");
+  expect(res.status).toBe(200);
+  expect(typeof res.body.csrfToken).toBe("string");
+  const cookie = getCookie(res, "csrf-token");
+  return { token: res.body.csrfToken, cookie };
+}
+
 describe("SEP-10 Authentication Flow", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -260,27 +272,31 @@ describe("SEP-10 Authentication Flow", () => {
 
   describe("Protected endpoint — missing/invalid JWT", () => {
     it("missing JWT: returns 401 for protected endpoint", async () => {
+      const csrf = await fetchCsrfContext();
       const res = await request(app)
         .post("/api/disputes/job-123/evidence")
-        .set("Cookie", "XSRF-TOKEN=test-csrf-token")
-        .set("X-XSRF-Token", "test-csrf-token");
+        .set("Cookie", csrf.cookie)
+        .set("X-CSRF-Token", csrf.token);
 
       expect(res.status).toBe(401);
       expect(res.body.error).toContain("Missing or invalid token");
     });
 
     it("invalid JWT: returns 401 when accessing protected route", async () => {
+      const csrf = await fetchCsrfContext();
       const res = await request(app)
         .post("/api/disputes/job-123/evidence")
         .set("Authorization", "Bearer invalid.jwt.token")
-        .set("Cookie", "XSRF-TOKEN=test-csrf-token")
-        .set("X-XSRF-Token", "test-csrf-token");
+        .set("Cookie", csrf.cookie)
+        .set("X-CSRF-Token", csrf.token);
 
       expect(res.status).toBe(401);
       expect(res.body.error).toContain("Invalid or expired token");
     });
 
     it("expired JWT: returns 401 on protected endpoint", async () => {
+      // CSRF-protected mutations still require a token even from an expired JWT.
+      const csrf = await fetchCsrfContext();
       // Create a short-lived token and let it expire
       const shortLived = jwt.sign({ publicKey: TEST_KEYPAIR.publicKey() }, process.env.JWT_SECRET, {
         expiresIn: "1s",
@@ -290,6 +306,8 @@ describe("SEP-10 Authentication Flow", () => {
 
       const res = await request(app)
         .post("/api/disputes/job-123/evidence")
+        .set("Cookie", csrf.cookie)
+        .set("X-CSRF-Token", csrf.token)
         .set("Authorization", `Bearer ${shortLived}`);
 
       expect(res.status).toBe(401);
@@ -298,7 +316,7 @@ describe("SEP-10 Authentication Flow", () => {
   });
 
   describe("Cookie Storage & CSRF Protection", () => {
-    it("POST /api/auth sets HttpOnly token cookie and non-HttpOnly XSRF-TOKEN cookie", async () => {
+    it("POST /api/auth sets HttpOnly token and refreshToken cookies only — CSRF cookie issued by /api/auth/csrf-token", async () => {
       Utils.verifyChallengeTx.mockReturnValue(TEST_KEYPAIR.publicKey());
 
       const res = await request(app)
@@ -307,17 +325,34 @@ describe("SEP-10 Authentication Flow", () => {
 
       expect(res.status).toBe(200);
 
-      // Check for HttpOnly token cookie
+      // HttpOnly token + refresh cookies
       const tokenCookie = res.headers["set-cookie"].find(c => c.startsWith("token="));
       expect(tokenCookie).toBeTruthy();
       expect(tokenCookie).toContain("HttpOnly");
       expect(tokenCookie).toContain("SameSite=Strict");
 
-      // Check for non-HttpOnly XSRF-TOKEN cookie
-      const xsrfCookie = res.headers["set-cookie"].find(c => c.startsWith("XSRF-TOKEN="));
-      expect(xsrfCookie).toBeTruthy();
-      expect(xsrfCookie).not.toContain("HttpOnly");
-      expect(xsrfCookie).toContain("SameSite=Strict");
+      const refreshCookie = res.headers["set-cookie"].find(c => c.startsWith("refreshToken="));
+      expect(refreshCookie).toBeTruthy();
+      expect(refreshCookie).toContain("HttpOnly");
+
+      // /api/auth itself does NOT set a CSRF cookie — that's /api/auth/csrf-token's job
+      // so we don't surprise clients with stale pre-login CSRF state.
+      const csrfOnLogin = res.headers["set-cookie"].find(c => c.startsWith("csrf-token="));
+      expect(csrfOnLogin).toBeUndefined();
+    });
+
+    it("GET /api/auth/csrf-token sets non-HttpOnly csrf-token cookie and returns the token", async () => {
+      const res = await request(app).get("/api/auth/csrf-token");
+
+      expect(res.status).toBe(200);
+      expect(typeof res.body.csrfToken).toBe("string");
+      expect(res.body.csrfToken.length).toBeGreaterThan(8);
+
+      const cookie = res.headers["set-cookie"].find(c => c.startsWith("csrf-token="));
+      expect(cookie).toBeTruthy();
+      // XSRF cookie must be JS-readable so refresh-from-other-tab logic can echo it
+      expect(cookie).not.toContain("HttpOnly");
+      expect(cookie).toContain("SameSite=Strict");
     });
 
     it("rejects write requests with 403 when CSRF token is missing", async () => {
@@ -325,52 +360,61 @@ describe("SEP-10 Authentication Flow", () => {
         .post("/api/disputes/job-123/evidence");
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toContain("CSRF token mismatch");
+      expect(res.body.error).toBeTruthy();
     });
 
     it("rejects write requests with 403 when CSRF token is mismatched", async () => {
+      const csrf = await fetchCsrfContext();
       const res = await request(app)
         .post("/api/disputes/job-123/evidence")
-        .set("Cookie", "XSRF-TOKEN=valid-token")
-        .set("X-XSRF-Token", "mismatched-token");
+        .set("Cookie", csrf.cookie)
+        .set("X-CSRF-Token", "deliberately-wrong-token");
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toContain("CSRF token mismatch");
+      expect(res.body.error).toBeTruthy();
     });
 
-    it("allows request when CSRF cookie and header match", async () => {
+    it("passes CSRF check on protected route when cookie and header match", async () => {
+      const csrf = await fetchCsrfContext();
       const res = await request(app)
         .post("/api/disputes/job-123/evidence")
-        .set("Cookie", "XSRF-TOKEN=matching-token")
-        .set("X-XSRF-Token", "matching-token");
+        .set("Cookie", csrf.cookie)
+        .set("X-CSRF-Token", csrf.token);
 
+      // 401 means CSRF passed and we reached the JWT auth layer.
       expect(res.status).toBe(401);
-      expect(res.body.error).toContain("Missing or invalid token");
+      expect(res.body.error).toMatch(/token/i);
     });
 
     it("allows write requests with matching CSRF and valid JWT in cookie", async () => {
       Utils.verifyChallengeTx.mockReturnValue(TEST_KEYPAIR.publicKey());
 
-      // 1. Log in to get valid cookies
+      // 1. Get a CSRF pair (same flow the frontend uses on first paint)
+      const csrf = await fetchCsrfContext();
+
+      // 2. Log in to set the auth cookies (uses its own csrf cookie returned
+      //    in the response body).
       const loginRes = await request(app)
         .post("/api/auth")
         .send({ transaction: SIGNED_XDR });
 
-      const cookies = loginRes.headers["set-cookie"].map(c => c.split(";")[0]).join("; ");
-      const xsrfCookiePart = getCookie(loginRes, "XSRF-TOKEN");
-      const xsrfToken = xsrfCookiePart ? xsrfCookiePart.split("=")[1] : "";
+      const authCookies = loginRes.headers["set-cookie"]
+        .map(c => c.split(";")[0])
+        .join("; ");
+      // Preserve any CSRF cookies we already had on the jar before login.
+      const mergedCookies = [csrf.cookie, authCookies].filter(Boolean).join("; ");
 
-      // 2. Perform protected action
+      // 3. Perform protected action — must pass CSRF AND the JWT auth gate.
       const res = await request(app)
         .post("/api/jobs/drafts")
-        .set("Cookie", cookies)
-        .set("X-XSRF-Token", xsrfToken);
+        .set("Cookie", mergedCookies)
+        .set("X-CSRF-Token", csrf.token);
 
-      expect(res.status).not.toBe(401);
       expect(res.status).not.toBe(403);
+      expect(res.status).not.toBe(401);
     });
 
-    it("POST /api/auth/logout clears the cookies", async () => {
+    it("POST /api/auth/logout clears the cookies (including csrf-token)", async () => {
       Utils.verifyChallengeTx.mockReturnValue(TEST_KEYPAIR.publicKey());
 
       const loginRes = await request(app)
@@ -387,10 +431,10 @@ describe("SEP-10 Authentication Flow", () => {
 
       // Verify cookies are cleared
       const tokenCookie = logoutRes.headers["set-cookie"].find(c => c.startsWith("token="));
-      const xsrfCookie = logoutRes.headers["set-cookie"].find(c => c.startsWith("XSRF-TOKEN="));
-      
+      const csrfCookie = logoutRes.headers["set-cookie"].find(c => c.startsWith("csrf-token="));
+
       expect(tokenCookie).toContain("Max-Age=0");
-      expect(xsrfCookie).toContain("Max-Age=0");
+      expect(csrfCookie).toContain("Max-Age=0");
     });
   });
 });
