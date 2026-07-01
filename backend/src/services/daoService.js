@@ -1,6 +1,7 @@
 "use strict";
 
 const pool = require("../db/pool");
+const sorobanArbitratorRegistry = require("./sorobanArbitratorRegistry");
 
 const VALID_TYPES = ["treasury", "platform", "parameter", "arbitration"];
 const VALID_STATUSES = ["active", "passed", "rejected", "executed"];
@@ -146,7 +147,7 @@ async function castVote({ proposalId, voter, support, weight, txHash }) {
 }
 
 async function finalizeExpiredProposals() {
-  await pool.query(
+  const { rows } = await pool.query(
     `UPDATE dao_proposals
      SET status = CASE
        WHEN (SELECT COALESCE(SUM(weight) FILTER (WHERE support = true), 0)
@@ -155,22 +156,52 @@ async function finalizeExpiredProposals() {
             (SELECT COALESCE(SUM(weight) FILTER (WHERE support = false), 0)
              FROM dao_votes WHERE proposal_id = dao_proposals.id)
        THEN 'passed' ELSE 'rejected' END
-     WHERE status = 'active' AND voting_ends_at < NOW()`,
+     WHERE status = 'active' AND voting_ends_at < NOW()
+     RETURNING id, status, type`,
   );
+
+  for (const proposal of rows) {
+    if (
+      proposal.status === "passed" &&
+      proposal.type === "arbitration"
+    ) {
+      // TODO: Submit on-chain transaction via admin key to call
+      // dao_register_arbitrator or dao_remove_arbitrator on
+      // the arbitrator-registry contract.
+      // This requires a backend admin Stellar keypair and gas budget.
+      console.log(
+        `Arbitration proposal ${proposal.id} passed — on-chain execution pending`,
+      );
+    }
+  }
+}
+
+async function executeProposal(id) {
+  const proposal = await getProposal(id);
+  if (proposal.status !== "passed") {
+    const err = new Error("Only passed proposals can be executed");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (proposal.type === "arbitration") {
+    // TODO: Submit on-chain transaction to call dao_register_arbitrator
+    // or dao_remove_arbitrator on the arbitrator-registry contract.
+    console.log(
+      `Arbitration proposal ${id} execution triggered — on-chain tx pending`,
+    );
+  }
+
+  await pool.query(
+    "UPDATE dao_proposals SET status = 'executed', executed_at = NOW() WHERE id = $1",
+    [id],
+  );
+
+  return getProposal(id);
 }
 
 async function listArbitrators() {
-  const { rows } = await pool.query(
-    `SELECT * FROM dao_arbitrators WHERE active = true ORDER BY votes_received DESC, created_at ASC`,
-  );
-  return rows.map((r) => ({
-    publicKey: r.public_key,
-    displayName: r.display_name,
-    bio: r.bio,
-    votesReceived: r.votes_received,
-    disputesResolved: r.disputes_resolved,
-    electedAt: r.elected_at,
-  }));
+  return sorobanArbitratorRegistry.listArbitrators();
 }
 
 async function upsertArbitrator({ publicKey, displayName, bio }) {
@@ -232,6 +263,7 @@ module.exports = {
   createProposal,
   castVote,
   finalizeExpiredProposals,
+  executeProposal,
   listArbitrators,
   upsertArbitrator,
   voteForArbitrator,

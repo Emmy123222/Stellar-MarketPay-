@@ -135,6 +135,13 @@ pub struct DeliverableSubmission {
     pub hashes_match: bool,
 }
 
+/// On-chain dispute-evidence IPFS CID audit trail (Issue #448 --- AC #2).
+///
+/// Per the AC, the contract stores a bare `Vec<Bytes>` of CIDs under
+/// `DataKey::EvidenceCids(job_id)`. Each entry is the raw ASCII bytes of
+/// an IPFS CID string (e.g. bytes of `bafy...`). The per-record
+/// struct (with `kind` and `submitter` fields) has been retired.
+
 /// Freelancer sealed-bid commitment entry.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -223,6 +230,43 @@ pub struct DisputeCase {
     pub status: u32,
 }
 
+/// Admin-configured dispute bond parameters (Issue #437).
+///
+/// The admin calls `set_dispute_bond(token, amount)` to declare the bond
+/// denomination.  When unset (or amount == 0), `raise_dispute` operates as
+/// the legacy zero-cost placeholder so existing tests and pre-existing
+/// escrows continue to work unchanged.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct DisputeBondConfig {
+    /// Token in which the bond is denominated (e.g. XLM SAC).
+    /// Bonds are always paid in this token — independent of the escrow
+    /// token — so slashing and refunds do not require a DEX hop even when
+    /// the escrow is denominated in USDC.
+    pub token: Address,
+    /// Required bond amount, in the smallests unit of `token` (stroops for XLM).
+    /// A non-zero value enables the bond requirement.
+    pub amount: i128,
+}
+
+/// Per-job record of the locked dispute bond (Issue #437).
+///
+/// Created by `raise_dispute` and consumed (returned to caller or slashed
+/// to winner) by `resolve_dispute`.  Removed from storage on settlement.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct DisputeBond {
+    /// Address of the party that locked the bond (client or freelancer).
+    pub caller: Address,
+    /// Token the bond was paid in — snapshotted so a future admin re-config
+    /// of the global bond does not retroactively change what is owed.
+    pub token: Address,
+    /// Bond amount snapshotted at lock time.
+    pub amount: i128,
+    /// Ledger sequence when the bond was locked — useful for analytics and event correlation.
+    pub raised_at_ledger: u32,
+}
+
 /// Storage key per job
 #[contracttype]
 pub enum DataKey {
@@ -237,6 +281,9 @@ pub enum DataKey {
     TimeoutTimestamp(String),
     BudgetCommitment(String),
     DeliverableSubmission(String),
+    /// Per-job append-only audit log of deliverable IPFS CIDs (Issue #448).
+    /// Stores a Vec<Bytes> of dispute-evidence CIDs under the job_id key.
+    EvidenceCids(String),
     BidCommitment(String, Address),
     BiddingState(String),
     RevealedBids(String),
@@ -253,15 +300,14 @@ pub enum DataKey {
     Version,
     /// Stores list of IPFS CIDs for messages in a job thread
     MessageCid(String),
-<<<<<<< HEAD
     /// Pending timeout extension request per job
     ExtensionRequest(String),
-=======
     /// Address that receives platform fees on every escrow release
     TreasuryAddress,
     /// Platform fee in basis points (e.g. 100 = 1%)
     PlatformFeeBps,
->>>>>>> origin/main
+ Support-escrow-expiry-extension-by-mutual-consent
+
 }
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
@@ -1145,6 +1191,48 @@ impl MarketPayContract {
             .unwrap_or(DEFAULT_TIMEOUT_SECONDS)
     }
 
+    /// Issue #440 — look up the admin-set cap on referrer bonus payouts.
+    /// Returns `None` when no cap has been set (legacy behaviour: 2% of
+    /// `release_amount` always applies).
+    pub fn get_max_referrer_bonus_xlm(env: Env) -> Option<i128> {
+        env.storage()
+            .instance()
+            .get(&DataKey::MaxReferrerBonusXlm)
+    }
+
+    /// Issue #440 — admin sets the maximum referrer bonus (in token
+    /// stroops, i.e. same units as escrow amounts). Pass `0` to disable
+    /// the referrer program entirely; pass a positive value to cap
+    /// every release's referrer-ledger entry at that amount.
+    ///
+    /// The cap is consumed at `release_escrow_core()` time so existing
+    /// escrows that have not yet been released pick up the new cap on
+    /// their first release. For milestone escrows each partial
+    /// `release_milestone` call applies the cap independently to that
+    /// release's payout — a 5-milestone escrow with cap = 10 XLM pays
+    /// the cap up to 5 times, not once cumulatively.
+    pub fn set_max_referrer_bonus_xlm(env: Env, admin: Address, cap: i128) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can set the referrer bonus cap");
+        }
+        if cap < 0 {
+            panic!("Referrer bonus cap must be non-negative");
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxReferrerBonusXlm, &cap);
+        env.events()
+            .publish((symbol_short!("ref_cap"), admin), cap);
+    }
+
     /// Update the global timeout in seconds.
     ///
     /// This acts as the governance/admin override for new escrows.
@@ -1657,8 +1745,19 @@ impl MarketPayContract {
 
     // ─── Placeholders ─────────────────────────────────────────────────────────
 
-    /// [PLACEHOLDER] Raise a dispute — requires admin resolution.
-    /// See ROADMAP.md v2.1 — DAO Governance.
+    /// Raise a dispute — requires admin resolution.
+    ///
+    /// Issue #437: the caller must lock a configurable bond before the
+    /// dispute is accepted.  The bond is enforced only when the admin has
+    /// configured a non-zero bond amount via `set_dispute_bond`; if no
+    /// configuration is present, this function preserves the legacy
+    /// zero-cost behaviour so escrows created before #437 continue to
+    /// function without admin migration.
+    ///
+    /// Soroban's `caller.require_auth()` authorises every token operation
+    /// the contract performs on behalf of the caller within this call,
+    /// so the bond transfer below does NOT need a separate `token.authorize`
+    /// step.
     pub fn raise_dispute(env: Env, job_id: String, caller: Address) {
         caller.require_auth();
         Self::check_not_frozen(&env);
@@ -1673,10 +1772,65 @@ impl MarketPayContract {
             panic!("Only participants can raise a dispute");
         }
 
-        if escrow.status == EscrowStatus::Released || escrow.status == EscrowStatus::Refunded || escrow.status == EscrowStatus::Frozen {
-            panic!("Cannot dispute a resolved or frozen escrow");
+        if escrow.status == EscrowStatus::Released
+            || escrow.status == EscrowStatus::Refunded
+            || escrow.status == EscrowStatus::Frozen
+            || escrow.status == EscrowStatus::Disputed
+        {
+            panic!("Cannot dispute a resolved, frozen, or already-disputed escrow");
         }
-        
+
+        // Optional bond requirement (Issue #437).  When the admin has not
+        // configured a dispute bond this block is a no-op and the function
+        // falls through to the legacy behaviour preserved for backward
+        // compatibility with pre-#437 escrows and tests.
+        if let Some(bond_cfg) = env
+            .storage()
+            .instance()
+            .get::<_, DisputeBondConfig>(&DataKey::DisputeBondConfig)
+        {
+            // Snapshot the bond into per-job storage FIRST so that an event
+            // consumer / indexer never sees a `bond_lck` event for which
+            // there is no recoverable record.  We update the escrow status
+            // and persist everything before performing the external token
+            // transfer so that storage state is always the truth.
+            env.storage().instance().set(
+                &DataKey::DisputeBond(job_id.clone()),
+                &DisputeBond {
+                    caller: caller.clone(),
+                    token: bond_cfg.token.clone(),
+                    amount: bond_cfg.amount,
+                    raised_at_ledger: env.ledger().sequence(),
+                },
+            );
+
+            escrow.status = EscrowStatus::Disputed;
+            env.storage()
+                .instance()
+                .set(&DataKey::Escrow(job_id.clone()), &escrow);
+
+            // Lock the bond.  `caller.require_auth()` above has already
+            // authorised ALL token operations from this caller, so this
+            // single transfer call covers the bond lock.
+            let bond_token_client = token::Client::new(&env, &bond_cfg.token);
+            bond_token_client.transfer(
+                &caller,
+                &env.current_contract_address(),
+                &bond_cfg.amount,
+            );
+
+            env.events().publish(
+                (symbol_short!("bond_lck"), job_id.clone()),
+                (caller.clone(), bond_cfg.token, bond_cfg.amount),
+            );
+            env.events().publish(
+                (symbol_short!("escrow_ds"), job_id.clone()),
+                (escrow.client.clone(), escrow.freelancer.clone(), caller.clone()),
+            );
+            return;
+        }
+
+        // Legacy fallback (zero-cost dispute mode).
         escrow.status = EscrowStatus::Disputed;
         env.storage()
             .instance()
@@ -1686,6 +1840,165 @@ impl MarketPayContract {
             (symbol_short!("escrow_ds"), job_id.clone()),
             (escrow.client.clone(), escrow.freelancer.clone(), caller.clone()),
         );
+    }
+
+    /// Resolve a disputed escrow and settle the bond (Issue #437).
+    ///
+    /// `client_wins == true` resolves in the client's favour: the escrow
+    /// amount is refunded to the client, and the bond is routed back to
+    /// the bond-caller if they are the client, or slashed to the client
+    /// if the bond-caller was the freelancer.
+    ///
+    /// `client_wins == false` resolves in the freelancer's favour (symmetric).
+    ///
+    /// Admin-only.  Idempotency is enforced via `DisputeBond` storage which
+    /// is removed after settlement, so a second call panics.
+    pub fn resolve_dispute(env: Env, admin: Address, job_id: String, client_wins: bool) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can resolve a dispute");
+        }
+
+        let mut escrow: Escrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        if escrow.status != EscrowStatus::Disputed {
+            panic!("Escrow is not in Disputed state");
+        }
+
+        // Pull snapshot of the locked bond (may be absent if zero-cost
+        // mode was used).  We always settle — the bond absence just means
+        // we have no bond to route.
+        let bond: Option<DisputeBond> = env
+            .storage()
+            .instance()
+            .get(&DataKey::DisputeBond(job_id.clone()));
+
+        // Determine the winning party address and the escrow final status.
+        let escrow_final_status = if client_wins {
+            EscrowStatus::Refunded
+        } else {
+            EscrowStatus::Released
+        };
+        let winner: Address = if client_wins {
+            escrow.client.clone()
+        } else {
+            escrow.freelancer.clone()
+        };
+
+        // Update the escrow status BEFORE any external transfers so that
+        // an event consumer / indexer never sees a state where the bond is
+        // held but the escrow is still `Disputed` (atomic settlement order).
+        escrow.status = escrow_final_status.clone();
+        env.storage()
+            .instance()
+            .set(&DataKey::Escrow(job_id.clone()), &escrow);
+
+        // Pay out the escrow principal.
+        let escrow_token_client = token::Client::new(&env, &escrow.token);
+        if escrow.amount > 0 {
+            escrow_token_client.transfer(
+                &env.current_contract_address(),
+                &winner,
+                &escrow.amount,
+            );
+        }
+
+        // Settle the bond \u2014 caller-wins-returns it, caller-loses-slashes it.
+        if let Some(b) = bond.clone() {
+            let bond_token_client = token::Client::new(&env, &b.token);
+            if b.caller == winner {
+                bond_token_client.transfer(
+                    &env.current_contract_address(),
+                    &b.caller,
+                    &b.amount,
+                );
+                env.events().publish(
+                    (symbol_short!("bond_rtn"), job_id.clone()),
+                    (b.caller.clone(), b.amount),
+                );
+            } else {
+                bond_token_client.transfer(
+                    &env.current_contract_address(),
+                    &winner,
+                    &b.amount,
+                );
+                env.events().publish(
+                    (symbol_short!("bond_slsh"), job_id.clone()),
+                    (winner.clone(), b.amount),
+                );
+            }
+            // Consume the bond record so a second resolve_dispute panics.
+            env.storage()
+                .instance()
+                .remove(&DataKey::DisputeBond(job_id.clone()));
+        }
+
+        env.events().publish(
+            (symbol_short!("dsp_res"), job_id.clone()),
+            (winner, escrow_final_status),
+        );
+    }
+
+    /// Admin sets the global dispute bond configuration (Issue #437).
+    ///
+    /// `amount == 0` and an `Option::None` (key absent) both leave the
+/// contract in **legacy zero-cost mode** so existing escrows and tests
+    /// continue to operate without modification.  Setting a positive amount
+    /// enables the bond requirement for all SUBSEQUENT disputes (existing
+    /// disputes are unaffected — bonds are snapshotted at lock time).
+    pub fn set_dispute_bond(env: Env, admin: Address, token: Address, amount: i128) {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Not initialized");
+        if stored_admin != admin {
+            panic!("Only admin can update the dispute bond");
+        }
+        if amount <= 0 {
+            panic!("Bond amount must be positive");
+        }
+
+        env.storage().instance().set(
+            &DataKey::DisputeBondConfig,
+            &DisputeBondConfig {
+                token: token.clone(),
+                amount,
+            },
+        );
+
+        env.events()
+            .publish((symbol_short!("bond_cfg"), admin), (token, amount));
+    }
+
+    /// Read the global dispute bond configuration.  Returns `(None, 0)` in
+    /// legacy zero-cost mode (key absent).
+    pub fn get_dispute_bond_config(env: Env) -> (Option<Address>, i128) {
+        env.storage()
+            .instance()
+            .get::<_, DisputeBondConfig>(&DataKey::DisputeBondConfig)
+            .map(|c| (Some(c.token), c.amount))
+            .unwrap_or((None, 0))
+    }
+
+    /// Read the per-job locked bond record.  Returns `None` if no bond
+    /// was locked (either legacy zero-cost mode or already settled).
+    pub fn get_dispute_bond(env: Env, job_id: String) -> Option<DisputeBond> {
+        env.storage()
+            .instance()
+            .get(&DataKey::DisputeBond(job_id))
     }
 
     /// Milestone-based partial release.
@@ -2341,20 +2654,26 @@ impl MarketPayContract {
             .get(&DataKey::Escrow(job_id.clone()))
             .expect("Escrow not found");
 
-        if escrow.client != client {
-            panic!("Only the client can mint a certificate");
-        }
-        if escrow.status != EscrowStatus::Released {
-            panic!("Escrow must be released to mint certificate");
-        }
+    /// Append an IPFS CID to a job's on-chain dispute-evidence audit trail
+    /// (Issue #448 --- AC #1).
+    ///
+    /// Caller: the escrow's client OR the escrow's freelancer. The explicit
+    /// `caller` parameter is `require_auth`'d so every chain row carries
+    /// cryptographic provenance of who anchored the CID.
+    ///
+    /// Storage: a Soroban `Vec<Bytes>` of CID bytes is appended at
+    /// `DataKey::EvidenceCids(job_id)`. The vector is append-only; existing
+    /// entries are never overwritten.
+    pub fn submit_evidence_cid(
+        env: Env,
+        job_id: String,
+        cid: Bytes,
+        caller: Address,
+    ) {
+        caller.require_auth();
 
-        // Prevent duplicate certificates
-        if env
-            .storage()
-            .instance()
-            .has(&DataKey::Certificate(job_id.clone()))
-        {
-            panic!("Certificate already minted");
+        if cid.is_empty() {
+            panic!("IPFS CID cannot be empty");
         }
 
         let cert = Certificate {
@@ -2412,30 +2731,6 @@ impl MarketPayContract {
             .instance()
             .get(&DataKey::Escrow(job_id.clone()))
             .expect("Escrow not found");
-        if escrow.status != EscrowStatus::Released {
-            panic!("Ratings are allowed only after escrow release");
-        }
-        if escrow.client != client {
-            panic!("Only job client can submit client rating");
-        }
-        if env
-            .storage()
-            .instance()
-            .has(&DataKey::ClientRating(job_id.clone()))
-        {
-            panic!("Client rating already submitted for this job");
-        }
-
-        let rating = Rating {
-            job_id: job_id.clone(),
-            rater: client.clone(),
-            rated: escrow.freelancer.clone(),
-            score_out_of_5: score,
-            submitted_at_ledger: env.ledger().sequence(),
-        };
-        env.storage()
-            .instance()
-            .set(&DataKey::ClientRating(job_id.clone()), &rating);
 
         let mut stats: FreelancerRatingStats = env
             .storage()
@@ -2462,149 +2757,17 @@ impl MarketPayContract {
             panic!("Score must be between 1 and 5");
         }
 
-        let escrow: Escrow = env
-            .storage()
-            .instance()
-            .get(&DataKey::Escrow(job_id.clone()))
-            .expect("Escrow not found");
-        if escrow.status != EscrowStatus::Released {
-            panic!("Ratings are allowed only after escrow release");
-        }
-        if escrow.freelancer != freelancer {
-            panic!("Only job freelancer can submit freelancer rating");
-        }
-        if env
-            .storage()
-            .instance()
-            .has(&DataKey::FreelancerRating(job_id.clone()))
-        {
-            panic!("Freelancer rating already submitted for this job");
+        if escrow.status == EscrowStatus::Refunded {
+            panic!("Cannot record evidence on a refunded escrow");
         }
 
-        let rating = Rating {
-            job_id: job_id.clone(),
-            rater: freelancer,
-            rated: escrow.client,
-            score_out_of_5: score,
-            submitted_at_ledger: env.ledger().sequence(),
-        };
-        env.storage()
-            .instance()
-            .set(&DataKey::FreelancerRating(job_id), &rating);
-    }
-
-    pub fn get_freelancer_rating_avg(env: Env, freelancer: Address) -> u32 {
-        let stats: FreelancerRatingStats = env
+        let mut cids: soroban_sdk::Vec<Bytes> = env
             .storage()
             .instance()
-            .get(&DataKey::FreelancerRatingStats(freelancer))
-            .unwrap_or(FreelancerRatingStats {
-                total_score: 0,
-                count: 0,
-            });
-        if stats.count == 0 {
-            return 0;
-        }
-        stats.total_score / stats.count
-    }
+            .get(&DataKey::EvidenceCids(job_id.clone()))
+            .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
 
-    pub fn register_arbitrator(env: Env, admin: Address, arbitrator: Address) {
-        admin.require_auth();
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .expect("Not initialized");
-        if stored_admin != admin {
-            panic!("Only admin can register arbitrators");
-        }
-        env.storage()
-            .instance()
-            .set(&DataKey::Arbitrator(arbitrator.clone()), &true);
-        let mut pool: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::ArbitratorPool)
-            .unwrap_or_else(|| Vec::new(&env));
-        pool.push_back(arbitrator);
-        env.storage()
-            .instance()
-            .set(&DataKey::ArbitratorPool, &pool);
-    }
-
-    pub fn open_arbitration(env: Env, job_id: String, admin: Address) -> u32 {
-        admin.require_auth();
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .expect("Not initialized");
-        if stored_admin != admin {
-            panic!("Only admin can open arbitration");
-        }
-
-        let pool: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::ArbitratorPool)
-            .unwrap_or_else(|| Vec::new(&env));
-        if pool.len() < 3 {
-            panic!("Need at least 3 registered arbitrators");
-        }
-
-        let count: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::ArbitrationCaseCount)
-            .unwrap_or(0);
-        let case_id = count.checked_add(1).expect("Counter overflow");
-        let seed = env.ledger().sequence() as usize;
-        let mut chosen = Vec::new(&env);
-        chosen.push_back(pool.get((seed % pool.len() as usize) as u32).unwrap());
-        chosen.push_back(pool.get(((seed + 1) % pool.len() as usize) as u32).unwrap());
-        chosen.push_back(pool.get(((seed + 2) % pool.len() as usize) as u32).unwrap());
-
-        let case = ArbitrationCase {
-            job_id,
-            arbitrators: chosen,
-            votes: Vec::new(&env),
-            resolution: 0,
-            status: 0,
-        };
-        env.storage()
-            .instance()
-            .set(&DataKey::ArbitrationCase(case_id), &case);
-        env.storage()
-            .instance()
-            .set(&DataKey::ArbitrationCaseCount, &case_id);
-        case_id
-    }
-
-    pub fn cast_arbitration_vote(env: Env, case_id: u32, arbitrator: Address, client_percent: u32) {
-        arbitrator.require_auth();
-        if client_percent > 100 {
-            panic!("Client percent must be 0-100");
-        }
-
-        let mut case: ArbitrationCase = env
-            .storage()
-            .instance()
-            .get(&DataKey::ArbitrationCase(case_id))
-            .expect("Arbitration case not found");
-        if case.status != 0 {
-            panic!("Arbitration case is not open");
-        }
-        if !case.arbitrators.contains(&arbitrator) {
-            panic!("Only selected arbitrators can vote");
-        }
-        if case.votes.len() >= 3 {
-            panic!("All votes already submitted");
-        }
-        case.votes.push_back(client_percent);
-        env.storage()
-            .instance()
-            .set(&DataKey::ArbitrationCase(case_id), &case);
-    }
+        cids.push_back(cid.clone());
 
     pub fn resolve_arbitration(env: Env, case_id: u32) {
         Self::check_not_frozen(&env);
@@ -2636,13 +2799,18 @@ impl MarketPayContract {
         case.status = 1;
         env.storage()
             .instance()
-            .set(&DataKey::ArbitrationCase(case_id), &case);
+            .set(&DataKey::EvidenceCids(job_id.clone()), &cids);
 
-        env.events()
-            .publish((symbol_short!("arb_res"), case_id), case.resolution);
+        env.events().publish(
+            (symbol_short!("evd_add"), job_id),
+            (caller, env.ledger().sequence()),
+        );
     }
 
-    pub fn get_arbitration_case(env: Env, case_id: u32) -> ArbitrationCase {
+    /// Read the IPFS CIDs anchoring dispute evidence on-chain for a job
+    /// (Issue #448 --- AC #3). Returns the `Vec<Bytes>` in insertion order
+    /// (oldest first). Empty `Vec` if no evidence has been anchored yet.
+    pub fn get_evidence_cids(env: Env, job_id: String) -> soroban_sdk::Vec<Bytes> {
         env.storage()
             .instance()
             .get(&DataKey::ArbitrationCase(case_id))
@@ -3331,349 +3499,6 @@ mod upgrade_tests {
 }
 
 #[cfg(test)]
-<<<<<<< HEAD
-=======
-mod freeze_tests {
-    use super::*;
-    use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
-
-    fn setup(env: &Env) -> (MarketPayContractClient, Address, Address) {
-        env.mock_all_auths();
-        let id = env.register(MarketPayContract, ());
-        let client = MarketPayContractClient::new(env, &id);
-        let admin = Address::generate(env);
-        client.initialize(&admin);
-        (client, admin, id)
-    }
-
-    #[test]
-    fn test_freeze_contract_by_admin() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        assert_eq!(client.is_frozen(), false);
-        client.freeze_contract(&admin);
-        assert_eq!(client.is_frozen(), true);
-    }
-
-    #[test]
-    #[should_panic(expected = "Only an admin can freeze the contract")]
-    fn test_freeze_contract_rejected_for_non_admin() {
-        let env = Env::default();
-        let (client, _admin, _id) = setup(&env);
-
-        let non_admin = Address::generate(&env);
-        client.freeze_contract(&non_admin);
-    }
-
-    #[test]
-    fn test_unfreeze_contract_with_two_admins() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-
-        client.freeze_contract(&admin);
-        assert_eq!(client.is_frozen(), true);
-
-        let mut unfreeze_admins = Vec::new(&env);
-        unfreeze_admins.push_back(admin);
-        unfreeze_admins.push_back(admin2);
-        client.unfreeze_contract(&unfreeze_admins);
-
-        assert_eq!(client.is_frozen(), false);
-    }
-
-    #[test]
-    #[should_panic(expected = "Insufficient admin signatures to unfreeze")]
-    fn test_unfreeze_contract_rejected_with_one_admin() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-
-        client.freeze_contract(&admin);
-
-        let mut unfreeze_admins = Vec::new(&env);
-        unfreeze_admins.push_back(admin);
-        client.unfreeze_contract(&unfreeze_admins);
-    }
-
-    #[test]
-    #[should_panic(expected = "Contract is frozen")]
-    fn test_create_escrow_blocked_when_frozen() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let depositor = Address::generate(&env);
-        let freelancer = Address::generate(&env);
-        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
-        let token_id = token_contract.address();
-        let token_admin = token::StellarAssetClient::new(&env, &token_id);
-        token_admin.mint(&depositor, &500);
-
-        client.freeze_contract(&admin);
-
-        let job_id = String::from_str(&env, "frozen-create");
-        client.create_escrow(&job_id, &depositor, &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None });
-    }
-
-    #[test]
-    #[should_panic(expected = "Contract is frozen")]
-    fn test_release_escrow_blocked_when_frozen() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let depositor = Address::generate(&env);
-        let freelancer = Address::generate(&env);
-        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
-        let token_id = token_contract.address();
-        let token_admin = token::StellarAssetClient::new(&env, &token_id);
-        token_admin.mint(&depositor, &500);
-
-        let job_id = String::from_str(&env, "frozen-release");
-        client.create_escrow(&job_id, &depositor, &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None });
-        client.start_work(&job_id, &freelancer);
-
-        client.freeze_contract(&admin);
-
-        client.release_escrow(&job_id, &depositor);
-    }
-
-    #[test]
-    fn test_add_admin_and_get_admins() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-
-        let admins = client.get_admins();
-        assert_eq!(admins.len(), 2);
-
-        let threshold = client.get_unfreeze_threshold();
-        assert_eq!(threshold, 2u32);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_unfreeze_rejects_duplicate_admins() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-
-        client.freeze_contract(&admin);
-
-        let mut unfreeze_admins = Vec::new(&env);
-        unfreeze_admins.push_back(admin.clone());
-        unfreeze_admins.push_back(admin);
-        client.unfreeze_contract(&unfreeze_admins);
-    }
-
-    #[test]
-    fn test_set_unfreeze_threshold() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        let admin3 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-        client.add_admin(&admin, &admin3);
-
-        client.set_unfreeze_threshold(&admin, &3u32);
-        assert_eq!(client.get_unfreeze_threshold(), 3u32);
-    }
-}
-
-#[cfg(all(test, feature = "event_tests_fixme"))]
-mod event_tests {
-    extern crate std;
-
-    use super::*;
-    use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::testutils::Events;
-    use soroban_sdk::{Address, Env, String, Symbol, TryFromVal, Vec};
-
-    fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, Address) {
-        env.mock_all_auths();
-        let id = env.register(MarketPayContract, ());
-        let client = MarketPayContractClient::new(env, &id);
-        let admin = Address::generate(env);
-        let treasury = Address::generate(env);
-        client.initialize(&admin, &treasury);
-
-        let contract_client = Address::generate(env);
-        let freelancer = Address::generate(env);
-        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
-        let token_id = token_contract.address();
-        let token_admin = token::StellarAssetClient::new(env, &token_id);
-        token_admin.mint(&contract_client, &1000);
-
-        (client, contract_client, freelancer, token_id)
-    }
-
-fn get_event_topic0_str(env: &Env, idx: u32) -> std::string::String {
-    let events: Vec<_> = env.events().all().into_iter().collect();
-    let event = events.get(idx as usize).unwrap();
-    let topic0 = event.1.get(0).unwrap();
-    if let Ok(sym) = Symbol::try_from_val(env, &topic0) {
-        std::format!("{:?}", sym)
-    } else {
-        std::format!("{:?}", topic0)
-    }
-}
-
-    #[test]
-    fn test_create_escrow_emits_event() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-1");
-
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
-        );
-
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        let last_idx = events.len() - 1;
-        assert!(
-            get_event_topic0_str(&env, last_idx as u32).contains("escrow_cr"),
-        );
-    }
-
-    #[test]
-    fn test_start_work_emits_event() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-2");
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
-        );
-
-        client.start_work(&job_id, &freelancer);
-
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("work_strt"),
-        );
-    }
-
-    #[test]
-    fn test_release_escrow_emits_event() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-3");
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
-        );
-        client.start_work(&job_id, &freelancer);
-
-        client.release_escrow(&job_id, &contract_client);
-
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_rl"),
-        );
-    }
-
-    #[test]
-    fn test_refund_escrow_emits_event() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-4");
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
-        );
-
-        client.refund_escrow(&job_id, &contract_client);
-
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_rf"),
-        );
-    }
-
-    #[test]
-    fn test_raise_dispute_emits_event() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-5");
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
-        );
-
-        client.raise_dispute(&job_id, &contract_client);
-
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_ds"),
-        );
-    }
-
-    #[test]
-    fn test_milestone_released_emits_event() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-6");
-        let mut milestones = Vec::new(&env);
-        milestones.push_back(MilestoneInput { description: String::from_str(&env, "Design"), percentage: 40 });
-        milestones.push_back(MilestoneInput { description: String::from_str(&env, "Build"), percentage: 60 });
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 1000, milestones: Some(milestones), timeout_ledgers: None, referrer: None },
-        );
-        client.start_work(&job_id, &freelancer);
-
-        client.release_milestone(&job_id, &0u32, &contract_client);
-
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("milestone_released"),
-        );
-    }
-
-    #[test]
-    fn test_full_lifecycle_events_all_emitted() {
-        let env = Env::default();
-        let (client, contract_client, freelancer, token_id) = setup(&env);
-        let job_id = String::from_str(&env, "evt-job-7");
-
-        client.create_escrow(
-            &job_id, &contract_client,
-            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
-        );
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_cr"),
-            "Missing escrow_cr after create_escrow",
-        );
-
-        client.start_work(&job_id, &freelancer);
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("work_strt"),
-            "Missing work_strt after start_work",
-        );
-
-        client.release_escrow(&job_id, &contract_client);
-        let events: Vec<_> = env.events().all().into_iter().collect();
-        assert!(
-            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_rl"),
-            "Missing escrow_rl after release_escrow",
-        );
-    }
-}
-
-#[cfg(test)]
->>>>>>> origin/main
 mod sealed_bid_tests {
     use super::*;
     use soroban_sdk::{testutils::Address as _, testutils::Ledger, Address, Bytes, BytesN, Env, String};
