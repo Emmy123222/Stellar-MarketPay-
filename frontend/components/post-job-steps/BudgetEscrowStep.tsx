@@ -111,6 +111,63 @@ export default function BudgetEscrowStep({
           <option value="invite_only">Invite Only</option>
         </select>
       </div>
+
+      {/* Issue #450: Recurring Escrow for Retainer Contracts */}
+      <div className="border-t border-gray-200 dark:border-market-500/20 pt-4">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            name="isRecurring"
+            checked={form.isRecurring}
+            onChange={onChange}
+            className="w-4 h-4 rounded border-gray-300 text-market-400 focus:ring-market-400/40"
+          />
+          <span className="text-sm font-medium text-gray-700 dark:text-amber-300">
+            Make this a recurring/retainer contract
+          </span>
+        </label>
+        <p className="text-xs text-amber-700 mt-1 ml-6">
+          Automatically release payments on a schedule (e.g., monthly retainers)
+        </p>
+
+        {form.isRecurring && (
+          <div className="mt-3 ml-6 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-amber-300 mb-1">
+                  Interval (days)
+                </label>
+                <input
+                  type="number"
+                  name="intervalDays"
+                  value={form.intervalDays}
+                  onChange={onChange}
+                  min="1"
+                  placeholder="30"
+                  className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-3 py-2 text-xs text-gray-900 dark:text-amber-100 focus:outline-none focus:ring-2 focus:ring-market-400/40"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-amber-300 mb-1">
+                  Total releases
+                </label>
+                <input
+                  type="number"
+                  name="totalReleases"
+                  value={form.totalReleases}
+                  onChange={onChange}
+                  min="1"
+                  placeholder="12"
+                  className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-3 py-2 text-xs text-gray-900 dark:text-amber-100 focus:outline-none focus:ring-2 focus:ring-market-400/40"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-amber-700">
+              Total budget: {(budgetValue * parseInt(form.totalReleases || "0")).toFixed(2)} {form.currency} will be locked in escrow
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

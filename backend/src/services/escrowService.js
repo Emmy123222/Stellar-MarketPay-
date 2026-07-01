@@ -9,8 +9,49 @@ const {
 } = require("./notificationService");
 const { processReferralPayout } = require("./referralService");
 const { createServiceLogger, logError } = require("../utils/logger");
+const { getClientIp } = require("../utils/clientIp");
+const { signWithServiceKey, getServicePublicKey } = require("./stellarServiceKey");
 
 const ESCROW_TIMEOUT_DAYS = 7;
+const logger = createServiceLogger('escrowService');
+
+const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
+
+/**
+ * Verify that a Stellar account exists on the network by checking Horizon.
+ * Throws a 400 error with a descriptive message if the account is not found.
+ * Returns true if the account exists.
+ */
+async function verifyFreelancerAccount(freelancerAddress) {
+  if (!freelancerAddress || !/^G[A-Z0-9]{55}$/.test(freelancerAddress)) {
+    const e = new Error("Invalid Stellar address");
+    e.status = 400;
+    throw e;
+  }
+
+  try {
+    const res = await fetch(
+      `${HORIZON_URL}/accounts/${encodeURIComponent(freelancerAddress)}`,
+    );
+    if (!res.ok) {
+      if (res.status === 404) {
+        const e = new Error("Freelancer account not found on Stellar network");
+        e.status = 400;
+        throw e;
+      }
+      const body = await res.text();
+      const e = new Error(`Horizon request failed: ${res.status} ${body}`);
+      e.status = 502;
+      throw e;
+    }
+    return true;
+  } catch (err) {
+    if (err.status) throw err;
+    const e = new Error("Failed to verify freelancer account on Stellar network");
+    e.status = 502;
+    throw e;
+  }
+}
 
 function normalizeMilestones(milestones, fallbackAmount) {
   if (!Array.isArray(milestones) || milestones.length === 0) {
@@ -202,7 +243,7 @@ async function refundClient(jobId, clientAddress, contractTxHash) {
   return { success: true, message: "Escrow refunded" };
 }
 
-async function timeoutRefund(jobId, clientAddress, contractTxHash) {
+async function timeoutRefund(jobId, clientAddress, contractTxHash, req = null) {
   const job = await getJob(jobId);
   if (job.clientAddress !== clientAddress) {
     const e = new Error("Only the job client can request a timeout refund");
@@ -231,9 +272,26 @@ async function timeoutRefund(jobId, clientAddress, contractTxHash) {
     throw e;
   }
 
+  // Issue #536: Use service keypair for contract calls with IP validation
+  const clientIp = req ? getClientIp(req) : '127.0.0.1';
+  
+  try {
+    await signWithServiceKey(clientIp, async (keypair) => {
+      // In a real implementation, this would sign and submit the Soroban transaction
+      // For now, we validate the keypair is loaded and IP is allowed
+      logger.info(
+        { jobId, clientAddress, servicePublicKey: getServicePublicKey() },
+        'Service key validated for timeout refund'
+      );
+    });
+  } catch (err) {
+    logger.error({ error: err.message, jobId, clientIp }, 'Service key validation failed');
+    throw err;
+  }
+
   await logContractInteraction({
     functionName: "timeout_refund",
-    callerAddress: clientAddress,
+    callerAddress: getServicePublicKey(), // Use service key as caller
     jobId,
     txHash: contractTxHash || `offchain-${Date.now()}`,
   });
@@ -538,6 +596,47 @@ async function startEscrowTimeoutChecker() {
   setInterval(checkAndRefund, 60 * 60 * 1000).unref();
 }
 
+async function submitDeliverableHash(jobId, freelancerAddress, hashHex) {
+  const job = await getJob(jobId);
+
+  if (job.freelancerAddress !== freelancerAddress) {
+    const e = new Error("Only the freelancer can submit a deliverable hash");
+    e.status = 403;
+    throw e;
+  }
+
+  if (!/^[0-9a-fA-F]{64}$/.test(hashHex)) {
+    const e = new Error("hashHex must be a 64-character hex string (SHA-256)");
+    e.status = 400;
+    throw e;
+  }
+
+  const { rows: escrowRows } = await pool.query(
+    "SELECT status FROM escrows WHERE job_id = $1",
+    [jobId],
+  );
+  if (!escrowRows.length) {
+    const e = new Error("No escrow found for this job");
+    e.status = 404;
+    throw e;
+  }
+
+  if (escrowRows[0].status !== "funded" && escrowRows[0].status !== "in_progress") {
+    const e = new Error("Can only submit hash for active escrow");
+    e.status = 400;
+    throw e;
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO deliverable_submissions (job_id, freelancer_address, hash_hex)
+     VALUES ($1, $2, $3)
+     RETURNING *`,
+    [jobId, freelancerAddress, hashHex],
+  );
+
+  return { success: true, submission: rows[0] };
+}
+
 module.exports = {
   releaseFunds,
   refundClient,
@@ -551,5 +650,8 @@ module.exports = {
   getEscrowWithTimeout,
   resolveLedgerTimestamp,
   startEscrowTimeoutChecker,
+  submitDeliverableHash,
+
+  verifyFreelancerAccount,
   ESCROW_TIMEOUT_DAYS,
 };

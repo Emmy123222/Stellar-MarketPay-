@@ -21,7 +21,15 @@ const {
   releaseMilestone,
   rejectMilestone,
   disputeMilestone,
+  submitDeliverableHash,
+
+  verifyFreelancerAccount,
 } = require("../services/escrowService");
+const {
+  createRecurringEscrow,
+  cancelRecurringEscrow,
+  getRecurringEscrow,
+} = require("../services/recurringEscrowService");
 
 /**
  * POST /api/escrow/:jobId/release
@@ -271,6 +279,7 @@ router.post("/:jobId/refund", async (req, res, next) => {
 /**
  * POST /api/escrow/:jobId/timeout-refund
  * Issue #175 — Client claims refund after freelancer inactivity timeout.
+ * Issue #536 — Uses service keypair with IP validation for contract calls.
  */
 router.post("/:jobId/timeout-refund", async (req, res, next) => {
   try {
@@ -283,19 +292,12 @@ router.post("/:jobId/timeout-refund", async (req, res, next) => {
       throw e;
     }
 
+    // Issue #536: Pass request for IP validation in service key usage
+    const result = await escrowService.timeoutRefund(jobId, clientAddress, contractTxHash, req);
+
     // DB status is updated asynchronously by the indexer when it processes the on-chain event.
 
-    await logContractInteraction({
-      functionName: "timeout_refund",
-      callerAddress: clientAddress,
-      jobId,
-      txHash: contractTxHash || `offchain-${Date.now()}`,
-    });
-
-    res.json({
-      success: true,
-      message: "Escrow refunded due to inactivity timeout",
-    });
+    res.json(result);
   } catch (e) {
     next(e);
   }
@@ -321,6 +323,193 @@ router.get("/:jobId", escrowActionRateLimiter, async (req, res, next) => {
       success: true,
       data: rows[0],
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/:jobId/recurring
+ * Create a recurring escrow for retainer contracts (Issue #450)
+ */
+router.post("/:jobId/recurring", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { 
+      clientAddress, 
+      freelancerAddress, 
+      contractId, 
+      amountPerRelease, 
+      currency, 
+      intervalDays, 
+      totalReleases 
+    } = req.body;
+
+    if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
+      const e = new Error("Invalid client address");
+      e.status = 400;
+      throw e;
+    }
+
+    if (!freelancerAddress || !/^G[A-Z0-9]{55}$/.test(freelancerAddress)) {
+      const e = new Error("Invalid freelancer address");
+      e.status = 400;
+      throw e;
+    }
+
+    if (!amountPerRelease || parseFloat(amountPerRelease) <= 0) {
+      const e = new Error("Amount per release must be positive");
+      e.status = 400;
+      throw e;
+    }
+
+    if (!intervalDays || parseInt(intervalDays) <= 0) {
+      const e = new Error("Interval days must be positive");
+      e.status = 400;
+      throw e;
+    }
+
+    if (!totalReleases || parseInt(totalReleases) <= 0) {
+      const e = new Error("Total releases must be positive");
+      e.status = 400;
+      throw e;
+    }
+
+    const job = await getJob(jobId);
+    if (job.clientAddress !== clientAddress) {
+      const e = new Error("Only the job client can create recurring escrow");
+      e.status = 403;
+      throw e;
+    }
+
+    const recurringEscrow = await createRecurringEscrow({
+      jobId,
+      clientAddress,
+      freelancerAddress,
+      contractId,
+      amountPerRelease: parseFloat(amountPerRelease),
+      currency,
+      intervalDays: parseInt(intervalDays),
+      totalReleases: parseInt(totalReleases),
+    });
+
+    res.json({
+      success: true,
+      message: "Recurring escrow created successfully",
+      data: recurringEscrow,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/:jobId/recurring/cancel
+ * Cancel a recurring escrow and refund remaining funds (Issue #450)
+ */
+router.post("/:jobId/recurring/cancel", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { clientAddress } = req.body;
+
+    if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
+      const e = new Error("Invalid client address");
+      e.status = 400;
+      throw e;
+    }
+
+    const result = await cancelRecurringEscrow(jobId, clientAddress);
+
+    res.json({
+      success: true,
+      message: result.message,
+      data: result,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * GET /api/escrow/:jobId/recurring
+ * Get recurring escrow details (Issue #450)
+ */
+router.get("/:jobId/recurring", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const recurringEscrow = await getRecurringEscrow(jobId);
+
+    res.json({
+      success: true,
+      data: recurringEscrow,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/verify-freelancer
+ * Verify that a freelancer Stellar account exists on the network before
+ * creating an escrow.
+ */
+router.post("/verify-freelancer", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { freelancerAddress } = req.body;
+
+    if (!freelancerAddress) {
+      const e = new Error("freelancerAddress is required");
+      e.status = 400;
+      throw e;
+    }
+
+    if (!Number.isInteger(newTimeoutLedger) || newTimeoutLedger <= 0) {
+      const e = new Error("newTimeoutLedger must be a positive integer");
+      e.status = 400;
+      throw e;
+    }
+
+    const result = await requestEscrowExtension(jobId, requestedBy, newTimeoutLedger);
+
+    await logContractInteraction({
+      functionName: "request_extension",
+      callerAddress: requestedBy,
+      jobId,
+      txHash: `offchain-${Date.now()}`,
+    });
+
+    res.status(201).json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/:jobId/extend/approve
+ * Approve a pending escrow timeout extension request.
+ * The caller must be the party that did NOT request the extension.
+ */
+router.post("/:jobId/extend/approve", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { approvedBy } = req.body;
+
+    if (!approvedBy || !/^G[A-Z0-9]{55}$/.test(approvedBy)) {
+      const e = new Error("Invalid wallet address");
+      e.status = 400;
+      throw e;
+    }
+
+    const result = await approveEscrowExtension(jobId, approvedBy);
+
+    await logContractInteraction({
+      functionName: "approve_extension",
+      callerAddress: approvedBy,
+      jobId,
+      txHash: `offchain-${Date.now()}`,
+    });
+
+    res.json(result);
   } catch (e) {
     next(e);
   }

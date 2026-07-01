@@ -8,6 +8,8 @@ const TRACKED_CONTRACT_FUNCTIONS = new Set([
   "release_escrow",
   "release_with_conversion",
   "refund_escrow",
+  "submit_deliverable_hash",
+  "verify_deliverable_hash",
 ]);
 
 async function logContractInteraction({ functionName, callerAddress, jobId, txHash }) {

@@ -583,8 +583,10 @@ async function listJobs({
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
   if (skillList.length > 0) {
+    // Use the GIN-indexed skills column with the overlap operator (&&) for index scan
+    // Issue #540: jobs.skills TEXT[] + GIN index replaces sequential join scan
     params.push(skillList);
-    conditions.push(`EXISTS (SELECT 1 FROM job_skills js JOIN skills s ON js.skill_id = s.id WHERE js.job_id = jobs.id AND s.slug = ANY($${params.length}::text[]))`);
+    conditions.push(`jobs.skills && $${params.length}::text[]`);
   }
 
   const minRating = parseFloat(min_client_rating);
@@ -1362,4 +1364,5 @@ module.exports = {
   bulkBoostJobs,
   getRecommendedJobs,
   getSuggestions,
+  rowToJob,
 };
