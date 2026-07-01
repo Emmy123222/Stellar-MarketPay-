@@ -1,4 +1,4 @@
--- V19__tfidf_vocabulary
+﻿-- V19__tfidf_vocabulary
 -- Stores the global term vocabulary and IDF weights for the job recommendation TF-IDF engine
 
 CREATE TABLE IF NOT EXISTS tfidf_vocabulary (
