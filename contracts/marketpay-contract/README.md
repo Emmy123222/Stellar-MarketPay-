@@ -37,12 +37,39 @@ This Soroban smart contract manages trustless escrow between clients and freelan
 ## Build & Test
 
 ```bash
-# Build
+# Standard build
 cargo build --target wasm32-unknown-unknown --release
 
-# Test
+# Optimized build (cargo release + wasm-opt -Oz post-processing)
+# Requires wasm-opt — install with one of:
+#   cargo install wasm-opt
+#   brew install binaryen        (macOS)
+#   apt install binaryen         (Debian/Ubuntu)
+make build-optimized
+
+# Run tests
 cargo test
 ```
+
+### Release profile
+
+`Cargo.toml` already configures `[profile.release]` for minimum WASM size:
+
+| Setting | Value | Effect |
+|---------|-------|--------|
+| `opt-level` | `"z"` | Optimise aggressively for binary size |
+| `lto` | `true` | Link-time optimisation — removes dead code across crates |
+| `codegen-units` | `1` | Single codegen unit for maximum inlining and dead-code elimination |
+| `strip` | `"symbols"` | Strip debug symbols from the binary |
+| `panic` | `"abort"` | Replace panic unwinding machinery with a single `unreachable` trap |
+
+After running `make build-optimized` the target binary is:
+
+```
+target/wasm32-unknown-unknown/release/marketpay_contract.optimized.wasm
+```
+
+Use this file (not the plain `.wasm`) when deploying or installing on-chain.
 
 ## Deploy
 
@@ -63,13 +90,14 @@ the active WASM and the on-chain record are in sync after an upgrade.
 
 1. **Build the new WASM**
    ```bash
-   cargo build --target wasm32-unknown-unknown --release
+   make build-optimized
+   # Produces: target/wasm32-unknown-unknown/release/marketpay_contract.optimized.wasm
    ```
 
 2. **Install the new WASM on-chain** (uploads bytes, returns a hash)
    ```bash
    stellar contract install \
-     --wasm target/wasm32-unknown-unknown/release/marketpay_contract.wasm \
+     --wasm target/wasm32-unknown-unknown/release/marketpay_contract.optimized.wasm \
      --source <admin-key> --network testnet
    # → prints NEW_WASM_HASH
    ```
