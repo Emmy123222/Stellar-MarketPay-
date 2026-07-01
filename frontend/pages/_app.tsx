@@ -4,6 +4,7 @@ import Head from "next/head";
 import Script from "next/script";
 import { useRouter } from "next/router";
 import Navbar from "@/components/Navbar";
+import MobileTabBar from "@/components/MobileTabBar";
 import FaucetButton from "@/components/FaucetButton";
 import AppFooter from "@/components/AppFooter";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
@@ -270,6 +271,7 @@ function App({ Component, pageProps }: AppProps) {
             <OfflineBanner />
             <div className="min-h-screen bg-lines" style={{ backgroundColor: "var(--bg)" }}>
               <Navbar publicKey={publicKey} onConnect={handleConnect} onDisconnect={() => setPublicKey(null)} />
+              <MobileTabBar publicKey={publicKey} />
               <main>
                 <Component {...pageProps} publicKey={publicKey} onConnect={handleConnect} />
               </main>
