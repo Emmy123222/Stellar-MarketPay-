@@ -96,6 +96,67 @@ async function set(key, value, ttlSeconds) {
 }
 
 /**
+ * Increment a per-minute counter and return the new value together with the
+ * remaining TTL of the bucket. Used by the API key sliding-window rate
+ * limiter (issue #452).
+ *
+ * Resets every minute via EXPIRE so we never keep stale buckets around.
+ * Returns `{ count, ttlSeconds }` (or `{ count: 0, ttlSeconds: 60 }` on
+ * Redis failure so the rate limiter can fail-open).
+ *
+ * @param {string} key  e.g. "rl:42:/api/jobs:1700000000"
+ * @param {number} ttlSeconds  bucket lifetime (typically 60 for a minute)
+ * @returns {Promise<{ count: number, ttlSeconds: number }>}
+ */
+async function incrWithExpiry(key, ttlSeconds) {
+  const redis = getClient();
+  if (!redis) return { count: 0, ttlSeconds };
+  try {
+    // Atomic INCR + conditional EXPIRE via Lua. The conditional matters:
+    // we only set EXPIRE on the FIRST increment so subsequent hits don't
+    // reset the bucket's TTL — otherwise the bucket would never roll
+    // over within an active minute. Atomicity prevents the failure mode
+    // where INCR succeeds but EXPIRE doesn't (which would create an
+    // infinite-lived bucket defeating the limiter).
+    const script =
+      "local c = redis.call('INCR', KEYS[1])\n" +
+      "if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end\n" +
+      "local t = redis.call('TTL', KEYS[1])\n" +
+      "return {c, t}";
+    const result = await redis.eval(script, 1, key, ttlSeconds);
+    if (!Array.isArray(result)) return { count: 0, ttlSeconds };
+    const count = Number(result[0]) || 0;
+    const ttl = Number(result[1]);
+    return {
+      count,
+      // If TTL came back negative (key expired between INCR and TTL),
+      // fall back to the requested ttl so the rate limiter can compute
+      // a sensible Retry-After.
+      ttlSeconds: ttl > 0 ? ttl : ttlSeconds,
+    };
+  } catch (err) {
+    // Swallow but record so the leak path is observable in logs.
+    // eslint-disable-next-line no-console
+    console.warn("[cache] incrWithExpiry Lua eval failed:", err.message);
+    return { count: 0, ttlSeconds };
+  }
+}
+
+/**
+ * Build a sliding-window Redis key for an API key + endpoint at a given
+ * minute bucket. Matches the pattern mandated by the AC for issue #452:
+ * `rl:{api_key}:{endpoint}:{minute_bucket}` where the minute bucket is
+ * `floor(now_seconds / 60)`.
+ *
+ * @param {string|number} apiKeyId
+ * @param {string} endpoint  normalized route key, e.g. "/api/jobs"
+ * @param {number} minuteBucket  `Math.floor(Date.now()/1000/60)`
+ */
+function rateLimitKey(apiKeyId, endpoint, minuteBucket) {
+  return `rl:${apiKeyId}:${endpoint}:${minuteBucket}`;
+}
+
+/**
  * Delete all keys matching a glob pattern.
  * Used to invalidate job list cache on write operations.
  *
@@ -131,7 +192,16 @@ async function del(key) {
   }
 }
 
-module.exports = { get, set, del, delPattern, jobListKey, profileKey };
+module.exports = {
+  get,
+  set,
+  del,
+  delPattern,
+  jobListKey,
+  profileKey,
+  incrWithExpiry,
+  rateLimitKey,
+};
 
 // TTL constants exported so callers don't hard-code numbers.
 module.exports.TTL = {

@@ -2112,6 +2112,43 @@ export async function fetchTimeSeriesMetrics(params: {
   return data.data;
 }
 
+// ─── Admin API Key Usage Stats (Issue #452) ───────────────────────────────────
+
+export interface ApiKeyUsageEndpoint {
+  endpoint: string;
+  requests: number;
+  lastMinute: string;
+}
+
+export interface ApiKeyUsageRow {
+  id: number;
+  label: string;
+  key_prefix: string;
+  requests_today: number;
+  requests_last_hour: number;
+  endpoint_breakdown: ApiKeyUsageEndpoint[];
+}
+
+export interface ApiKeyUsageStats {
+  lookbackDays: number;
+  keys: ApiKeyUsageRow[];
+}
+
+/**
+ * Fetch per-API-key usage statistics for the admin dashboard (Issue #452).
+ * Each row includes today's request count, the rolling 60-minute request
+ * count, and a per-endpoint breakdown for the most recent activity.
+ */
+export async function fetchAdminApiKeyUsage(
+  days = 7,
+): Promise<ApiKeyUsageStats> {
+  const { data } = await api.get<{ success: boolean; data: ApiKeyUsageStats }>(
+    "/api/admin/api-keys/usage",
+    { params: { days } },
+  );
+  return data.data;
+}
+
 // ─── Referrals ────────────────────────────────────────────────────────────────
 
 /**
