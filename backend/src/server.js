@@ -18,19 +18,20 @@ const { sendEmail, smtpTransport } = require("./utils/email");
 const promClient = require("prom-client");
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
-const { requestLoggerMiddleware, logError, createServiceLogger } = require('./utils/logger');
+const { requestLoggerMiddleware, xRequestIdMiddleware, logError, createServiceLogger } = require('./utils/logger');
 const { sanitizeMiddleware } = require('./middleware/sanitize');
 const { idempotencyMiddleware, cleanupExpiredIdempotencyKeys } = require('./middleware/idempotency');
 const { getRateLimitScale } = require("./middleware/rateLimiter");
 const { requireChoice } = require("./config/env");
 const { createCorsOptions } = require("./config/cors");
-const { verifyCSRF } = require("./middleware/csrf");
+const { doubleCsrfProtection } = require("./middleware/csrf");
 const { structuredErrorHandler } = require("./utils/errors");
 const { jsonDepthLimitMiddleware } = require("./middleware/jsonbValidator");
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
 const profileRoutes   = require("./routes/profiles");
+const onboardingRoutes = require("./routes/onboarding");
 const escrowRoutes    = require("./routes/escrow");
 const healthRoutes    = require("./routes/health");
 const authRoutes      = require("./routes/auth");
@@ -304,14 +305,25 @@ app.use(helmet({
   referrerPolicy: { policy: "strict-origin-when-cross-origin" },
 }));
 
-// Request logging middleware
-app.use(requestLoggerMiddleware);
+// Correlation-id tracing middleware (Issue #453). Allocates the
+// request id and enters the AsyncLocalStorage scope BEFORE any
+// downstream middleware logs anything (helmet block-listing, body
+// parse errors, sanitization warnings, idempotency hits, etc).
+// Runs immediately AFTER helmet (which never logs).
+app.use(xRequestIdMiddleware);
 
 app.use(compressionMiddleware());
 
+// Body parser MUST run BEFORE requestLoggerMiddleware so the bracketing
+// "Request started" log line can capture the request body (sanitized).
 app.use(express.json({ limit: "20kb" }));
 app.use(sanitizeMiddleware({ strict: false }));
 app.use(idempotencyMiddleware());
+
+// Request logging middleware (issues Request started / Request completed
+// bracketing log lines after the requestId is in scope and the body is
+// parsed).
+app.use(requestLoggerMiddleware);
 
 // Swagger UI
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
@@ -319,14 +331,9 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
   customSiteTitle: 'Stellar MarketPay API Documentation'
 }));
 
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").split(",").map(o => o.trim());
-app.use(cors({
-  origin: (origin, cb) => (!origin || allowedOrigins.includes(origin)) ? cb(null, true) : cb(new Error("CORS blocked")),
-  methods: ["GET", "POST", "PATCH", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
-  credentials: true,
-}));
-app.use(verifyCSRF);
+
+app.use(cors(createCorsOptions()));
+app.use(doubleCsrfProtection);
 
 app.use((req, res, next) => {
   if (req.path === "/metrics") {
@@ -362,7 +369,6 @@ app.use(rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => getClientIp(req),
 }));
-}));
 
 app.get("/metrics", async (req, res, next) => {
   try {
@@ -387,6 +393,8 @@ app.use("/api/auth",          authRoutes);
 app.use("/api/jobs",          jobRoutes);
 app.use("/api/applications",  applicationRoutes);
 app.use("/api/profiles",      profileRoutes);
+app.use("/api/freelancers",   profileRoutes);
+app.use("/api/onboarding",    onboardingRoutes);
 app.use("/api/escrow",        escrowRoutes);
 app.use("/api/ratings",       ratingRoutes);
 app.use("/api/progress",      progressRoutes);

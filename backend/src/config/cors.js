@@ -1,6 +1,11 @@
 "use strict";
 
 const DEFAULT_DEVELOPMENT_ORIGIN = "http://localhost:3000";
+// Both X-CSRF-Token (canonical per issue #451) and the legacy X-XSRF-Token
+// are accepted so existing first-party tooling and tests don't break during
+// the migration window. Remove the legacy alias in a follow-up once the
+// frontend migrates fully.
+const { CSRF_HEADER_PUBLIC } = require("../middleware/csrf");
 
 function parseAllowedOrigins(value) {
   return String(value || "")
@@ -35,8 +40,15 @@ function createCorsOptions({ env = process.env, logger = console } = {}) {
 
       return cb(new Error("CORS blocked"));
     },
-    methods: ["GET", "POST", "PATCH", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-XSRF-Token"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-API-Key",
+      CSRF_HEADER_PUBLIC,
+      "X-XSRF-Token", // legacy alias — see note at top of file
+      "Idempotency-Key",
+    ],
     credentials: true,
   };
 }
