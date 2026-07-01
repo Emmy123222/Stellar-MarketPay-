@@ -300,14 +300,12 @@ pub enum DataKey {
     Version,
     /// Stores list of IPFS CIDs for messages in a job thread
     MessageCid(String),
-    /// Pending timeout extension request per job
-    ExtensionRequest(String),
+    /// Freelancer-submitted deliverable SHA-256 hash for release verification
+    FreelancerDeliverableHash(String),
     /// Address that receives platform fees on every escrow release
     TreasuryAddress,
     /// Platform fee in basis points (e.g. 100 = 1%)
     PlatformFeeBps,
- Support-escrow-expiry-extension-by-mutual-consent
-
 }
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
@@ -662,6 +660,20 @@ impl MarketPayContract {
         if escrow.client != client {
             panic!("Only the client can release escrow");
         }
+
+        // Deliverable hash verification: if an expected hash was set on creation,
+        // the freelancer must have submitted a matching hash before release.
+        if let Some(expected_hash) = &escrow.deliverable_hash {
+            let submitted: Option<BytesN<32>> = env
+                .storage()
+                .instance()
+                .get(&DataKey::FreelancerDeliverableHash(job_id.clone()));
+            match submitted {
+                Some(h) if &h == expected_hash => {},
+                _ => panic!("Freelancer deliverable hash does not match or not submitted"),
+            }
+        }
+
         Self::release_escrow_core(env, job_id, escrow);
     }
 
@@ -730,6 +742,9 @@ impl MarketPayContract {
         env.storage()
             .instance()
             .remove(&DataKey::TimeoutTimestamp(job_id.clone()));
+        env.storage()
+            .instance()
+            .remove(&DataKey::FreelancerDeliverableHash(job_id.clone()));
 
         if release_amount > 0 {
             let token_client = token::Client::new(&env, &escrow.token);
@@ -2640,6 +2655,68 @@ impl MarketPayContract {
             .expect("Deliverable submission not found")
     }
 
+    /// Freelancer submits the SHA-256 hash of the completed deliverable.
+    /// Once submitted, the client can verify and call release_escrow.
+    pub fn submit_deliverable_hash(env: Env, job_id: String, freelancer: Address, hash: BytesN<32>) {
+        freelancer.require_auth();
+
+        let escrow: Escrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        if escrow.freelancer != freelancer {
+            panic!("Only the freelancer can submit deliverable hash");
+        }
+        if escrow.deliverable_hash.is_none() {
+            panic!("Escrow has no expected deliverable hash");
+        }
+        if escrow.status != EscrowStatus::InProgress && escrow.status != EscrowStatus::Locked {
+            panic!("Can only submit hash for active escrow");
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::FreelancerDeliverableHash(job_id.clone()), &hash);
+
+        env.events().publish(
+            (symbol_short!("dlv_sub"), freelancer),
+            (job_id, hash),
+        );
+    }
+
+    /// Get the freelancer-submitted deliverable hash, if any.
+    pub fn get_freelancer_deliverable_hash(env: Env, job_id: String) -> Option<BytesN<32>> {
+        env.storage()
+            .instance()
+            .get(&DataKey::FreelancerDeliverableHash(job_id))
+    }
+
+    /// Verify that the freelancer-submitted hash matches the expected hash.
+    /// Returns true if both exist and match, false otherwise.
+    pub fn verify_deliverable_hash(env: Env, job_id: String) -> bool {
+        let escrow: Escrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        let Some(expected) = &escrow.deliverable_hash else {
+            return false;
+        };
+
+        let Some(submitted) = env
+            .storage()
+            .instance()
+            .get::<_, BytesN<32>>(&DataKey::FreelancerDeliverableHash(job_id))
+        else {
+            return false;
+        };
+
+        &submitted == expected
+    }
+
     // ─── Issue #102: Job Completion Certificate ──────────────────────────────
 
     /// Mint a certificate when job is completed (upon escrow release).
@@ -3499,6 +3576,361 @@ mod upgrade_tests {
 }
 
 #[cfg(test)]
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, testutils::Ledger, Address, Bytes, BytesN, Env, String};
+
+    fn bid_commitment(env: &Env, amount: i128, nonce: BytesN<32>) -> BytesN<32> {
+        let mut payload = Bytes::new(env);
+        for byte in amount.to_be_bytes().iter() {
+            payload.push_back(*byte);
+        }
+        for byte in nonce.to_array().iter() {
+            payload.push_back(*byte);
+        }
+        env.crypto().sha256(&payload).into()
+    }
+
+    fn setup(env: &Env) -> (Address, MarketPayContractClient, Address, Address, String) {
+        env.mock_all_auths();
+        let id = env.register(MarketPayContract, ());
+        let client = MarketPayContractClient::new(env, &id);
+        let admin = Address::generate(env);
+        let treasury = Address::generate(env);
+        let owner = Address::generate(env);
+        client.initialize(&admin, &treasury);
+        let job_id = String::from_str(env, "sealed-bid-job-1");
+        client.commit_budget(&job_id, &1_000, &owner);
+        (id, client, owner, admin, job_id)
+    }
+
+    #[test]
+    fn test_reveal_bid_verifies_commitment() {
+        let env = Env::default();
+Enforce-deliverable-hash-verification-before-fund-release
+        let (client, admin, _id) = setup(&env);
+
+        assert_eq!(client.is_frozen(), false);
+        client.freeze_contract(&admin);
+        assert_eq!(client.is_frozen(), true);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only an admin can freeze the contract")]
+    fn test_freeze_contract_rejected_for_non_admin() {
+        let env = Env::default();
+        let (client, _admin, _id) = setup(&env);
+
+        let non_admin = Address::generate(&env);
+        client.freeze_contract(&non_admin);
+    }
+
+    #[test]
+    fn test_unfreeze_contract_with_two_admins() {
+        let env = Env::default();
+        let (client, admin, _id) = setup(&env);
+
+        let admin2 = Address::generate(&env);
+        client.add_admin(&admin, &admin2);
+
+        client.freeze_contract(&admin);
+        assert_eq!(client.is_frozen(), true);
+
+        let mut unfreeze_admins = Vec::new(&env);
+        unfreeze_admins.push_back(admin);
+        unfreeze_admins.push_back(admin2);
+        client.unfreeze_contract(&unfreeze_admins);
+
+        assert_eq!(client.is_frozen(), false);
+    }
+
+    #[test]
+    #[should_panic(expected = "Insufficient admin signatures to unfreeze")]
+    fn test_unfreeze_contract_rejected_with_one_admin() {
+        let env = Env::default();
+        let (client, admin, _id) = setup(&env);
+
+        let admin2 = Address::generate(&env);
+        client.add_admin(&admin, &admin2);
+
+        client.freeze_contract(&admin);
+
+        let mut unfreeze_admins = Vec::new(&env);
+        unfreeze_admins.push_back(admin);
+        client.unfreeze_contract(&unfreeze_admins);
+    }
+
+    #[test]
+    #[should_panic(expected = "Contract is frozen")]
+    fn test_create_escrow_blocked_when_frozen() {
+        let env = Env::default();
+        let (client, admin, _id) = setup(&env);
+
+        let depositor = Address::generate(&env);
+        let freelancer = Address::generate(&env);
+        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
+        let token_id = token_contract.address();
+        let token_admin = token::StellarAssetClient::new(&env, &token_id);
+        token_admin.mint(&depositor, &500);
+
+        client.freeze_contract(&admin);
+
+        let job_id = String::from_str(&env, "frozen-create");
+        client.create_escrow(&job_id, &depositor, &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None });
+    }
+
+    #[test]
+    #[should_panic(expected = "Contract is frozen")]
+    fn test_release_escrow_blocked_when_frozen() {
+        let env = Env::default();
+        let (client, admin, _id) = setup(&env);
+
+        let depositor = Address::generate(&env);
+        let freelancer = Address::generate(&env);
+        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
+        let token_id = token_contract.address();
+        let token_admin = token::StellarAssetClient::new(&env, &token_id);
+        token_admin.mint(&depositor, &500);
+
+        let job_id = String::from_str(&env, "frozen-release");
+        client.create_escrow(&job_id, &depositor, &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None });
+        client.start_work(&job_id, &freelancer);
+
+        client.freeze_contract(&admin);
+
+        client.release_escrow(&job_id, &depositor);
+    }
+
+    #[test]
+    fn test_add_admin_and_get_admins() {
+        let env = Env::default();
+        let (client, admin, _id) = setup(&env);
+
+        let admin2 = Address::generate(&env);
+        client.add_admin(&admin, &admin2);
+
+        let admins = client.get_admins();
+        assert_eq!(admins.len(), 2);
+
+        let threshold = client.get_unfreeze_threshold();
+        assert_eq!(threshold, 2u32);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_unfreeze_rejects_duplicate_admins() {
+        let env = Env::default();
+        let (client, admin, _id) = setup(&env);
+
+        let admin2 = Address::generate(&env);
+        client.add_admin(&admin, &admin2);
+
+        client.freeze_contract(&admin);
+
+        let mut unfreeze_admins = Vec::new(&env);
+        unfreeze_admins.push_back(admin.clone());
+        unfreeze_admins.push_back(admin);
+        client.unfreeze_contract(&unfreeze_admins);
+    }
+
+    #[test]
+    fn test_set_unfreeze_threshold() {
+        let env = Env::default();
+        let (client, admin, _id) = setup(&env);
+
+        let admin2 = Address::generate(&env);
+        let admin3 = Address::generate(&env);
+        client.add_admin(&admin, &admin2);
+        client.add_admin(&admin, &admin3);
+
+        client.set_unfreeze_threshold(&admin, &3u32);
+        assert_eq!(client.get_unfreeze_threshold(), 3u32);
+    }
+}
+
+#[cfg(all(test, feature = "event_tests_fixme"))]
+mod event_tests {
+    extern crate std;
+
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::testutils::Events;
+    use soroban_sdk::{Address, Env, String, Symbol, TryFromVal, Vec};
+
+    fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, Address) {
+        env.mock_all_auths();
+        let id = env.register(MarketPayContract, ());
+        let client = MarketPayContractClient::new(env, &id);
+        let admin = Address::generate(env);
+        let treasury = Address::generate(env);
+        client.initialize(&admin, &treasury);
+
+        let contract_client = Address::generate(env);
+        let freelancer = Address::generate(env);
+        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
+        let token_id = token_contract.address();
+        let token_admin = token::StellarAssetClient::new(env, &token_id);
+        token_admin.mint(&contract_client, &1000);
+
+        (client, contract_client, freelancer, token_id)
+    }
+
+fn get_event_topic0_str(env: &Env, idx: u32) -> std::string::String {
+    let events: Vec<_> = env.events().all().into_iter().collect();
+    let event = events.get(idx as usize).unwrap();
+    let topic0 = event.1.get(0).unwrap();
+    if let Ok(sym) = Symbol::try_from_val(env, &topic0) {
+        std::format!("{:?}", sym)
+    } else {
+        std::format!("{:?}", topic0)
+    }
+}
+
+    #[test]
+    fn test_create_escrow_emits_event() {
+        let env = Env::default();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "evt-job-1");
+
+        client.create_escrow(
+            &job_id, &contract_client,
+            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
+        );
+
+        let events: Vec<_> = env.events().all().into_iter().collect();
+        let last_idx = events.len() - 1;
+        assert!(
+            get_event_topic0_str(&env, last_idx as u32).contains("escrow_cr"),
+        );
+    }
+
+    #[test]
+    fn test_start_work_emits_event() {
+        let env = Env::default();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "evt-job-2");
+        client.create_escrow(
+            &job_id, &contract_client,
+            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
+        );
+
+        client.start_work(&job_id, &freelancer);
+
+        let events: Vec<_> = env.events().all().into_iter().collect();
+        assert!(
+            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("work_strt"),
+        );
+    }
+
+    #[test]
+    fn test_release_escrow_emits_event() {
+        let env = Env::default();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "evt-job-3");
+        client.create_escrow(
+            &job_id, &contract_client,
+            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
+        );
+        client.start_work(&job_id, &freelancer);
+
+        client.release_escrow(&job_id, &contract_client);
+
+        let events: Vec<_> = env.events().all().into_iter().collect();
+        assert!(
+            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_rl"),
+        );
+    }
+
+    #[test]
+    fn test_refund_escrow_emits_event() {
+        let env = Env::default();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "evt-job-4");
+        client.create_escrow(
+            &job_id, &contract_client,
+            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
+        );
+
+        client.refund_escrow(&job_id, &contract_client);
+
+        let events: Vec<_> = env.events().all().into_iter().collect();
+        assert!(
+            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_rf"),
+        );
+    }
+
+    #[test]
+    fn test_raise_dispute_emits_event() {
+        let env = Env::default();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "evt-job-5");
+        client.create_escrow(
+            &job_id, &contract_client,
+            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
+        );
+
+        client.raise_dispute(&job_id, &contract_client);
+
+        let events: Vec<_> = env.events().all().into_iter().collect();
+        assert!(
+            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_ds"),
+        );
+    }
+
+    #[test]
+    fn test_milestone_released_emits_event() {
+        let env = Env::default();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "evt-job-6");
+        let mut milestones = Vec::new(&env);
+        milestones.push_back(MilestoneInput { description: String::from_str(&env, "Design"), percentage: 40 });
+        milestones.push_back(MilestoneInput { description: String::from_str(&env, "Build"), percentage: 60 });
+        client.create_escrow(
+            &job_id, &contract_client,
+            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 1000, milestones: Some(milestones), timeout_ledgers: None, referrer: None },
+        );
+        client.start_work(&job_id, &freelancer);
+
+        client.release_milestone(&job_id, &0u32, &contract_client);
+
+        let events: Vec<_> = env.events().all().into_iter().collect();
+        assert!(
+            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("milestone_released"),
+        );
+    }
+
+    #[test]
+    fn test_full_lifecycle_events_all_emitted() {
+        let env = Env::default();
+        let (client, contract_client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "evt-job-7");
+
+        client.create_escrow(
+            &job_id, &contract_client,
+            &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None },
+        );
+        let events: Vec<_> = env.events().all().into_iter().collect();
+        assert!(
+            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_cr"),
+            "Missing escrow_cr after create_escrow",
+        );
+
+        client.start_work(&job_id, &freelancer);
+        let events: Vec<_> = env.events().all().into_iter().collect();
+        assert!(
+            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("work_strt"),
+            "Missing work_strt after start_work",
+        );
+
+        client.release_escrow(&job_id, &contract_client);
+        let events: Vec<_> = env.events().all().into_iter().collect();
+        assert!(
+            get_event_topic0_str(&env, (events.len() - 1) as u32).contains("escrow_rl"),
+            "Missing escrow_rl after release_escrow",
+        );
+    }
+}
+
+#[cfg(test)]
 mod sealed_bid_tests {
     use super::*;
     use soroban_sdk::{testutils::Address as _, testutils::Ledger, Address, Bytes, BytesN, Env, String};
@@ -3530,6 +3962,7 @@ mod sealed_bid_tests {
     #[test]
     fn test_reveal_bid_verifies_commitment() {
         let env = Env::default();
+
         let (_id, client, owner, _admin, job_id) = setup(&env);
         let freelancer = Address::generate(&env);
         let nonce = BytesN::from_array(&env, &[7u8; 32]);
@@ -3784,6 +4217,263 @@ mod milestone_pct_tests {
 
         let escrow = contract.get_escrow(&job_id);
         assert_eq!(escrow.status, EscrowStatus::Released);
+    }
+}
+
+#[cfg(test)]
+mod deliverable_hash_tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, String};
+
+    fn setup(
+        env: &Env,
+    ) -> (MarketPayContractClient, Address, Address, Address) {
+        env.mock_all_auths();
+        let id = env.register(MarketPayContract, ());
+        let contract = MarketPayContractClient::new(env, &id);
+        let admin = Address::generate(env);
+        contract.initialize(&admin);
+
+        let client = Address::generate(env);
+        let freelancer = Address::generate(env);
+        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
+        let token_id = token_contract.address();
+        let token_admin = token::StellarAssetClient::new(env, &token_id);
+        token_admin.mint(&client, &1_000);
+
+        (contract, client, freelancer, token_id)
+    }
+
+    #[test]
+    fn test_freelancer_submits_deliverable_hash() {
+        let env = Env::default();
+        let (contract, client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "dh-job-1");
+        let expected_hash = BytesN::from_array(&env, &[0xabu8; 32]);
+
+        contract.create_escrow_with_deliverable(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: None,
+            },
+            &expected_hash,
+        );
+
+        contract.submit_deliverable_hash(&job_id, &freelancer, &expected_hash);
+
+        let stored = contract.get_freelancer_deliverable_hash(&job_id);
+        assert_eq!(stored, Some(expected_hash));
+    }
+
+    #[test]
+    fn test_release_succeeds_with_matching_hash() {
+        let env = Env::default();
+        let (contract, client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "dh-job-2");
+        let expected_hash = BytesN::from_array(&env, &[0xabu8; 32]);
+
+        contract.create_escrow_with_deliverable(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: None,
+            },
+            &expected_hash,
+        );
+
+        contract.submit_deliverable_hash(&job_id, &freelancer, &expected_hash);
+        contract.release_escrow(&job_id, &client);
+
+        let escrow = contract.get_escrow(&job_id);
+        assert_eq!(escrow.status, EscrowStatus::Released);
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&freelancer), 1_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "Freelancer deliverable hash does not match or not submitted")]
+    fn test_release_panics_without_submitting_hash() {
+        let env = Env::default();
+        let (contract, client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "dh-job-3");
+        let expected_hash = BytesN::from_array(&env, &[0xabu8; 32]);
+
+        contract.create_escrow_with_deliverable(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: None,
+            },
+            &expected_hash,
+        );
+
+        contract.release_escrow(&job_id, &client);
+    }
+
+    #[test]
+    #[should_panic(expected = "Freelancer deliverable hash does not match or not submitted")]
+    fn test_release_panics_with_wrong_hash() {
+        let env = Env::default();
+        let (contract, client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "dh-job-4");
+        let expected_hash = BytesN::from_array(&env, &[0xabu8; 32]);
+        let wrong_hash = BytesN::from_array(&env, &[0xbbu8; 32]);
+
+        contract.create_escrow_with_deliverable(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: None,
+            },
+            &expected_hash,
+        );
+
+        contract.submit_deliverable_hash(&job_id, &freelancer, &wrong_hash);
+        contract.release_escrow(&job_id, &client);
+    }
+
+    #[test]
+    fn test_release_without_expected_hash_works() {
+        let env = Env::default();
+        let (contract, client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "dh-job-5");
+
+        contract.create_escrow(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: None,
+            },
+        );
+        contract.start_work(&job_id, &freelancer);
+        contract.release_escrow(&job_id, &client);
+
+        let escrow = contract.get_escrow(&job_id);
+        assert_eq!(escrow.status, EscrowStatus::Released);
+    }
+
+    #[test]
+    fn test_get_freelancer_hash_returns_none_when_empty() {
+        let env = Env::default();
+        let (contract, client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "dh-job-6");
+
+        contract.create_escrow(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: None,
+            },
+        );
+
+        let stored = contract.get_freelancer_deliverable_hash(&job_id);
+        assert_eq!(stored, None);
+    }
+
+    #[test]
+    fn test_verify_deliverable_hash_returns_true_when_match() {
+        let env = Env::default();
+        let (contract, client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "dh-job-7");
+        let expected_hash = BytesN::from_array(&env, &[0xabu8; 32]);
+
+        contract.create_escrow_with_deliverable(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: None,
+            },
+            &expected_hash,
+        );
+
+        contract.submit_deliverable_hash(&job_id, &freelancer, &expected_hash);
+
+        assert!(contract.verify_deliverable_hash(&job_id));
+    }
+
+    #[test]
+    fn test_verify_deliverable_hash_false_when_not_submitted() {
+        let env = Env::default();
+        let (contract, client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "dh-job-8");
+        let expected_hash = BytesN::from_array(&env, &[0xabu8; 32]);
+
+        contract.create_escrow_with_deliverable(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: None,
+            },
+            &expected_hash,
+        );
+
+        assert!(!contract.verify_deliverable_hash(&job_id));
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the freelancer can submit deliverable hash")]
+    fn test_non_freelancer_cannot_submit_hash() {
+        let env = Env::default();
+        let (contract, client, freelancer, token_id) = setup(&env);
+        let job_id = String::from_str(&env, "dh-job-9");
+        let h = BytesN::from_array(&env, &[0xabu8; 32]);
+
+        contract.create_escrow_with_deliverable(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: None,
+            },
+            &h,
+        );
+
+        contract.submit_deliverable_hash(&job_id, &client, &h);
     }
 }
 
