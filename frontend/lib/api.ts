@@ -100,6 +100,51 @@ let jwtToken: string | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 
+// ── CSRF (Issue #451) ────────────────────────────────────────────────────────
+const CSRF_HEADER = "X-CSRF-Token";
+const CSRF_TOKEN_URL = "/api/auth/csrf-token";
+const MUTATING_METHODS = new Set(["post", "put", "patch", "delete"]);
+
+let csrfToken: string | null = null;
+let csrfFetchPromise: Promise<string | null> | null = null;
+
+async function fetchCsrfToken(): Promise<string | null> {
+  if (csrfFetchPromise) return csrfFetchPromise;
+  // /api/auth/csrf-token is exempt from CSRF (it's a safe-method bootstrap
+  // endpoint), so we do NOT set the X-CSRF-Token header on this request —
+  // doing so would risk an infinite loop if the server refused it.
+  csrfFetchPromise = api
+    .get<{ csrfToken: string }>(CSRF_TOKEN_URL, { skipCsrf: true } as any)
+    .then(({ data }) => {
+      csrfToken = data.csrfToken;
+      return csrfToken;
+    })
+    .catch(() => {
+      csrfToken = null;
+      return null;
+    })
+    .finally(() => {
+      csrfFetchPromise = null;
+    });
+  return csrfFetchPromise;
+}
+
+export function clearCsrfToken() {
+  csrfToken = null;
+}
+
+/**
+ * Invalidate the cached token and mint a fresh one. Used by the response
+ * interceptor when a mutation rejects with 403 (cookie mismatch) and by
+ * `verifyAuthChallenge` / `refreshAccessToken` when the server returns a
+ * new token in-band. Deduplicates concurrent callers to avoid racing
+ * parallel mutations against different cookie versions.
+ */
+async function refreshCsrfToken(): Promise<string | null> {
+  clearCsrfToken();
+  return fetchCsrfToken();
+}
+
 const TOKEN_REFRESH_BUFFER_MS = 60 * 1000;
 
 function getJwtExpiryMs(token: string) {
@@ -155,6 +200,15 @@ api.interceptors.request.use(async (config: any) => {
   if (!config.skipAuthRefresh && shouldRefreshToken()) {
     await refreshAccessToken();
   }
+  // Attach the CSRF token to every mutating request so the backend's
+  // double-submit cookie check passes (Issue #451).
+  if (!config.skipCsrf && MUTATING_METHODS.has((config.method || "").toLowerCase())) {
+    if (!csrfToken) await fetchCsrfToken();
+    if (csrfToken) {
+      config.headers = config.headers || {};
+      config.headers[CSRF_HEADER] = csrfToken;
+    }
+  }
   return config;
 });
 
@@ -162,6 +216,7 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config || {};
+    // 401 → refresh the JWT once and replay (existing behavior).
     if (
       error.response?.status === 401 &&
       !originalRequest._retry &&
@@ -170,6 +225,24 @@ api.interceptors.response.use(
       originalRequest._retry = true;
       const token = await refreshAccessToken();
       if (token) {
+        return api(originalRequest);
+      }
+    }
+    // 403 on a mutating request → CSRF token may have been rotated or the
+    // cookie was replaced by another tab. Mint a fresh pair and retry once.
+    // We route through refreshCsrfToken() so concurrent 403s share a single
+    // in-flight mint instead of all racing the server independently.
+    if (
+      error.response?.status === 403 &&
+      !originalRequest._csrfRetry &&
+      !originalRequest.skipCsrf &&
+      MUTATING_METHODS.has((originalRequest.method || "").toLowerCase())
+    ) {
+      originalRequest._csrfRetry = true;
+      const fresh = await refreshCsrfToken();
+      if (fresh) {
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers[CSRF_HEADER] = fresh;
         return api(originalRequest);
       }
     }
@@ -187,23 +260,29 @@ export async function fetchAuthChallenge(publicKey: string) {
 }
 
 export async function verifyAuthChallenge(transaction: string) {
-  const { data } = await api.post<{ success: boolean; token: string }>(
+  const { data } = await api.post<{ success: boolean; token: string; csrfToken?: string }>(
     "/api/auth",
     { transaction },
   );
+  // The login response may ship a fresh CSRF token alongside the JWT so we
+  // can skip the post-login /api/auth/csrf-token round-trip (#451).
+  if (data.csrfToken) csrfToken = data.csrfToken;
   return data.token;
 }
 
 export async function refreshAccessToken() {
   if (!refreshPromise) {
     refreshPromise = api
-      .post<{ success: boolean; token: string }>(
+      .post<{ success: boolean; token: string; csrfToken?: string }>(
         "/api/auth/refresh",
         undefined,
         { skipAuthRefresh: true } as any,
       )
       .then(({ data }) => {
         setJwtToken(data.token);
+        // A token rotation also rotates the CSRF pair; pick up the new one
+        // so the next mutation doesn't hit a stale-cookie 403.
+        if (data.csrfToken) csrfToken = data.csrfToken;
         return data.token;
       })
       .catch((error) => {
@@ -223,6 +302,7 @@ export async function logout() {
     await api.post("/api/auth/logout", undefined, { skipAuthRefresh: true } as any);
   } finally {
     setJwtToken(null);
+    clearCsrfToken();
   }
 }
 
