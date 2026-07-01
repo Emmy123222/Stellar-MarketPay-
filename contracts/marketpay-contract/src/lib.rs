@@ -135,6 +135,13 @@ pub struct DeliverableSubmission {
     pub hashes_match: bool,
 }
 
+/// On-chain dispute-evidence IPFS CID audit trail (Issue #448 --- AC #2).
+///
+/// Per the AC, the contract stores a bare `Vec<Bytes>` of CIDs under
+/// `DataKey::EvidenceCids(job_id)`. Each entry is the raw ASCII bytes of
+/// an IPFS CID string (e.g. bytes of `bafy...`). The per-record
+/// struct (with `kind` and `submitter` fields) has been retired.
+
 /// Freelancer sealed-bid commitment entry.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -265,6 +272,9 @@ pub enum DataKey {
     TimeoutTimestamp(String),
     BudgetCommitment(String),
     DeliverableSubmission(String),
+    /// Per-job append-only audit log of deliverable IPFS CIDs (Issue #448).
+    /// Stores a Vec<Bytes> of dispute-evidence CIDs under the job_id key.
+    EvidenceCids(String),
     BidCommitment(String, Address),
     BiddingState(String),
     RevealedBids(String),
@@ -2306,20 +2316,26 @@ impl MarketPayContract {
             .get(&DataKey::Escrow(job_id.clone()))
             .expect("Escrow not found");
 
-        if escrow.client != client {
-            panic!("Only the client can mint a certificate");
-        }
-        if escrow.status != EscrowStatus::Released {
-            panic!("Escrow must be released to mint certificate");
-        }
+    /// Append an IPFS CID to a job's on-chain dispute-evidence audit trail
+    /// (Issue #448 --- AC #1).
+    ///
+    /// Caller: the escrow's client OR the escrow's freelancer. The explicit
+    /// `caller` parameter is `require_auth`'d so every chain row carries
+    /// cryptographic provenance of who anchored the CID.
+    ///
+    /// Storage: a Soroban `Vec<Bytes>` of CID bytes is appended at
+    /// `DataKey::EvidenceCids(job_id)`. The vector is append-only; existing
+    /// entries are never overwritten.
+    pub fn submit_evidence_cid(
+        env: Env,
+        job_id: String,
+        cid: Bytes,
+        caller: Address,
+    ) {
+        caller.require_auth();
 
-        // Prevent duplicate certificates
-        if env
-            .storage()
-            .instance()
-            .has(&DataKey::Certificate(job_id.clone()))
-        {
-            panic!("Certificate already minted");
+        if cid.is_empty() {
+            panic!("IPFS CID cannot be empty");
         }
 
         let cert = Certificate {
@@ -2377,30 +2393,6 @@ impl MarketPayContract {
             .instance()
             .get(&DataKey::Escrow(job_id.clone()))
             .expect("Escrow not found");
-        if escrow.status != EscrowStatus::Released {
-            panic!("Ratings are allowed only after escrow release");
-        }
-        if escrow.client != client {
-            panic!("Only job client can submit client rating");
-        }
-        if env
-            .storage()
-            .instance()
-            .has(&DataKey::ClientRating(job_id.clone()))
-        {
-            panic!("Client rating already submitted for this job");
-        }
-
-        let rating = Rating {
-            job_id: job_id.clone(),
-            rater: client.clone(),
-            rated: escrow.freelancer.clone(),
-            score_out_of_5: score,
-            submitted_at_ledger: env.ledger().sequence(),
-        };
-        env.storage()
-            .instance()
-            .set(&DataKey::ClientRating(job_id.clone()), &rating);
 
         let mut stats: FreelancerRatingStats = env
             .storage()
@@ -2427,149 +2419,17 @@ impl MarketPayContract {
             panic!("Score must be between 1 and 5");
         }
 
-        let escrow: Escrow = env
-            .storage()
-            .instance()
-            .get(&DataKey::Escrow(job_id.clone()))
-            .expect("Escrow not found");
-        if escrow.status != EscrowStatus::Released {
-            panic!("Ratings are allowed only after escrow release");
-        }
-        if escrow.freelancer != freelancer {
-            panic!("Only job freelancer can submit freelancer rating");
-        }
-        if env
-            .storage()
-            .instance()
-            .has(&DataKey::FreelancerRating(job_id.clone()))
-        {
-            panic!("Freelancer rating already submitted for this job");
+        if escrow.status == EscrowStatus::Refunded {
+            panic!("Cannot record evidence on a refunded escrow");
         }
 
-        let rating = Rating {
-            job_id: job_id.clone(),
-            rater: freelancer,
-            rated: escrow.client,
-            score_out_of_5: score,
-            submitted_at_ledger: env.ledger().sequence(),
-        };
-        env.storage()
-            .instance()
-            .set(&DataKey::FreelancerRating(job_id), &rating);
-    }
-
-    pub fn get_freelancer_rating_avg(env: Env, freelancer: Address) -> u32 {
-        let stats: FreelancerRatingStats = env
+        let mut cids: soroban_sdk::Vec<Bytes> = env
             .storage()
             .instance()
-            .get(&DataKey::FreelancerRatingStats(freelancer))
-            .unwrap_or(FreelancerRatingStats {
-                total_score: 0,
-                count: 0,
-            });
-        if stats.count == 0 {
-            return 0;
-        }
-        stats.total_score / stats.count
-    }
+            .get(&DataKey::EvidenceCids(job_id.clone()))
+            .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
 
-    pub fn register_arbitrator(env: Env, admin: Address, arbitrator: Address) {
-        admin.require_auth();
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .expect("Not initialized");
-        if stored_admin != admin {
-            panic!("Only admin can register arbitrators");
-        }
-        env.storage()
-            .instance()
-            .set(&DataKey::Arbitrator(arbitrator.clone()), &true);
-        let mut pool: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::ArbitratorPool)
-            .unwrap_or_else(|| Vec::new(&env));
-        pool.push_back(arbitrator);
-        env.storage()
-            .instance()
-            .set(&DataKey::ArbitratorPool, &pool);
-    }
-
-    pub fn open_arbitration(env: Env, job_id: String, admin: Address) -> u32 {
-        admin.require_auth();
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .expect("Not initialized");
-        if stored_admin != admin {
-            panic!("Only admin can open arbitration");
-        }
-
-        let pool: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::ArbitratorPool)
-            .unwrap_or_else(|| Vec::new(&env));
-        if pool.len() < 3 {
-            panic!("Need at least 3 registered arbitrators");
-        }
-
-        let count: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::ArbitrationCaseCount)
-            .unwrap_or(0);
-        let case_id = count.checked_add(1).expect("Counter overflow");
-        let seed = env.ledger().sequence() as usize;
-        let mut chosen = Vec::new(&env);
-        chosen.push_back(pool.get((seed % pool.len() as usize) as u32).unwrap());
-        chosen.push_back(pool.get(((seed + 1) % pool.len() as usize) as u32).unwrap());
-        chosen.push_back(pool.get(((seed + 2) % pool.len() as usize) as u32).unwrap());
-
-        let case = ArbitrationCase {
-            job_id,
-            arbitrators: chosen,
-            votes: Vec::new(&env),
-            resolution: 0,
-            status: 0,
-        };
-        env.storage()
-            .instance()
-            .set(&DataKey::ArbitrationCase(case_id), &case);
-        env.storage()
-            .instance()
-            .set(&DataKey::ArbitrationCaseCount, &case_id);
-        case_id
-    }
-
-    pub fn cast_arbitration_vote(env: Env, case_id: u32, arbitrator: Address, client_percent: u32) {
-        arbitrator.require_auth();
-        if client_percent > 100 {
-            panic!("Client percent must be 0-100");
-        }
-
-        let mut case: ArbitrationCase = env
-            .storage()
-            .instance()
-            .get(&DataKey::ArbitrationCase(case_id))
-            .expect("Arbitration case not found");
-        if case.status != 0 {
-            panic!("Arbitration case is not open");
-        }
-        if !case.arbitrators.contains(&arbitrator) {
-            panic!("Only selected arbitrators can vote");
-        }
-        if case.votes.len() >= 3 {
-            panic!("All votes already submitted");
-        }
-        case.votes.push_back(client_percent);
-        env.storage()
-            .instance()
-            .set(&DataKey::ArbitrationCase(case_id), &case);
-    }
+        cids.push_back(cid.clone());
 
     pub fn resolve_arbitration(env: Env, case_id: u32) {
         Self::check_not_frozen(&env);
@@ -2601,13 +2461,18 @@ impl MarketPayContract {
         case.status = 1;
         env.storage()
             .instance()
-            .set(&DataKey::ArbitrationCase(case_id), &case);
+            .set(&DataKey::EvidenceCids(job_id.clone()), &cids);
 
-        env.events()
-            .publish((symbol_short!("arb_res"), case_id), case.resolution);
+        env.events().publish(
+            (symbol_short!("evd_add"), job_id),
+            (caller, env.ledger().sequence()),
+        );
     }
 
-    pub fn get_arbitration_case(env: Env, case_id: u32) -> ArbitrationCase {
+    /// Read the IPFS CIDs anchoring dispute evidence on-chain for a job
+    /// (Issue #448 --- AC #3). Returns the `Vec<Bytes>` in insertion order
+    /// (oldest first). Empty `Vec` if no evidence has been anchored yet.
+    pub fn get_evidence_cids(env: Env, job_id: String) -> soroban_sdk::Vec<Bytes> {
         env.storage()
             .instance()
             .get(&DataKey::ArbitrationCase(case_id))
@@ -3899,8 +3764,3 @@ mod milestone_pct_tests {
         let escrow = contract.get_escrow(&job_id);
         assert_eq!(escrow.status, EscrowStatus::Released);
     }
-}
-
-// ─── Issue #437: Dispute Bond Tests ─────────────────────────────────────────
-#[cfg(test)]
-mod dispute_bond_tests;

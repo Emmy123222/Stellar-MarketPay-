@@ -402,3 +402,4 @@ export interface AuditLogEntry {
   timestamp: string;
   changesDiff?: Record<string, any>;
 }
+
