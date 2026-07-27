@@ -18,6 +18,23 @@ const {
 const tokenRateLimiter = createRateLimiter(30, 1);
 
 /**
+ * GET /api/tokens
+ * List all supported tokens (whitelist).
+ * Cached for 1 hour via the in-memory cache in tokenService.
+ */
+router.get("/", tokenRateLimiter, async (_req, res, next) => {
+  try {
+    const tokens = getPopularTokens();
+    res.json({
+      success: true,
+      data: tokens,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
  * GET /api/tokens/popular
  * Get list of popular tokens
  */

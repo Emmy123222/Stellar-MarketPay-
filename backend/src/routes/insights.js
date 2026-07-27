@@ -7,6 +7,22 @@ const insightsService = require("../services/insightsService");
 
 const insightsRateLimiter = createRateLimiter(30, 1);
 
+/**
+ * GET /api/insights
+ * Platform-wide analytics summary.
+ * Returns: total jobs, total XLM transacted, active freelancers,
+ * avg time-to-hire, plus breakdowns by category, currency, and month.
+ * Cached for 1 hour.
+ */
+router.get("/", insightsRateLimiter, async (_req, res, next) => {
+  try {
+    const summary = await insightsService.getPlatformSummary();
+    res.json({ success: true, data: summary });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/categories", insightsRateLimiter, async (req, res, next) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);

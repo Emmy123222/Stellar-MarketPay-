@@ -217,10 +217,61 @@ async function getClientMix() {
   });
 }
 
+/**
+ * Platform-wide analytics summary for GET /api/insights (#864).
+ * Cached for 1 hour.
+ */
+async function getPlatformSummary() {
+  return withDailyCache("platform-summary", {}, async () => {
+    const [totals, byCategory, byCurrency, byMonth] = await Promise.all([
+      pool.query(`
+        SELECT
+          COUNT(*)::int AS total_jobs,
+          COALESCE(SUM(budget::numeric), 0)::numeric AS total_transacted,
+          COUNT(DISTINCT client_address)::int AS active_freelancers,
+          ROUND(AVG(
+            CASE WHEN status = 'completed' AND completed_at IS NOT NULL
+              THEN EXTRACT(EPOCH FROM (completed_at - created_at)) / 86400
+            END
+          )::numeric, 1) AS avg_days_to_hire
+        FROM jobs
+      `),
+      pool.query(`
+        SELECT category, COUNT(*)::int AS count
+        FROM jobs GROUP BY category ORDER BY count DESC LIMIT 20
+      `),
+      pool.query(`
+        SELECT currency, COUNT(*)::int AS count, COALESCE(SUM(budget::numeric), 0)::numeric AS total
+        FROM jobs GROUP BY currency ORDER BY total DESC
+      `),
+      pool.query(`
+        SELECT TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month,
+               COUNT(*)::int AS count
+        FROM jobs
+        WHERE created_at >= NOW() - INTERVAL '12 months'
+        GROUP BY DATE_TRUNC('month', created_at)
+        ORDER BY month ASC
+      `),
+    ]);
+
+    const t = totals.rows[0] || {};
+    return {
+      totalJobs: toNumber(t.total_jobs),
+      totalTransacted: String(t.total_transacted || 0),
+      activeFreelancers: toNumber(t.active_freelancers),
+      avgDaysToHire: toNumber(t.avg_days_to_hire),
+      byCategory: byCategory.rows.map((r) => ({ category: r.category, count: toNumber(r.count) })),
+      byCurrency: byCurrency.rows.map((r) => ({ currency: r.currency, count: toNumber(r.count), total: String(r.total) })),
+      byMonth: byMonth.rows.map((r) => ({ month: r.month, count: toNumber(r.count) })),
+    };
+  });
+}
+
 module.exports = {
   getCategoryInsights,
   getSkillInsights,
   getCompetitiveJobs,
   getPayTrends,
   getClientMix,
+  getPlatformSummary,
 };
