@@ -48,18 +48,37 @@ const FORM_STEPS = [
 // Step indicator component
 // ---------------------------------------------------------------------------
 
-function StepIndicator({ currentStep, completedSteps }: { currentStep: FormStep; completedSteps: Set<number> }) {
+function StepIndicator({
+  currentStep,
+  completedSteps,
+  onStepClick,
+}: {
+  currentStep: FormStep;
+  completedSteps: Set<number>;
+  onStepClick?: (step: number) => void;
+}) {
   return (
-    <nav aria-label="Form progress" className="w-full mb-8">
+    <nav
+      aria-label="Form progress"
+      className="w-full mb-8"
+      role="progressbar"
+      aria-valuenow={currentStep}
+      aria-valuemin={1}
+      aria-valuemax={FORM_STEPS.length}
+    >
       <ol className="flex items-center">
         {FORM_STEPS.map((step, i) => {
           const isDone = completedSteps.has(step.id);
           const isCurrent = currentStep === step.id;
           const isLast = i === FORM_STEPS.length - 1;
+          const canClick = isDone && onStepClick;
           return (
             <li key={step.id} className={`flex items-center ${isLast ? "flex-shrink-0" : "flex-1"}`}>
               <div className="flex flex-col items-center gap-1.5">
-                <div
+                <button
+                  type="button"
+                  disabled={!canClick}
+                  onClick={() => canClick && onStepClick(step.id)}
                   className={[
                     "w-8 h-8 rounded-full flex items-center justify-center border-2 text-xs font-bold transition-all duration-300",
                     isDone
@@ -67,11 +86,13 @@ function StepIndicator({ currentStep, completedSteps }: { currentStep: FormStep;
                       : isCurrent
                       ? "bg-ink-900 border-market-400 text-market-400"
                       : "bg-ink-800 border-market-500/20 text-amber-700",
+                    canClick ? "cursor-pointer hover:opacity-80" : "cursor-default",
                   ].join(" ")}
                   aria-current={isCurrent ? "step" : undefined}
+                  aria-label={isDone ? `Step ${step.id}: ${step.label} (completed, click to edit)` : `Step ${step.id}: ${step.label}`}
                 >
                   {isDone ? "✓" : step.id}
-                </div>
+                </button>
                 <span
                   className={[
                     "text-xs font-medium whitespace-nowrap hidden sm:block",
@@ -493,7 +514,11 @@ export default function PostJobForm({
           {saveDraftIndicator}
         </div>
 
-        <StepIndicator currentStep={currentStep} completedSteps={completedSteps} />
+        <StepIndicator
+          currentStep={currentStep}
+          completedSteps={completedSteps}
+          onStepClick={(step) => setCurrentStep(step as FormStep)}
+        />
 
         {/* Error banner */}
         {submitStep === "error" && (
