@@ -1253,6 +1253,120 @@ async function bulkBoostJobs(jobIds, clientAddress, txHash) {
   return results;
 }
 
+const BATCH_ACTIONS = ["close", "delete"];
+const MAX_BATCH_SIZE = 50;
+
+/**
+ * Run a bulk "close" (cancel) or "delete" (soft-delete) operation for a set
+ * of jobs owned by a single client, inside one DB transaction.
+ *
+ * Authorization is all-or-nothing: if any requested id does not belong to
+ * `clientAddress` (or does not exist), the whole request is rejected before
+ * anything is written. Once authorized, each job is updated independently —
+ * a job whose current state doesn't allow the action (e.g. closing a job
+ * that isn't `open`) is reported in `failed` rather than aborting the batch.
+ *
+ * @param {"close"|"delete"} action
+ * @param {string[]} ids - Up to {@link MAX_BATCH_SIZE} job ids.
+ * @param {string} clientAddress - Stellar address of the authenticated client.
+ * @returns {Promise<{succeeded: string[], failed: {id: string, error: string}[]}>}
+ * @throws {Error} status 400 for invalid input, 403 if the client doesn't own every id.
+ */
+async function batchJobAction(action, ids, clientAddress) {
+  if (!BATCH_ACTIONS.includes(action)) {
+    const e = new Error("action must be 'close' or 'delete'");
+    e.status = 400;
+    throw e;
+  }
+  if (!Array.isArray(ids) || ids.length === 0) {
+    const e = new Error("ids must be a non-empty array");
+    e.status = 400;
+    throw e;
+  }
+  if (ids.length > MAX_BATCH_SIZE) {
+    const e = new Error(`Maximum ${MAX_BATCH_SIZE} ids per batch request`);
+    e.status = 400;
+    throw e;
+  }
+
+  const uniqueIds = [...new Set(ids)];
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const { rows: foundJobs } = await client.query(
+      `SELECT id, status, client_address, deleted_at FROM jobs WHERE id = ANY($1::text[])`,
+      [uniqueIds],
+    );
+    const foundById = new Map(foundJobs.map((j) => [String(j.id), j]));
+
+    const unauthorizedIds = uniqueIds.filter((id) => {
+      const job = foundById.get(String(id));
+      return !job || job.deleted_at || job.client_address !== clientAddress;
+    });
+    if (unauthorizedIds.length > 0) {
+      const e = new Error("You do not own all specified jobs");
+      e.status = 403;
+      throw e;
+    }
+
+    const succeeded = [];
+    const failed = [];
+
+    for (const id of uniqueIds) {
+      const job = foundById.get(String(id));
+      try {
+        if (action === "close") {
+          if (job.status !== "open") {
+            failed.push({ id, error: `Job is not open (status: ${job.status})` });
+            continue;
+          }
+          const { rows } = await client.query(
+            `UPDATE jobs SET status = 'cancelled', updated_at = NOW()
+             WHERE id = $1 AND client_address = $2 AND status = 'open' AND deleted_at IS NULL
+             RETURNING id`,
+            [id, clientAddress],
+          );
+          if (rows.length === 0) {
+            failed.push({ id, error: "Job could not be closed" });
+            continue;
+          }
+        } else {
+          if (job.status === "in_progress") {
+            failed.push({ id, error: "Cannot delete a job that is in progress" });
+            continue;
+          }
+          const { rows } = await client.query(
+            `UPDATE jobs SET deleted_at = NOW(), updated_at = NOW()
+             WHERE id = $1 AND client_address = $2 AND deleted_at IS NULL
+             RETURNING id`,
+            [id, clientAddress],
+          );
+          if (rows.length === 0) {
+            failed.push({ id, error: "Job could not be deleted" });
+            continue;
+          }
+        }
+        succeeded.push(id);
+      } catch (err) {
+        failed.push({ id, error: err.message || "Unknown error" });
+      }
+    }
+
+    await client.query("COMMIT");
+    return { succeeded, failed };
+  } catch (err) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // ignore rollback errors — connection may already be closed
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 /**
  * Get recommended jobs for a freelancer based on their skills.
  * Excludes jobs the freelancer has already applied to, been accepted for, or rejected from.
@@ -1362,6 +1476,7 @@ module.exports = {
   bulkCancelJobs,
   bulkExtendJobs,
   bulkBoostJobs,
+  batchJobAction,
   getRecommendedJobs,
   getSuggestions,
   rowToJob,

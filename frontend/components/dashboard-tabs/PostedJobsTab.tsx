@@ -17,6 +17,9 @@ interface Props {
   extendModalJob: Job | null;
   onJobExtended: (updated: Job) => void;
   onCloseExtendModal: () => void;
+  /** Ids of jobs currently checked for bulk actions (see BulkJobActionBar). */
+  selectedJobIds?: Set<string>;
+  onToggleSelect?: (jobId: string) => void;
 }
 
 export default function PostedJobsTab({
@@ -25,7 +28,9 @@ export default function PostedJobsTab({
   onRepost,
   extendModalJob,
   onJobExtended,
-  onCloseExtendModal
+  onCloseExtendModal,
+  selectedJobIds,
+  onToggleSelect,
 }: Props) {
   const router = useRouter();
 
@@ -58,6 +63,16 @@ export default function PostedJobsTab({
           key={job.id}
           className="card-hover flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
         >
+          {onToggleSelect && (
+            <input
+              type="checkbox"
+              checked={selectedJobIds?.has(job.id) ?? false}
+              onChange={() => onToggleSelect(job.id)}
+              onClick={(e) => e.stopPropagation()}
+              className="mt-1 h-4 w-4 shrink-0 rounded border-market-500/30 bg-ink-900 text-market-400 focus:ring-market-400 focus:ring-offset-0"
+              aria-label={`Select ${job.title}`}
+            />
+          )}
           <Link
             href={`/jobs/${job.id}`}
             className="flex-1 min-w-0 block"

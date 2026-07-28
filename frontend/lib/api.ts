@@ -1368,6 +1368,36 @@ export async function bulkBoostJobs(jobIds: string[], txHash: string): Promise<B
   return data.data;
 }
 
+/**
+ * Bulk close ("cancel") or permanently delete jobs via POST /api/jobs/batch
+ * (#869). The endpoint runs both operations in a single DB transaction and
+ * authorizes the whole request atomically — see backend/src/services/jobService.js.
+ */
+export async function batchJobAction(
+  action: "close" | "delete",
+  jobIds: string[],
+): Promise<BulkActionResponse> {
+  const { data } = await api.post<{
+    success: boolean;
+    succeeded: string[];
+    failed: { id: string; error: string }[];
+  }>("/api/jobs/batch", { action, ids: jobIds });
+
+  const results = [
+    ...data.succeeded.map((id) => ({ id, success: true as const })),
+    ...data.failed.map((f) => ({ id: f.id, success: false as const, error: f.error })),
+  ];
+
+  return {
+    success: data.failed.length === 0,
+    succeeded: data.succeeded.length,
+    failed: data.failed.length,
+    processedCount: results.length,
+    failedCount: data.failed.length,
+    results,
+  };
+}
+
 
 // ─── IPFS File Upload (Issue #202) ──────────────────────────────────────────
 

@@ -71,6 +71,9 @@ function ThemeToggle() {
 
 function App({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
+  // Kept in sync by WalletAccountMonitor's balance poll (#871) and passed
+  // down to FaucetButton so its "needs funding" state reflects the real balance.
+  const [xlmBalance, setXlmBalance] = useState<string | undefined>(undefined);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<{
@@ -254,6 +257,7 @@ function App({ Component, pageProps }: AppProps) {
             <WalletAccountMonitor
               currentPublicKey={publicKey}
               onDisconnect={handleWalletDisconnect}
+              onBalanceChange={setXlmBalance}
             />
             <Head>
               <title>Stellar MarketPay — Decentralised Freelance Marketplace</title>
@@ -275,7 +279,13 @@ function App({ Component, pageProps }: AppProps) {
               <main>
                 <Component {...pageProps} publicKey={publicKey} onConnect={handleConnect} />
               </main>
-              {publicKey && <FaucetButton publicKey={publicKey} />}
+              {publicKey && (
+                <FaucetButton
+                  publicKey={publicKey}
+                  currentBalance={xlmBalance}
+                  onBalanceUpdate={setXlmBalance}
+                />
+              )}
               <ThemeToggle />
               <OnboardingWizard publicKey={publicKey} onConnect={handleConnect} />
               <CommandPalette isOpen={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} />
