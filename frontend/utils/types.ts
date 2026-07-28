@@ -149,6 +149,8 @@ export interface UserProfile {
   };
   didHash?: string;
   isKycVerified?: boolean;
+  migratedTo?: string | null;
+  migratedAt?: string | null;
   createdAt: string;
   updatedAt?: string;
   blockedAddresses?: string[];

@@ -861,6 +861,26 @@ export async function verifyIdentity(publicKey: string, didHash: string) {
   return data.data;
 }
 
+/**
+ * Migrate a profile from an old Stellar address to a new one (#885).
+ * Requires signatures from both keys proving ownership.
+ *
+ * @param payload - Old and new public keys with their signatures.
+ * @returns The new (migrated) profile.
+ */
+export async function migrateProfile(payload: {
+  oldPublicKey: string;
+  newPublicKey: string;
+  oldSignature: string;
+  newSignature: string;
+}): Promise<UserProfile> {
+  const { data } = await api.post<{ success: boolean; data: UserProfile }>(
+    "/api/profiles/migrate",
+    payload,
+  );
+  return data.data;
+}
+
 // ─── Escrow ───────────────────────────────────────────────────────────────────
 
 export async function fetchEscrow(jobId: string) {

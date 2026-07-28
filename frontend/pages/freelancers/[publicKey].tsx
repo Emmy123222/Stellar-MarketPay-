@@ -270,6 +270,34 @@ export default function PublicFreelancerProfilePage({
           </div>
         )}
 
+        {state.status === "ok" && state.profile.migratedTo && (
+          <div className="card border-amber-500/30 bg-amber-500/5 mb-4 p-4 rounded-xl">
+            <div className="flex items-start gap-3">
+              <svg className="w-5 h-5 text-amber-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
+              <div>
+                <p className="text-amber-300 text-sm font-semibold">
+                  This profile has been migrated
+                </p>
+                <p className="text-amber-700/90 text-xs mt-1">
+                  The owner of this address has moved to{" "}
+                  <Link
+                    href={`/freelancers/${encodeURIComponent(state.profile.migratedTo)}`}
+                    className="text-market-400 hover:text-market-300 underline font-mono"
+                  >
+                    {shortenAddress(state.profile.migratedTo)}
+                  </Link>
+                  {state.profile.migratedAt && (
+                    <> on {new Date(state.profile.migratedAt).toLocaleDateString()}</>
+                  )}
+                  .
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {state.status === "ok" && (
           <article className="card border-market-500/15 overflow-hidden">
             <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6 mb-6">

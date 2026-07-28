@@ -234,6 +234,8 @@ function rowToProfile(row) {
     isKycVerified: row.is_kyc_verified !== null ? row.is_kyc_verified : null,
     didHash: row.did_hash || null,
     encryptionPublicKey: row.encryption_public_key || null,
+    migratedTo: row.migrated_to || null,
+    migratedAt: row.migrated_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -257,6 +259,7 @@ async function getProfile(publicKey) {
             p.blocked_addresses,
             p.email_notifications_enabled, p.webhook_url,
             p.is_kyc_verified, p.did_hash, p.encryption_public_key,
+            p.migrated_to, p.migrated_at,
             p.created_at, p.updated_at,
             COALESCE(
               CASE WHEN p.encrypted_email IS NOT NULL
@@ -532,14 +535,14 @@ async function listProfiles({ role, availability, search, limit = 50, after } = 
   const encKey = encryptionService.getEncryptionKey();
   values.push(encKey, encKey);
 
-  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  const { rows } = await pool.query(
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";    const { rows } = await pool.query(
     `SELECT p.public_key, p.display_name, p.bio, p.skills, p.portfolio_items,
             p.portfolio_files, p.availability, p.role, p.completed_jobs,
             p.total_earned_xlm, p.rating, p.referral_count, p.reputation_points,
             p.blocked_addresses,
             p.email_notifications_enabled, p.webhook_url,
-            p.is_kyc_verified, p.did_hash, p.created_at, p.updated_at,
+            p.is_kyc_verified, p.did_hash, p.migrated_to, p.migrated_at,
+            p.created_at, p.updated_at,
             COALESCE(
               CASE WHEN p.encrypted_email IS NOT NULL
                 THEN pgp_sym_decrypt(p.encrypted_email, $${idx + 1})
@@ -1047,6 +1050,302 @@ async function purgeDeletedProfiles(days = 90) {
   return rowCount || 0;
 }
 
+/**
+ * Migrate a profile from an old Stellar address to a new one.
+ * Transfers profile data, job history, ratings, and referral links.
+ * Both addresses are validated for ownership via signed message verification
+ * performed in the route handler before calling this function.
+ *
+ * @param {Object} params
+ * @param {string} params.oldPublicKey  The source Stellar address being migrated from.
+ * @param {string} params.newPublicKey  The target Stellar address being migrated to.
+ * @returns {Promise<Object>} The new profile after migration.
+ * @throws {Error} 400 if either key is invalid or old profile doesn't exist.
+ */
+async function migrateProfile({ oldPublicKey, newPublicKey }) {
+  validatePublicKey(oldPublicKey);
+  validatePublicKey(newPublicKey);
+
+  if (oldPublicKey === newPublicKey) {
+    throw createValidationError("Old and new public keys must be different");
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify old profile exists and has not already been migrated
+    const { rows: oldRows } = await client.query(
+      `SELECT * FROM profiles WHERE public_key = $1 AND (deletion_status IS NULL OR deletion_status = 'active')`,
+      [oldPublicKey]
+    );
+
+    if (!oldRows.length) {
+      throw createValidationError("Source profile not found");
+    }
+
+    const oldProfile = oldRows[0];
+
+    if (oldProfile.migrated_to) {
+      throw createValidationError(
+        `This profile has already been migrated to ${oldProfile.migrated_to}`
+      );
+    }
+
+    // Reject migration if the new address already has a profile with significant
+    // history to prevent accidental data merging and silent data loss.
+    const { rows: newRows } = await client.query(
+      `SELECT completed_jobs, total_earned_xlm, rating, referral_count
+       FROM profiles
+       WHERE public_key = $1
+         AND (deletion_status IS NULL OR deletion_status = 'active')`,
+      [newPublicKey]
+    );
+
+    if (newRows.length > 0) {
+      const newProfile = newRows[0];
+      const details = [];
+      if (Number(newProfile.completed_jobs) > 0)
+        details.push(`${newProfile.completed_jobs} completed jobs`);
+      if (Number(newProfile.total_earned_xlm) > 0)
+        details.push(`${newProfile.total_earned_xlm} XLM earned`);
+      if (Number(newProfile.referral_count) > 0)
+        details.push(`${newProfile.referral_count} referrals`);
+      if (newProfile.rating !== null)
+        details.push(`${newProfile.rating} rating`);
+
+      if (details.length > 0) {
+        throw createValidationError(
+          `Cannot migrate to an address that already has profile activity (${details.join(", ")}). ` +
+          `Please use a fresh Stellar address for migration.`
+        );
+      }
+    }
+
+    // Upsert the new profile, copying data from the old one
+    await client.query(
+      `INSERT INTO profiles (public_key, display_name, bio, skills, portfolio_items,
+          portfolio_files, availability, role, completed_jobs, total_earned_xlm,
+          rating, reputation_points, referral_count, blocked_addresses,
+          email, email_notifications_enabled, webhook_url, webhook_secret,
+          encrypted_email, encrypted_webhook_secret,
+          is_kyc_verified, did_hash, encryption_public_key,
+          created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10,
+               $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+               $21, $22, $23,
+               $24, NOW())
+       ON CONFLICT (public_key) DO UPDATE
+         SET display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), profiles.display_name),
+             bio = COALESCE(NULLIF(EXCLUDED.bio, ''), profiles.bio),
+             skills = COALESCE(EXCLUDED.skills, profiles.skills),
+             portfolio_items = COALESCE(EXCLUDED.portfolio_items, profiles.portfolio_items),
+             portfolio_files = COALESCE(EXCLUDED.portfolio_files, profiles.portfolio_files),
+             availability = COALESCE(EXCLUDED.availability, profiles.availability),
+             role = COALESCE(NULLIF(EXCLUDED.role, ''), profiles.role),
+             completed_jobs = GREATEST(profiles.completed_jobs, EXCLUDED.completed_jobs),
+             total_earned_xlm = GREATEST(profiles.total_earned_xlm, EXCLUDED.total_earned_xlm),
+             rating = COALESCE(EXCLUDED.rating, profiles.rating),
+             reputation_points = profiles.reputation_points + COALESCE(EXCLUDED.reputation_points, 0),
+             referral_count = profiles.referral_count + COALESCE(EXCLUDED.referral_count, 0),
+             email = COALESCE(NULLIF(EXCLUDED.email, ''), profiles.email),
+             email_notifications_enabled = COALESCE(EXCLUDED.email_notifications_enabled, profiles.email_notifications_enabled),
+             webhook_url = COALESCE(NULLIF(EXCLUDED.webhook_url, ''), profiles.webhook_url),
+             webhook_secret = COALESCE(NULLIF(EXCLUDED.webhook_secret, ''), profiles.webhook_secret),
+             encrypted_email = COALESCE(EXCLUDED.encrypted_email, profiles.encrypted_email),
+             encrypted_webhook_secret = COALESCE(EXCLUDED.encrypted_webhook_secret, profiles.encrypted_webhook_secret),
+             is_kyc_verified = COALESCE(EXCLUDED.is_kyc_verified, profiles.is_kyc_verified),
+             did_hash = COALESCE(EXCLUDED.did_hash, profiles.did_hash),
+             encryption_public_key = COALESCE(EXCLUDED.encryption_public_key, profiles.encryption_public_key),
+             updated_at = NOW()`,
+      [
+        newPublicKey,
+        oldProfile.display_name,
+        oldProfile.bio,
+        oldProfile.skills,
+        JSON.stringify(oldProfile.portfolio_items),
+        JSON.stringify(oldProfile.portfolio_files || []),
+        oldProfile.availability,
+        oldProfile.role,
+        oldProfile.completed_jobs,
+        oldProfile.total_earned_xlm,
+        oldProfile.rating,
+        oldProfile.reputation_points,
+        oldProfile.referral_count,
+        oldProfile.blocked_addresses,
+        oldProfile.email,
+        oldProfile.email_notifications_enabled,
+        oldProfile.webhook_url,
+        oldProfile.webhook_secret,
+        oldProfile.encrypted_email,
+        oldProfile.encrypted_webhook_secret,
+        oldProfile.is_kyc_verified,
+        oldProfile.did_hash,
+        oldProfile.encryption_public_key,
+        oldProfile.created_at,
+      ]
+    );
+
+    // Transfer jobs where old address was the client
+    await client.query(
+      `UPDATE jobs SET client_address = $1 WHERE client_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer jobs where old address was the freelancer
+    await client.query(
+      `UPDATE jobs SET freelancer_address = $1 WHERE freelancer_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer applications
+    await client.query(
+      `UPDATE applications SET freelancer_address = $1 WHERE freelancer_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer ratings (both as rater and rated)
+    await client.query(
+      `UPDATE ratings SET rater_address = $1 WHERE rater_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+    await client.query(
+      `UPDATE ratings SET rated_address = $1 WHERE rated_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer referrals (both as referrer and referee)
+    await client.query(
+      `UPDATE referrals SET referrer_address = $1 WHERE referrer_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+    await client.query(
+      `UPDATE referrals SET referee_address = $1 WHERE referee_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer messages
+    await client.query(
+      `UPDATE messages SET sender_address = $1 WHERE sender_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+    await client.query(
+      `UPDATE messages SET receiver_address = $1 WHERE receiver_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer skill endorsements
+    await client.query(
+      `UPDATE skill_endorsements SET endorser_address = $1 WHERE endorser_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+    await client.query(
+      `UPDATE skill_endorsements SET recipient_address = $1 WHERE recipient_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer private messages
+    await client.query(
+      `UPDATE private_messages SET sender_address = $1 WHERE sender_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+    await client.query(
+      `UPDATE private_messages SET recipient_address = $1 WHERE recipient_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer notification queue
+    await client.query(
+      `UPDATE notification_queue SET recipient_address = $1 WHERE recipient_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer progress updates
+    await client.query(
+      `UPDATE progress_updates SET author_address = $1 WHERE author_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer dispute evidence
+    await client.query(
+      `UPDATE dispute_evidence SET uploader_address = $1 WHERE uploader_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer time entries
+    await client.query(
+      `UPDATE time_entries SET freelancer_address = $1 WHERE freelancer_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer time invoices (both as freelancer and client)
+    await client.query(
+      `UPDATE time_invoices SET freelancer_address = $1 WHERE freelancer_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+    await client.query(
+      `UPDATE time_invoices SET client_address = $1 WHERE client_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer job invitations (both as client and freelancer)
+    await client.query(
+      `UPDATE job_invitations SET client_address = $1 WHERE client_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+    await client.query(
+      `UPDATE job_invitations SET freelancer_address = $1 WHERE freelancer_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer referral payouts (both as referrer and referee)
+    await client.query(
+      `UPDATE referral_payouts SET referrer_address = $1 WHERE referrer_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+    await client.query(
+      `UPDATE referral_payouts SET referee_address = $1 WHERE referee_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer webauthn credentials
+    await client.query(
+      `UPDATE webauthn_credentials SET public_key = $1 WHERE public_key = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer saved searches
+    await client.query(
+      `UPDATE saved_searches SET user_address = $1 WHERE user_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Transfer proposal templates
+    await client.query(
+      `UPDATE proposal_templates SET freelancer_address = $1 WHERE freelancer_address = $2`,
+      [newPublicKey, oldPublicKey]
+    );
+
+    // Mark the old profile as migrated
+    await client.query(
+      `UPDATE profiles
+       SET migrated_to = $2, migrated_at = NOW(), updated_at = NOW()
+       WHERE public_key = $1`,
+      [oldPublicKey, newPublicKey]
+    );
+
+    await client.query("COMMIT");
+
+    // Return the new profile
+    return getProfile(newPublicKey);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   getProfile,
   upsertProfile,
@@ -1067,6 +1366,7 @@ module.exports = {
   unblockFreelancer,
   softDeleteProfile,
   purgeDeletedProfiles,
+  migrateProfile,
   VALID_PORTFOLIO_TYPES,
   VALID_AVAILABILITY_STATUSES,
   MAX_PORTFOLIO_ITEMS,

@@ -35,6 +35,7 @@ const {
   blockFreelancer,
   unblockFreelancer,
   markProfileForDeletion,
+  migrateProfile,
 } = require("../services/profileService");
 const {
   upsertPriceAlertPreference,
@@ -79,12 +80,34 @@ router.get("/:publicKey", generalProfileRateLimiter, async (req, res, next) => {
     if (cached) {
       profileLogger.debug({ publicKey: req.params.publicKey, cacheKey: key }, "Cache HIT for profile");
       res.set("X-Cache", "HIT");
+      // Auto-redirect migrated profiles: include migration info and X-Migrated-To header
+      if (cached.migratedTo) {
+        res.set("X-Migrated-To", cached.migratedTo);
+        return res.json({
+          success: true,
+          data: cached,
+          migrated: true,
+          migratedTo: cached.migratedTo,
+          migratedAt: cached.migratedAt,
+        });
+      }
       return res.json({ success: true, data: cached });
     }
     profileLogger.debug({ publicKey: req.params.publicKey, cacheKey: key }, "Cache MISS for profile");
     const data = await getProfile(req.params.publicKey);
     await cache.set(key, data, cache.TTL.PROFILE);
     res.set("X-Cache", "MISS");
+    // Auto-redirect migrated profiles: include migration info and X-Migrated-To header
+    if (data.migratedTo) {
+      res.set("X-Migrated-To", data.migratedTo);
+      return res.json({
+        success: true,
+        data,
+        migrated: true,
+        migratedTo: data.migratedTo,
+        migratedAt: data.migratedAt,
+      });
+    }
     res.json({ success: true, data });
   }
   catch (e) { next(e); }
@@ -573,6 +596,86 @@ router.delete("/:publicKey/data", verifyJWT, profileUpdateRateLimiter, async (re
     }
 
     res.json({ success: true, message: "Profile marked for deletion" });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/profiles/migrate — migrate profile from old to new Stellar address (#885)
+router.post("/migrate", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
+  try {
+    const { oldPublicKey, newPublicKey, oldSignature, newSignature } = req.body;
+
+    if (!oldPublicKey || !newPublicKey || !oldSignature || !newSignature) {
+      return res.status(400).json({
+        error: {
+          code: ErrorCodes.VALIDATION_ERROR,
+          message: "oldPublicKey, newPublicKey, oldSignature, and newSignature are required",
+        },
+      });
+    }
+
+    // Verify the authenticated user owns the old key
+    if (req.user.publicKey !== oldPublicKey) {
+      return res.status(403).json({
+        error: {
+          code: ErrorCodes.FORBIDDEN,
+          message: "You can only migrate your own profile",
+        },
+      });
+    }
+
+    // Verify signature ownership of both addresses using Stellar key verification
+    const { Keypair } = require("@stellar/stellar-sdk");
+
+    const MIGRATION_MESSAGE = "Stellar MarketPay Account Migration";
+
+    try {
+      // Verify old key signature
+      const oldKeypair = Keypair.fromPublicKey(oldPublicKey);
+      const oldSigValid = oldKeypair.verify(
+        Buffer.from(MIGRATION_MESSAGE),
+        Buffer.from(oldSignature, "base64")
+      );
+      if (!oldSigValid) {
+        return res.status(400).json({
+          error: {
+            code: ErrorCodes.VALIDATION_ERROR,
+            message: "Invalid signature for old public key",
+          },
+        });
+      }
+
+      // Verify new key signature
+      const newKeypair = Keypair.fromPublicKey(newPublicKey);
+      const newSigValid = newKeypair.verify(
+        Buffer.from(MIGRATION_MESSAGE),
+        Buffer.from(newSignature, "base64")
+      );
+      if (!newSigValid) {
+        return res.status(400).json({
+          error: {
+            code: ErrorCodes.VALIDATION_ERROR,
+            message: "Invalid signature for new public key",
+          },
+        });
+      }
+    } catch (sigErr) {
+      return res.status(400).json({
+        error: {
+          code: ErrorCodes.VALIDATION_ERROR,
+          message: "Signature verification failed: " + (sigErr.message || "Invalid signature format"),
+        },
+      });
+    }
+
+    const profile = await migrateProfile({ oldPublicKey, newPublicKey });
+
+    // Invalidate caches for both addresses
+    await cache.del(cache.profileKey(oldPublicKey));
+    await cache.del(cache.profileKey(newPublicKey));
+
+    res.json({ success: true, data: profile });
   } catch (e) {
     next(e);
   }

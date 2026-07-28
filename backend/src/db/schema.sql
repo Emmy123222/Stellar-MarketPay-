@@ -80,6 +80,16 @@ ALTER TABLE profiles
 CREATE INDEX IF NOT EXISTS profiles_deleted_at_idx ON profiles(deleted_at)
   WHERE deleted_at IS NOT NULL;
 
+-- V22: Profile migration support (#885)
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS migrated_to TEXT;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS migrated_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS profiles_migrated_to_idx ON profiles(migrated_to)
+  WHERE migrated_to IS NOT NULL;
+
 -- ─────────────────────────────────────────
 -- jobs
 -- ─────────────────────────────────────────

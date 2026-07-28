@@ -31,6 +31,7 @@ import XlmPriceWidget from "@/components/XlmPriceWidget";
 import StateMessage from "@/components/StateMessage";
 import BuyXLMModal from "@/components/BuyXLMModal";
 import WithdrawToBankModal from "@/components/WithdrawToBankModal";
+import AccountMigration from "@/components/AccountMigration";
 
 // Dynamic imports for heavy components
 const JobAnalytics = dynamic(() => import("@/components/JobAnalytics"), {
@@ -60,7 +61,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "invitations" | "analytics" | "earnings" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals";
+type Tab = "posted" | "applied" | "invitations" | "analytics" | "earnings" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals" | "migrate";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 async function fetchBalances(
@@ -590,6 +591,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           "price_alerts",
           "withdrawals",
           "saved_searches",
+          "migrate",
         ];
         const tabLabel = (t: Tab): string =>
           t === "posted" ? `Jobs Posted (${myJobs.length})` :
@@ -603,6 +605,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           t === "price_alerts" ? "Price Alerts" :
           t === "withdrawals" ? `Withdrawals (${withdrawHistory.length})` :
           t === "saved_searches" ? `Saved Searches${savedSearches.length > 0 ? ` (${savedSearches.length})` : ""}` :
+          t === "migrate" ? "Migrate Account" :
           "Edit Profile";
 
         return (
@@ -967,6 +970,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           )
         ) : tab === "referrals" ? (
           <ReferralDashboard publicKey={publicKey} />
+        ) : tab === "migrate" ? (
+          <AccountMigration currentPublicKey={publicKey} />
         ) : (
           <EditProfileForm publicKey={publicKey} />
         )}
