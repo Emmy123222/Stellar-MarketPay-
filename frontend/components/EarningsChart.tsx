@@ -32,7 +32,13 @@ interface Props {
   publicKey: string;
 }
 
-function buildMonthlyData(payments: EarningPayment[]): { month: string; total: number }[] {
+/**
+ * Builds the last 12 calendar months, each bucket holding only the earnings
+ * *released in that specific month* (per-period) — Issue #858. Exported so
+ * the transformation itself is independently unit-testable rather than only
+ * observable through a full component render.
+ */
+export function buildMonthlyData(payments: EarningPayment[]): { month: string; total: number }[] {
   const now = new Date();
   const months: { month: string; total: number }[] = [];
 
@@ -51,6 +57,23 @@ function buildMonthlyData(payments: EarningPayment[]): { month: string; total: n
   }
 
   return months;
+}
+
+/**
+ * Running-total view of the same 12 months — Issue #858's "cumulative"
+ * toggle option. Each month's `total` is the sum of every per-period amount
+ * up to and including that month, so the series is monotonically
+ * non-decreasing (unlike `buildMonthlyData`, which resets each month).
+ */
+export function buildCumulativeMonthlyData(
+  payments: EarningPayment[],
+): { month: string; total: number }[] {
+  const perPeriod = buildMonthlyData(payments);
+  let running = 0;
+  return perPeriod.map((m) => {
+    running += m.total;
+    return { month: m.month, total: running };
+  });
 }
 
 function buildCategoryData(payments: EarningPayment[]): { name: string; value: number }[] {
@@ -85,6 +108,7 @@ export default function EarningsChart({ publicKey }: Props) {
   const [data, setData] = useState<EarningsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"per-period" | "cumulative">("per-period");
 
   useEffect(() => {
     setLoading(true);
@@ -110,7 +134,8 @@ export default function EarningsChart({ publicKey }: Props) {
     );
   }
 
-  const monthlyData = buildMonthlyData(data.payments);
+  const monthlyData =
+    viewMode === "cumulative" ? buildCumulativeMonthlyData(data.payments) : buildMonthlyData(data.payments);
   const categoryData = buildCategoryData(data.payments);
   const totalXlm = parseFloat(data.totalXlm) || 0;
   const avgPerJob = data.payments.length > 0 ? totalXlm / data.payments.length : 0;
@@ -135,15 +160,39 @@ export default function EarningsChart({ publicKey }: Props) {
 
       {/* Monthly bar chart */}
       <div className="card">
-        <div className="flex items-center justify-between mb-4">
-          <p className="font-display text-lg text-amber-100">Monthly Earnings (Last 12 Months)</p>
-          <button
-            onClick={() => exportCSV(data.payments)}
-            className="btn-secondary text-xs px-3 py-1.5"
-            aria-label="Export earnings data as CSV"
-          >
-            Export CSV
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <p className="font-display text-lg text-amber-100">
+            {viewMode === "cumulative" ? "Cumulative Earnings" : "Monthly Earnings"} (Last 12 Months)
+          </p>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-md border border-amber-900/30 overflow-hidden text-xs" role="group" aria-label="Chart view mode">
+              <button
+                onClick={() => setViewMode("per-period")}
+                aria-pressed={viewMode === "per-period"}
+                className={`px-3 py-1.5 transition-colors ${
+                  viewMode === "per-period" ? "bg-market-300 text-black" : "text-amber-700 hover:text-amber-100"
+                }`}
+              >
+                Per-period
+              </button>
+              <button
+                onClick={() => setViewMode("cumulative")}
+                aria-pressed={viewMode === "cumulative"}
+                className={`px-3 py-1.5 transition-colors ${
+                  viewMode === "cumulative" ? "bg-market-300 text-black" : "text-amber-700 hover:text-amber-100"
+                }`}
+              >
+                Cumulative
+              </button>
+            </div>
+            <button
+              onClick={() => exportCSV(data.payments)}
+              className="btn-secondary text-xs px-3 py-1.5"
+              aria-label="Export earnings data as CSV"
+            >
+              Export CSV
+            </button>
+          </div>
         </div>
         {monthlyData.every((m) => m.total === 0) ? (
           <p className="text-sm text-amber-800 text-center py-8">No payments in the last 12 months.</p>
@@ -154,7 +203,10 @@ export default function EarningsChart({ publicKey }: Props) {
               <YAxis tick={{ fill: "#a8956a", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}`} />
               <Tooltip
                 contentStyle={{ background: "#1a1610", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 8, color: "#fef3c7", fontSize: 12 }}
-                formatter={(value) => [`${Number(value).toFixed(2)} XLM`, "Earned"]}
+                formatter={(value) => [
+                  `${Number(value).toFixed(2)} XLM`,
+                  viewMode === "cumulative" ? "Cumulative" : "Earned",
+                ]}
                 cursor={{ fill: "rgba(245,158,11,0.06)" }}
               />
               <Bar dataKey="total" fill="#f59e0b" radius={[4, 4, 0, 0]} />
@@ -168,27 +220,34 @@ export default function EarningsChart({ publicKey }: Props) {
         <div className="card">
           <p className="font-display text-lg text-amber-100 mb-4">Earnings by Job</p>
           <div className="flex flex-col sm:flex-row items-center gap-6">
-            <ResponsiveContainer width={200} height={200}>
-              <PieChart>
-                <Pie
-                  data={categoryData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  dataKey="value"
-                  paddingAngle={3}
-                >
-                  {categoryData.map((_, index) => (
-                    <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{ background: "#1a1610", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 8, color: "#fef3c7", fontSize: 12 }}
-                  formatter={(value) => [`${Number(value).toFixed(2)} XLM`]}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            {/* Issue #859: a fixed 200x200 ResponsiveContainer doesn't
+                actually resize — it's the same pixel size on every screen.
+                Sizing the wrapper instead (smaller on mobile) and letting
+                the container fill it (100%) makes the chart genuinely
+                responsive. */}
+            <div className="w-[160px] h-[160px] sm:w-[200px] sm:h-[200px] flex-shrink-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={categoryData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={80}
+                    dataKey="value"
+                    paddingAngle={3}
+                  >
+                    {categoryData.map((_, index) => (
+                      <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ background: "#1a1610", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 8, color: "#fef3c7", fontSize: 12 }}
+                    formatter={(value) => [`${Number(value).toFixed(2)} XLM`]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
             <div className="flex-1 space-y-2 min-w-0">
               {categoryData.map((item, i) => (
                 <div key={item.name} className="flex items-center justify-between gap-3">

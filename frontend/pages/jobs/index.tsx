@@ -102,6 +102,16 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  // Mirrors `nextCursor` synchronously (state updates are async/batched, so a
+  // value read from `nextCursor` inside a callback that resumes after an
+  // `await` may be stale by then). `handleLoadMore` uses this to detect,
+  // *after* its fetch resolves, whether a filter change reset the cursor
+  // while the request was in flight — see the comment there (Issue #857).
+  const nextCursorRef = useRef<string | null>(null);
+  const setNextCursorTracked = useCallback((value: string | null) => {
+    nextCursorRef.current = value;
+    setNextCursor(value);
+  }, []);
   const [currentPage, setCurrentPage] = useState(1);
   const [userTimezone, setUserTimezone] = useState<string>("");
   const [manualTimezone, setManualTimezone] = useState<string>("");
@@ -311,6 +321,20 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   useEffect(() => {
     if (!router.isReady) return;
 
+    // Issue #857: `handleLoadMore` reads `nextCursor` from state to fetch the
+    // next page, but this effect's own reload (triggered by any filter
+    // dependency below changing) is async — while it's in flight, `nextCursor`
+    // still holds the *previous* filter's cursor. If a "load more" trigger
+    // fires during that window, it would combine the new filters with a
+    // cursor computed under the old ones, producing wrong results (e.g.
+    // staying on page 3's cursor after switching category). Resetting it to
+    // null synchronously, before the async reload even starts, closes that
+    // race: `handleLoadMore`'s own `if (!nextCursor || loadingMore) return;`
+    // guard then blocks it until this effect's reload completes and sets the
+    // real cursor for the new filters.
+    setNextCursorTracked(null);
+    setCurrentPage(1);
+
     let isCancelled = false;
 
     async function loadJobs() {
@@ -362,7 +386,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
 
         if (!isCancelled) {
           setJobs(allJobs);
-          setNextCursor(loadedNextCursor);
+          setNextCursorTracked(loadedNextCursor);
           setCurrentPage(pagesLoaded);
         }
       } catch (_) {
@@ -506,6 +530,14 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   const handleLoadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;
 
+    // Captured up front: if a filter changes while this request is in
+    // flight, the reload effect resets `nextCursor`/`nextCursorRef` (Issue
+    // #857). Comparing against the ref (not the `nextCursor` closed over by
+    // this callback) after the `await` below tells us whether that happened,
+    // so this request's — now-stale — results are never applied on top of
+    // whatever the new filter has since loaded.
+    const requestCursor = nextCursor;
+
     setLoadingMore(true);
     setError(null);
 
@@ -517,7 +549,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
         status: status || undefined,
         limit: 20,
         search: search.trim() || undefined,
-        cursor: nextCursor,
+        cursor: requestCursor,
         timezone: activeTimezone || undefined,
         viewerAddress: viewerAddress || undefined,
         minBudget: minBudget || undefined,
@@ -529,12 +561,19 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
         maxApplications: filterQuery.maxApplications,
       });
 
+      if (nextCursorRef.current !== requestCursor) {
+        // A filter changed while this request was in flight — discard its
+        // result instead of appending stale jobs / overwriting the new
+        // filter's cursor with this one.
+        return;
+      }
+
       setJobs((prev) => {
         const seenIds = new Set(prev.map((job) => job.id));
         const uniqueNewJobs = result.jobs.filter((job) => !seenIds.has(job.id));
         return prev.concat(uniqueNewJobs);
       });
-      setNextCursor(result.nextCursor);
+      setNextCursorTracked(result.nextCursor);
 
       const nextPage = currentPage + 1;
       setCurrentPage(nextPage);
