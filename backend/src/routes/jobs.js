@@ -448,6 +448,40 @@ router.post("/:id/invite", verifyJWT, generalJobRateLimiter, async (req, res, ne
   } catch (e) { next(e); }
 });
 
+// GET /api/jobs/:id/invitations — list all invitations for a job
+router.get("/:id/invitations", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const pool = require("../db/pool");
+    const { rows: jobRows } = await pool.query(
+      "SELECT id, client_address FROM jobs WHERE id = $1",
+      [req.params.id]
+    );
+    if (!jobRows.length) {
+      const e = new Error("Job not found");
+      e.status = 404;
+      throw e;
+    }
+    const job = jobRows[0];
+    if (job.client_address !== req.user.publicKey) {
+      const e = new Error("Only the job client can view invitations");
+      e.status = 403;
+      throw e;
+    }
+
+    const { rows } = await pool.query(
+      `SELECT ji.id, ji.job_id, ji.freelancer_address, ji.status, ji.created_at,
+              p.display_name AS freelancer_name
+       FROM job_invitations ji
+       LEFT JOIN profiles p ON p.public_key = ji.freelancer_address
+       WHERE ji.job_id = $1
+       ORDER BY ji.created_at DESC`,
+      [req.params.id]
+    );
+
+    res.json({ success: true, data: rows });
+  } catch (e) { next(e); }
+});
+
 // PATCH /api/jobs/:id/escrow — store escrow contract ID after on-chain lock
 router.patch(
   "/:id/escrow",

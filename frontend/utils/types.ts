@@ -87,6 +87,7 @@ export interface Job {
   disputedAt?: string | null;
   disputeReason?: string | null;
   disputeDescription?: string | null;
+  isInvited?: boolean; // True if the current viewer has been invited to this job
 }
 
 export interface ClientReputation {

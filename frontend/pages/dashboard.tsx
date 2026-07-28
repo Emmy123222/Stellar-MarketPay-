@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
-import { fetchMyJobs, fetchMyApplications, fetchApplications } from "@/lib/api";
+import { fetchMyJobs, fetchMyApplications, fetchApplications, fetchMyInvitations, declineInvitation } from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
 import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV } from "@/utils/format";
 import type { Job, Application, ClientSpendingAnalytics, JobInvitation } from "@/utils/types";
@@ -111,6 +111,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [canViewSpending, setCanViewSpending] = useState(true);
   const [myJobs, setMyJobs] = useState<Job[]>([]);
   const [myApplications, setMyApplications] = useState<Application[]>([]);
+  const [myInvitations, setMyInvitations] = useState<JobInvitation[]>([]);
   const [balance, setBalance]           = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance]   = useState<string | null>(null);
   const [notificationCount, setNotificationCount] = useState(0);
@@ -189,9 +190,10 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const loadDashboardData = useCallback(async () => {
     if (!publicKey) return null;
 
-    const [jobs, apps, bal, usdc] = await Promise.all([
+    const [jobs, apps, invitations, bal, usdc] = await Promise.all([
       fetchMyJobs(publicKey),
       fetchMyApplications(publicKey),
+      fetchMyInvitations().catch(() => []),
       getXLMBalance(publicKey),
       getUSDCBalance(publicKey),
     ]);
@@ -209,13 +211,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
     setMyJobs(jobs);
     setMyApplications(apps);
+    setMyInvitations(invitations);
     setBalance(bal);
     setUsdcBalance(usdc);
     latestJobsRef.current = jobs;
     latestApplicationsRef.current = apps;
     latestJobApplicationsRef.current = jobApplications;
 
-    return { jobs, apps, jobApplications };
+    return { jobs, apps, jobApplications, invitations };
   }, [publicKey]);
 
   const pushNotification = useCallback(
