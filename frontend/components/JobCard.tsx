@@ -160,6 +160,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
         className={[
           "card-hover group animate-fade-in relative cursor-pointer outline-none",
           isFocused ? "ring-2 ring-market-400/50" : "",
+          job.isInvited ? "ring-2 ring-market-400/30 bg-market-500/5" : "",
         ].join(" ")}
         tabIndex={0}
         data-job-card-focus={isFocused ? "true" : undefined}
@@ -169,15 +170,25 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
       >
         {/* Header row */}
         <div className="flex items-start justify-between gap-3 mb-3">
-          <Link href={`/jobs/${job.id}`}>
-            <h3 className="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2">
-              {job.searchHeadline ? (
-                <span dangerouslySetInnerHTML={{ __html: job.searchHeadline }} />
-              ) : (
-                job.title
-              )}
-            </h3>
-          </Link>
+          <div className="flex items-center gap-2">
+            {job.isInvited && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-market-500/20 text-market-300 text-[10px] font-semibold border border-market-500/30">
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                Invited
+              </span>
+            )}
+            <Link href={`/jobs/${job.id}`}>
+              <h3 className="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2">
+                {job.searchHeadline ? (
+                  <span dangerouslySetInnerHTML={{ __html: job.searchHeadline }} />
+                ) : (
+                  job.title
+                )}
+              </h3>
+            </Link>
+          </div>
           <div className="flex items-center gap-2">
             {clientRepBadge && (
               <span

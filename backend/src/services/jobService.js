@@ -639,6 +639,12 @@ async function listJobs({
           WHERE ji.job_id = jobs.id AND ji.freelancer_address = $${viewerIdx}
         )))`,
     );
+    // Add is_invited field to select
+    selectColumns = `${selectColumns},
+      EXISTS (
+        SELECT 1 FROM job_invitations ji
+        WHERE ji.job_id = jobs.id AND ji.freelancer_address = $${viewerIdx}
+      ) AS is_invited`;
   } else {
     conditions.push("visibility = 'public'");
   }

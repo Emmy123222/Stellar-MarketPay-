@@ -55,12 +55,14 @@ const statsRoutes      = require("./routes/stats");
 const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
+const proposalTemplateRoutes = require("./routes/proposalTemplates");
 
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
+const { startSavedSearchAlertChecker } = require("./services/savedSearchAlertService");
 
 const serviceLogger = createServiceLogger('server');
 const app  = express();
@@ -417,6 +419,7 @@ app.use("/api/stats",         statsRoutes);
 app.use("/api/gas-estimate",   gasEstimatorRoutes);
 app.use("/api/transactions",   transactionRoutes);
 app.use("/api/dao",            daoRoutes);
+app.use("/api/proposal-templates", proposalTemplateRoutes);
 
 app.use((err, req, res, next) => {
   logError(req.logger || serviceLogger, err, {
@@ -588,6 +591,9 @@ async function bootstrap() {
 
   // Start recurring escrow ticker - run every hour (Issue #450)
   startRecurringEscrowTicker();
+
+  // Start saved search alert checker - run every 10 minutes
+  startSavedSearchAlertChecker();
 
   server.listen(PORT, () => {
     serviceLogger.info({
