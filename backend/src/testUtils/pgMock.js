@@ -182,6 +182,44 @@ function createPgMock() {
     }
 
 
+    if (text.startsWith("SELECT id, status, client_address, deleted_at FROM jobs WHERE id = ANY")) {
+      const ids = params[0] || [];
+      const rows = ids
+        .map((id) => jobs.get(id))
+        .filter(Boolean)
+        .map((job) => ({
+          id: job.id,
+          status: job.status,
+          client_address: job.client_address,
+          deleted_at: job.deleted_at || null,
+        }));
+      return { rows };
+    }
+
+    if (text.startsWith("UPDATE jobs SET status = 'cancelled', updated_at = NOW()")) {
+      const [id, clientAddress] = params;
+      const row = jobs.get(id);
+      if (!row || row.client_address !== clientAddress || row.status !== "open" || row.deleted_at) {
+        return { rows: [] };
+      }
+      row.status = "cancelled";
+      row.updated_at = new Date().toISOString();
+      jobs.set(row.id, row);
+      return { rows: [{ id: row.id }] };
+    }
+
+    if (text.startsWith("UPDATE jobs SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND client_address = $2")) {
+      const [id, clientAddress] = params;
+      const row = jobs.get(id);
+      if (!row || row.client_address !== clientAddress || row.deleted_at) {
+        return { rows: [] };
+      }
+      row.deleted_at = new Date().toISOString();
+      row.updated_at = row.deleted_at;
+      jobs.set(row.id, row);
+      return { rows: [{ id: row.id }] };
+    }
+
     if (text.startsWith("UPDATE jobs SET escrow_contract_id")) {
       const row = jobs.get(params[1]);
       if (!row) return { rows: [] };
@@ -349,7 +387,12 @@ function createPgMock() {
     connect.mockClear();
   }
 
-  return { query, connect, jobs, applications, invitations, reset, end: jest.fn() };
+  const api = { query, connect, jobs, applications, invitations, reset, end: jest.fn() };
+  // Mirror the real pool.js module, which exposes the same pool under both
+  // `readPool` and `writePool` — services destructure those names.
+  api.readPool = api;
+  api.writePool = api;
+  return api;
 }
 
 module.exports = { createPgMock, defaultJobRow, defaultApplicationRow };

@@ -194,8 +194,8 @@ describe("static component snapshots", () => {
         <BulkJobActionBar
           selectedCount={2}
           loading={false}
-          onCancel={noop}
-          onExtend={noop}
+          onClose={noop}
+          onDelete={noop}
           onBoost={noop}
           onClearSelection={noop}
         />,
@@ -206,8 +206,8 @@ describe("static component snapshots", () => {
         <BulkJobActionBar
           selectedCount={2}
           loading
-          onCancel={noop}
-          onExtend={noop}
+          onClose={noop}
+          onDelete={noop}
           onBoost={noop}
           onClearSelection={noop}
         />,

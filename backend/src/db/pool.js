@@ -31,3 +31,9 @@ function getPoolStats() {
 
 module.exports = pool;
 module.exports.getPoolStats = getPoolStats;
+// Single physical pool used for both reads and writes. Exposed under both
+// names so services that destructure `{ readPool, writePool }` (to keep the
+// door open for a future read-replica split) resolve to a real pool instead
+// of `undefined`.
+module.exports.readPool = pool;
+module.exports.writePool = pool;

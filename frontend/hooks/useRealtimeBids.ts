@@ -58,6 +58,17 @@ export function useRealtimeBids({
   const tabVisibleRef = useRef(!document.hidden);
   const newestCardRef = useRef<HTMLDivElement | null>(null);
 
+  // Keep the latest `fetchApplications` in a ref rather than a `connect`/
+  // `startPoll` dependency. Callers (e.g. RealtimeBidComparison) often pass
+  // an inline fallback function that gets a new identity on every render —
+  // depending on it directly would tear down and reopen the WebSocket on
+  // every re-render, which is what caused new bids to stop showing up
+  // reliably (#867).
+  const fetchApplicationsRef = useRef(fetchApplications);
+  useEffect(() => {
+    fetchApplicationsRef.current = fetchApplications;
+  }, [fetchApplications]);
+
   // ── helpers ────────────────────────────────────────────────────────────────
 
   const clearPoll = useCallback(() => {
@@ -71,13 +82,13 @@ export function useRealtimeBids({
     clearPoll();
     pollTimerRef.current = setInterval(async () => {
       try {
-        const fresh = await fetchApplications();
+        const fresh = await fetchApplicationsRef.current();
         setApplications(fresh);
       } catch {
         // ignore — will retry next interval
       }
     }, POLL_INTERVAL);
-  }, [clearPoll, fetchApplications]);
+  }, [clearPoll]);
 
   const highlight = useCallback((id: string) => {
     setHighlightedIds((prev) => new Set([...prev, id]));

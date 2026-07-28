@@ -4,6 +4,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { SorobanRpc } from "@stellar/stellar-sdk";
 import { fetchGasEstimateSafe, tierToTransactionFee } from "./sorobanFees";
+import { getUsdcContractId } from "./config/tokens";
 
 const NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as "testnet" | "mainnet";
 const HORIZON_URL = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
@@ -273,6 +274,8 @@ export async function createEscrowOnChain(
   return signAndSubmitEscrowTx(preparedXdr);
 }
 
+// Re-exported for external consumers. Note: `export ... from` does not bind a
+// local name usable elsewhere in *this* file, hence the separate import above.
 export { getUsdcContractId, USDC_CONTRACT_BY_NETWORK } from "./config/tokens";
 
 

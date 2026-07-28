@@ -951,4 +951,23 @@ router.post(
   },
 );
 
+// POST /api/jobs/batch — bulk close or delete jobs in a single DB transaction
+// Body: { action: 'close'|'delete', ids: string[] } (max 50 ids)
+// Authorization is all-or-nothing: the caller must own every specified job.
+router.post(
+  "/batch",
+  verifyJWT,
+  jobCreationRateLimiter,
+  async (req, res, next) => {
+    try {
+      const { action, ids } = req.body;
+      const { batchJobAction } = require("../services/jobService");
+      const result = await batchJobAction(action, ids, req.user.publicKey);
+      res.json({ success: true, ...result });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 module.exports = router;

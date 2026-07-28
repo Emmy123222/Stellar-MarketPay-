@@ -1,9 +1,11 @@
 /**
  * components/BulkJobActionBar.tsx
  *
- * Floating action bar that appears when one or more job cards are selected.
- * Shows the selection count and action buttons: Extend, Boost, Cancel.
- * Cancel triggers a confirmation modal before proceeding.
+ * Floating action bar that appears once 2+ job cards are selected via
+ * checkboxes (see PostedJobsTab). Shows the selection count and action
+ * buttons: Close Selected, Delete Selected, Boost Selected.
+ * Close and Delete are destructive and require confirmation before
+ * proceeding; Delete is irreversible.
  */
 import { useState } from "react";
 import clsx from "clsx";
@@ -11,45 +13,73 @@ import type { BulkActionResponse } from "@/utils/types";
 
 interface BulkJobActionBarProps {
   selectedCount: number;
-  onCancel: () => Promise<BulkActionResponse>;
-  onExtend: () => Promise<BulkActionResponse>;
+  onClose: () => Promise<BulkActionResponse>;
+  onDelete: () => Promise<BulkActionResponse>;
   onBoost: () => Promise<BulkActionResponse>;
   onClearSelection: () => void;
   loading: boolean;
 }
 
-type ActiveAction = "cancel" | "extend" | "boost" | null;
+type ActiveAction = "close" | "delete" | "boost" | null;
+type ConfirmAction = "close" | "delete" | null;
 
 export default function BulkJobActionBar({
   selectedCount,
-  onCancel,
-  onExtend,
+  onClose,
+  onDelete,
   onBoost,
   onClearSelection,
   loading,
 }: BulkJobActionBarProps) {
-  const [confirmAction, setConfirmAction] = useState<ActiveAction>(null);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
   const [result, setResult] = useState<BulkActionResponse | null>(null);
 
-  if (selectedCount === 0) return null;
+  // Only shown once 2+ jobs are selected — a single job already has
+  // per-row actions (Extend, Repost, etc.) in PostedJobsTab.
+  if (selectedCount < 2) return null;
 
   const handleAction = async (action: ActiveAction) => {
     if (!action) return;
     setResult(null);
 
     let res: BulkActionResponse;
-    if (action === "cancel") res = await onCancel();
-    else if (action === "extend") res = await onExtend();
+    if (action === "close") res = await onClose();
+    else if (action === "delete") res = await onDelete();
     else res = await onBoost();
 
     setResult(res);
     setConfirmAction(null);
   };
 
-  const actionLabel = (a: ActiveAction) => {
-    if (a === "cancel") return "Cancel Jobs";
-    if (a === "extend") return "Extend Jobs";
-    return "Boost Jobs";
+  const confirmCopy = (a: ConfirmAction) => {
+    if (a === "delete") {
+      return {
+        title: `Delete ${selectedCount} job${selectedCount !== 1 ? "s" : ""}?`,
+        warning: "This cannot be undone.",
+        body: (
+          <>
+            Deleted jobs are removed from your dashboard permanently. Jobs
+            that are <span className="text-amber-300 font-medium">in progress</span>{" "}
+            will be skipped.
+          </>
+        ),
+        confirmLabel: "Yes, Delete",
+        confirmingLabel: "Deleting…",
+      };
+    }
+    return {
+      title: `Close ${selectedCount} job${selectedCount !== 1 ? "s" : ""}?`,
+      warning: "This cannot be undone.",
+      body: (
+        <>
+          Only <span className="text-amber-300 font-medium">open</span> jobs
+          will be closed. Jobs that are in progress, completed, or already
+          closed will be skipped.
+        </>
+      ),
+      confirmLabel: "Yes, Close",
+      confirmingLabel: "Closing…",
+    };
   };
 
   return (
@@ -98,9 +128,9 @@ export default function BulkJobActionBar({
           </button>
         </div>
 
-        {/* Extend */}
+        {/* Close — destructive, requires confirmation */}
         <button
-          onClick={() => handleAction("extend")}
+          onClick={() => setConfirmAction("close")}
           disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium bg-ink-700 border border-market-500/20 text-amber-200 hover:border-market-400 hover:text-market-300 transition-all disabled:opacity-50"
         >
@@ -114,10 +144,10 @@ export default function BulkJobActionBar({
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth={2}
-              d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+              d="M6 18L18 6M6 6l12 12"
             />
           </svg>
-          Extend
+          Close Selected
         </button>
 
         {/* Boost */}
@@ -139,12 +169,12 @@ export default function BulkJobActionBar({
               d="M13 10V3L4 14h7v7l9-11h-7z"
             />
           </svg>
-          Boost
+          Boost Selected
         </button>
 
-        {/* Cancel — destructive, requires confirmation */}
+        {/* Delete — destructive & irreversible, requires confirmation */}
         <button
-          onClick={() => setConfirmAction("cancel")}
+          onClick={() => setConfirmAction("delete")}
           disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium bg-red-500/10 border border-red-500/20 text-red-400 hover:border-red-400 hover:bg-red-500/15 transition-all disabled:opacity-50"
         >
@@ -158,15 +188,15 @@ export default function BulkJobActionBar({
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth={2}
-              d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16"
             />
           </svg>
-          Cancel Jobs
+          Delete Selected
         </button>
       </div>
 
       {/* ── Confirmation modal ──────────────────────────────────────────── */}
-      {confirmAction === "cancel" && (
+      {confirmAction && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-950/80 backdrop-blur-sm"
           role="dialog"
@@ -195,17 +225,15 @@ export default function BulkJobActionBar({
                   id="bulk-confirm-title"
                   className="font-display font-semibold text-amber-100"
                 >
-                  Cancel {selectedCount} job{selectedCount !== 1 ? "s" : ""}?
+                  {confirmCopy(confirmAction).title}
                 </h3>
                 <p className="text-xs text-amber-700 mt-0.5">
-                  This cannot be undone.
+                  {confirmCopy(confirmAction).warning}
                 </p>
               </div>
             </div>
             <p className="text-sm text-amber-700 mb-6">
-              Only <span className="text-amber-300 font-medium">open</span> jobs
-              will be cancelled. Jobs that are in progress, completed, or
-              already cancelled will be skipped.
+              {confirmCopy(confirmAction).body}
             </p>
             <div className="flex gap-3">
               <button
@@ -216,11 +244,13 @@ export default function BulkJobActionBar({
                 Keep Jobs
               </button>
               <button
-                onClick={() => handleAction("cancel")}
+                onClick={() => handleAction(confirmAction)}
                 disabled={loading}
                 className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 transition-all disabled:opacity-50"
               >
-                {loading ? "Cancelling…" : "Yes, Cancel"}
+                {loading
+                  ? confirmCopy(confirmAction).confirmingLabel
+                  : confirmCopy(confirmAction).confirmLabel}
               </button>
             </div>
           </div>

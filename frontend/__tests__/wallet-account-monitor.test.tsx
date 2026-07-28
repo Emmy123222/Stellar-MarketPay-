@@ -21,8 +21,18 @@ jest.mock("@/lib/api", () => ({
   getJwtToken: jest.fn().mockReturnValue(null),
 }));
 
+jest.mock("@/lib/stellar", () => ({
+  getXLMBalance: jest.fn().mockResolvedValue("100"),
+}));
+
+jest.mock("@/components/BuyXLMModal", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+
+const mockInfo = jest.fn();
 jest.mock("@/components/Toast", () => ({
-  useToast: () => ({ success: jest.fn(), error: jest.fn(), info: jest.fn() }),
+  useToast: () => ({ success: jest.fn(), error: jest.fn(), info: mockInfo }),
   ToastProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
@@ -31,6 +41,7 @@ jest.mock("@/components/Toast", () => ({
 import WalletAccountMonitor from "@/components/WalletAccountMonitor";
 import * as walletLib from "@/lib/wallet";
 import * as apiLib from "@/lib/api";
+import * as stellarLib from "@/lib/stellar";
 
 const MOCK_PK = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const MOCK_PK_B = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
@@ -49,14 +60,17 @@ describe("WalletAccountMonitor (#499)", () => {
     jest.restoreAllMocks();
   });
 
-  it("renders nothing (null output)", () => {
+  it("renders nothing (null output)", async () => {
     const { container } = render(
       <WalletAccountMonitor currentPublicKey={MOCK_PK} onDisconnect={onDisconnect} />,
     );
+    // Flush the initial balance poll (#871) so its state update doesn't leak
+    // into the next test as an unwrapped act() warning.
+    await act(async () => {});
     expect(container.firstChild).toBeNull();
   });
 
-  it("subscribes via subscribeToAccountChanges on mount and unsubscribes on unmount", () => {
+  it("subscribes via subscribeToAccountChanges on mount and unsubscribes on unmount", async () => {
     const unsubscribe = jest.fn();
     jest.spyOn(walletLib, "subscribeToAccountChanges").mockReturnValue(unsubscribe);
 
@@ -65,6 +79,7 @@ describe("WalletAccountMonitor (#499)", () => {
     );
     expect(walletLib.subscribeToAccountChanges).toHaveBeenCalledWith(expect.any(Function));
 
+    await act(async () => {});
     unmount();
     expect(unsubscribe).toHaveBeenCalled();
   });
@@ -158,5 +173,91 @@ describe("WalletAccountMonitor (#499)", () => {
 
     expect(onDisconnect).not.toHaveBeenCalled();
     jest.useRealTimers();
+  });
+});
+
+describe("WalletAccountMonitor — low-balance monitoring (#871)", () => {
+  let onDisconnect: jest.Mock;
+  let onBalanceChange: jest.Mock;
+
+  beforeEach(() => {
+    onDisconnect = jest.fn();
+    onBalanceChange = jest.fn();
+    jest.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem("smp_wallet_public_key", MOCK_PK);
+    jest.spyOn(walletLib, "subscribeToAccountChanges").mockReturnValue(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("polls Horizon via getXLMBalance on mount and reports the balance upward", async () => {
+    jest.spyOn(stellarLib, "getXLMBalance").mockResolvedValue("42.5");
+
+    render(
+      <WalletAccountMonitor
+        currentPublicKey={MOCK_PK}
+        onDisconnect={onDisconnect}
+        onBalanceChange={onBalanceChange}
+      />,
+    );
+
+    await waitFor(() => expect(stellarLib.getXLMBalance).toHaveBeenCalledWith(MOCK_PK));
+    await waitFor(() => expect(onBalanceChange).toHaveBeenCalledWith("42.5"));
+  });
+
+  it("shows a low-balance banner once the balance drops below 5 XLM", async () => {
+    jest.spyOn(stellarLib, "getXLMBalance").mockResolvedValue("2.5");
+
+    const { findByRole } = render(
+      <WalletAccountMonitor currentPublicKey={MOCK_PK} onDisconnect={onDisconnect} />,
+    );
+
+    const banner = await findByRole("alert");
+    expect(banner.textContent).toContain("2.50 XLM");
+  });
+
+  it("does not show a banner when the balance is at or above the 5 XLM reserve", async () => {
+    jest.spyOn(stellarLib, "getXLMBalance").mockResolvedValue("50");
+
+    render(
+      <WalletAccountMonitor currentPublicKey={MOCK_PK} onDisconnect={onDisconnect} />,
+    );
+
+    await waitFor(() => expect(stellarLib.getXLMBalance).toHaveBeenCalled());
+    expect(mockInfo).not.toHaveBeenCalled();
+  });
+
+  it("fires a one-time warning toast once the balance drops below 10 XLM", async () => {
+    jest.spyOn(stellarLib, "getXLMBalance").mockResolvedValue("8");
+
+    render(
+      <WalletAccountMonitor currentPublicKey={MOCK_PK} onDisconnect={onDisconnect} />,
+    );
+
+    await waitFor(() =>
+      expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining("Low balance warning")),
+    );
+    expect(mockInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the user dismiss the banner for the session", async () => {
+    jest.spyOn(stellarLib, "getXLMBalance").mockResolvedValue("1");
+
+    const { findByRole, queryByRole } = render(
+      <WalletAccountMonitor currentPublicKey={MOCK_PK} onDisconnect={onDisconnect} />,
+    );
+
+    const banner = await findByRole("alert");
+    const dismissButton = banner.querySelector('[aria-label="Dismiss low balance banner"]');
+    expect(dismissButton).not.toBeNull();
+
+    await act(async () => {
+      dismissButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(queryByRole("alert")).toBeNull();
   });
 });

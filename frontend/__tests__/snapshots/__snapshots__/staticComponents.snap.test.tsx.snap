@@ -399,13 +399,13 @@ exports[`static component snapshots BulkJobActionBar default: BulkJobActionBar 1
       viewBox="0 0 24 24"
     >
       <path
-        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+        d="M6 18L18 6M6 6l12 12"
         stroke-linecap="round"
         stroke-linejoin="round"
         stroke-width="2"
       />
     </svg>
-    Extend
+    Close Selected
   </button>
   <button
     class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium bg-ink-700 border border-amber-500/20 text-amber-300 hover:border-amber-400 hover:text-amber-200 transition-all disabled:opacity-50"
@@ -423,7 +423,7 @@ exports[`static component snapshots BulkJobActionBar default: BulkJobActionBar 1
         stroke-width="2"
       />
     </svg>
-    Boost
+    Boost Selected
   </button>
   <button
     class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium bg-red-500/10 border border-red-500/20 text-red-400 hover:border-red-400 hover:bg-red-500/15 transition-all disabled:opacity-50"
@@ -435,13 +435,13 @@ exports[`static component snapshots BulkJobActionBar default: BulkJobActionBar 1
       viewBox="0 0 24 24"
     >
       <path
-        d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16"
         stroke-linecap="round"
         stroke-linejoin="round"
         stroke-width="2"
       />
     </svg>
-    Cancel Jobs
+    Delete Selected
   </button>
 </div>
 `;
@@ -498,13 +498,13 @@ exports[`static component snapshots BulkJobActionBar loading: BulkJobActionBar l
       viewBox="0 0 24 24"
     >
       <path
-        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+        d="M6 18L18 6M6 6l12 12"
         stroke-linecap="round"
         stroke-linejoin="round"
         stroke-width="2"
       />
     </svg>
-    Extend
+    Close Selected
   </button>
   <button
     class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium bg-ink-700 border border-amber-500/20 text-amber-300 hover:border-amber-400 hover:text-amber-200 transition-all disabled:opacity-50"
@@ -523,7 +523,7 @@ exports[`static component snapshots BulkJobActionBar loading: BulkJobActionBar l
         stroke-width="2"
       />
     </svg>
-    Boost
+    Boost Selected
   </button>
   <button
     class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium bg-red-500/10 border border-red-500/20 text-red-400 hover:border-red-400 hover:bg-red-500/15 transition-all disabled:opacity-50"
@@ -536,13 +536,13 @@ exports[`static component snapshots BulkJobActionBar loading: BulkJobActionBar l
       viewBox="0 0 24 24"
     >
       <path
-        d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16"
         stroke-linecap="round"
         stroke-linejoin="round"
         stroke-width="2"
       />
     </svg>
-    Cancel Jobs
+    Delete Selected
   </button>
 </div>
 `;

@@ -6,8 +6,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
-import { fetchMyJobs, fetchMyApplications, fetchApplications } from "@/lib/api";
-import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
+import { fetchMyJobs, fetchMyApplications, fetchApplications, batchJobAction, boostJob } from "@/lib/api";
+import { getXLMBalance, getUSDCBalance, streamAccountTransactions, buildBoostJobTx, signAndSubmitSorobanTx } from "@/lib/stellar";
 import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV } from "@/utils/format";
 import type { Job, Application, ClientSpendingAnalytics, JobInvitation } from "@/utils/types";
 import EditProfileForm from "@/components/EditProfileForm";
@@ -131,47 +131,122 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setExtendModalJob(null);
   }, []);
 
-  const handleBulkCancel = useCallback(async () => {
+  const handleToggleJobSelect = useCallback((jobId: string) => {
+    setSelectedJobIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(jobId)) next.delete(jobId);
+      else next.add(jobId);
+      return next;
+    });
+  }, []);
+
+  // "Close Selected" / "Delete Selected" — both run server-side in a single
+  // DB transaction via POST /api/jobs/batch (#869).
+  const handleBulkClose = useCallback(async () => {
     setBulkLoading(true);
     try {
       const ids = Array.from(selectedJobIds);
-      await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/cancel`, { method: "POST" })));
+      const result = await batchJobAction("close", ids);
       setSelectedJobIds(new Set());
-      return { success: ids.length, failed: 0 };
-    } catch {
-      return { success: 0, failed: selectedJobIds.size };
+      return result;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to close selected jobs");
+      return {
+        success: false,
+        succeeded: 0,
+        failed: selectedJobIds.size,
+        processedCount: selectedJobIds.size,
+        failedCount: selectedJobIds.size,
+        results: Array.from(selectedJobIds).map((id) => ({ id, success: false as const })),
+      };
     } finally {
       setBulkLoading(false);
     }
-  }, [selectedJobIds]);
+  }, [selectedJobIds, toast]);
 
-  const handleBulkExtend = useCallback(async () => {
+  const handleBulkDelete = useCallback(async () => {
     setBulkLoading(true);
     try {
       const ids = Array.from(selectedJobIds);
-      await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/extend`, { method: "POST" })));
+      const result = await batchJobAction("delete", ids);
       setSelectedJobIds(new Set());
-      return { success: ids.length, failed: 0 };
-    } catch {
-      return { success: 0, failed: selectedJobIds.size };
+      return result;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete selected jobs");
+      return {
+        success: false,
+        succeeded: 0,
+        failed: selectedJobIds.size,
+        processedCount: selectedJobIds.size,
+        failedCount: selectedJobIds.size,
+        results: Array.from(selectedJobIds).map((id) => ({ id, success: false as const })),
+      };
     } finally {
       setBulkLoading(false);
     }
-  }, [selectedJobIds]);
+  }, [selectedJobIds, toast]);
 
+  // "Boost Selected" — there is no batch boost endpoint: boosting is an
+  // on-chain `boost_job` Soroban call per job (see BoostJobModal), so each
+  // selected job gets its own signed transaction, submitted one at a time.
+  // Defaults to the cheaper 7-day/5 XLM tier; use the per-job Boost action
+  // for the 30-day tier.
   const handleBulkBoost = useCallback(async () => {
+    if (!publicKey) {
+      return {
+        success: false,
+        succeeded: 0,
+        failed: selectedJobIds.size,
+        processedCount: selectedJobIds.size,
+        failedCount: selectedJobIds.size,
+        results: Array.from(selectedJobIds).map((id) => ({ id, success: false as const, error: "Wallet not connected" })),
+      };
+    }
+
     setBulkLoading(true);
+    const BOOST_AMOUNT_XLM = 5;
+    const isMockMode = process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
+    const treasuryAddress = process.env.NEXT_PUBLIC_TREASURY_ADDRESS || publicKey;
+    const ids = Array.from(selectedJobIds);
+    const results: { id: string; success: boolean; error?: string }[] = [];
+
     try {
-      const ids = Array.from(selectedJobIds);
-      await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/boost`, { method: "POST" })));
+      for (const id of ids) {
+        try {
+          let txHash: string;
+          if (isMockMode) {
+            txHash = `mock-boost-${Date.now()}-${id}`;
+          } else {
+            const xdr = await buildBoostJobTx({
+              jobId: id,
+              clientPublicKey: publicKey,
+              amountXlm: BOOST_AMOUNT_XLM,
+              treasuryAddress,
+            });
+            txHash = await signAndSubmitSorobanTx(xdr);
+          }
+          const updated = await boostJob(id, txHash, BOOST_AMOUNT_XLM);
+          setMyJobs((prev) => prev.map((j) => (j.id === id ? updated : j)));
+          results.push({ id, success: true });
+        } catch (e) {
+          results.push({ id, success: false, error: e instanceof Error ? e.message : "Boost failed" });
+        }
+      }
       setSelectedJobIds(new Set());
-      return { success: ids.length, failed: 0 };
-    } catch {
-      return { success: 0, failed: selectedJobIds.size };
     } finally {
       setBulkLoading(false);
     }
-  }, [selectedJobIds]);
+
+    const failedCount = results.filter((r) => !r.success).length;
+    return {
+      success: failedCount === 0,
+      succeeded: results.length - failedCount,
+      failed: failedCount,
+      processedCount: results.length,
+      failedCount,
+      results,
+    };
+  }, [selectedJobIds, publicKey]);
 
   const handleCopy = async () => {
     if (!publicKey) return;
@@ -634,6 +709,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             extendModalJob={extendModalJob}
             onJobExtended={handleJobExtended}
             onCloseExtendModal={() => setExtendModalJob(null)}
+            selectedJobIds={selectedJobIds}
+            onToggleSelect={handleToggleJobSelect}
           />
         ) : tab === "applied" ? (
           <AppliedJobsTab myApplications={myApplications} />
@@ -958,8 +1035,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
       <BulkJobActionBar
         selectedCount={selectedJobIds.size}
-        onCancel={handleBulkCancel}
-        onExtend={handleBulkExtend}
+        onClose={handleBulkClose}
+        onDelete={handleBulkDelete}
         onBoost={handleBulkBoost}
         onClearSelection={() => setSelectedJobIds(new Set())}
         loading={bulkLoading}
