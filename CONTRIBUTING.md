@@ -100,7 +100,24 @@ cd backend && npm run dev
 
 The backend applies all pending migrations on startup and logs the result.
 
-### 6. Get testnet XLM
+### 6. Seed the database (optional)
+
+For development and testing, you can populate the database with sample data:
+
+```bash
+cd backend
+npm run db:seed
+```
+
+This creates:
+- 5 users (2 clients, 3 freelancers)
+- 20 open jobs
+- 10 applications
+- 3 in-progress jobs with escrow
+
+The seed script is **idempotent** — running it multiple times will not create duplicates. Users and applications use `ON CONFLICT` clauses to update existing records; jobs are matched by title and skipped if already present.
+
+### 7. Get testnet XLM
 
 Visit [friendbot.stellar.org](https://friendbot.stellar.org) with your Freighter testnet address to fund the wallet with 10,000 XLM. The app must be pointed at `STELLAR_NETWORK=testnet`.
 
