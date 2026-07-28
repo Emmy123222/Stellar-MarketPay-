@@ -15,6 +15,8 @@ const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
 const { sendEmail, smtpTransport } = require("./utils/email");
+const jwt = require("jsonwebtoken");
+const { JWT_SECRET } = require("./middleware/auth");
 const promClient = require("prom-client");
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
@@ -201,6 +203,7 @@ setInterval(checkPoolHealth, 1000).unref();
 const realtimeClients = new Set();
 const userClients = new Map(); // userAddress -> Set<WebSocket>
 const scopeSessionClients = new Map();
+const MAX_WS_CONNECTIONS_PER_USER = 5;
 
 function broadcastRealtime(event, payload) {
   const message = JSON.stringify({ event, payload });
@@ -459,12 +462,53 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
+    const token = url.searchParams.get("token");
+    let userAddress = null;
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        userAddress = decoded.publicKey;
+      } catch (err) {
+        serviceLogger.warn({ error: err.message }, 'Invalid JWT token for WebSocket connection');
+        ws.close(1008, "Invalid token");
+        return;
+      }
+    }
+
+    if (userAddress) {
+      const userConnections = userClients.get(userAddress) || new Set();
+      if (userConnections.size >= MAX_WS_CONNECTIONS_PER_USER) {
+        serviceLogger.warn({
+          userAddress,
+          connectionCount: userConnections.size,
+          maxAllowed: MAX_WS_CONNECTIONS_PER_USER
+        }, 'WebSocket connection rejected: too many active connections for user');
+        ws.close(1008, "Too many connections");
+        return;
+      }
+
+      if (!userClients.has(userAddress)) {
+        userClients.set(userAddress, new Set());
+      }
+      userClients.get(userAddress).add(ws);
+    }
+
     realtimeClients.add(ws);
     wsConnectionsActive.set(realtimeClients.size);
     sendJson(ws, "connected", { channel: "realtime" });
     ws.on("close", () => {
       realtimeClients.delete(ws);
       wsConnectionsActive.set(realtimeClients.size);
+      if (userAddress) {
+        const connections = userClients.get(userAddress);
+        if (connections) {
+          connections.delete(ws);
+          if (connections.size === 0) {
+            userClients.delete(userAddress);
+          }
+        }
+      }
     });
     return;
   }

@@ -238,4 +238,36 @@ describe("WebSocket real-time notification delivery", () => {
     ws1.close();
     ws2.close();
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Rate limiting test
+  // ───────────────────────────────────────────────────────────────────────────
+  test("TC4: rejects connection with close code 1008 if user has > 5 active connections", async () => {
+    const connections = [];
+    
+    // Open 5 connections (should succeed)
+    for (let i = 0; i < 5; i++) {
+      const ws = wsConnect(TEST_USER_1);
+      await waitForOpen(ws);
+      await ws._waitForMessage((m) => m.event === "connected", 1000);
+      connections.push(ws);
+    }
+
+    // Try to open a 6th connection (should be rejected)
+    const ws6 = wsConnect(TEST_USER_1);
+    
+    // Wait for the connection to be closed
+    const closePromise = new Promise((resolve) => {
+      ws6.on("close", (code, reason) => {
+        resolve({ code, reason: reason.toString() });
+      });
+    });
+
+    const { code, reason } = await closePromise;
+    expect(code).toBe(1008);
+    expect(reason).toBe("Too many connections");
+
+    // Clean up all connections
+    connections.forEach((ws) => ws.close());
+  });
 });
