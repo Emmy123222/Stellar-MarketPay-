@@ -19,15 +19,14 @@ const multer     = require("multer");
 const pool       = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT }         = require("../middleware/auth");
-const ipfsService            = require("../services/ipfsService");
+const s3Service            = require("../services/s3Service");
 const { validateIpfsCid }    = require("../services/disputeService");
 
-const MAX_FILES_PER_PARTY = 10;
-const MAX_FILE_SIZE       = 5 * 1024 * 1024; // 5 MB
+const MAX_FILES_PER_PARTY = 5;
+const MAX_FILE_SIZE       = 10 * 1024 * 1024; // 5 MB
 const ALLOWED_MIME_TYPES  = new Set([
-  "image/jpeg", "image/png", "image/gif", "image/webp",
+  "image/jpeg", "image/png", "image/gif", "video/mp4",
   "application/pdf",
-  "text/plain",
 ]);
 
 const upload = multer({
@@ -77,8 +76,8 @@ router.get("/:jobId", readRateLimiter, async (req, res, next) => {
           fileName:        ev.file_name,
           fileSize:        ev.file_size,
           mimeType:        ev.mime_type,
-          ipfsCid:         ev.ipfs_cid,
-          gatewayUrl:      ipfsService.getGatewayUrl(ev.ipfs_cid),
+          fileUrl:         ev.ipfs_cid,
+          gatewayUrl:      s3Service.getGatewayUrl(ev.ipfs_cid),
           createdAt:       ev.created_at,
         })),
       },
@@ -134,7 +133,7 @@ router.post(
 
       let ipfsResult;
       try {
-        ipfsResult = await ipfsService.uploadFile(
+        ipfsResult = await s3Service.uploadFile(
           req.file.buffer,
           req.file.originalname,
           req.file.mimetype
@@ -147,14 +146,14 @@ router.post(
         throw e;
       }
 
-      const ipfsCid = validateIpfsCid(ipfsResult?.cid);
+      const fileUrl = validateIpfsCid(ipfsResult?.cid);
 
       const { rows } = await pool.query(
         `INSERT INTO dispute_evidence
            (job_id, uploader_address, file_name, file_size, mime_type, ipfs_cid)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`,
-        [jobId, uploaderAddress, req.file.originalname, req.file.size, req.file.mimetype, ipfsCid]
+        [jobId, uploaderAddress, req.file.originalname, req.file.size, req.file.mimetype, fileUrl]
       );
 
       const ev = rows[0];
@@ -166,8 +165,8 @@ router.post(
           fileName:        ev.file_name,
           fileSize:        ev.file_size,
           mimeType:        ev.mime_type,
-          ipfsCid:         ev.ipfs_cid,
-          gatewayUrl:      ipfsService.getGatewayUrl(ev.ipfs_cid),
+          fileUrl:         ev.ipfs_cid,
+          gatewayUrl:      s3Service.getGatewayUrl(ev.ipfs_cid),
           createdAt:       ev.created_at,
         },
       });
