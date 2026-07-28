@@ -21,12 +21,22 @@ export default function FaucetButton({ publicKey, currentBalance, onBalanceUpdat
   const [faucetEnabled, setFaucetEnabled] = useState(false);
 
   useEffect(() => {
-    if (STELLAR_NETWORK !== "testnet") return;
+    if (STELLAR_NETWORK !== "testnet" || !publicKey) return;
     checkFaucetStatus();
+
     if (currentBalance !== undefined) {
       setNeedsFunding(parseFloat(currentBalance) === 0);
+      return;
     }
-  }, [currentBalance]);
+
+    // Caller didn't supply a balance (e.g. the global nav mount) — ask the
+    // backend directly so the button can still decide whether to show up.
+    checkAccountNeedsFunding(publicKey)
+      .then((status) => setNeedsFunding(status.needsFunding))
+      .catch((err) => {
+        console.error("Failed to check account funding status:", err);
+      });
+  }, [publicKey, currentBalance]);
 
   const checkFaucetStatus = async () => {
     try {
