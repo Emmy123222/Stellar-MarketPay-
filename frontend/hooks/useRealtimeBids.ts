@@ -112,12 +112,26 @@ export function useRealtimeBids({
     wsRef.current = ws;
     setWsStatus("connecting");
 
+    // React Strict Mode mounts, cleans up, then mounts again — the cleanup
+    // below closes `ws` and clears `wsRef.current`, but `WebSocket.close()`
+    // is asynchronous, so this socket's own `onclose` (and any in-flight
+    // `onmessage`) can still fire *after* the second mount has already
+    // created a brand-new socket and reassigned `wsRef.current` to it.
+    // Without this guard, the stale socket's `onclose` would null out the
+    // ref to the current, live socket and schedule a spurious reconnect —
+    // exactly the duplicate-connection bug this fixes. Every handler below
+    // checks it is still the connection `wsRef` currently points to before
+    // acting, so a superseded socket's late events are inert no-ops.
+    const isCurrent = () => wsRef.current === ws;
+
     ws.onopen = () => {
+      if (!isCurrent()) return;
       setWsStatus("open");
       clearPoll(); // WebSocket is up — stop polling
     };
 
     ws.onmessage = (event) => {
+      if (!isCurrent()) return;
       try {
         const { event: evtName, payload } = JSON.parse(event.data as string);
 
@@ -148,6 +162,7 @@ export function useRealtimeBids({
     };
 
     ws.onclose = () => {
+      if (!isCurrent()) return;
       wsRef.current = null;
       setWsStatus("closed");
       startPoll(); // start polling until we reconnect
@@ -157,6 +172,7 @@ export function useRealtimeBids({
     };
 
     ws.onerror = () => {
+      if (!isCurrent()) return;
       ws.close(); // triggers onclose → reconnect + poll
     };
   }, [jobId, clearPoll, startPoll, highlight, fadeRemove]);
@@ -172,9 +188,14 @@ export function useRealtimeBids({
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
+      // Clear the reconnect timer *before* closing the socket: closing
+      // triggers `onclose`, but that handler now checks `isCurrent()` and
+      // is a no-op for a ref that's about to be nulled below anyway — this
+      // ordering just avoids scheduling a reconnect that would immediately
+      // be orphaned by the unmount.
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       wsRef.current?.close();
       wsRef.current = null;
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       clearPoll();
     };
   }, [connect, clearPoll]);

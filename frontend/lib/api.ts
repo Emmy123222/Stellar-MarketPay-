@@ -2513,20 +2513,3 @@ export async function fetchDisputeOnchainCids(jobId: string): Promise<string[]> 
     return [];
   }
 }
-
-//  Dispute Evidence On-Chain Audit (Issue #448) 
-/**
- * Fetch the IPFS CIDs of dispute evidence anchored on-chain for a job.
- * Backed by GET /api/disputes/:jobId/onchain-cids. Returns an empty array
- * if the contract has no entries yet or the network is unreachable.
- */
-export async function fetchDisputeOnchainCids(jobId: string): Promise<string[]> {
-  try {
-    const { data } = await api.get<{ success: boolean; data: { cids: string[] } }>(
-      `/api/disputes/${encodeURIComponent(jobId)}/onchain-cids`,
-    );
-    return Array.isArray(data?.data?.cids) ? data.data.cids : [];
-  } catch {
-    return [];
-  }
-}

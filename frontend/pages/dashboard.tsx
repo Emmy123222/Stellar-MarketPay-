@@ -573,39 +573,70 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         )}
 
       {/* Tabs */}
-      <div className="flex border-b border-market-500/10 mb-6 overflow-x-auto">
-        {(
-          [
-            "posted",
-            "applied",
-            "invitations",
-            "analytics",
-            "earnings",
-            ...(canViewSpending ? (["spending"] as Tab[]) : []),
-            "send",
-            "edit_profile",
-            "templates",
-            "price_alerts",
-            "withdrawals",
-            "saved_searches",
-          ] as Tab[]
-        ).map((t) => (
-          <button key={t} onClick={() => setTab(t)} className={clsx("px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap", tab === t ? "border-market-400 text-market-300" : "border-transparent text-amber-700 hover:text-amber-400")}>
-            {t === "posted" ? `Jobs Posted (${myJobs.length})` :
-             t === "applied" ? `Applications (${myApplications.length})` :
-             t === "invitations" ? `Invitations${myInvitations.length > 0 ? ` (${myInvitations.length})` : ""}` :
-             t === "analytics" ? "Job Analytics" :
-             t === "earnings" ? "Earnings" :
-             t === "spending" ? "Spending" :
-             t === "send" ? "Send" :
-             t === "templates" ? "Templates" :
-             t === "price_alerts" ? "Price Alerts" :
-             t === "withdrawals" ? `Withdrawals (${withdrawHistory.length})` :
-             t === "saved_searches" ? `Saved Searches${savedSearches.length > 0 ? ` (${savedSearches.length})` : ""}` :
-             "Edit Profile"}
-          </button>
-        ))}
-      </div>
+      {(() => {
+        const tabIds: Tab[] = [
+          "posted",
+          "applied",
+          "invitations",
+          "analytics",
+          "earnings",
+          ...(canViewSpending ? (["spending"] as Tab[]) : []),
+          "send",
+          "edit_profile",
+          "templates",
+          "price_alerts",
+          "withdrawals",
+          "saved_searches",
+        ];
+        const tabLabel = (t: Tab): string =>
+          t === "posted" ? `Jobs Posted (${myJobs.length})` :
+          t === "applied" ? `Applications (${myApplications.length})` :
+          t === "invitations" ? `Invitations${myInvitations.length > 0 ? ` (${myInvitations.length})` : ""}` :
+          t === "analytics" ? "Job Analytics" :
+          t === "earnings" ? "Earnings" :
+          t === "spending" ? "Spending" :
+          t === "send" ? "Send" :
+          t === "templates" ? "Templates" :
+          t === "price_alerts" ? "Price Alerts" :
+          t === "withdrawals" ? `Withdrawals (${withdrawHistory.length})` :
+          t === "saved_searches" ? `Saved Searches${savedSearches.length > 0 ? ` (${savedSearches.length})` : ""}` :
+          "Edit Profile";
+
+        return (
+          <>
+            {/* Desktop/tablet: horizontal tab row — sm and up. */}
+            <div className="hidden sm:flex border-b border-market-500/10 mb-6 overflow-x-auto">
+              {tabIds.map((t) => (
+                <button key={t} onClick={() => setTab(t)} className={clsx("px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap", tab === t ? "border-market-400 text-market-300" : "border-transparent text-amber-700 hover:text-amber-400")}>
+                  {tabLabel(t)}
+                </button>
+              ))}
+            </div>
+
+            {/* Mobile: dropdown — Issue #859. A 13-item horizontal tab bar
+                overflows and truncates on narrow screens; a native select
+                is both compact and gets the OS's own accessible picker UI
+                for free. */}
+            <div className="sm:hidden mb-6">
+              <label htmlFor="dashboard-tab-select" className="sr-only">
+                Dashboard section
+              </label>
+              <select
+                id="dashboard-tab-select"
+                value={tab}
+                onChange={(e) => setTab(e.target.value as Tab)}
+                className="w-full px-4 py-3 rounded-xl bg-ink-900/60 border border-market-500/20 text-sm font-medium text-amber-100"
+              >
+                {tabIds.map((t) => (
+                  <option key={t} value={t}>
+                    {tabLabel(t)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        );
+      })()}
 
         {loading ? (
           <div className="space-y-6 animate-pulse">

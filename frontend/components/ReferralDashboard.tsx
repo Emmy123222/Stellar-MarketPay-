@@ -300,25 +300,37 @@ export default function ReferralDashboard({
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs text-amber-700 border-b border-market-500/10">
-                      <th className="pb-2 pr-4 font-medium">Referee</th>
-                      <th className="pb-2 pr-4 font-medium">Job</th>
-                      <th className="pb-2 pr-4 font-medium text-right">
-                        Bonus
-                      </th>
-                      <th className="pb-2 font-medium">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-market-500/8">
-                    {stats.payouts.map((payout) => (
-                      <PayoutRow key={payout.id} payout={payout} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <>
+                {/* Table view — sm and up. Issue #859: card view below takes
+                    over on narrow screens instead of forcing horizontal
+                    scroll on a 4-column table. */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-amber-700 border-b border-market-500/10">
+                        <th className="pb-2 pr-4 font-medium">Referee</th>
+                        <th className="pb-2 pr-4 font-medium">Job</th>
+                        <th className="pb-2 pr-4 font-medium text-right">
+                          Bonus
+                        </th>
+                        <th className="pb-2 font-medium">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-market-500/8">
+                      {stats.payouts.map((payout) => (
+                        <PayoutRow key={payout.id} payout={payout} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Card view — below sm. */}
+                <div className="sm:hidden space-y-2">
+                  {stats.payouts.map((payout) => (
+                    <PayoutCard key={payout.id} payout={payout} />
+                  ))}
+                </div>
+              </>
             ))}
         </div>
       ) : (
@@ -394,6 +406,33 @@ function RefereeRow({ referee }: { referee: ReferralReferee }) {
         )}
         <StatusBadge status={referee.status} />
       </div>
+    </div>
+  );
+}
+
+function PayoutCard({ payout }: { payout: ReferralPayout }) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-ink-900/40 border border-market-500/10">
+      <div className="min-w-0">
+        <p className="text-sm text-amber-100 truncate">{payout.jobTitle}</p>
+        <p className="text-xs text-amber-700 font-mono">
+          {shortenAddress(payout.refereeAddress)}
+        </p>
+        <p className="text-xs text-amber-800 mt-0.5">
+          {new Date(payout.createdAt).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+        </p>
+      </div>
+      <span className="text-sm font-mono font-semibold text-emerald-400 flex-shrink-0">
+        +
+        {parseFloat(payout.amountXlm).toLocaleString("en-US", {
+          maximumFractionDigits: 4,
+        })}{" "}
+        XLM
+      </span>
     </div>
   );
 }
