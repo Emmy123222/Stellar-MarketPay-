@@ -314,6 +314,17 @@ router.get(
   },
 );
 
+// GET /api/jobs/:id/timeline — get job timeline events (Issue #876)
+router.get("/:id/timeline", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { getJobTimeline } = require("../services/jobService");
+    const timeline = await getJobTimeline(req.params.id);
+    res.json({ success: true, data: timeline });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // GET /api/jobs/:id — get single job
 router.get("/:id", generalJobRateLimiter, async (req, res, next) => {
   try {
@@ -455,8 +466,8 @@ router.patch(
   generalJobRateLimiter,
   async (req, res, next) => {
     try {
-      const { escrowContractId } = req.body;
-      const job = await updateJobEscrowId(req.params.id, escrowContractId);
+      const { escrowContractId, txHash } = req.body;
+      const job = await updateJobEscrowId(req.params.id, escrowContractId, txHash || null);
       await logContractInteraction({
         functionName: "create_escrow",
         callerAddress: req.user.publicKey,

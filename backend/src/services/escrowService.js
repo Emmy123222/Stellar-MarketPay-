@@ -1,7 +1,7 @@
 "use strict";
 
 const pool = require("../db/pool");
-const { getJob } = require("./jobService");
+const { getJob, recordTimelineEvent } = require("./jobService");
 const { logContractInteraction } = require("./contractAuditService");
 const {
   notifyEscrowEvent,
@@ -168,6 +168,13 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
     jobId,
     txHash: contractTxHash || `offchain-${Date.now()}`,
   });
+
+  // Record timeline event with on-chain tx hash (Issue #876)
+  try {
+    await recordTimelineEvent(jobId, "escrow_released", contractTxHash || null);
+  } catch (err) {
+    console.error("[timeline] Failed to record escrow_released event:", err.message);
+  }
 
   await notifyEscrowEvent({
     eventType: EVENT_TYPES.ESCROW_RELEASED,
