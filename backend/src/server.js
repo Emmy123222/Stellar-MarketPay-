@@ -57,6 +57,7 @@ const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
 
 const pool            = require("./db/pool");
+const { connectWithRetry } = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
@@ -555,6 +556,7 @@ wsServer.on("connection", async (ws, request) => {
 
 async function bootstrap() {
   try {
+  await connectWithRetry();
   await migrate();
   await cleanupExpiredScopeSessions();
   await indexerService.start();
