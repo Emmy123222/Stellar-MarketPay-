@@ -31,6 +31,8 @@ use soroban_sdk::{
     String, Symbol, Vec,
 };
 
+pub mod errors;
+
 // ─── Storage keys ─────────────────────────────────────────────────────────────
 
 /// Default timeout: 7 days in seconds.

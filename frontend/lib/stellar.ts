@@ -13,6 +13,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { SorobanRpc } from "@stellar/stellar-sdk";
 import { fetchGasEstimateSafe, tierToTransactionFee } from "./sorobanFees";
+import { parseContractError } from "./contractErrors";
 
 const NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as
   | "testnet"
@@ -202,7 +203,7 @@ export async function buildCreateEscrowTx(
   const simResponse = await sorobanServer.simulateTransaction(tx);
 
   if (SorobanRpc.Api.isSimulationError(simResponse)) {
-    throw new Error(`Soroban simulation failed: ${simResponse.error}`);
+    throw new Error(`Soroban simulation failed: ${parseContractError(simResponse.error)}`);
   }
 
   const assembledTx = SorobanRpc.assembleTransaction(tx, simResponse).build();
@@ -346,7 +347,7 @@ export async function buildPublishMessageTx(
   const simResponse = await sorobanServer.simulateTransaction(tx);
 
   if (SorobanRpc.Api.isSimulationError(simResponse)) {
-    throw new Error(`Soroban simulation failed: ${simResponse.error}`);
+    throw new Error(`Soroban simulation failed: ${parseContractError(simResponse.error)}`);
   }
 
   const assembledTx = SorobanRpc.assembleTransaction(tx, simResponse).build();
@@ -456,7 +457,12 @@ export async function buildBoostJobTx({
     .setTimeout(300)
     .build();
 
-  return tx.toXDR();
+  const simResponse = await sorobanServer.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(simResponse)) {
+    throw new Error(`Soroban simulation failed: ${parseContractError(simResponse.error)}`);
+  }
+
+  return SorobanRpc.assembleTransaction(tx, simResponse).build().toXDR();
 }
 
 // ---------------------------------------------------------------------------
@@ -541,7 +547,7 @@ export async function buildReleaseEscrowTransaction(
 
   const sim = await sorobanServer.simulateTransaction(tx);
   if (SorobanRpc.Api.isSimulationError(sim)) {
-    throw new Error(`Simulation failed: ${sim.error}`);
+    throw new Error(`Simulation failed: ${parseContractError(sim.error)}`);
   }
   return SorobanRpc.assembleTransaction(tx, sim).build();
 }
