@@ -3,7 +3,10 @@
  * Stellar testnet faucet button component
  */
 import { useState, useEffect } from "react";
-import { fundTestnetWallet, checkAccountNeedsFunding, getFaucetStatus } from "@/lib/api";
+import { fundTestnetWallet, checkAccountNeedsFunding, getFaucetStatus, getApiErrorMessage } from "@/lib/api";
+import { useToast } from "@/components/Toast";
+
+const STELLAR_NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as "testnet" | "mainnet";
 
 interface Props {
   publicKey: string;
@@ -12,13 +15,13 @@ interface Props {
 }
 
 export default function FaucetButton({ publicKey, currentBalance, onBalanceUpdate }: Props) {
+  const toast = useToast();
   const [needsFunding, setNeedsFunding] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [successMsg, setSuccessMsg] = useState("");
-  const [errorMsg, setErrorMsg] = useState("");
   const [faucetEnabled, setFaucetEnabled] = useState(false);
 
   useEffect(() => {
+    if (STELLAR_NETWORK !== "testnet") return;
     checkFaucetStatus();
     if (currentBalance !== undefined) {
       setNeedsFunding(parseFloat(currentBalance) === 0);
@@ -39,35 +42,30 @@ export default function FaucetButton({ publicKey, currentBalance, onBalanceUpdat
     if (!publicKey) return;
 
     setLoading(true);
-    setErrorMsg("");
-    setSuccessMsg("");
 
     try {
       const result = await fundTestnetWallet(publicKey);
-      
+
       if (result.success) {
-        setSuccessMsg(`Successfully funded with ${result.fundedAmount} XLM!`);
+        toast.success("10,000 XLM added to your testnet wallet");
         setNeedsFunding(false);
-        
+
         // Update parent component with new balance
         if (onBalanceUpdate && result.newBalance) {
           onBalanceUpdate(result.newBalance);
         }
-
-        // Clear success message after 5 seconds
-        setTimeout(() => setSuccessMsg(""), 5000);
       } else {
-        setErrorMsg(result.message);
+        toast.error(result.message);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Faucet funding error:", err);
-      setErrorMsg(err.response?.data?.error || "Failed to fund wallet");
+      toast.error(getApiErrorMessage(err, "Failed to fund wallet"));
     } finally {
       setLoading(false);
     }
   };
 
-  if (!faucetEnabled || !needsFunding) {
+  if (STELLAR_NETWORK !== "testnet" || !faucetEnabled || !needsFunding) {
     return null;
   }
 
@@ -84,21 +82,10 @@ export default function FaucetButton({ publicKey, currentBalance, onBalanceUpdat
           </div>
         </div>
 
-        {successMsg && (
-          <div className="mb-3 p-2 bg-emerald-500/20 border border-emerald-500/30 rounded-lg text-emerald-400 text-xs">
-            ✅ {successMsg}
-          </div>
-        )}
-
-        {errorMsg && (
-          <div className="mb-3 p-2 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-xs">
-            ❌ {errorMsg}
-          </div>
-        )}
-
         <button
           onClick={handleFundWallet}
           disabled={loading}
+          aria-label="Fund testnet wallet with XLM"
           className="w-full btn-primary text-sm bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
