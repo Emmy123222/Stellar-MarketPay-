@@ -3,7 +3,7 @@ import { api } from "./client";
 export interface SavedSearch {
   id: string;
   user_address: string;
-  query_params: Record<string, string>;
+  query_params: Record<string, any>;
   notify_in_app: boolean;
   notify_email: boolean;
   last_notified_at: string | null;
@@ -19,7 +19,7 @@ export async function fetchSavedSearches(): Promise<SavedSearch[]> {
 }
 
 export async function createSavedSearch(payload: {
-  query_params: Record<string, string>;
+  query_params: Record<string, any>;
   notify_in_app?: boolean;
   notify_email?: boolean;
 }): Promise<SavedSearch> {
