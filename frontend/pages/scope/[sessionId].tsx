@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/router";
 import dynamic from "next/dynamic";
+import { renewScopeSession } from "@/lib/api/scope";
 
 // This page is already code-split by Next.js as a dynamic route
 // The collaborative editor is loaded on-demand when users navigate to /scope/[sessionId]
@@ -272,20 +273,10 @@ export default function ScopeSessionPage() {
 
   const renewSession = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-      const response = await fetch(`${apiUrl}/api/scope/${sessionId}/renew`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setExpiresAt(data.expiresAt);
-        setShowExpiryWarning(false);
-        setError("");
-      } else {
-        setError("Failed to renew session");
-      }
+      const data = await renewScopeSession(sessionId);
+      setExpiresAt(data.expiresAt);
+      setShowExpiryWarning(false);
+      setError("");
     } catch {
       setError("Failed to renew session");
     }
