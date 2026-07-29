@@ -6,43 +6,44 @@ This guide provides a complete, step-by-step walkthrough for building, deploying
 
 ---
 
+## Deployed Contract (Testnet)
+
+| Field | Value |
+|-------|-------|
+| **Contract ID** | `CBFJNX67NYYRZPLH4YYT77ZUULRJ5NI2LPEYRRLFHBTEACZOZUUYLOGG` |
+| **Network** | Testnet (`Test SDF Network ; September 2015`) |
+| **Admin / Treasury** | `GAUC7VCPFCQQBMHMOH3NPRUSOT2RBXLJNV433JMAXUPFYKU2MCO7CHL4` (alias: `streampay-deployer`) |
+| **XLM SAC (testnet)** | `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` |
+| **Initialized** | Yes — `initialize(admin, treasury)` called |
+| **Version** | 1 |
+| **Platform fee** | 100 bps (1%) |
+
+### Test transactions
+
+| Function | Tx Hash | Explorer |
+|----------|---------|----------|
+| Initialization | `51b84452…` | [View](https://stellar.expert/explorer/testnet/tx/51b84452dc148912ec2fecf317c5ac9b3a274c69c98734e6836c1023cad30f08) |
+| `create_escrow` | `f262cd2c…` | [View](https://stellar.expert/explorer/testnet/tx/f262cd2c7b501e52cf79535dada3a846013fdf74569ae7fc31bc5845394768dd) |
+| `start_work` → `release_escrow` | `d4cd6eb6…` | [View](https://stellar.expert/explorer/testnet/tx/d4cd6eb65775916f9a38aafa256d915836973fc6d298c854fdd93ba9b372e123) |
+| `refund_escrow` | `a0faf221…` | [View](https://stellar.expert/explorer/testnet/tx/a0faf221f15a1a0ca3f7f5c0bfcfebe90d7cc64bc7b359b475b7f40777805940) |
+
+---
+
 ## Prerequisites
 
-| Tool | Version | Installation |
-|------|---------|-------------|
-| Rust + Cargo | >= 1.74 | [rustup.rs](https://rustup.rs) |
-| Stellar CLI | Latest | `cargo install --locked stellar-cli` |
-| WASM target | -- | `rustup target add wasm32-unknown-unknown` |
-| Stellar account | Funded | Testnet via [Friendbot](https://friendbot.stellar.org); mainnet via exchange |
-| Node.js | >= 18.x | [nodejs.org](https://nodejs.org) or `nvm` |
+| Tool | Notes |
+|------|--------|
+| Rust ≥ 1.74 | `rustup` with `wasm32v1-none` target |
+| Soroban CLI | [Stellar CLI](https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup) (`stellar` command) |
+| Stellar account | Funded account on the target network (testnet via Friendbot) |
+| Node.js ≥ 18 | For backend env updates after deploy |
 
 ### Quick environment check
 
 Run the following to confirm everything is ready:
 
 ```bash
-rustc --version          # Must be >= 1.74
-cargo --version          # Must be >= 1.74
-stellar --version        # Stellar CLI
-rustup target list --installed | grep wasm32-unknown-unknown   # WASM target
-node --version           # Must be >= 18
-npm --version
-```
-
-### Install missing tools
-
-```bash
-# Install Rust (if not present)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Add WASM target
-rustup target add wasm32-unknown-unknown
-
-# Install Stellar CLI
-cargo install --locked stellar-cli
-
-# Verify all tools
-rustc --version && stellar --version && node --version
+rustup target add wasm32v1-none
 ```
 
 ---
@@ -55,7 +56,7 @@ From the repository root:
 
 ```bash
 cd contracts/marketpay-contract
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 ```
 
 The WASM artifact is written to:
@@ -63,26 +64,7 @@ The WASM artifact is written to:
 contracts/marketpay-contract/target/wasm32-unknown-unknown/release/marketpay_contract.wasm
 ```
 
-### Option B: Using the Makefile
-
-The project includes a `Makefile` with convenient targets:
-
-```bash
-cd contracts/marketpay-contract
-
-# Standard release build
-make build
-
-# Optimized build (requires wasm-opt)
-# Reduces WASM binary size by ~40% with -Oz optimizations
-make build-optimized
-```
-
-**Optimized vs. standard:** The standard build already uses `opt-level="z"`, LTO, and single codegen unit. The `build-optimized` target additionally runs `wasm-opt -Oz` post-processing (install via `cargo install wasm-opt` or `brew install binaryen`).
-
-Both produce a `.wasm` file at the same path. Use the optimized version for production deployments.
-
----
+`target/wasm32v1-none/release/marketpay_contract.wasm`
 
 ## 2. Configure your deploy identity
 
@@ -91,15 +73,13 @@ Create or import a deployer key (example alias `marketpay-deployer`):
 ```bash
 # Generate a new keypair
 stellar keys generate marketpay-deployer
-
-# View the public key
-stellar keys show marketpay-deployer
+stellar keys address marketpay-deployer
 ```
 
 Fund the public key on testnet:
 
 ```bash
-curl "https://friendbot.stellar.org?addr=$(stellar keys show marketpay-deployer)"
+curl "https://friendbot.stellar.org?addr=$(stellar keys address marketpay-deployer)"
 ```
 
 Verify the balance:
@@ -133,7 +113,7 @@ The script will:
 
 ```bash
 stellar contract deploy \
-  --wasm contracts/marketpay-contract/target/wasm32-unknown-unknown/release/marketpay_contract.wasm \
+  --wasm target/wasm32v1-none/release/marketpay_contract.wasm \
   --source marketpay-deployer \
   --network testnet
 ```
@@ -181,24 +161,20 @@ echo "✓ Contract deployed and configured in .env files"
 
 ## 4. Initialize the contract
 
-After deployment, the contract needs to be initialized with an admin address. This should be run **exactly once**. The admin is typically the deployer key or a multisig operations account.
+Set the admin and treasury addresses (typically the same deployer or a multisig operations account):
 
 ```bash
 stellar contract invoke \
   --id <CONTRACT_ID> \
   --source marketpay-deployer \
   --network testnet \
-  -- initialize \
-  --admin <ADMIN_G_ADDRESS>
+  -- \
+  initialize \
+  --admin <ADMIN_G_ADDRESS> \
+  --treasury_address <TREASURY_G_ADDRESS>
 ```
 
-Replace:
-- `<CONTRACT_ID>` with the value from Step 3
-- `<ADMIN_G_ADDRESS>` with the deployer's G... address (from `stellar keys show marketpay-deployer`)
-
-> **⚠️ Important:** Initialization is a one-time operation. Re-initializing will fail with `AlreadyInitialized` error. If you need to redeploy, use a fresh contract.
-
----
+Replace `<CONTRACT_ID>`, `<ADMIN_G_ADDRESS>`, and `<TREASURY_G_ADDRESS>` with your values.
 
 ## 5. Update application configuration
 
@@ -213,7 +189,7 @@ cp backend/.env.example backend/.env
 Edit `backend/.env` and set the contract ID:
 
 ```env
-CONTRACT_ID=CN4X7ICX66HT3OPNFGF5FGI34H3H777HCOXISROTSN7QD6TY7B4SAUSF   # Replace with actual deployed ID
+CONTRACT_ID=CBFJNX67NYYRZPLH4YYT77ZUULRJ5NI2LPEYRRLFHBTEACZOZUUYLOGG
 STELLAR_NETWORK=testnet
 HORIZON_URL=https://horizon-testnet.stellar.org
 ```
@@ -229,7 +205,7 @@ grep -q "CONTRACT_ID=C" backend/.env && echo "✓ Backend CONTRACT_ID is set" ||
 Create or edit `frontend/.env.local`:
 
 ```env
-NEXT_PUBLIC_CONTRACT_ID=CN4X7ICX66HT3OPNFGF5FGI34H3H777HCOXISROTSN7QD6TY7B4SAUSF   # Replace with actual deployed ID
+NEXT_PUBLIC_CONTRACT_ID=CBFJNX67NYYRZPLH4YYT77ZUULRJ5NI2LPEYRRLFHBTEACZOZUUYLOGG
 NEXT_PUBLIC_STELLAR_NETWORK=testnet
 NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
 NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
@@ -263,16 +239,28 @@ cd frontend && npm run dev &
 
 ```bash
 stellar contract invoke \
-  --id <CONTRACT_ID> \
+  --id CBFJNX67NYYRZPLH4YYT77ZUULRJ5NI2LPEYRRLFHBTEACZOZUUYLOGG \
   --source marketpay-deployer \
   --network testnet \
-  -- get_version
+  -- \
+  get_version
 ```
 
-Expected output (example):
+Create a test escrow from the UI (post a job) or invoke `create_escrow` via the CLI:
+
+```bash
+stellar contract invoke \
+  --id CBFJNX67NYYRZPLH4YYT77ZUULRJ5NI2LPEYRRLFHBTEACZOZUUYLOGG \
+  --source marketpay-deployer \
+  --network testnet \
+  -- \
+  create_escrow \
+  --job_id 'my-test-job' \
+  --client <CLIENT_ADDRESS> \
+  --params '{"freelancer":"<FREELANCER_ADDRESS>","token":"CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC","amount":"10000000","milestones":null,"timeout_ledgers":null,"referrer":null}'
 ```
-"0.1.0"
-```
+
+> **Note:** The `amount` field in `--params` JSON must be a **string** (not a number) for the CLI parser.
 
 ### Test escrow creation
 
@@ -430,27 +418,9 @@ echo "Smoke test complete!"
 
 ## Troubleshooting
 
-### `error: target wasm32-unknown-unknown not installed`
+### `error: target wasm32v1-none not installed`
 
-```bash
-rustup target add wasm32-unknown-unknown
-```
-
-Then rebuild.
-
-### `stellar: command not found`
-
-The Stellar CLI binary is installed to `~/.cargo/bin/`. Make sure this directory is in your PATH:
-
-```bash
-export PATH="$HOME/.cargo/bin:$PATH"
-echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
-```
-
-Or re-source the Cargo env:
-```bash
-source "$HOME/.cargo/env"
-```
+Run `rustup target add wasm32v1-none` and rebuild.
 
 ### `Insufficient balance` on deploy
 
