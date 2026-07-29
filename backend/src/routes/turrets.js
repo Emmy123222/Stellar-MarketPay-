@@ -6,15 +6,50 @@
 const express = require("express");
 const router = express.Router();
 const { createRateLimiter } = require("../middleware/rateLimiter");
-const { 
+const {
   submitTransaction,
+  signTransaction,
   getTurretStatus,
   estimateTurretFee,
-  shouldUseTurret
+  shouldUseTurret,
 } = require("../services/turretsService");
 
 // Rate limiting: 10 requests per minute for transaction submissions
 const turretRateLimiter = createRateLimiter(10, 60);
+
+/**
+ * POST /api/turrets/sign
+ * Sign a transaction XDR using the Turret signing key.
+ * Only authorized escrow transactions are signed.
+ */
+router.post("/sign", turretRateLimiter, async (req, res, next) => {
+  try {
+    const { transactionXDR, escrowId } = req.body;
+
+    if (!transactionXDR) {
+      return res.status(400).json({
+        success: false,
+        error: "Transaction XDR is required",
+      });
+    }
+
+    if (!escrowId) {
+      return res.status(400).json({
+        success: false,
+        error: "Escrow ID is required for authorization",
+      });
+    }
+
+    const result = await signTransaction(transactionXDR, escrowId);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
 
 /**
  * POST /api/turrets/submit
