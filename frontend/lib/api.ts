@@ -450,8 +450,8 @@ export async function fetchJobs(params?: {
 
   return {
     jobs: data.data,
-    nextCursor: data.next_cursor ?? null,
-    hasMore: data.has_more ?? Boolean(data.next_cursor),
+    nextCursor: data.nextCursor ?? data.next_cursor ?? null,
+    hasMore: data.has_more ?? Boolean(data.nextCursor ?? data.next_cursor),
   };
 }
 

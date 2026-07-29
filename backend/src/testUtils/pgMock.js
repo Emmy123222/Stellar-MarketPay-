@@ -158,12 +158,12 @@ function createPgMock() {
         budget: params[2],
         currency: params[3],
         category: params[4],
-        client_address: params[5],
-        deadline: params[6],
-        timezone: params[7],
-        screening_questions: params[8],
-        milestones: typeof params[9] === "string" ? JSON.parse(params[9]) : params[9],
-        visibility: params[10],
+        client_address: params[6],
+        deadline: params[7],
+        timezone: params[8],
+        screening_questions: params[9],
+        milestones: typeof params[10] === "string" ? JSON.parse(params[10]) : params[10],
+        visibility: params[11],
       });
       jobs.set(row.id, row);
       return { rows: [row] };
@@ -293,15 +293,47 @@ function createPgMock() {
 
     if (text.includes("FROM jobs") && text.includes("ORDER BY") && !text.includes("WHERE id = $1") && !text.includes("WHERE client_address = $1")) {
       let rows = [...jobs.values()].filter((job) => job.visibility === "public");
-      if (text.includes("status = $1")) {
-        rows = rows.filter((job) => job.status === params[0]);
+
+      // Apply cursor-based filtering if present in the SQL
+      if (text.includes("created_at < $")) {
+        // Cursor params are the two params before limit:
+        // params[params.length-3] = decoded.createdAt
+        // params[params.length-2] = decoded.id
+        // params[params.length-1] = limit
+        const cursorCreatedAt = params[params.length - 3];
+        const cursorId = params[params.length - 2];
+        if (cursorCreatedAt && cursorId) {
+          rows = rows.filter((job) => {
+            if (job.created_at < cursorCreatedAt) return true;
+            if (job.created_at === cursorCreatedAt && job.id < cursorId) return true;
+            return false;
+          });
+        }
       }
+
+      // Apply status filter (dynamic param index due to variable conditions)
+      const statusMatch = text.match(/status = \$(\d+)/);
+      if (statusMatch) {
+        const statusIdx = parseInt(statusMatch[1], 10) - 1;
+        if (params[statusIdx] !== undefined) {
+          rows = rows.filter((job) => job.status === params[statusIdx]);
+        }
+      }
+
       if (text.includes("category = $")) {
         const categoryIndex = text.indexOf("category = $2") >= 0 ? 1 : 0;
         const category = params[categoryIndex];
         if (category) rows = rows.filter((job) => job.category === category);
       }
       const limit = params[params.length - 1] ?? 50;
+      // Sort by created_at DESC, id DESC to match real SQL ORDER BY
+      rows.sort((a, b) => {
+        if (a.created_at > b.created_at) return -1;
+        if (a.created_at < b.created_at) return 1;
+        if (a.id > b.id) return -1;
+        if (a.id < b.id) return 1;
+        return 0;
+      });
       return { rows: rows.slice(0, limit) };
     }
 
@@ -349,7 +381,7 @@ function createPgMock() {
     connect.mockClear();
   }
 
-  return { query, connect, jobs, applications, invitations, reset, end: jest.fn() };
+  return { query, connect, jobs, applications, invitations, reset, end: jest.fn(), readPool: { query }, writePool: { query, connect } };
 }
 
 module.exports = { createPgMock, defaultJobRow, defaultApplicationRow };

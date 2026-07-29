@@ -511,7 +511,7 @@ function decodeCursor(cursor) {
 async function listJobs({
   category,
   status = "open",
-  limit = 50,
+  limit = 20,
   search,
   cursor,
   // eslint-disable-next-line no-unused-vars
