@@ -3,6 +3,7 @@
  * User dashboard — shows posted jobs, applications, and wallet balance.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
@@ -126,6 +127,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [extendModalJob, setExtendModalJob] = useState<Job | null>(null);
+  const [confirmDeleteTemplate, setConfirmDeleteTemplate] = useState<string | null>(null);
+  const [confirmDeleteSearch, setConfirmDeleteSearch] = useState<string | null>(null);
 
   const handleJobExtended = useCallback((updated: Job) => {
     setMyJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
@@ -775,12 +778,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                       </button>
                       <button
                         className="btn-secondary text-xs px-3 py-1.5"
-                        onClick={async () => {
-                          await deleteProposalTemplate(template.id);
-                          setTemplates((current) =>
-                            current.filter((item) => item.id !== template.id),
-                          );
-                        }}
+                        onClick={() => setConfirmDeleteTemplate(template.id)}
                       >
                         Delete
                       </button>
@@ -792,6 +790,23 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                 </div>
               )))}
           </div>
+
+          <ConfirmDialog
+            open={confirmDeleteTemplate !== null}
+            title="Delete Proposal Template"
+            description="This will permanently remove this template. You cannot undo this action."
+            actionDetails={confirmDeleteTemplate ? `Template ID: ${confirmDeleteTemplate}` : undefined}
+            onConfirm={async () => {
+              if (!confirmDeleteTemplate) return;
+              await deleteProposalTemplate(confirmDeleteTemplate);
+              setTemplates((current) =>
+                current.filter((item) => item.id !== confirmDeleteTemplate),
+              );
+              setConfirmDeleteTemplate(null);
+              toast.success("Template deleted");
+            }}
+            onCancel={() => setConfirmDeleteTemplate(null)}
+          />
         ) : tab === "invitations" ? (
           <InvitationsTab
             myInvitations={myInvitations}
@@ -947,15 +962,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                       In-app
                     </button>
                     <button
-                      onClick={async () => {
-                        try {
-                          await deleteSavedSearch(s.id);
-                          setSavedSearches((prev) => prev.filter((x) => x.id !== s.id));
-                          success("Saved search removed");
-                        } catch {
-                          // ignore
-                        }
-                      }}
+                      onClick={() => setConfirmDeleteSearch(s.id)}
                       className="text-xs px-3 py-2 rounded-lg border border-red-500/20 text-red-400 hover:bg-red-500/10 min-h-[44px] transition-colors"
                     >
                       Remove
@@ -965,6 +972,24 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
               ))}
             </div>
           )
+
+          <ConfirmDialog
+            open={confirmDeleteSearch !== null}
+            title="Remove Saved Search"
+            description="This will remove this saved search filter. You will no longer receive notifications for it."
+            onConfirm={async () => {
+              if (!confirmDeleteSearch) return;
+              try {
+                await deleteSavedSearch(confirmDeleteSearch);
+                setSavedSearches((prev) => prev.filter((x) => x.id !== confirmDeleteSearch));
+                setConfirmDeleteSearch(null);
+                toast.success("Saved search removed");
+              } catch {
+                // ignore
+              }
+            }}
+            onCancel={() => setConfirmDeleteSearch(null)}
+          />
         ) : tab === "referrals" ? (
           <ReferralDashboard publicKey={publicKey} />
         ) : (
