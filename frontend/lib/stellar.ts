@@ -414,36 +414,24 @@ export async function buildBoostJobTx({
   amountXlm: number;
   treasuryAddress: string;
 }): Promise<string> {
-  const [account, gasEstimate] = await Promise.all([
-    sorobanServer.getAccount(clientPublicKey),
-    fetchGasEstimateSafe(),
-  ]);
-
-  const inclusionFee = tierToTransactionFee(gasEstimate.fast);
-  const amountStroops = BigInt(Math.round(amountXlm * 10_000_000));
-
-  const contract = new Contract(CONTRACT_ID);
-  const callArgs = [
-    nativeToScVal(jobId, { type: "string" }),
-    Address.fromString(clientPublicKey).toScVal(),
-    Address.fromString(treasuryAddress).toScVal(),
-    nativeToScVal(amountStroops, { type: "i128" }),
-  ];
+  const account = await server.loadAccount(clientPublicKey);
 
   const tx = new TransactionBuilder(account, {
-    fee: inclusionFee,
+    fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
-    .addOperation(contract.call("boost_job", ...callArgs))
+    .addOperation(
+      Operation.payment({
+        destination: treasuryAddress,
+        asset: Asset.native(),
+        amount: amountXlm.toString(),
+      })
+    )
+    .addMemo(Memo.text(jobId.slice(0, 28)))
     .setTimeout(300)
     .build();
 
-  const simResponse = await sorobanServer.simulateTransaction(tx);
-  if (SorobanRpc.Api.isSimulationError(simResponse)) {
-    throw new Error(`Soroban simulation failed: ${simResponse.error}`);
-  }
-
-  return SorobanRpc.assembleTransaction(tx, simResponse).build().toXDR();
+  return tx.toXDR();
 }
 
 // ---------------------------------------------------------------------------
