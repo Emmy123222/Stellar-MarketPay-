@@ -24,6 +24,11 @@ export interface PortfolioItem {
   title: string;
   url: string;
   type: PortfolioItemType;
+  // ─── Fill-in metadata written by the link-verification worker ────────
+  verified?: boolean | null;
+  verificationError?: string | null;
+  verifiedAt?: string | null;
+  lastCheckedAt?: string | null;
 }
 
 export interface Availability {
