@@ -110,7 +110,6 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
   const { xlmPriceUsd, currencyMode, priceLoading } = usePriceContext();
   const { isSaved, toggleBookmark } = useBookmarks();
   const saved = isSaved(job.id);
-  const usdEquivalent = formatUSDEquivalent(job.budget, xlmPriceUsd);
   const price = formatPrice(job.budget, xlmPriceUsd, currencyMode);
   const clientRepBadge = getClientReputationBadge(job.clientReputationScore);
 
@@ -236,20 +235,15 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
 
         {/* Footer */}
         <div className="flex items-center justify-between pt-3 border-t border-[rgba(251,191,36,0.07)] relative">
-          <div className="group/tooltip relative">
+          <div>
             <p className="text-xs text-amber-800 mb-0.5">Budget</p>
-            <p className="font-mono font-semibold text-market-400 text-sm cursor-help">
+            <p className="font-mono font-semibold text-market-400 text-sm">
               {price.display}
             </p>
             {currencyMode === "XLM" && price.usdEquiv && (
-              <div className="absolute bottom-full left-0 mb-2 hidden group-hover/tooltip:block z-20">
-                <div className="bg-ink-800 border border-market-500/30 text-amber-100 text-[10px] py-1.5 px-2.5 rounded shadow-xl whitespace-nowrap backdrop-blur-md">
-                  <p className="font-semibold text-market-300">
-                    {price.usdEquiv}
-                  </p>
-                </div>
-                <div className="w-2 h-2 bg-ink-800 border-r border-b border-market-500/30 rotate-45 -mt-1 ml-3" />
-              </div>
+              <p className="text-[10px] text-amber-700 mt-0.5">
+                ≈ {price.usdEquiv} USD
+              </p>
             )}
             {priceLoading && (
               <span className="inline-block ml-1 w-3 h-3 border border-market-400/40 border-t-transparent rounded-full animate-spin align-middle" />
