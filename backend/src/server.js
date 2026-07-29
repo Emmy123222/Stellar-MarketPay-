@@ -27,6 +27,7 @@ const { createCorsOptions } = require("./config/cors");
 const { doubleCsrfProtection } = require("./middleware/csrf");
 const { structuredErrorHandler } = require("./utils/errors");
 const { jsonDepthLimitMiddleware } = require("./middleware/jsonbValidator");
+const { createRequestSizeLimitMiddleware } = require("./middleware/requestSizeLimit");
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -56,6 +57,7 @@ const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
+const webhookRoutes = require("./routes/webhooks");
 
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
@@ -68,6 +70,7 @@ const serviceLogger = createServiceLogger('server');
 const app  = express();
 app.set("trust proxy", 1);
 const PORT = process.env.PORT || 4000;
+const REQUEST_BODY_LIMIT = "100kb";
 const server = http.createServer(app);
 const WS_OPEN = 1;
 const STELLAR_NETWORK = requireChoice("STELLAR_NETWORK", ["testnet", "mainnet"], {
@@ -319,7 +322,9 @@ app.use(compressionMiddleware());
 
 // Body parser MUST run BEFORE requestLoggerMiddleware so the bracketing
 // "Request started" log line can capture the request body (sanitized).
-app.use(express.json({ limit: "20kb" }));
+app.use(createRequestSizeLimitMiddleware(REQUEST_BODY_LIMIT));
+app.use(express.json({ limit: REQUEST_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: REQUEST_BODY_LIMIT }));
 app.use(sanitizeMiddleware({ strict: false }));
 app.use(idempotencyMiddleware());
 
@@ -420,6 +425,7 @@ app.use("/api/gas-estimate",   gasEstimatorRoutes);
 app.use("/api/transactions",   transactionRoutes);
 app.use("/api/dao",            daoRoutes);
 app.use("/api/proposal-templates", proposalTemplateRoutes);
+app.use("/api/webhooks",       webhookRoutes);
 
 app.use((err, req, res, next) => {
   logError(req.logger || serviceLogger, err, {
