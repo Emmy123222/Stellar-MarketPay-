@@ -1,10 +1,16 @@
 /**
- * Service worker for offline support (Issue #292)
+ * Service worker for offline support (Issue #292) + PWA enhancements (Issue #496).
+ * - Workbox precache manifest injected by next-pwa during production build (WB_MANIFEST)
  * - Cache-first for static assets / _next bundles
+ * - Stale-while-revalidate for last-viewed job detail pages
  * - Network-first for API calls (falls back to cache, returns offline JSON if nothing cached)
  * - Network-first for pages (falls back to cache, then /offline for navigation requests)
  * - Background sync for queued form submissions
  */
+
+// Workbox precache manifest injected by next-pwa during production build.
+// Falls back to empty array in development or when next-pwa is disabled.
+const WB_MANIFEST = self.__WB_MANIFEST || [];
 
 const CACHE_VERSION = "v2";
 const CACHE_NAME = `stellar-marketpay-${CACHE_VERSION}`;
@@ -13,7 +19,7 @@ const API_CACHE = `stellar-api-${CACHE_VERSION}`;
 const SYNC_QUEUE_KEY = "stellar-sync-queue";
 
 // Shell pages to pre-cache on install
-const PRECACHE_URLS = ["/", "/offline", "/jobs"];
+const PRECACHE_URLS = ["/", "/offline", "/jobs", "/status"];
 
 // ── Install ──────────────────────────────────────────────────────────────────
 self.addEventListener("install", (event) => {
@@ -21,8 +27,12 @@ self.addEventListener("install", (event) => {
     caches
       .open(CACHE_NAME)
       .then((cache) =>
-        // addAll fails atomically; use individual adds so one 404 doesn't abort
-        Promise.allSettled(PRECACHE_URLS.map((url) => cache.add(url)))
+        Promise.allSettled([
+          // addAll fails atomically; use individual adds so one 404 doesn't abort
+          ...PRECACHE_URLS.map((url) => cache.add(url)),
+          // Workbox-injected Next.js static assets (injected at build time)
+          ...WB_MANIFEST.map((entry) => cache.add(entry.url)),
+        ])
       )
       .then(() => self.skipWaiting())
   );
@@ -66,6 +76,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // 2.5. Job detail pages → stale-while-revalidate (Issue #496)
+  if (event.request.mode === "navigate" && /^\/jobs\/[^/]+\/?$/.test(url.pathname)) {
+    event.respondWith(staleWhileRevalidate(event.request, CACHE_NAME));
+    return;
+  }
+
   // 3. Navigation (HTML pages) → network-first, fall back to cache, then /offline
   if (event.request.mode === "navigate") {
     event.respondWith(networkFirstPage(event.request));
@@ -101,7 +117,65 @@ self.addEventListener("message", (event) => {
   }
 });
 
+// ── Push Notifications ───────────────────────────────────────────────────────
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+
+  try {
+    const data = event.data.json();
+    const { title, body, icon, badge, tag, data: notifData } = data;
+
+    event.waitUntil(
+      self.registration.showNotification(title, {
+        body,
+        icon: icon || "/icon-192x192.png",
+        badge: badge || "/icon-96x96.png",
+        tag: tag || "notification",
+        data: notifData || {},
+        requireInteraction: false,
+      })
+    );
+  } catch (error) {
+    console.error("[push] Error handling push event:", error);
+  }
+});
+
+// ── Notification Click ───────────────────────────────────────────────────────
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  const { linkPath } = event.notification.data || {};
+  const targetUrl = linkPath || "/";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window" }).then((clients) => {
+      // Look for an existing window/tab with the target URL
+      for (let i = 0; i < clients.length; i++) {
+        if (clients[i].url === targetUrl) {
+          return clients[i].focus();
+        }
+      }
+
+      // If not found, open a new window
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+    })
+  );
+});
+
 // ── Caching strategies ────────────────────────────────────────────────────────
+
+/** Stale-while-revalidate: serve cached response immediately, then update cache in background. */
+async function staleWhileRevalidate(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+  const networkFetch = fetch(request).then((response) => {
+    if (response.ok) cache.put(request, response.clone());
+    return response;
+  }).catch(() => null);
+  return cached || networkFetch;
+}
 
 /** Cache-first: serve from cache, fetch & update cache on miss. */
 async function cacheFirst(request, cacheName) {
