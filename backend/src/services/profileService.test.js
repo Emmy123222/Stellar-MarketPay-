@@ -24,6 +24,9 @@ describe("profileService", () => {
 
   describe("upsertProfile", () => {
     it("accepts valid portfolioItems", async () => {
+      // First call: lookup of existing items to preserve verification metadata.
+      pool.query.mockResolvedValueOnce({ rows: [{ portfolio_items: [] }] });
+      // Second call: upsert returning the persisted profile row.
       pool.query.mockResolvedValueOnce({
         rows: [
           {
@@ -69,14 +72,108 @@ describe("profileService", () => {
         status: "available",
         availableFrom: "2026-05-01T00:00:00.000Z",
       });
-      expect(pool.query).toHaveBeenCalledTimes(1);
-      expect(JSON.parse(pool.query.mock.calls[0][1][4])).toEqual(
+      expect(pool.query).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(pool.query.mock.calls[1][1][4])).toEqual(
         [
           { title: "Repo", url: "https://github.com/example/repo", type: "github" },
           { title: "Launch", url: "https://example.com", type: "live" },
           { title: "Escrow release", url: "abc123tx", type: "stellar_tx" },
         ]
       );
+    });
+
+    it("preserves existing verification metadata when url and type match", async () => {
+      // First call: lookup of existing items including verification metadata.
+      pool.query.mockResolvedValueOnce({
+        rows: [{
+          portfolio_items: [
+            {
+              title: "Repo",
+              url: "https://github.com/example/repo",
+              type: "github",
+              verified: true,
+              verifiedAt: "2026-04-01T00:00:00.000Z",
+              lastCheckedAt: "2026-04-01T00:00:00.000Z",
+            },
+          ],
+        }],
+      });
+      // Second call: upsert returning the persisted profile row.
+      pool.query.mockResolvedValueOnce({
+        rows: [{
+          public_key: publicKey,
+          display_name: "Jane Doe",
+          bio: null,
+          skills: [],
+          portfolio_items: [
+            {
+              title: "Repo (renamed)",
+              url: "https://github.com/example/repo",
+              type: "github",
+              verified: true,
+              verifiedAt: "2026-04-01T00:00:00.000Z",
+              lastCheckedAt: "2026-04-01T00:00:00.000Z",
+            },
+          ],
+          availability: null,
+          role: "freelancer",
+          completed_jobs: 0,
+          total_earned_xlm: "0.0000000",
+          rating: null,
+          created_at: "2026-04-23T00:00:00.000Z",
+          updated_at: "2026-04-23T00:00:00.000Z",
+        }],
+      });
+
+      const profile = await upsertProfile({
+        publicKey,
+        portfolioItems: [
+          {
+            title: "Repo (renamed)",
+            url: "https://github.com/example/repo",
+            type: "github",
+            // User-supplied `verified: true` must NOT be trusted.
+            verified: true,
+          },
+        ],
+      });
+
+      expect(profile.portfolioItems).toHaveLength(1);
+      expect(profile.portfolioItems[0]).toMatchObject({
+        title: "Repo (renamed)",
+        verified: true,
+        verifiedAt: "2026-04-01T00:00:00.000Z",
+      });
+      const persisted = JSON.parse(pool.query.mock.calls[1][1][4]);
+      expect(persisted[0]).toMatchObject({
+        title: "Repo (renamed)",
+        verified: true,
+        verifiedAt: "2026-04-01T00:00:00.000Z",
+      });
+    });
+
+    it("does not run a SELECT when no portfolioItems were provided", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [{
+          public_key: publicKey,
+          display_name: "Jane Doe",
+          bio: "Updated bio",
+          skills: [],
+          portfolio_items: [],
+          availability: null,
+          role: "freelancer",
+          completed_jobs: 0,
+          total_earned_xlm: "0.0000000",
+          rating: null,
+          created_at: "2026-04-23T00:00:00.000Z",
+          updated_at: "2026-04-23T00:00:00.000Z",
+        }],
+      });
+
+      await upsertProfile({ publicKey, bio: "Updated bio" });
+
+      // Only the upsert call ran (no SELECT pre-pass).
+      expect(pool.query).toHaveBeenCalledTimes(1);
     });
 
     it("rejects invalid portfolio item type", async () => {

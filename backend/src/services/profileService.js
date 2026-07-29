@@ -7,6 +7,7 @@
 
 const pool = require("../db/pool");
 const { validatePortfolioFiles } = require("./ipfsService");
+const { mergeVerificationMetadata } = require("./linkVerificationService");
 const encryptionService = require("./encryptionService");
 
 const VALID_PROFILE_ROLES = ["client", "freelancer", "both"];
@@ -363,17 +364,37 @@ async function getProfile(publicKey) {
 async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, portfolioFiles, availability, role, email, emailNotificationsEnabled, webhookUrl, webhookSecret, phone, kycData, encryptionPublicKey }) {
   validatePublicKey(publicKey);
 
+  // Run synchronous validation first so callers sending malformed
+  // payloads never trigger any DB round-trips (preserves pre-existing
+  // `expect(pool.query).not.toHaveBeenCalled()` semantics for the
+  // rejects-* tests).
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 15) : null;
-  const safePortfolioItems = validatePortfolioItems(portfolioItems);
+  const validatedPortfolio = validatePortfolioItems(portfolioItems);
   const safePortfolioFiles = validatePortfolioFiles(portfolioFiles);
   const safeAvailability = availability === undefined ? null : validateAvailability(availability);
   const safeRole = validateProfileRole(role);
 
-  const encryptedEmail = encryptionService.encrypt(email?.trim());
-  const emailHash = encryptionService.hashEmail(email);
-  const encryptedWebhookSecret = encryptionService.encrypt(webhookSecret?.trim());
-  const encryptedPhone = encryptionService.encrypt(phone?.trim());
-  const encryptedKycData = encryptionService.encrypt(kycData?.trim());
+  // Fetch existing portfolio items only after validation succeeds.
+  // We merge prior link-verification metadata forward so a user re-
+  // saving a profile without changing a portfolio URL keeps the
+  // green-check badge; items whose URL/type has changed start
+  // unverified and the background worker fills the new state.
+  let existingPortfolioItems = [];
+  if (Array.isArray(portfolioItems)) {
+    const { rows: priorRows } = await pool.query(
+      "SELECT portfolio_items FROM profiles WHERE public_key = $1",
+      [publicKey]
+    );
+    existingPortfolioItems = Array.isArray(priorRows[0]?.portfolio_items)
+      ? priorRows[0].portfolio_items
+      : [];
+  }
+
+  const safePortfolioItems = mergeVerificationMetadata(
+    validatedPortfolio,
+    existingPortfolioItems
+  );
+  const encKey = encryptionService.getEncryptionKey();
 
   const { rows } = await pool.query(
     `

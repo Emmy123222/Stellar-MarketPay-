@@ -8,6 +8,7 @@ import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
 import FreelancerProfileSkeleton from "@/components/FreelancerProfileSkeleton";
+import PortfolioVerificationBadge from "@/components/PortfolioVerificationBadge";
 import {
   fetchPublicProfile,
   fetchProfileStats,
@@ -68,6 +69,40 @@ function getPortfolioTypeLabel(item: PortfolioItem) {
     default:
       return "Portfolio";
   }
+}
+
+function getVerificationBadge(item: PortfolioItem): { tone: "verified" | "failed" | "pending"; label: string } | null {
+  // Only verifiable link types surface a badge.
+  if (item.type !== "github" && item.type !== "live") return null;
+
+  if (item.verified === true) {
+    return {
+      tone: "verified",
+      label: item.verifiedAt
+        ? `Verified ${new Date(item.verifiedAt).toLocaleDateString()}`
+        : "Verified",
+    };
+  }
+  if (item.verified === false && item.lastCheckedAt) {
+    return {
+      tone: "failed",
+      label: item.verificationError
+        ? `Could not verify (${truncateError(item.verificationError)})`
+        : "Could not verify",
+    };
+  }
+  if (item.verified === undefined || item.verified === null) {
+    // No check has run yet — surface a subtle "Pending verification" hint
+    // so users know a background check is queued.
+    return { tone: "pending", label: "Pending verification" };
+  }
+  return null;
+}
+
+function truncateError(err: string): string {
+  const trimmed = err.trim();
+  if (trimmed.length <= 24) return trimmed;
+  return `${trimmed.slice(0, 22)}\u2026`;
 }
 
 
@@ -616,27 +651,33 @@ export default function PublicFreelancerProfilePage({
               {state.profile.portfolioItems &&
               state.profile.portfolioItems.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {state.profile.portfolioItems.map((item, index) => (
-                    <a
-                      key={`${item.type}-${item.url}-${index}`}
-                      href={getPortfolioHref(item)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-xl border border-market-500/15 bg-ink-900/50 p-4 hover:border-market-400/40 hover:bg-ink-900/70 transition-colors"
-                    >
-                      <p className="text-xs uppercase tracking-[0.18em] text-market-300/80 mb-2">
-                        {getPortfolioTypeLabel(item)}
-                      </p>
-                      <h3 className="text-amber-100 font-medium text-base break-words mb-2">
-                        {item.title}
-                      </h3>
-                      <p className="text-sm text-amber-700/90 break-all">
-                        {item.type === "stellar_tx"
-                          ? item.url
-                          : getPortfolioHref(item)}
-                      </p>
-                    </a>
-                  ))}
+                  {state.profile.portfolioItems.map((item, index) => {
+                    const badge = getVerificationBadge(item);
+                    return (
+                      <a
+                        key={`${item.type}-${item.url}-${index}`}
+                        href={getPortfolioHref(item)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group relative rounded-xl border border-market-500/15 bg-ink-900/50 p-4 hover:border-market-400/40 hover:bg-ink-900/70 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <p className="text-xs uppercase tracking-[0.18em] text-market-300/80">
+                            {getPortfolioTypeLabel(item)}
+                          </p>
+                          {badge && <PortfolioVerificationBadge badge={badge} />}
+                        </div>
+                        <h3 className="text-amber-100 font-medium text-base break-words mb-2">
+                          {item.title}
+                        </h3>
+                        <p className="text-sm text-amber-700/90 break-all">
+                          {item.type === "stellar_tx"
+                            ? item.url
+                            : getPortfolioHref(item)}
+                        </p>
+                      </a>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="text-amber-900/80 text-sm italic">
