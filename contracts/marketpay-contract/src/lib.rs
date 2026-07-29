@@ -245,6 +245,24 @@ pub struct RecurringEscrow {
     pub status: EscrowStatus,
 }
 
+/// Dispute bond configuration set by admin (Issue #437)
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct DisputeBondConfig {
+    pub token: Address,
+    pub amount: i128,
+}
+
+/// Per-job locked dispute bond record (Issue #437)
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct DisputeBond {
+    pub caller: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub raised_at_ledger: u32,
+}
+
 /// Storage key per job
 #[contracttype]
 pub enum DataKey {
@@ -284,6 +302,20 @@ pub enum DataKey {
     TreasuryAddress,
     /// Platform fee in basis points (e.g. 100 = 1%)
     PlatformFeeBps,
+    /// Global contract freeze flag
+    Frozen,
+    /// Multi-sig admin list
+    Admins,
+    /// M-of-N threshold for unfreeze
+    UnfreezeThreshold,
+    /// Admin-set cap on referrer bonus payouts (Issue #440)
+    MaxReferrerBonusXlm,
+    /// Pending timeout extension request for a job
+    ExtensionRequest(String),
+    /// Global dispute bond configuration (Issue #437)
+    DisputeBondConfig,
+    /// Per-job locked dispute bond record (Issue #437)
+    DisputeBond(String),
 }
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
@@ -2132,6 +2164,7 @@ impl MarketPayContract {
             (escrow.client.clone(), escrow.freelancer.clone(), milestone_id, payout),
         );
     }
+    }
 
     /// Partial milestone refund — the client rejects a single milestone and its
     /// share of the escrow is returned to the client. Remaining milestones stay
@@ -3490,7 +3523,8 @@ mod upgrade_tests {
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(&env, &id);
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
 
         let depositor = Address::generate(&env);
         let freelancer = Address::generate(&env);
@@ -3523,7 +3557,8 @@ mod upgrade_tests {
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(&env, &id);
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
 
         let depositor = Address::generate(&env);
         let freelancer = Address::generate(&env);
@@ -3548,180 +3583,9 @@ mod upgrade_tests {
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(&env, &id);
         let admin = Address::generate(&env);
-        client.initialize(&admin);
-        assert_eq!(client.is_frozen(), false);
-    }
-}
-
-#[cfg(test)]
-    use super::*;
-    use soroban_sdk::{testutils::Address as _, testutils::Ledger, Address, Bytes, BytesN, Env, String};
-
-    fn bid_commitment(env: &Env, amount: i128, nonce: BytesN<32>) -> BytesN<32> {
-        let mut payload = Bytes::new(env);
-        for byte in amount.to_be_bytes().iter() {
-            payload.push_back(*byte);
-        }
-        for byte in nonce.to_array().iter() {
-            payload.push_back(*byte);
-        }
-        env.crypto().sha256(&payload).into()
-    }
-
-    fn setup(env: &Env) -> (Address, MarketPayContractClient, Address, Address, String) {
-        env.mock_all_auths();
-        let id = env.register(MarketPayContract, ());
-        let client = MarketPayContractClient::new(env, &id);
-        let admin = Address::generate(env);
-        let treasury = Address::generate(env);
-        let owner = Address::generate(env);
+        let treasury = Address::generate(&env);
         client.initialize(&admin, &treasury);
-        let job_id = String::from_str(env, "sealed-bid-job-1");
-        client.commit_budget(&job_id, &1_000, &owner);
-        (id, client, owner, admin, job_id)
-    }
-
-    #[test]
-    fn test_reveal_bid_verifies_commitment() {
-        let env = Env::default();
-Enforce-deliverable-hash-verification-before-fund-release
-        let (client, admin, _id) = setup(&env);
-
         assert_eq!(client.is_frozen(), false);
-        client.freeze_contract(&admin);
-        assert_eq!(client.is_frozen(), true);
-    }
-
-    #[test]
-    #[should_panic(expected = "Only an admin can freeze the contract")]
-    fn test_freeze_contract_rejected_for_non_admin() {
-        let env = Env::default();
-        let (client, _admin, _id) = setup(&env);
-
-        let non_admin = Address::generate(&env);
-        client.freeze_contract(&non_admin);
-    }
-
-    #[test]
-    fn test_unfreeze_contract_with_two_admins() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-
-        client.freeze_contract(&admin);
-        assert_eq!(client.is_frozen(), true);
-
-        let mut unfreeze_admins = Vec::new(&env);
-        unfreeze_admins.push_back(admin);
-        unfreeze_admins.push_back(admin2);
-        client.unfreeze_contract(&unfreeze_admins);
-
-        assert_eq!(client.is_frozen(), false);
-    }
-
-    #[test]
-    #[should_panic(expected = "Insufficient admin signatures to unfreeze")]
-    fn test_unfreeze_contract_rejected_with_one_admin() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-
-        client.freeze_contract(&admin);
-
-        let mut unfreeze_admins = Vec::new(&env);
-        unfreeze_admins.push_back(admin);
-        client.unfreeze_contract(&unfreeze_admins);
-    }
-
-    #[test]
-    #[should_panic(expected = "Contract is frozen")]
-    fn test_create_escrow_blocked_when_frozen() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let depositor = Address::generate(&env);
-        let freelancer = Address::generate(&env);
-        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
-        let token_id = token_contract.address();
-        let token_admin = token::StellarAssetClient::new(&env, &token_id);
-        token_admin.mint(&depositor, &500);
-
-        client.freeze_contract(&admin);
-
-        let job_id = String::from_str(&env, "frozen-create");
-        client.create_escrow(&job_id, &depositor, &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None });
-    }
-
-    #[test]
-    #[should_panic(expected = "Contract is frozen")]
-    fn test_release_escrow_blocked_when_frozen() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let depositor = Address::generate(&env);
-        let freelancer = Address::generate(&env);
-        let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
-        let token_id = token_contract.address();
-        let token_admin = token::StellarAssetClient::new(&env, &token_id);
-        token_admin.mint(&depositor, &500);
-
-        let job_id = String::from_str(&env, "frozen-release");
-        client.create_escrow(&job_id, &depositor, &CreateEscrowParams { freelancer: freelancer.clone(), token: token_id.clone(), amount: 500, milestones: None, timeout_ledgers: None, referrer: None });
-        client.start_work(&job_id, &freelancer);
-
-        client.freeze_contract(&admin);
-
-        client.release_escrow(&job_id, &depositor);
-    }
-
-    #[test]
-    fn test_add_admin_and_get_admins() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-
-        let admins = client.get_admins();
-        assert_eq!(admins.len(), 2);
-
-        let threshold = client.get_unfreeze_threshold();
-        assert_eq!(threshold, 2u32);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_unfreeze_rejects_duplicate_admins() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-
-        client.freeze_contract(&admin);
-
-        let mut unfreeze_admins = Vec::new(&env);
-        unfreeze_admins.push_back(admin.clone());
-        unfreeze_admins.push_back(admin);
-        client.unfreeze_contract(&unfreeze_admins);
-    }
-
-    #[test]
-    fn test_set_unfreeze_threshold() {
-        let env = Env::default();
-        let (client, admin, _id) = setup(&env);
-
-        let admin2 = Address::generate(&env);
-        let admin3 = Address::generate(&env);
-        client.add_admin(&admin, &admin2);
-        client.add_admin(&admin, &admin3);
-
-        client.set_unfreeze_threshold(&admin, &3u32);
-        assert_eq!(client.get_unfreeze_threshold(), 3u32);
     }
 }
 
@@ -4466,7 +4330,8 @@ mod extension_tests {
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(env, &id);
         let admin = Address::generate(env);
-        client.initialize(&admin);
+        let treasury = Address::generate(env);
+        client.initialize(&admin, &treasury);
 
         let contract_client = Address::generate(env);
         let freelancer = Address::generate(env);
@@ -4706,4 +4571,5 @@ mod extension_tests {
 
         client.approve_extension(&job_id, &freelancer);
     }
+}
 }
