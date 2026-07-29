@@ -624,6 +624,35 @@ export async function scoreProposals(jobId: string) {
   return data.data;
 }
 
+export interface JobDescriptionScore {
+  score: number;
+  scoreBreakdown?: {
+    clarity?: number;
+    completeness?: number;
+    budgetReasonableness?: number;
+    skillSpecificity?: number;
+  };
+  suggestions?: string[];
+  missingInformation?: string[];
+  strengths?: string[];
+}
+
+/**
+ * Scores a job description using AI (Claude API).
+ * Returns a score (0-100) and suggestions for improvement.
+ * The score is optional — job submission is not blocked on this.
+ *
+ * @param description The job description text to score.
+ * @returns Score and suggestions.
+ */
+export async function scoreJobDescription(description: string): Promise<JobDescriptionScore> {
+  const { data } = await api.post<{
+    success: boolean;
+    data: JobDescriptionScore;
+  }>("/api/ai/score-job", { description });
+  return data.data;
+}
+
 /**
  * Get analytics for a job (applications per day, avg bid, skill distribution, time to hire).
  *
