@@ -6,9 +6,9 @@ This Soroban smart contract manages trustless escrow between clients and freelan
 
 | Function | Who calls it | Description |
 |----------|-------------|-------------|
-| `initialize(admin)` | Deployer | One-time setup, sets version to 1, stores admin list |
+| `initialize(admin, treasury_address)` | Deployer | One-time setup, sets version to 1, stores admin list, treasury, platform fee |
 | `create_escrow(job_id, client, freelancer, token, amount)` | Client | Lock funds in contract |
-| `start_work(job_id, client)` | Client | Mark work as started |
+| `start_work(job_id, freelancer)` | Freelancer | Mark work as started |
 | `release_escrow(job_id, client)` | Client | Release funds to freelancer |
 | `refund_escrow(job_id, client)` | Client | Refund before work starts |
 | `timeout_refund(job_id, client)` | Client | Refund after the timestamp-based timeout expires |
