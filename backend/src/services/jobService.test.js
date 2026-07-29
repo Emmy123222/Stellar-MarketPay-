@@ -10,6 +10,7 @@ const {
   listJobs,
   listJobsByClient,
   updateJobStatus,
+  deleteJob,
 } = require("./jobService");
 
 describe("jobService", () => {
@@ -158,7 +159,7 @@ describe("jobService", () => {
     });
 
     it("returns has_more false on last page", async () => {
-      const { jobs, hasMore } = await listJobs({ limit: 100 });
+      const { hasMore } = await listJobs({ limit: 100 });
       expect(hasMore).toBe(false);
     });
   });
@@ -207,6 +208,165 @@ describe("jobService", () => {
       await expect(updateJobStatus(job.id, "invalid_status")).rejects.toThrow(
         "Invalid status",
       );
+    });
+  });
+
+  describe("soft delete", () => {
+    it("soft-deletes a job via deleteJob", async () => {
+      const job = await createJob({
+        title: "Job to soft delete",
+        description:
+          "This job will be soft-deleted during this test.",
+        budget: "100",
+        category: "Frontend Development",
+        clientAddress: validClientAddress,
+        currency: "XLM",
+      });
+
+      await deleteJob(job.id);
+
+      const stored = pool.jobs.get(job.id);
+      expect(stored.deleted_at).not.toBeNull();
+    });
+
+    it("throws 404 when deleting a non-existent job", async () => {
+      await expect(deleteJob("nonexistent-id")).rejects.toThrow("Job not found");
+      try {
+        await deleteJob("nonexistent-id");
+      } catch (err) {
+        expect(err.status).toBe(404);
+      }
+    });
+
+    it("throws 404 when deleting an already soft-deleted job", async () => {
+      const job = await createJob({
+        title: "Already deleted job",
+        description:
+          "This job will be soft-deleted twice.",
+        budget: "100",
+        category: "Frontend Development",
+        clientAddress: validClientAddress,
+        currency: "XLM",
+      });
+
+      await deleteJob(job.id);
+      await expect(deleteJob(job.id)).rejects.toThrow("Job not found");
+    });
+
+    it("excludes soft-deleted jobs from getJob", async () => {
+      const job = await createJob({
+        title: "Job to hide after delete",
+        description:
+          "This job should be invisible after soft delete.",
+        budget: "100",
+        category: "Frontend Development",
+        clientAddress: validClientAddress,
+        currency: "XLM",
+      });
+
+      await deleteJob(job.id);
+      await expect(getJob(job.id)).rejects.toThrow("Job not found");
+    });
+
+    it("includes soft-deleted jobs when includeDeleted is true", async () => {
+      const job = await createJob({
+        title: "Visible with includeDeleted",
+        description:
+          "This job should be visible with includeDeleted flag.",
+        budget: "100",
+        category: "Frontend Development",
+        clientAddress: validClientAddress,
+        currency: "XLM",
+      });
+
+      await deleteJob(job.id);
+      const found = await getJob(job.id, { includeDeleted: true });
+      expect(found.id).toBe(job.id);
+      expect(found.deletedAt).not.toBeNull();
+    });
+
+    it("excludes soft-deleted jobs from listJobs", async () => {
+      const job = await createJob({
+        title: "Hidden from listJobs after delete",
+        description:
+          "This job should not appear in listJobs after soft delete.",
+        budget: "100",
+        category: "Frontend Development",
+        clientAddress: validClientAddress,
+        currency: "XLM",
+      });
+
+      const { jobs: before } = await listJobs({ status: "all", limit: 100 });
+      expect(before.some((j) => j.id === job.id)).toBe(true);
+
+      await deleteJob(job.id);
+
+      const { jobs: after } = await listJobs({ status: "all", limit: 100 });
+      expect(after.some((j) => j.id === job.id)).toBe(false);
+    });
+
+    it("includes soft-deleted jobs in listJobs with includeDeleted", async () => {
+      const job = await createJob({
+        title: "Visible in listJobs with includeDeleted",
+        description:
+          "This job should appear with includeDeleted flag.",
+        budget: "100",
+        category: "Frontend Development",
+        clientAddress: validClientAddress,
+        currency: "XLM",
+      });
+
+      await deleteJob(job.id);
+
+      const { jobs } = await listJobs({
+        status: "all",
+        limit: 100,
+        includeDeleted: true,
+      });
+      expect(jobs.some((j) => j.id === job.id)).toBe(true);
+      const deleted = jobs.find((j) => j.id === job.id);
+      expect(deleted.deletedAt).not.toBeNull();
+    });
+
+    it("excludes soft-deleted jobs from listJobsByClient", async () => {
+      const job = await createJob({
+        title: "Hidden from client list after delete",
+        description:
+          "This job should be hidden from client listings after soft delete.",
+        budget: "100",
+        category: "Frontend Development",
+        clientAddress: validClientAddress,
+        currency: "XLM",
+      });
+
+      const before = await listJobsByClient(validClientAddress);
+      expect(before.some((j) => j.id === job.id)).toBe(true);
+
+      await deleteJob(job.id);
+
+      const after = await listJobsByClient(validClientAddress);
+      expect(after.some((j) => j.id === job.id)).toBe(false);
+    });
+
+    it("includes soft-deleted jobs in listJobsByClient with includeDeleted", async () => {
+      const job = await createJob({
+        title: "Visible in client list with includeDeleted",
+        description:
+          "This job should be visible with includeDeleted flag.",
+        budget: "100",
+        category: "Frontend Development",
+        clientAddress: validClientAddress,
+        currency: "XLM",
+      });
+
+      await deleteJob(job.id);
+
+      const jobs = await listJobsByClient(validClientAddress, {
+        includeDeleted: true,
+      });
+      expect(jobs.some((j) => j.id === job.id)).toBe(true);
+      const deleted = jobs.find((j) => j.id === job.id);
+      expect(deleted.deletedAt).not.toBeNull();
     });
   });
 });

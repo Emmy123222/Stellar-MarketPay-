@@ -27,6 +27,7 @@ function defaultJobRow(overrides = {}) {
     visibility: overrides.visibility || "public",
     created_at: overrides.created_at || new Date().toISOString(),
     updated_at: overrides.updated_at || new Date().toISOString(),
+    deleted_at: overrides.deleted_at || null,
   };
 }
 
@@ -171,13 +172,18 @@ function createPgMock() {
 
     if (text.includes("FROM jobs WHERE id = $1")) {
       const row = jobs.get(params[0]);
-      return { rows: row ? [row] : [] };
+      if (!row) return { rows: [] };
+      if (text.includes("AND deleted_at IS NULL") && row.deleted_at) return { rows: [] };
+      return { rows: [row] };
     }
 
     if (text.includes("FROM jobs WHERE client_address = $1")) {
-      const rows = [...jobs.values()].filter(
+      let rows = [...jobs.values()].filter(
         (job) => job.client_address === params[0],
       );
+      if (text.includes("AND deleted_at IS NULL")) {
+        rows = rows.filter((job) => !job.deleted_at);
+      }
       return { rows };
     }
 
@@ -193,6 +199,14 @@ function createPgMock() {
 
     if (text.startsWith("INSERT INTO escrows")) {
       return { rows: [] };
+    }
+    if (text.startsWith("UPDATE jobs SET deleted_at")) {
+      const row = jobs.get(params[0]);
+      if (!row || row.deleted_at) return { rows: [], rowCount: 0 };
+      row.deleted_at = new Date().toISOString();
+      row.updated_at = new Date().toISOString();
+      jobs.set(row.id, row);
+      return { rows: [row], rowCount: 1 };
     }
     if (text.startsWith("UPDATE jobs SET status")) {
       const row = jobs.get(params[1]);
@@ -293,6 +307,9 @@ function createPgMock() {
 
     if (text.includes("FROM jobs") && text.includes("ORDER BY") && !text.includes("WHERE id = $1") && !text.includes("WHERE client_address = $1")) {
       let rows = [...jobs.values()].filter((job) => job.visibility === "public");
+      if (text.includes("deleted_at IS NULL")) {
+        rows = rows.filter((job) => !job.deleted_at);
+      }
       if (text.includes("status = $1")) {
         rows = rows.filter((job) => job.status === params[0]);
       }

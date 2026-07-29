@@ -7,7 +7,7 @@ const {
   rollbackLastMigration,
 } = require("./migrate");
 
-describe("Database Migrations (V1–V11)", () => {
+describe("Database Migrations (V1–V22)", () => {
   let hasPostgres = false;
 
   beforeAll(async () => {
@@ -31,9 +31,8 @@ describe("Database Migrations (V1–V11)", () => {
   it("loads all migration pairs correctly", () => {
     const migrations = loadMigrationPairs();
     expect(migrations.length).toBeGreaterThan(0);
-    // Ensure V1 to V11 are present
     expect(migrations[0].version).toBe(1);
-    expect(migrations[migrations.length - 1].version).toBe(11);
+    expect(migrations[migrations.length - 1].version).toBeGreaterThanOrEqual(22);
   });
 
   it("applies migrations sequentially and validates schema, foreign keys, and unique indexes after each", async () => {
