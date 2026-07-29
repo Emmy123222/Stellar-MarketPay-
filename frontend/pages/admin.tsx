@@ -23,6 +23,7 @@ import {
 } from "@/lib/api";
 import { shortenAddress, timeAgo } from "@/utils/format";
 import dynamic from "next/dynamic";
+import toast from "react-hot-toast";
 import Admin2FAModal from "@/components/Admin2FAModal";
 
 // Dynamic import for heavy AdminAnalytics component
@@ -625,7 +626,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                   <button
                     onClick={async () => {
                       await generateCostReport();
-                      alert("Cost report generation triggered. Check audit log.");
+                      toast.success("Cost report generation triggered. Check audit log.");
                     }}
                     className="btn-ghost text-sm py-2 px-5"
                   >

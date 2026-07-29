@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import Head from "next/head";
 import Script from "next/script";
 import { useRouter } from "next/router";
+import toast, { Toaster } from "react-hot-toast";
 import Navbar from "@/components/Navbar";
 import MobileTabBar from "@/components/MobileTabBar";
 import FaucetButton from "@/components/FaucetButton";
@@ -223,10 +224,10 @@ function App({ Component, pageProps }: AppProps) {
         persistPublicKey(pk);
         await maybeRegisterReferral(pk);
       } else {
-        alert("Wallet connected, but authentication failed.");
+        toast.error("Wallet connected, but authentication failed.", { duration: Infinity });
       }
     } else if (error) {
-      alert(error);
+      toast.error(error, { duration: Infinity });
     }
   };
 
@@ -283,6 +284,14 @@ function App({ Component, pageProps }: AppProps) {
                 isOpen={shortcutsModalOpen}
                 onClose={() => setShortcutsModalOpen(false)}
                 showJobDetailShortcuts={isJobDetailPage}
+              />
+              <Toaster 
+                toastOptions={{
+                  duration: 4000,
+                  error: {
+                    duration: Infinity,
+                  },
+                }}
               />
             </div>
           </PriceProvider>

@@ -6,6 +6,7 @@ import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
+import toast from "react-hot-toast";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
 import FreelancerProfileSkeleton from "@/components/FreelancerProfileSkeleton";
 import {
@@ -115,7 +116,7 @@ export default function PublicFreelancerProfilePage({
       setEndorsements(refreshed);
     } catch (error: unknown) {
       console.error("Endorsement error:", error);
-      alert(error instanceof Error ? error.message : "Failed to endorse skill");
+      toast.error(error instanceof Error ? error.message : "Failed to endorse skill", { duration: Infinity });
     } finally {
       setEndorsingSkill(null);
     }
