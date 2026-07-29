@@ -432,6 +432,10 @@ export default function PostJobForm({
     setJobId(null);
     setCurrentStep(1);
     setCompletedSteps(new Set());
+    setDraftId(null);
+    setSaveStatus("idle");
+    setSuggestions([]);
+    setShowSuggestions(false);
     setForm({
       title: "",
       description: "",
