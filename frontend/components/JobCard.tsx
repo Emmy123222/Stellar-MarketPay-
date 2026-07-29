@@ -110,8 +110,8 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
   const { xlmPriceUsd, currencyMode, priceLoading } = usePriceContext();
   const { isSaved, toggleBookmark } = useBookmarks();
   const saved = isSaved(job.id);
-  const usdEquivalent = formatUSDEquivalent(job.budget, xlmPriceUsd);
-  const price = formatPrice(job.budget, xlmPriceUsd, currencyMode);
+  const usdEquivalent = formatUSDEquivalent(job.budget, xlmPriceUsd, job.currency);
+  const price = formatPrice(job.budget, xlmPriceUsd, currencyMode, job.currency);
   const clientRepBadge = getClientReputationBadge(job.clientReputationScore);
 
   // ── ISSUE #78: Hover Card State & Logic ──────────────────────────────────────────

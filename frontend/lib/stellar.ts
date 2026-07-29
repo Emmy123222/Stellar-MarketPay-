@@ -403,6 +403,23 @@ export async function getXLMBalance(publicKey: string): Promise<string> {
   }
 }
 
+export async function getUSDCBalance(publicKey: string): Promise<string> {
+  try {
+    const res = await fetch(
+      `${HORIZON_URL}/accounts/${encodeURIComponent(publicKey)}`
+    );
+    if (!res.ok) return "0";
+    const data = await res.json();
+    const usdc = (data.balances ?? []).find(
+      (b: { asset_code?: string; asset_issuer?: string; balance: string }) => 
+        b.asset_code === "USDC" && b.asset_issuer === USDC_ISSUER
+    );
+    return usdc?.balance ?? "0";
+  } catch {
+    return "0";
+  }
+}
+
 export async function buildBoostJobTx({
   jobId,
   clientPublicKey,

@@ -61,8 +61,12 @@ export default function BudgetEscrowStep({
         </div>
       </div>
 
-      {xlmPriceUsd && form.currency === "XLM" && budgetValue > 0 && (
-        <p className="text-xs text-amber-700">≈ ${(budgetValue * xlmPriceUsd).toFixed(2)} USD at current rate</p>
+      {budgetValue > 0 && (
+        form.currency === "USDC" ? (
+          <p className="text-xs text-amber-700">≈ ${budgetValue.toFixed(2)} USD</p>
+        ) : (
+          xlmPriceUsd && <p className="text-xs text-amber-700">≈ ${(budgetValue * xlmPriceUsd).toFixed(2)} USD at current rate</p>
+        )
       )}
 
       <div>

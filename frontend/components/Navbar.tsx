@@ -40,7 +40,29 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
   const [darkMode, setDarkMode] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [balance, setBalance] = useState<string | null>(null);
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
+
+  useEffect(() => {
+    if (publicKey) {
+      setBalanceLoading(true);
+      Promise.all([
+        import("@/lib/stellar").then(m => m.getXLMBalance(publicKey)),
+        import("@/lib/stellar").then(m => m.getUSDCBalance(publicKey))
+      ]).then(([xlm, usdc]) => {
+        setBalance(Number(xlm).toFixed(2));
+        setUsdcBalance(Number(usdc).toFixed(2));
+      }).catch(() => {
+        setBalance("0.00");
+        setUsdcBalance("0.00");
+      }).finally(() => {
+        setBalanceLoading(false);
+      });
+    } else {
+      setBalance(null);
+      setUsdcBalance(null);
+    }
+  }, [publicKey]);
 
   // Dark mode initialization — respect OS preference on first visit
   useEffect(() => {
@@ -253,8 +275,8 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
                 <span className="sm:hidden text-[10px]">{shortenAddress(publicKey, 6)}</span>
                 {balanceLoading ? (
                   <span className="text-xs text-amber-800">{t("wallet.loading")}</span>
-                ) : balance ? (
-                  <span className="text-xs font-medium text-market-400 hidden sm:inline">{balance}</span>
+                ) : balance && usdcBalance ? (
+                  <span className="text-xs font-medium text-market-400 hidden sm:inline">{balance} XLM / {usdcBalance} USDC</span>
                 ) : null}
               </button>
               <button 
