@@ -66,33 +66,37 @@ export default function ConfirmDialog({
       : "bg-amber-600 hover:bg-amber-500";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onCancel} />
       <div
-        className={`card max-w-md w-full border-2 ${borderColor}`}
-        onClick={(e) => e.stopPropagation()}
+        className={`relative w-full max-w-md mx-4 rounded-xl border ${borderColor} bg-market-900 shadow-2xl`}
       >
-        <div className={`rounded-t-xl -m-6 mb-0 p-4 ${headerBg}`}>
+        <div className={`rounded-t-xl px-6 py-4 ${headerBg}`}>
           <div className="flex items-center gap-3">
-            <span className={`text-lg ${iconColor}`}>
-              {variant === "danger" ? "\u26A0" : "\u0021"}
+            <span className={`text-xl ${iconColor}`}>
+              {variant === "danger" ? "⚠" : "!"}
             </span>
-            <h3 className="font-display text-lg font-bold text-amber-100">{title}</h3>
+            <h3 className="font-display text-lg font-bold text-amber-100">
+              {title}
+            </h3>
           </div>
         </div>
 
-        <div className="mt-6 space-y-4">
-          <p className="text-sm text-amber-700">{description}</p>
+        <div className="px-6 py-5 space-y-4">
+          <p className="text-sm text-amber-200/80 leading-relaxed">
+            {description}
+          </p>
 
           {actionDetails && (
-            <div className="rounded-lg bg-ink-700/50 border border-market-500/10 p-3 text-sm text-amber-300">
-              {actionDetails}
+            <div className="rounded-lg border border-market-500/20 bg-market-900/50 p-3">
+              <p className="text-xs text-amber-300 font-mono">{actionDetails}</p>
             </div>
           )}
 
           {requireTypedConfirm && (
-            <div>
-              <label className="block text-xs text-amber-800 mb-1">
-                Type <span className="font-mono font-bold">{typedConfirmText}</span> to confirm
+            <div className="space-y-2">
+              <label className="text-xs text-amber-800/70 uppercase tracking-wider">
+                Type <span className="font-mono text-amber-300">{typedConfirmText}</span> to confirm
               </label>
               <input
                 ref={inputRef}
@@ -107,19 +111,20 @@ export default function ConfirmDialog({
           )}
         </div>
 
-        <div className="flex gap-3 mt-6">
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-market-500/20">
           <button
             type="button"
             onClick={onCancel}
-            className="btn-ghost text-sm flex-1 py-2.5 px-4"
+            className="btn-secondary px-4 py-2 text-sm"
+            disabled={loading}
           >
             {cancelLabel}
           </button>
           <button
             type="button"
             onClick={onConfirm}
+            className={`px-4 py-2 text-sm rounded-lg font-medium text-white transition-opacity ${buttonBg} ${canConfirm ? "opacity-100" : "opacity-50 cursor-not-allowed"}`}
             disabled={!canConfirm}
-            className={`text-sm flex-1 py-2.5 px-4 rounded-xl text-white font-medium transition-all disabled:opacity-50 ${buttonBg}`}
           >
             {loading ? "Processing..." : confirmLabel}
           </button>

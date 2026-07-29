@@ -731,13 +731,13 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
             <ConfirmDialog
               open={showReleaseConfirm}
               title="Release Escrow"
-              description={`This will release ${job?.budget || "the"} escrowed funds to the freelancer. This on-chain action is irreversible.`}
-              actionDetails={job?.freelancerAddress ? `Freelancer: ${job.freelancerAddress.slice(0, 8)}...${job.freelancerAddress.slice(-4)}` : undefined}
+              description="This will release all escrowed funds to the freelancer. This is an irreversible on-chain action."
+              confirmLabel="Yes, Release Escrow"
+              variant="danger"
               requireTypedConfirm
-              onConfirm={async () => {
-                await handleReleaseEscrow();
-                setShowReleaseConfirm(false);
-              }}
+              typedConfirmText="CONFIRM"
+              actionDetails={`Job: ${job?.title || ""}`}
+              onConfirm={handleReleaseEscrow}
               onCancel={() => setShowReleaseConfirm(false)}
               loading={releasingEscrow}
             />
