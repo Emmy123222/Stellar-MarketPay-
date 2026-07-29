@@ -16,6 +16,19 @@ Object.defineProperty(window, "matchMedia", {
 
 Element.prototype.scrollIntoView = jest.fn();
 
+// jsdom does not implement IntersectionObserver — provide a no-op stub so
+// components that rely on it (e.g. virtual lists, lazy-load wrappers) don't
+// throw a ReferenceError during tests.
+global.IntersectionObserver = class IntersectionObserver {
+  root = null;
+  rootMargin = "";
+  thresholds = [];
+  observe = jest.fn();
+  unobserve = jest.fn();
+  disconnect = jest.fn();
+  takeRecords = (): IntersectionObserverEntry[] => [];
+} as unknown as typeof IntersectionObserver;
+
 Object.defineProperty(window, "crypto", {
   configurable: true,
   value: {
