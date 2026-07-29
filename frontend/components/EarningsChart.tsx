@@ -9,8 +9,8 @@
  */
 import { useEffect, useState, useCallback } from "react";
 import {
-  BarChart,
-  Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -197,21 +197,22 @@ export default function EarningsChart({ publicKey }: Props) {
         {monthlyData.every((m) => m.total === 0) ? (
           <p className="text-sm text-amber-800 text-center py-8">No payments in the last 12 months.</p>
         ) : (
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={monthlyData} margin={{ top: 4, right: 4, bottom: 4, left: 0 }}>
-              <XAxis dataKey="month" tick={{ fill: "#a8956a", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: "#a8956a", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}`} />
-              <Tooltip
-                contentStyle={{ background: "#1a1610", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 8, color: "#fef3c7", fontSize: 12 }}
-                formatter={(value) => [
-                  `${Number(value).toFixed(2)} XLM`,
-                  viewMode === "cumulative" ? "Cumulative" : "Earned",
-                ]}
-                cursor={{ fill: "rgba(245,158,11,0.06)" }}
-              />
-              <Bar dataKey="total" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <div role="img" aria-label="Line chart showing freelancer revenue over time" className="w-full h-[220px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={monthlyData} margin={{ top: 4, right: 4, bottom: 4, left: 0 }}>
+                <XAxis dataKey="month" tick={{ fill: "#a8956a", fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: "#a8956a", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}`} />
+                <Tooltip
+                  contentStyle={{ background: "#1a1610", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 8, color: "#fef3c7", fontSize: 12 }}
+                  formatter={(value) => [
+                    `${Number(value).toFixed(2)} XLM`,
+                    viewMode === "cumulative" ? "Cumulative" : "Earned",
+                  ]}
+                />
+                <Line type="monotone" dataKey="total" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4, fill: "#f59e0b" }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         )}
       </div>
 
