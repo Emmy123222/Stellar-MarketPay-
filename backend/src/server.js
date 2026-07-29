@@ -66,6 +66,7 @@ const { migrate, getCurrentMigrationVersion, getExpectedMigrationVersion, valida
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
+const { startSavedSearchAlertChecker } = require("./services/savedSearchAlertService");
 const { startWsEventCleanup } = require("./services/wsEventCleanupService");
 
 const serviceLogger = createServiceLogger('server');
@@ -187,6 +188,16 @@ function broadcastToUser(userAddress, event, payload) {
   const message = JSON.stringify({ event, payload });
   for (const ws of sockets) {
     if (ws.readyState === WS_OPEN) ws.send(message);
+  }
+}
+
+function broadcastToUser(userAddress, event, payload) {
+  const message = JSON.stringify({ event, payload });
+  const sockets = userClients.get(userAddress);
+  if (sockets) {
+    for (const ws of sockets) {
+      if (ws.readyState === WS_OPEN) ws.send(message);
+    }
   }
 }
 
@@ -498,25 +509,21 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
-    realtimeClients.add(ws);
-    wsConnectionsActive.set(realtimeClients.size);
-
-    // Authenticate user from token query param for per-user delivery
+    const token = url.searchParams.get("token") || "";
     let userAddress = null;
-    const token = url.searchParams.get("token");
     if (token) {
       try {
-        const { JWT_SECRET } = require("./middleware/auth");
         const jwt = require("jsonwebtoken");
-        const decoded = jwt.verify(token, JWT_SECRET);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         userAddress = decoded.publicKey;
-        if (userAddress) {
-          if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
-          userClients.get(userAddress).add(ws);
-        }
-      } catch { /* invalid token — treat as anonymous */ }
+      } catch { /* token is optional, e.g. anonymous tab */ }
     }
-
+    realtimeClients.add(ws);
+    wsConnectionsActive.set(realtimeClients.size);
+    if (userAddress) {
+      if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
+      userClients.get(userAddress).add(ws);
+    }
     sendJson(ws, "connected", { channel: "realtime" });
 
     // Replay notifications missed while the user was disconnected
@@ -555,7 +562,6 @@ wsServer.on("connection", async (ws, request) => {
           sockets.delete(ws);
           if (!sockets.size) userClients.delete(userAddress);
         }
-        userLastSeen.set(userAddress, new Date());
       }
     });
     return;
@@ -1008,5 +1014,12 @@ app._ws = {
 
 app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
 app._ws = { server, wsServer, userClients, realtimeClients, userLastSeen };
+
+// Expose WebSocket internals for tests
+app._ws = wsServer;
+app._ws.server = server;
+app._ws.realtimeClients = realtimeClients;
+app._ws.userClients = userClients;
+app._ws.scopeSessionClients = scopeSessionClients;
 
 module.exports = app;
