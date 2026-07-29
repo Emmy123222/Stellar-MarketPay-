@@ -365,8 +365,8 @@ rustup target add wasm32-unknown-unknown
 cargo install --locked stellar-cli
 
 # 4. Clone the repository
-git clone https://github.com/your-org/stellar-marketpay.git
-cd stellar-marketpay
+git clone https://github.com/DANTE-1903/Stellar-MarketPay-.git
+cd Stellar-MarketPay-
 
 # 5. Verify prerequisites
 echo "Rust: $(rustc --version)"
