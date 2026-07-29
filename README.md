@@ -7,6 +7,7 @@
 [![Stellar](https://img.shields.io/badge/Stellar-Testnet-blue)](https://stellar.org)
 [![Soroban](https://img.shields.io/badge/Soroban-Smart%20Contracts-purple)](https://soroban.stellar.org)
 [![Backend Coverage](https://img.shields.io/badge/backend%20coverage-60%25%2B-brightgreen)](#testing)
+[![Soroban Contract](https://img.shields.io/badge/Soroban%20Contract-Testnet-blue)](docs/contract-deployment.md)
 
 Stellar MarketPay is an open-source decentralised freelance marketplace where clients post jobs, freelancers apply, and payments are secured in **Soroban smart contract escrow** — released automatically when work is approved. No middlemen. No payment delays. No platform fees eating your earnings..
 
@@ -54,7 +55,7 @@ stellar-marketpay/
 ### 1. Clone
 
 ```bash
-git clone https://github.com/your-org/stellar-marketpay.git
+git clone https://github.com/Emmy123222/Stellar-MarketPay-.git
 cd stellar-marketpay
 ```
 
