@@ -1,0 +1,10 @@
+-- V17 down — Portfolio link verification metadata rollback.
+--
+-- No DDL was applied in V17 (documentation-only migration that records
+-- the new optional JSONB keys inside `profiles.portfolio_items`).
+-- Rollback here just acknowledges that residual verification metadata
+-- will be ignored the next time the verification service wipes fields
+-- for items whose URL / type has changed.
+--
+-- No DROP needed; we keep the file to satisfy migrate.loadMigrationPairs,
+-- which expects a paired .down.sql.

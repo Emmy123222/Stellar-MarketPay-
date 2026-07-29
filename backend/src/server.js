@@ -63,6 +63,9 @@ const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
 const { startSavedSearchAlertChecker } = require("./services/savedSearchAlertService");
+const { startLinkVerificationScheduler } = require("./services/linkVerificationScheduler");
+// Importing for side-effect: registers the Bull queue.process handler.
+require("./workers/linkVerificationWorker");
 
 const serviceLogger = createServiceLogger('server');
 const app  = express();
@@ -594,6 +597,9 @@ async function bootstrap() {
 
   // Start saved search alert checker - run every 10 minutes
   startSavedSearchAlertChecker();
+
+  // Start portfolio link verification scheduler - daily re-verify stale items
+  startLinkVerificationScheduler();
 
   server.listen(PORT, () => {
     serviceLogger.info({

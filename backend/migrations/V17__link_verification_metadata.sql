@@ -1,0 +1,21 @@
+-- ─────────────────────────────────────────
+-- V17 — Portfolio link verification metadata
+--
+-- Portfolio items (github / live URLs) on profiles get background-
+-- checked for reachability. The verification metadata is appended to
+-- each item inside the existing `portfolio_items` JSONB column so no
+-- relational schema change is required.
+--
+-- New optional keys per item:
+--   verified           BOOLEAN    -- last check returned a 2xx/3xx
+--   verificationError  TEXT       -- short reason when verified=false
+--   verifiedAt         TIMESTAMPTZ-- timestamp of the last successful check
+--   lastCheckedAt      TIMESTAMPTZ-- timestamp of any check (success or failure)
+--
+-- Existing rows remain valid (all keys optional). The link
+-- verification service writes these fields; the worker reads them.
+-- ─────────────────────────────────────────
+
+-- Reserved for future GIN index on portfolio_items metadata if needed.
+-- No DDL change today; the JSON shape is documented here for the
+-- migration audit trail and consulted by `linkVerificationService`.
