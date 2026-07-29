@@ -83,6 +83,12 @@ export default function NotificationBell({ publicKey }: NotificationBellProps) {
     setNotifications((items) => items.map((item) => ({ ...item, read: true })));
     try {
       await markAllNotificationsRead();
+      // revalidate server data
+      const result = await fetchNotifications({ limit: 10 }).catch(() => null);
+      if (result) {
+        setNotifications(result.notifications);
+        setUnreadCount(result.unreadCount);
+      }
     } catch {
       setUnreadCount(previousCount);
       setNotifications((items) => items.map((item) => ({ ...item, read: false })));
