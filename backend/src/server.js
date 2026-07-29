@@ -21,7 +21,7 @@ const swaggerSpecs = require('./config/swagger');
 const { requestLoggerMiddleware, xRequestIdMiddleware, logError, createServiceLogger } = require('./utils/logger');
 const { sanitizeMiddleware } = require('./middleware/sanitize');
 const { idempotencyMiddleware, cleanupExpiredIdempotencyKeys } = require('./middleware/idempotency');
-const { getRateLimitScale } = require("./middleware/rateLimiter");
+const { getRateLimitScale, rateLimitLogger } = require("./middleware/rateLimiter");
 const { requireChoice } = require("./config/env");
 const { createCorsOptions } = require("./config/cors");
 const { doubleCsrfProtection } = require("./middleware/csrf");
@@ -371,6 +371,21 @@ app.use(rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => getClientIp(req),
+  handler: (req, res) => {
+    rateLimitLogger.warn({
+      endpoint: "global",
+      ip: getClientIp(req),
+      method: req.method,
+      path: req.path,
+      userId: req.user?.publicKey,
+      retryAfter: 900,
+      requestId: req.requestId,
+    }, "Rate limit exceeded");
+    res.set("Retry-After", "900");
+    return res.status(429).json({
+      message: "Too many requests — please wait before trying again",
+    });
+  },
 }));
 
 app.get("/metrics", async (req, res, next) => {

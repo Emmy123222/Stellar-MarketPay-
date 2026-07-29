@@ -15,8 +15,14 @@ const {
   setAuthCookies,
 } = require("../services/authTokens");
 const { generateCsrfToken } = require("../middleware/csrf");
+const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const router = express.Router();
+
+// Strict limit on authentication attempts: 10 per 15 minutes per IP
+const authWriteRateLimiter = createRateLimiter(10, 15, { name: "auth-write" });
+// Looser limit on read-only auth endpoints: 100 per minute per IP
+const authReadRateLimiter = createRateLimiter(100, 1, { name: "auth-read" });
 
 let cachedServerKeypair = null;
 function getServerKeypair() {
@@ -58,7 +64,7 @@ function resolvePassphrase(network) {
  *                   type: string
  *                   description: Token the client must echo in `X-CSRF-Token`
  */
-router.get("/csrf-token", (req, res) => {
+router.get("/csrf-token", authReadRateLimiter, (req, res) => {
   const csrfToken = generateCsrfToken(req, res);
   res.json({ csrfToken });
 });
@@ -95,7 +101,7 @@ router.get("/csrf-token", (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get("/", (req, res) => {
+router.get("/", authReadRateLimiter, (req, res) => {
   try {
     const accountId = req.query.account;
     if (!accountId) {
@@ -165,7 +171,7 @@ router.get("/", (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post("/", async (req, res) => {
+router.post("/", authWriteRateLimiter, async (req, res) => {
   try {
     const { transaction, network: reqNetwork } = req.body;
     if (!transaction) {
@@ -218,7 +224,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-router.post("/refresh", (req, res) => {
+router.post("/refresh", authWriteRateLimiter, (req, res) => {
   const refreshToken = getRefreshTokenFromRequest(req);
   const rotated = rotateRefreshToken(refreshToken);
 
@@ -231,7 +237,7 @@ router.post("/refresh", (req, res) => {
   return res.json({ success: true, token: rotated.accessToken, csrfToken: rotated.csrfToken });
 });
 
-router.post("/logout", (req, res) => {
+router.post("/logout", authWriteRateLimiter, (req, res) => {
   revokeRefreshToken(getRefreshTokenFromRequest(req));
   clearAuthCookies(res);
   res.json({ success: true });

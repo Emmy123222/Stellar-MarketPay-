@@ -34,10 +34,10 @@ const recommendationService = require("../services/recommendationService");
 const { validateJsonb } = require("../middleware/jsonbValidator");
 const milestonesSchema = require("../schemas/milestones.schema");
 
-const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per minute
-const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per minute
-const reportJobRateLimiter = createRateLimiter(20, 1);
-const suggestRateLimiter = createRateLimiter(20, 1);
+const jobCreationRateLimiter = createRateLimiter(3, 1, { name: "jobs-write" }); // 3 job creations per minute
+const generalJobRateLimiter = createRateLimiter(100, 1, { name: "jobs-read" }); // 100 read requests per minute
+const reportJobRateLimiter = createRateLimiter(20, 1, { name: "jobs-report" });
+const suggestRateLimiter = createRateLimiter(20, 1, { name: "jobs-suggest" });
 
 const jobReports = new Map();
 
