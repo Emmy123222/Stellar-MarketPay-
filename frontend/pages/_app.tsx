@@ -24,6 +24,7 @@ import {
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import WalletAccountMonitor from "@/components/WalletAccountMonitor";
+import PWAInstall from "@/components/PWAInstall";
 import "@/styles/globals.css";
 import { ToastProvider } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
@@ -284,6 +285,7 @@ function App({ Component, pageProps }: AppProps) {
                 onClose={() => setShortcutsModalOpen(false)}
                 showJobDetailShortcuts={isJobDetailPage}
               />
+              <PWAInstall />
             </div>
           </PriceProvider>
         </ToastProvider>
