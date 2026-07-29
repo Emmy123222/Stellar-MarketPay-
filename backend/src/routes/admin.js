@@ -12,6 +12,7 @@ const { verifyJWT, requireAdminRole, requireAdmin2FA } = require("../middleware/
 const { updateJobStatus } = require("../services/jobService");
 const { logContractInteraction } = require("../services/contractAuditService");
 const { getApiKeyUsageStats } = require("../services/developerService");
+const { listAuditLogs } = require("../services/auditLogService");
 
 // Helper: log admin action
 async function logAdminAction({ action, adminAddress, targetId, targetType, details }) {
@@ -417,6 +418,26 @@ router.post("/jobs/:jobId/reactivate", verifyJWT, requireAdminRole, requireAdmin
 
     res.json({ success: true, data: rows[0] });
   } catch (e) {
+    next(e);
+  }
+});
+
+// ── GET /api/admin/audit-log — structured state-change audit log (V22) ───────
+router.get("/audit-log", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
+  try {
+    const { limit, after, entity_type, entity_id, action } = req.query;
+    const result = await listAuditLogs({
+      limit: parseInt(limit, 10) || 50,
+      after,
+      entityType: entity_type,
+      entityId: entity_id,
+      action,
+    });
+    res.json({ success: true, data: result.rows, nextCursor: result.nextCursor });
+  } catch (e) {
+    if (e.status === 400) {
+      return res.status(400).json({ error: e.message });
+    }
     next(e);
   }
 });
