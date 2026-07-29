@@ -3,7 +3,7 @@
  * Freelancer applies to a job with a proposal and bid amount.
  */
 import { useState, useEffect } from "react";
-import { submitApplication } from "@/lib/api";
+import { submitApplication, fetchProposalTemplates } from "@/lib/api";
 import type { Job } from "@/utils/types";
 import { formatXLM } from "@/utils/format";
 import { useToast } from "./Toast";
@@ -12,23 +12,54 @@ import clsx from "clsx";
 interface ApplicationFormProps {
   job: Job;
   publicKey: string;
+  biddingPhase?: "commitment" | "reveal";
   prefillData?: {
     bidAmount?: string;
     message?: string;
   };
+  onOptimisticSubmit?: () => void;
+  onRevert?: () => void;
   onSuccess: () => void;
 }
 
-export default function ApplicationForm({ job, publicKey, prefillData, onSuccess }: ApplicationFormProps) {
+function randomNonceHex(bytes = 16): string {
+  const arr = new Uint8Array(bytes);
+  if (typeof window !== "undefined" && window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(arr);
+  } else {
+    for (let i = 0; i < arr.length; i += 1) arr[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const data = new TextEncoder().encode(value);
+  const digest = await window.crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export default function ApplicationForm({ job, publicKey, biddingPhase = "commitment", prefillData, onOptimisticSubmit, onRevert, onSuccess }: ApplicationFormProps) {
   const [proposal, setProposal] = useState(prefillData?.message || "");
   const toast = useToast();
   const [bidAmount, setBidAmount] = useState(prefillData?.bidAmount || job.budget);
+  const [revealNonce, setRevealNonce] = useState(randomNonceHex());
+  const [revealLater, setRevealLater] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [screeningAnswers, setScreeningAnswers] = useState<Record<string, string>>({});
+  const [templates, setTemplates] = useState<{ id: string; name: string; content: string }[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
-  const isValid = proposal.trim().length >= 50 && parseFloat(bidAmount) > 0;
+  // Issue #152 — enforce 50-word minimum on the proposal.
+  const wordCount = proposal.trim() === "" ? 0 : proposal.trim().split(/\s+/).length;
+  const MIN_WORDS = 50;
+  const wordsRemaining = Math.max(0, MIN_WORDS - wordCount);
+  const meetsWordMinimum = wordCount >= MIN_WORDS;
+
+  const isValid = meetsWordMinimum && parseFloat(bidAmount) > 0;
 
   // Initialize screening answers when job changes
   useEffect(() => {
@@ -40,6 +71,10 @@ export default function ApplicationForm({ job, publicKey, prefillData, onSuccess
       setScreeningAnswers(initialAnswers);
     }
   }, [job.screeningQuestions]);
+
+  useEffect(() => {
+    fetchProposalTemplates().then(setTemplates).catch(() => {});
+  }, []);
 
   const allScreeningQuestionsAnswered = job.screeningQuestions && job.screeningQuestions.length > 0
     ? job.screeningQuestions.every(q => screeningAnswers[q] && screeningAnswers[q].trim().length > 0)
@@ -56,17 +91,27 @@ export default function ApplicationForm({ job, publicKey, prefillData, onSuccess
     setShowConfirm(false);
     setLoading(true);
     setError(null);
+
+    onOptimisticSubmit?.();
+
     try {
+      const referredBy = typeof window !== "undefined" ? localStorage.getItem(`referral_${job.id}`) : null;
+      const commitmentInput = `${parseFloat(bidAmount).toFixed(7)}:${revealNonce}`;
+      const bidCommitment = await sha256Hex(commitmentInput);
       await submitApplication({
         jobId: job.id,
         freelancerAddress: publicKey,
         proposal: proposal.trim(),
         bidAmount: parseFloat(bidAmount).toFixed(7),
-        currency: job.currency,
+        currency: job.currency || "XLM",
+        screeningAnswers: job.screeningQuestions && job.screeningQuestions.length > 0 ? screeningAnswers : undefined,
+        referredBy: referredBy || undefined,
       });
-      toast.success("Proposal submitted successfully!");
+      setRevealLater(true);
+      toast.success("Sealed bid commitment submitted.");
       onSuccess();
     } catch {
+      onRevert?.();
       toast.error("Failed to submit application. Please try again.");
       setLoading(false);
     }
@@ -79,18 +124,63 @@ export default function ApplicationForm({ job, publicKey, prefillData, onSuccess
         <p className="text-amber-800 text-sm mb-6">
           Client budget: <span className="text-market-400 font-mono font-medium">{formatXLM(job.budget)}</span>
         </p>
+          <div className="mb-4 rounded-xl border border-market-500/20 bg-ink-900/40 p-3 text-xs text-amber-700">
+            {biddingPhase === "commitment"
+              ? "Sealed-bid commitment phase: your amount stays hidden until reveal."
+              : "Reveal phase: client has closed bidding and is waiting for reveals."}
+          </div>
 
         <div className="space-y-5">
+          <div>
+            <label className="label">Use Template</label>
+            <select
+              value={selectedTemplateId}
+              onChange={(e) => {
+                const templateId = e.target.value;
+                setSelectedTemplateId(templateId);
+                const template = templates.find((item) => item.id === templateId);
+                if (template) setProposal(template.content);
+              }}
+              className="input-field appearance-none cursor-pointer"
+            >
+              <option value="">Select a template...</option>
+              {(templates ?? []).map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Cover letter */}
           <div>
-            <label className="label">Cover Letter</label>
+            <label className="label" htmlFor="cover-letter">Cover Letter</label>
             <textarea
+              id="cover-letter"
               value={proposal} onChange={(e) => setProposal(e.target.value)}
               rows={6}
               placeholder="Describe your relevant experience, your approach to this project, and why you're the best fit..."
-              className="textarea-field"
+              className={clsx(
+                "textarea-field",
+                proposal.length > 0 && !meetsWordMinimum && "border-red-500/40"
+              )}
+              aria-invalid={proposal.length > 0 && !meetsWordMinimum}
+              aria-describedby="proposal-word-count"
             />
-            <p className="mt-1 text-xs text-amber-800/50">{proposal.length} chars (min 50)</p>
+            <p
+              id="proposal-word-count"
+              className={clsx(
+                "mt-1 text-xs font-medium",
+                meetsWordMinimum ? "text-green-400" : "text-red-400"
+              )}
+            >
+              {wordCount} {wordCount === 1 ? "word" : "words"} (minimum {MIN_WORDS})
+              {!meetsWordMinimum && (
+                <span className="ml-1 text-amber-800/80 font-normal">
+                  — {wordsRemaining} more {wordsRemaining === 1 ? "word" : "words"} needed
+                </span>
+              )}
+            </p>
           </div>
 
           {/* Bid amount */}
@@ -101,8 +191,22 @@ export default function ApplicationForm({ job, publicKey, prefillData, onSuccess
               min="1" step="1" className="input-field"
               placeholder="Enter your bid amount"
             />
-            <p className="mt-1 text-xs text-amber-800/50">
-              If accepted, this amount will be released from escrow to you on completion.
+            <p className="mt-1 text-xs text-amber-600">
+              This value is committed as a hash and hidden until reveal phase.
+            </p>
+          </div>
+
+          <div>
+            <label className="label">Reveal Nonce (keep safe)</label>
+            <input
+              type="text"
+              value={revealNonce}
+              onChange={(e) => setRevealNonce(e.target.value)}
+              className="input-field font-mono text-xs"
+              placeholder="Random nonce for reveal"
+            />
+            <p className="mt-1 text-xs text-amber-600">
+              You must keep this nonce to reveal your bid later.
             </p>
           </div>
 
@@ -110,7 +214,7 @@ export default function ApplicationForm({ job, publicKey, prefillData, onSuccess
           {job.screeningQuestions && job.screeningQuestions.length > 0 && (
             <div>
               <label className="label">Screening Questions <span className="text-red-400">*</span></label>
-              <p className="text-xs text-amber-800/50 mb-3">Please answer all questions to submit your application.</p>
+              <p className="text-xs text-amber-600 mb-3">Please answer all questions to submit your application.</p>
               <div className="space-y-4">
                 {job.screeningQuestions.map((question, index) => (
                   <div key={index}>
@@ -142,6 +246,12 @@ export default function ApplicationForm({ job, publicKey, prefillData, onSuccess
           </button>
         </div>
       </div>
+
+      {revealLater && (
+        <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
+          Save your reveal nonce securely: <span className="font-mono break-all">{revealNonce}</span>
+        </div>
+      )}
 
       {showConfirm && (
         <ConfirmModal

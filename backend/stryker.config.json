@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "jest",
+  "coverageAnalysis": "perTest",
+  "plugins": ["@stryker-mutator/jest-runner"],
+  "mutate": [
+    "src/services/escrowService.js",
+    "src/services/disputeService.js"
+  ],
+  "jest": {
+    "projectType": "custom",
+    "configFile": "package.json",
+    "enableFindRelatedTests": true
+  },
+  "reporters": ["clear-text", "progress", "html", "dashboard"],
+  "dashboard": {
+    "project": "github.com/GdAyo19/Stellar-MarketPay-",
+    "version": "${BRANCH_NAME}",
+    "module": "backend",
+    "baseUrl": "https://dashboard.stryker-mutator.io/api/reports",
+    "reportType": "full"
+  },
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": null
+  },
+  "cleanTempDir": true,
+  "tempDir": "stryker-tmp",
+  "htmlReporter": {
+    "fileName": "reports/mutation/mutation-report.html"
+  },
+  "since": {
+    "target": "main"
+  }
+}

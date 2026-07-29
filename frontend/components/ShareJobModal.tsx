@@ -2,8 +2,7 @@
  * components/ShareJobModal.tsx
  * Modal for sharing job listings with pre-filled application forms
  */
-import { useState } from "react";
-import QRCode from "qrcode.react";
+import { useState, useEffect, useRef, KeyboardEvent } from "react";
 import type { Job } from "@/utils/types";
 
 interface ShareJobModalProps {
@@ -22,13 +21,40 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
     jobId: job.id,
   });
   const [showQR, setShowQR] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Focus trap (#287): keep focus inside modal
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const focusable = dialog.querySelectorAll<HTMLElement>(
+      'a[href],button:not([disabled]),input,select,textarea,[tabindex]:not([tabindex="-1"])'
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    first?.focus();
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") { onClose(); return; }
+      if (e.key !== "Tab") return;
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first?.focus(); }
+      }
+    };
+    dialog.addEventListener("keydown", handleKeyDown);
+    return () => dialog.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   // Generate canonical job URL
   const jobUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/jobs/${job.id}`;
   
   // Generate invite link with pre-filled data
   const generateInviteLink = () => {
-    const encoded = Buffer.from(JSON.stringify(inviteData)).toString('base64');
+    const encoded =
+      typeof window === "undefined"
+        ? ""
+        : window.btoa(unescape(encodeURIComponent(JSON.stringify(inviteData))));
     return `${jobUrl}?prefill=${encodeURIComponent(encoded)}`;
   };
 
@@ -56,8 +82,14 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-ink-900/90 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-ink-800 rounded-xl border border-market-500/20 shadow-xl">
+    <div className="fixed inset-0 z-50 bg-ink-900/90 backdrop-blur-sm flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Share job: ${job.title}`}
+        className="w-full max-w-md bg-ink-800 rounded-xl border border-market-500/20 shadow-xl"
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-market-500/10">
           <h3 className="font-display text-lg font-semibold text-amber-100">Share Job</h3>
@@ -77,6 +109,13 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
             <h4 className="font-display text-amber-100 font-medium mb-2">{job.title}</h4>
             <p className="text-amber-800 text-sm">
               {job.category} • {job.currency} {job.budget}
+            </p>
+            <p className="text-amber-800/80 text-xs mt-2 leading-relaxed">
+              <span aria-hidden="true" className="mr-1">🪪</span>
+              Shared on Discord, X, LinkedIn, Slack, or iMessage this link
+              renders a rich preview card with the job title, budget, and
+              category — generated automatically by{" "}
+              <code className="font-mono text-[11px] text-amber-700">/api/og/[jobId]</code>.
             </p>
           </div>
 
@@ -157,15 +196,11 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
           {/* QR Code */}
           {showQR && (
             <div className="flex flex-col items-center space-y-3 p-4 bg-ink-900 rounded-lg border border-market-500/10">
-              <div className="bg-white p-3 rounded-lg">
-                <QRCode
-                  value={generateInviteLink()}
-                  size={200}
-                  level="M"
-                  includeMargin={true}
-                />
+              <div className="w-full rounded-lg border border-dashed border-market-500/20 bg-ink-800/60 p-4 text-center">
+                <p className="text-sm text-amber-100 mb-2">QR preview unavailable in this build</p>
+                <p className="text-xs text-amber-800 break-all">{generateInviteLink()}</p>
               </div>
-              <p className="text-xs text-amber-800">Scan this QR code to open the job with pre-filled application</p>
+              <p className="text-xs text-amber-800">Copy the invite link above to share the pre-filled application.</p>
             </div>
           )}
         </div>

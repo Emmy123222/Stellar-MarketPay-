@@ -3,12 +3,13 @@
  * Landing page for Stellar MarketPay.
  */
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useRef, type RefObject } from "react";
 import type { GetStaticProps } from "next";
 import WalletConnect from "@/components/WalletConnect";
 import { fetchRecentlyCompletedJobs } from "@/lib/api";
 import { formatXLM } from "@/utils/format";
 import type { Job } from "@/utils/types";
+import useCountUp from "@/hooks/useCountUp";
 
 // Category → emoji icon mapping for compact cards
 const CATEGORY_ICONS: Record<string, string> = {
@@ -38,9 +39,9 @@ const STEPS = [
 ];
 
 const STATS = [
-  { value: "0%", label: "Platform fee" },
-  { value: "3–5s", label: "Payment speed" },
-  { value: "~$0", label: "Transaction cost" },
+  { value: 0, suffix: "%", label: "Platform fee", duration: 1500, prefix: "" },
+  { value: 5, suffix: "s", label: "Payment speed", duration: 1500, prefix: "" },
+  { value: 0, suffix: "", label: "Transaction cost", duration: 1500, prefix: "~$" },
 ];
 
 const CATEGORIES = [
@@ -48,6 +49,23 @@ const CATEGORIES = [
   "UI/UX Design", "Technical Writing", "Security Audit",
   "DevOps", "Data Analysis",
 ];
+
+function StatCard({ stat, index }: { stat: { value: number; suffix: string; label: string; duration: number; prefix: string }; index: number }) {
+  const { animatedValue, elementRef } = useCountUp(stat.value, {
+    duration: stat.duration,
+    suffix: stat.suffix,
+    delay: index * 200,
+  });
+
+  return (
+    <div ref={elementRef as RefObject<HTMLDivElement>} className="bg-ink-900 text-center py-8 px-4">
+      <div className="font-display text-4xl font-bold text-gradient-gold mb-1 font-mono">
+        {stat.prefix}{animatedValue}
+      </div>
+      <div className="text-amber-800 text-sm font-body">{stat.label}</div>
+    </div>
+  );
+}
 
 export default function Home({ publicKey, onConnect, completedJobs }: HomeProps) {
   const [showConnect, setShowConnect] = useState(false);
@@ -94,11 +112,8 @@ export default function Home({ publicKey, onConnect, completedJobs }: HomeProps)
 
         {/* ── Stats ───────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-3 gap-px bg-market-500/8 rounded-2xl overflow-hidden border border-market-500/12 mb-20">
-          {STATS.map((s) => (
-            <div key={s.label} className="bg-ink-900 text-center py-8 px-4">
-              <div className="font-display text-4xl font-bold text-gradient-gold mb-1">{s.value}</div>
-              <div className="text-amber-800 text-sm font-body">{s.label}</div>
-            </div>
+          {STATS.map((stat, index) => (
+            <StatCard key={stat.label} stat={stat} index={index} />
           ))}
         </div>
 
@@ -232,6 +247,13 @@ export default function Home({ publicKey, onConnect, completedJobs }: HomeProps)
 }
 
 export const getStaticProps: GetStaticProps = async () => {
+  if (process.env.SKIP_API_CALLS === "true") {
+    return {
+      props: { completedJobs: [] },
+      revalidate: 60,
+    };
+  }
+
   let completedJobs: Job[] = [];
   try {
     completedJobs = await fetchRecentlyCompletedJobs(3);

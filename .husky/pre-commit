@@ -1,0 +1,35 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Run gitleaks to detect secrets before committing
+echo "🔍 Running gitleaks to detect secrets..."
+
+# Check if gitleaks is installed
+if ! command -v gitleaks &> /dev/null; then
+    echo "⚠️  gitleaks is not installed. Installing..."
+    # Try to install gitleaks if not present
+    if command -v brew &> /dev/null; then
+        brew install gitleaks
+    elif command -v go &> /dev/null; then
+        go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest
+    else
+        echo "❌ Please install gitleaks manually:"
+        echo "   macOS: brew install gitleaks"
+        echo "   Go: go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest"
+        echo "   Or download from: https://github.com/zricethezav/gitleaks/releases"
+        exit 1
+    fi
+fi
+
+# Run gitleaks detect on staged files
+gitleaks detect --source . --config .gitleaks.toml --verbose --no-git --staged
+
+# Check the exit code
+if [ $? -ne 0 ]; then
+    echo "❌ Gitleaks detected potential secrets in your changes!"
+    echo "Please remove or redact the secrets before committing."
+    echo "Run 'gitleaks detect --source . --config .gitleaks.toml --verbose' for details."
+    exit 1
+fi
+
+echo "✅ No secrets detected. Proceeding with commit..."

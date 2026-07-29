@@ -1,0 +1,2192 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`async component snapshots AdminAnalytics error: AdminAnalytics error 1`] = `
+<div
+  class="text-center py-12"
+>
+  <p
+    class="text-red-400"
+  >
+    Failed to load metrics
+  </p>
+</div>
+`;
+
+exports[`async component snapshots AdminAnalytics loading: AdminAnalytics loading 1`] = `
+<div
+  class="flex items-center justify-center py-12"
+>
+  <div
+    class="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-400"
+  />
+</div>
+`;
+
+exports[`async component snapshots AdminAnalytics populated: AdminAnalytics populated 1`] = `
+<div
+  class="space-y-6"
+>
+  <div
+    class="flex items-center justify-between"
+  >
+    <h2
+      class="font-display text-xl font-bold text-amber-100"
+    >
+      Analytics Dashboard
+    </h2>
+    <div
+      class="flex items-center gap-3"
+    >
+      <select
+        class="bg-market-800 border border-market-600 rounded-lg px-3 py-2 text-sm text-amber-100"
+      >
+        <option
+          value="7d"
+        >
+          Last 7 days
+        </option>
+        <option
+          value="30d"
+        >
+          Last 30 days
+        </option>
+        <option
+          value="90d"
+        >
+          Last 90 days
+        </option>
+      </select>
+      <button
+        class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+      >
+        Export CSV
+      </button>
+    </div>
+  </div>
+  <section>
+    <h3
+      class="font-semibold text-amber-100 mb-4"
+    >
+      Platform Health
+    </h3>
+    <div
+      class="grid grid-cols-2 md:grid-cols-4 gap-4"
+    >
+      <div
+        class="p-4 rounded-lg border bg-blue-500/10 border-blue-500/20 text-blue-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          Total Jobs
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          10
+        </p>
+      </div>
+      <div
+        class="p-4 rounded-lg border bg-amber-500/10 border-amber-500/20 text-amber-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          Open Jobs
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          4
+        </p>
+      </div>
+      <div
+        class="p-4 rounded-lg border bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          Completion Rate
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          80%
+        </p>
+      </div>
+      <div
+        class="p-4 rounded-lg border bg-red-500/10 border-red-500/20 text-red-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          Dispute Rate
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          10%
+        </p>
+      </div>
+    </div>
+  </section>
+  <section>
+    <h3
+      class="font-semibold text-amber-100 mb-4"
+    >
+      User Growth
+    </h3>
+    <div
+      class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6"
+    >
+      <div
+        class="p-4 rounded-lg border bg-blue-500/10 border-blue-500/20 text-blue-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          Total Users
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          20
+        </p>
+      </div>
+      <div
+        class="p-4 rounded-lg border bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          Freelancers
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          12
+        </p>
+      </div>
+      <div
+        class="p-4 rounded-lg border bg-amber-500/10 border-amber-500/20 text-amber-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          Clients
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          8
+        </p>
+      </div>
+      <div
+        class="p-4 rounded-lg border bg-blue-500/10 border-blue-500/20 text-blue-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          New Users
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          3
+        </p>
+        <p
+          class="text-xs opacity-60 mt-1"
+        >
+          Last 30d
+        </p>
+      </div>
+    </div>
+    <div
+      class="bg-market-800 p-4 rounded-lg"
+    >
+      <h4
+        class="font-medium text-amber-100 mb-3"
+      >
+        Weekly User Growth
+      </h4>
+      <div
+        data-testid="chart-line"
+      />
+    </div>
+  </section>
+  <section>
+    <h3
+      class="font-semibold text-amber-100 mb-4"
+    >
+      Financial Overview
+    </h3>
+    <div
+      class="grid grid-cols-2 md:grid-cols-4 gap-4"
+    >
+      <div
+        class="p-4 rounded-lg border bg-amber-500/10 border-amber-500/20 text-amber-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          XLM in Escrow
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          1000.00
+        </p>
+      </div>
+      <div
+        class="p-4 rounded-lg border bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          XLM Released
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          500.00
+        </p>
+      </div>
+      <div
+        class="p-4 rounded-lg border bg-blue-500/10 border-blue-500/20 text-blue-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          Avg Job Budget
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          200.00 XLM
+        </p>
+      </div>
+      <div
+        class="p-4 rounded-lg border bg-amber-500/10 border-amber-500/20 text-amber-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          Active Escrows
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          3
+        </p>
+      </div>
+    </div>
+  </section>
+  <div
+    class="grid grid-cols-1 lg:grid-cols-2 gap-6"
+  >
+    <div
+      class="bg-market-800 p-4 rounded-lg"
+    >
+      <h4
+        class="font-medium text-amber-100 mb-3"
+      >
+        Daily Job Volume (Last 14 days)
+      </h4>
+      <div
+        data-testid="chart-bar"
+      />
+    </div>
+    <div
+      class="bg-market-800 p-4 rounded-lg"
+    >
+      <h4
+        class="font-medium text-amber-100 mb-3"
+      >
+        Job Status Distribution
+      </h4>
+      <div
+        data-testid="chart-doughnut"
+      />
+    </div>
+    <div
+      class="bg-market-800 p-4 rounded-lg"
+    >
+      <h4
+        class="font-medium text-amber-100 mb-3"
+      >
+        Dispute Trends
+      </h4>
+      <div
+        data-testid="chart-line"
+      />
+    </div>
+    <div
+      class="bg-market-800 p-4 rounded-lg"
+    >
+      <h4
+        class="font-medium text-amber-100 mb-3"
+      >
+        Top Earners
+      </h4>
+      <div
+        class="space-y-2 max-h-64 overflow-y-auto"
+      />
+    </div>
+  </div>
+  <section>
+    <h3
+      class="font-semibold text-amber-100 mb-4"
+    >
+      Quality Metrics
+    </h3>
+    <div
+      class="grid grid-cols-1 md:grid-cols-3 gap-4"
+    >
+      <div
+        class="p-4 rounded-lg border bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          Average Rating
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          4.5 ⭐
+        </p>
+      </div>
+      <div
+        class="p-4 rounded-lg border bg-blue-500/10 border-blue-500/20 text-blue-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          Total Ratings
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          12
+        </p>
+      </div>
+      <div
+        class="p-4 rounded-lg border bg-amber-500/10 border-amber-500/20 text-amber-400"
+      >
+        <h3
+          class="text-sm font-medium opacity-80"
+        >
+          Repeat Hires
+        </h3>
+        <p
+          class="text-2xl font-bold mt-1"
+        >
+          2
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+`;
+
+exports[`async component snapshots EarningsChart error: EarningsChart error 1`] = `
+<div
+  class="card text-center py-16"
+>
+  <p
+    class="text-amber-700 text-sm"
+  >
+    Failed to load earnings data.
+  </p>
+</div>
+`;
+
+exports[`async component snapshots EarningsChart loading: EarningsChart loading 1`] = `
+<div
+  class="space-y-3"
+>
+  <div
+    class="card animate-pulse h-24"
+  />
+  <div
+    class="card animate-pulse h-24"
+  />
+  <div
+    class="card animate-pulse h-24"
+  />
+</div>
+`;
+
+exports[`async component snapshots EarningsChart populated: EarningsChart populated 1`] = `
+<div
+  class="space-y-6"
+>
+  <div
+    class="grid grid-cols-1 sm:grid-cols-3 gap-4"
+  >
+    <div
+      class="card"
+    >
+      <p
+        class="text-xs text-amber-700"
+      >
+        Total Earned
+      </p>
+      <p
+        class="font-display text-2xl text-market-300 mt-1"
+      >
+        250 XLM
+      </p>
+    </div>
+    <div
+      class="card"
+    >
+      <p
+        class="text-xs text-amber-700"
+      >
+        Avg Earnings / Job
+      </p>
+      <p
+        class="font-display text-2xl text-amber-100 mt-1"
+      >
+        250 XLM
+      </p>
+    </div>
+    <div
+      class="card"
+    >
+      <p
+        class="text-xs text-amber-700"
+      >
+        Completed Jobs
+      </p>
+      <p
+        class="font-display text-2xl text-amber-100 mt-1"
+      >
+        1
+      </p>
+    </div>
+  </div>
+  <div
+    class="card"
+  >
+    <div
+      class="flex items-center justify-between mb-4"
+    >
+      <p
+        class="font-display text-lg text-amber-100"
+      >
+        Monthly Earnings (Last 12 Months)
+      </p>
+      <button
+        aria-label="Export earnings data as CSV"
+        class="btn-secondary text-xs px-3 py-1.5"
+      >
+        Export CSV
+      </button>
+    </div>
+    <div
+      data-testid="recharts-container"
+    >
+      <div
+        data-testid="bar-chart"
+      />
+    </div>
+  </div>
+  <div
+    class="card"
+  >
+    <p
+      class="font-display text-lg text-amber-100 mb-4"
+    >
+      Earnings by Job
+    </p>
+    <div
+      class="flex flex-col sm:flex-row items-center gap-6"
+    >
+      <div
+        data-testid="recharts-container"
+      >
+        <div
+          data-testid="pie-chart"
+        />
+      </div>
+      <div
+        class="flex-1 space-y-2 min-w-0"
+      >
+        <div
+          class="flex items-center justify-between gap-3"
+        >
+          <div
+            class="flex items-center gap-2 min-w-0"
+          >
+            <span
+              class="w-2.5 h-2.5 rounded-full flex-shrink-0"
+              style="background: rgb(245, 158, 11);"
+            />
+            <span
+              class="text-xs text-amber-100 truncate"
+            >
+              Build escrow contract
+            </span>
+          </div>
+          <span
+            class="text-xs text-market-300 font-medium flex-shrink-0"
+          >
+            250.00
+             XLM
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`async component snapshots EditProfileForm loading: EditProfileForm loading 1`] = `
+<div
+  class="card animate-pulse py-16 text-center"
+>
+  <div
+    class="w-8 h-8 rounded-full border-2 border-market-400 border-t-transparent animate-spin mx-auto mb-4"
+  />
+  <p
+    class="text-amber-800 text-sm"
+  >
+    Loading profile...
+  </p>
+</div>
+`;
+
+exports[`async component snapshots EditProfileForm populated: EditProfileForm populated 1`] = `
+<div
+  class="card"
+>
+  <h2
+    class="font-display text-2xl font-semibold text-amber-100 mb-6"
+  >
+    Edit Profile
+  </h2>
+  <form
+    class="space-y-6"
+  >
+    <div>
+      <label
+        class="block text-sm font-medium text-amber-100 mb-2"
+      >
+        Display Name
+      </label>
+      <input
+        class="w-full bg-ink-900/50 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 placeholder:text-amber-800/50 focus:outline-none focus:border-market-400 transition-colors"
+        maxlength="30"
+        minlength="3"
+        placeholder="Jane Doe"
+        type="text"
+        value="Jane Doe"
+      />
+      <p
+        class="text-xs text-amber-800 mt-1.5 flex justify-between"
+      >
+        <span>
+          Minimum 3 characters
+        </span>
+        <span>
+          8
+          /30
+        </span>
+      </p>
+    </div>
+    <div>
+      <label
+        class="block text-sm font-medium text-amber-100 mb-2"
+      >
+        Role
+      </label>
+      <div
+        class="flex flex-wrap gap-4"
+      >
+        <label
+          class="flex items-center justify-center px-4 py-2.5 rounded-xl border cursor-pointer transition-all bg-market-500/10 border-market-400 text-market-300"
+        >
+          <input
+            checked=""
+            class="sr-only"
+            name="role"
+            type="radio"
+            value="freelancer"
+          />
+          <span
+            class="capitalize"
+          >
+            freelancer
+          </span>
+        </label>
+        <label
+          class="flex items-center justify-center px-4 py-2.5 rounded-xl border cursor-pointer transition-all bg-ink-900/50 border-market-500/20 text-amber-600 hover:border-market-500/50"
+        >
+          <input
+            class="sr-only"
+            name="role"
+            type="radio"
+            value="client"
+          />
+          <span
+            class="capitalize"
+          >
+            client
+          </span>
+        </label>
+        <label
+          class="flex items-center justify-center px-4 py-2.5 rounded-xl border cursor-pointer transition-all bg-ink-900/50 border-market-500/20 text-amber-600 hover:border-market-500/50"
+        >
+          <input
+            class="sr-only"
+            name="role"
+            type="radio"
+            value="both"
+          />
+          <span
+            class="capitalize"
+          >
+            both
+          </span>
+        </label>
+      </div>
+    </div>
+    <div>
+      <label
+        class="block text-sm font-medium text-amber-100 mb-2"
+      >
+        Bio
+      </label>
+      <textarea
+        class="w-full bg-ink-900/50 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 placeholder:text-amber-800/50 focus:outline-none focus:border-market-400 transition-colors h-32 resize-none"
+        maxlength="300"
+        placeholder="Tell us a little about yourself..."
+      >
+        Stellar developer
+      </textarea>
+      <p
+        class="text-xs text-amber-800 mt-1.5 flex justify-between"
+      >
+        <span>
+          Brief description of your expertise and background
+        </span>
+        <span>
+          17
+          /300
+        </span>
+      </p>
+    </div>
+    <div>
+      <label
+        class="block text-sm font-medium text-amber-100 mb-2"
+      >
+        Skills
+      </label>
+      <div
+        class="bg-ink-900/50 border border-market-500/20 rounded-xl p-2 focus-within:border-market-400 transition-colors min-h-[52px] flex flex-wrap gap-2 items-center"
+      >
+        <span
+          class="flex items-center gap-1.5 bg-ink-800 border border-market-500/20 text-amber-100 text-sm px-2.5 py-1 rounded-lg"
+        >
+          React
+          <button
+            class="text-amber-600 hover:text-red-400 transition-colors"
+            type="button"
+          >
+            ×
+          </button>
+        </span>
+        <input
+          class="flex-1 bg-transparent border-none outline-none text-amber-100 placeholder:text-amber-800/50 min-w-[120px] px-2"
+          placeholder="Add more..."
+          type="text"
+          value=""
+        />
+      </div>
+    </div>
+    <div>
+      <div
+        class="flex items-center justify-between gap-4 mb-3"
+      >
+        <div>
+          <label
+            class="block text-sm font-medium text-amber-100"
+          >
+            Availability
+          </label>
+          <p
+            class="text-xs text-amber-800 mt-1"
+          >
+            Show clients when you can take on new work.
+          </p>
+        </div>
+      </div>
+      <div
+        class="rounded-xl border border-market-500/20 bg-ink-900/50 p-4 space-y-4"
+      >
+        <div>
+          <label
+            class="block text-xs font-medium text-amber-100 mb-1.5"
+          >
+            Status
+          </label>
+          <select
+            class="w-full bg-ink-950/60 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 focus:outline-none focus:border-market-400 transition-colors"
+          >
+            <option
+              value="available"
+            >
+              Available
+            </option>
+            <option
+              value="busy"
+            >
+              Busy
+            </option>
+            <option
+              value="unavailable"
+            >
+              Unavailable
+            </option>
+          </select>
+        </div>
+        <div
+          class="grid grid-cols-1 md:grid-cols-2 gap-3"
+        >
+          <div>
+            <label
+              class="block text-xs font-medium text-amber-100 mb-1.5"
+            >
+              Available From
+            </label>
+            <input
+              class="w-full bg-ink-950/60 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 focus:outline-none focus:border-market-400 transition-colors"
+              type="date"
+              value=""
+            />
+          </div>
+          <div>
+            <label
+              class="block text-xs font-medium text-amber-100 mb-1.5"
+            >
+              Available Until
+            </label>
+            <input
+              class="w-full bg-ink-950/60 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 focus:outline-none focus:border-market-400 transition-colors"
+              type="date"
+              value=""
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div
+        class="flex items-center justify-between gap-4 mb-3"
+      >
+        <div>
+          <label
+            class="block text-sm font-medium text-amber-100"
+          >
+            Portfolio
+          </label>
+          <p
+            class="text-xs text-amber-800 mt-1"
+          >
+            Add up to 
+            10
+             verified work samples.
+          </p>
+        </div>
+        <button
+          class="btn-secondary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          type="button"
+        >
+          Add Item
+        </button>
+      </div>
+      <div
+        class="space-y-3"
+      >
+        <div
+          class="rounded-xl border border-dashed border-market-500/20 bg-ink-900/30 px-4 py-6 text-sm text-amber-800"
+        >
+          No portfolio items yet. Add GitHub repos, live URLs, or Stellar transaction proofs.
+        </div>
+        <div
+          class="mt-4"
+        >
+          <div
+            class="flex items-center justify-between mb-3"
+          >
+            <div>
+              <label
+                class="block text-sm font-medium text-amber-100"
+              >
+                Upload Files
+              </label>
+              <p
+                class="text-xs text-amber-800 mt-1"
+              >
+                Upload up to 
+                5
+                 files (max 10MB each). Images, PDFs, and documents supported.
+              </p>
+            </div>
+          </div>
+          <div
+            class="space-y-3"
+          >
+            <div
+              class="relative"
+            >
+              <input
+                accept="image/*,.pdf,.doc,.docx,.txt"
+                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                multiple=""
+                type="file"
+              />
+              <div
+                class="rounded-xl border border-dashed border-market-500/30 bg-ink-900/40 px-4 py-6 text-center hover:border-market-500/50 transition-colors cursor-pointer"
+              >
+                <div
+                  class="text-2xl mb-2"
+                >
+                  📁
+                </div>
+                <p
+                  class="text-sm text-amber-100"
+                >
+                  Click to upload files or drag and drop
+                </p>
+                <p
+                  class="text-xs text-amber-800 mt-1"
+                >
+                  0
+                  /
+                  5
+                   files uploaded
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div
+      class="pt-4 border-t border-market-500/10 flex justify-between items-center gap-3"
+    >
+      <p
+        class="text-xs text-amber-800"
+      >
+        0
+        /
+        10
+         portfolio items
+      </p>
+      <button
+        class="btn-primary"
+        type="submit"
+      >
+        Save Profile
+      </button>
+    </div>
+  </form>
+</div>
+`;
+
+exports[`async component snapshots FaucetButton default visible state: FaucetButton 1`] = `
+<div
+  class="fixed bottom-4 right-4 z-50 max-w-sm"
+>
+  <div
+    class="card bg-gradient-to-br from-blue-500/10 to-blue-600/10 border-blue-500/30 p-4"
+  >
+    <div
+      class="flex items-center gap-3 mb-3"
+    >
+      <div
+        class="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center"
+      >
+        <span
+          class="text-blue-400 text-sm"
+        >
+          💧
+        </span>
+      </div>
+      <div>
+        <h3
+          class="font-semibold text-blue-100 text-sm"
+        >
+          Fund Testnet Wallet
+        </h3>
+        <p
+          class="text-xs text-blue-300"
+        >
+          Get 10,000 XLM for testing
+        </p>
+      </div>
+    </div>
+    <button
+      class="w-full btn-primary text-sm bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      Fund Testnet Wallet
+    </button>
+    <p
+      class="text-xs text-blue-300/60 mt-2 text-center"
+    >
+      Only available on Stellar testnet
+    </p>
+  </div>
+</div>
+`;
+
+exports[`async component snapshots JobAnalyticsPanel loading: JobAnalyticsPanel loading 1`] = `
+<div
+  class="space-y-6"
+>
+  <div
+    class="card p-4"
+  >
+    <h3
+      class="font-display text-sm font-semibold text-amber-100 mb-3"
+    >
+      Job Timeline
+    </h3>
+    <div
+      class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center"
+    >
+      <div>
+        <p
+          class="text-xs text-amber-700 mb-1"
+        >
+          Posted
+        </p>
+        <p
+          class="font-mono text-sm text-amber-400"
+        >
+          1/12/2026
+        </p>
+      </div>
+      <div>
+        <p
+          class="text-xs text-amber-700 mb-1"
+        >
+          Expires
+        </p>
+        <p
+          class="font-mono text-sm text-amber-400"
+        >
+          —
+        </p>
+      </div>
+      <div>
+        <p
+          class="text-xs text-amber-700 mb-1"
+        >
+          Time Remaining
+        </p>
+        <p
+          class="font-mono text-sm text-emerald-400"
+        >
+          -
+        </p>
+      </div>
+      <div>
+        <p
+          class="text-xs text-amber-700 mb-1"
+        >
+          Extended
+        </p>
+        <p
+          class="font-mono text-sm text-emerald-400"
+        >
+          0
+           / 3
+        </p>
+      </div>
+    </div>
+  </div>
+  <div
+    class="grid gap-6"
+  >
+    <div
+      class="card p-4"
+    >
+      <div
+        class="flex items-center justify-between mb-4"
+      >
+        <h3
+          class="font-display text-sm font-semibold text-amber-100"
+        >
+          Applications Per Day
+        </h3>
+      </div>
+      <div
+        class="h-24 flex items-center justify-center"
+      >
+        <div
+          class="w-16 h-16 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin"
+        />
+      </div>
+    </div>
+    <div
+      class="card p-4"
+    >
+      <h3
+        class="font-display text-sm font-semibold text-amber-100 mb-4"
+      >
+        Average Bid Amount
+      </h3>
+      <div
+        class="h-24 flex items-center justify-center"
+      >
+        <div
+          class="w-16 h-16 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin"
+        />
+      </div>
+    </div>
+    <div
+      class="card p-4"
+    >
+      <h3
+        class="font-display text-sm font-semibold text-amber-100 mb-4"
+      >
+        Applicant Skills
+      </h3>
+      <div
+        class="h-32 flex items-center justify-center"
+      >
+        <div
+          class="w-16 h-16 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin"
+        />
+      </div>
+    </div>
+    <div
+      class="grid sm:grid-cols-2 gap-4"
+    >
+      <div
+        class="card p-4"
+      >
+        <h3
+          class="font-display text-sm font-semibold text-amber-100 mb-3"
+        >
+          Time to Hire
+        </h3>
+        <div
+          class="h-16 flex items-center justify-center"
+        >
+          <div
+            class="w-8 h-8 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin"
+          />
+        </div>
+      </div>
+      <div
+        class="card p-4"
+      >
+        <h3
+          class="font-display text-sm font-semibold text-amber-100 mb-3"
+        >
+          Application Status
+        </h3>
+        <div
+          class="h-16 flex items-center justify-center"
+        >
+          <div
+            class="w-8 h-8 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin"
+          />
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`async component snapshots JobAnalyticsPanel populated: JobAnalyticsPanel populated 1`] = `
+<div
+  class="space-y-6"
+>
+  <div
+    class="card p-4"
+  >
+    <h3
+      class="font-display text-sm font-semibold text-amber-100 mb-3"
+    >
+      Job Timeline
+    </h3>
+    <div
+      class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center"
+    >
+      <div>
+        <p
+          class="text-xs text-amber-700 mb-1"
+        >
+          Posted
+        </p>
+        <p
+          class="font-mono text-sm text-amber-400"
+        >
+          1/12/2026
+        </p>
+      </div>
+      <div>
+        <p
+          class="text-xs text-amber-700 mb-1"
+        >
+          Expires
+        </p>
+        <p
+          class="font-mono text-sm text-amber-400"
+        >
+          —
+        </p>
+      </div>
+      <div>
+        <p
+          class="text-xs text-amber-700 mb-1"
+        >
+          Time Remaining
+        </p>
+        <p
+          class="font-mono text-sm text-emerald-400"
+        >
+          -
+        </p>
+      </div>
+      <div>
+        <p
+          class="text-xs text-amber-700 mb-1"
+        >
+          Extended
+        </p>
+        <p
+          class="font-mono text-sm text-emerald-400"
+        >
+          0
+           / 3
+        </p>
+      </div>
+    </div>
+  </div>
+  <div
+    class="grid gap-6"
+  >
+    <div
+      class="card p-4"
+    >
+      <div
+        class="flex items-center justify-between mb-4"
+      >
+        <h3
+          class="font-display text-sm font-semibold text-amber-100"
+        >
+          Applications Per Day
+        </h3>
+        <span
+          class="text-xs text-amber-700"
+        >
+          Total: 
+          2
+        </span>
+      </div>
+      <div
+        class="space-y-2"
+      >
+        <div
+          class="flex items-end justify-between gap-1 h-20"
+        >
+          <div
+            class="flex-1 flex flex-col items-center gap-1"
+          >
+            <div
+              class="w-full max-w-[28px] bg-gradient-to-t from-amber-500/30 to-amber-400 rounded-t-sm transition-all duration-300 hover:from-amber-500/50 hover:to-amber-300"
+              style="height: 100%;"
+            />
+            <span
+              class="text-[10px] text-amber-700 whitespace-nowrap"
+            >
+              Jan 10
+            </span>
+          </div>
+        </div>
+        <div
+          class="flex justify-between text-[10px] text-amber-800 px-1"
+        >
+          <span>
+            Jan 10
+          </span>
+          <span>
+            Jan 10
+          </span>
+        </div>
+      </div>
+    </div>
+    <div
+      class="card p-4"
+    >
+      <h3
+        class="font-display text-sm font-semibold text-amber-100 mb-4"
+      >
+        Average Bid Amount
+      </h3>
+      <div
+        class="space-y-3"
+      >
+        <div
+          class="flex items-center gap-3"
+        >
+          <div
+            class="w-16 text-sm text-amber-700"
+          >
+            XLM
+          </div>
+          <div
+            class="flex-1 h-8 bg-ink-900 rounded overflow-hidden"
+          >
+            <div
+              class="h-full bg-gradient-to-r from-amber-500/30 to-amber-400 flex items-center justify-end pr-2 transition-all duration-500"
+              style="width: 9%;"
+            >
+              <span
+                class="text-sm font-semibold text-amber-100"
+              >
+                90.00
+              </span>
+            </div>
+          </div>
+          <span
+            class="text-xs text-amber-800 w-10 flex-shrink-0"
+          >
+            (
+            3
+            )
+          </span>
+        </div>
+      </div>
+    </div>
+    <div
+      class="card p-4"
+    >
+      <h3
+        class="font-display text-sm font-semibold text-amber-100 mb-4"
+      >
+        Applicant Skills
+      </h3>
+      <div
+        class="space-y-2"
+      >
+        <div
+          class="flex items-center gap-2"
+        >
+          <div
+            class="w-20 text-xs text-amber-700 truncate flex-shrink-0"
+          >
+            React
+          </div>
+          <div
+            class="flex-1 h-6 bg-ink-900 rounded overflow-hidden"
+          >
+            <div
+              class="h-full bg-gradient-to-r from-emerald-500/40 to-emerald-400 transition-all duration-500"
+              style="width: 100%;"
+            />
+          </div>
+          <span
+            class="text-xs font-mono text-emerald-400 w-6 text-right flex-shrink-0"
+          >
+            2
+          </span>
+        </div>
+        <div
+          class="flex items-center gap-2"
+        >
+          <div
+            class="w-20 text-xs text-amber-700 truncate flex-shrink-0"
+          >
+            TypeScript
+          </div>
+          <div
+            class="flex-1 h-6 bg-ink-900 rounded overflow-hidden"
+          >
+            <div
+              class="h-full bg-gradient-to-r from-emerald-500/40 to-emerald-400 transition-all duration-500"
+              style="width: 50%;"
+            />
+          </div>
+          <span
+            class="text-xs font-mono text-emerald-400 w-6 text-right flex-shrink-0"
+          >
+            1
+          </span>
+        </div>
+      </div>
+    </div>
+    <div
+      class="grid sm:grid-cols-2 gap-4"
+    >
+      <div
+        class="card p-4"
+      >
+        <h3
+          class="font-display text-sm font-semibold text-amber-100 mb-3"
+        >
+          Time to Hire
+        </h3>
+        <div
+          class="text-center"
+        >
+          <p
+            class="text-sm text-amber-800"
+          >
+            Not hired yet
+          </p>
+        </div>
+      </div>
+      <div
+        class="card p-4"
+      >
+        <h3
+          class="font-display text-sm font-semibold text-amber-100 mb-3"
+        >
+          Application Status
+        </h3>
+        <div
+          class="flex items-center justify-center"
+        >
+          <div
+            class="flex flex-col items-center gap-3"
+          >
+            <div
+              class="relative w-24 h-24"
+            >
+              <svg
+                class="w-full h-full -rotate-90"
+                viewBox="0 0 36 36"
+              >
+                <circle
+                  class="transition-all duration-500"
+                  cx="18"
+                  cy="18"
+                  fill="none"
+                  r="15.915"
+                  stroke="#amber-500"
+                  stroke-dasharray="66.66666666666666 33.33333333333334"
+                  stroke-dashoffset="0"
+                  stroke-width="3"
+                />
+                <circle
+                  class="transition-all duration-500"
+                  cx="18"
+                  cy="18"
+                  fill="none"
+                  r="15.915"
+                  stroke="#emerald-500"
+                  stroke-dasharray="33.33333333333333 66.66666666666667"
+                  stroke-dashoffset="-66.66666666666666"
+                  stroke-width="3"
+                />
+              </svg>
+              <div
+                class="absolute inset-0 flex items-center justify-center"
+              >
+                <span
+                  class="font-display text-lg font-bold text-amber-100"
+                >
+                  3
+                </span>
+              </div>
+            </div>
+            <div
+              class="flex gap-4 text-xs"
+            >
+              <div
+                class="flex items-center gap-1"
+              >
+                <span
+                  class="w-2 h-2 rounded-full bg-amber-500/50"
+                />
+                <span
+                  class="text-amber-700"
+                >
+                  Pending
+                  : 
+                  2
+                </span>
+              </div>
+              <div
+                class="flex items-center gap-1"
+              >
+                <span
+                  class="w-2 h-2 rounded-full bg-emerald-500/50"
+                />
+                <span
+                  class="text-amber-700"
+                >
+                  Accepted
+                  : 
+                  1
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`async component snapshots MessageThread empty: MessageThread empty 1`] = `
+<div
+  class="card border-market-500/12 flex flex-col"
+>
+  <div
+    class="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-market-500/8"
+  >
+    <div
+      class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"
+    />
+    <span
+      class="text-xs font-mono text-market-400 uppercase tracking-wide"
+    >
+      Private Conversation
+    </span>
+  </div>
+  <div
+    class="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-[300px] max-h-[400px]"
+  >
+    <div
+      class="text-center py-12"
+    >
+      <p
+        class="text-amber-800 text-sm"
+      >
+        No messages yet. Start the conversation!
+      </p>
+    </div>
+    <div />
+  </div>
+  <form
+    class="p-4 border-t border-market-500/8"
+  >
+    <div
+      class="flex items-center gap-2"
+    >
+      <input
+        accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.doc,.docx"
+        class="hidden"
+        type="file"
+      />
+      <button
+        aria-label="Attach encrypted file"
+        class="p-2.5 rounded-xl border border-market-500/15 text-amber-700 hover:text-market-400 hover:border-market-500/40 disabled:opacity-40 transition-colors shrink-0"
+        type="button"
+      >
+        <svg
+          class="w-4 h-4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.75"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+      <input
+        class="flex-1 bg-ink-800 border border-market-500/15 rounded-xl px-4 py-2.5 text-sm text-amber-100 placeholder-amber-900 focus:outline-none focus:border-market-500/40 disabled:opacity-50"
+        maxlength="2000"
+        placeholder="Type your message..."
+        type="text"
+        value=""
+      />
+      <button
+        class="btn-primary text-sm py-2.5 px-5 whitespace-nowrap opacity-50 cursor-not-allowed"
+        disabled=""
+        type="submit"
+      >
+        Send
+      </button>
+    </div>
+    <p
+      class="text-[10px] text-amber-900 mt-2 text-right"
+    >
+      0
+      /2000
+    </p>
+  </form>
+</div>
+`;
+
+exports[`async component snapshots MessageThread error: MessageThread error 1`] = `
+<div
+  class="card border-red-500/20 bg-red-500/5 py-8 text-center"
+>
+  <p
+    class="text-red-400 text-sm"
+  >
+    Network error
+  </p>
+  <button
+    class="mt-3 text-xs text-amber-600 hover:text-amber-400 underline"
+  >
+    Retry
+  </button>
+</div>
+`;
+
+exports[`async component snapshots MessageThread loading: MessageThread loading 1`] = `
+<div
+  class="card border-market-500/12"
+>
+  <div
+    class="flex flex-col gap-3 py-8"
+  >
+    <div
+      class="animate-pulse rounded-2xl px-4 py-3 max-w-[80%] ml-auto bg-market-500/10"
+    >
+      <div
+        class="h-4 bg-market-500/20 rounded w-32 mb-2"
+      />
+      <div
+        class="h-3 bg-market-500/15 rounded w-24"
+      />
+    </div>
+    <div
+      class="animate-pulse rounded-2xl px-4 py-3 max-w-[80%] mx-auto w-fit bg-ink-800"
+    >
+      <div
+        class="h-4 bg-market-500/20 rounded w-32 mb-2"
+      />
+      <div
+        class="h-3 bg-market-500/15 rounded w-24"
+      />
+    </div>
+    <div
+      class="animate-pulse rounded-2xl px-4 py-3 max-w-[80%] ml-auto bg-market-500/10"
+    >
+      <div
+        class="h-4 bg-market-500/20 rounded w-32 mb-2"
+      />
+      <div
+        class="h-3 bg-market-500/15 rounded w-24"
+      />
+    </div>
+  </div>
+</div>
+`;
+
+exports[`async component snapshots NotificationBell default closed: NotificationBell closed 1`] = `
+<div
+  class="relative"
+>
+  <button
+    aria-label="Notifications"
+    class="relative p-2 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors"
+    title="Notifications"
+    type="button"
+  >
+    <svg
+      class="w-4 h-4"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  </button>
+</div>
+`;
+
+exports[`async component snapshots NotificationBell open empty: NotificationBell open empty 1`] = `
+<div
+  class="relative"
+>
+  <button
+    aria-label="Notifications"
+    class="relative p-2 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors"
+    title="Notifications"
+    type="button"
+  >
+    <svg
+      class="w-4 h-4"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  </button>
+  <div
+    class="absolute right-0 top-11 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-amber-900/30 bg-ink-900 shadow-2xl shadow-black/30 overflow-hidden"
+  >
+    <div
+      class="flex items-center justify-between px-4 py-3 border-b border-amber-900/30"
+    >
+      <p
+        class="text-sm font-semibold text-amber-100"
+      >
+        Notifications
+      </p>
+      <button
+        class="text-xs text-market-400 hover:text-market-300 disabled:opacity-40"
+        disabled=""
+        type="button"
+      >
+        Mark all read
+      </button>
+    </div>
+    <div
+      class="max-h-96 overflow-y-auto"
+    >
+      <p
+        class="px-4 py-6 text-sm text-amber-700"
+      >
+        No notifications yet.
+      </p>
+    </div>
+    <button
+      class="w-full px-4 py-3 text-sm font-medium text-market-400 hover:text-market-300 hover:bg-market-500/8 border-t border-amber-900/30"
+      type="button"
+    >
+      View all notifications
+    </button>
+  </div>
+</div>
+`;
+
+exports[`async component snapshots OfflineBanner offline state: OfflineBanner offline 1`] = `
+<div
+  aria-live="assertive"
+  class="fixed top-0 left-0 right-0 z-50 border-b border-yellow-500/30 bg-yellow-500/10 backdrop-blur-sm"
+  role="alert"
+>
+  <div
+    class="max-w-7xl mx-auto flex items-center gap-3 px-4 py-3"
+  >
+    <div
+      class="flex-shrink-0"
+    >
+      <svg
+        aria-hidden="true"
+        class="h-5 w-5 text-yellow-400"
+        fill="currentColor"
+        viewBox="0 0 20 20"
+      >
+        <path
+          clip-rule="evenodd"
+          d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+          fill-rule="evenodd"
+        />
+      </svg>
+    </div>
+    <p
+      class="flex-1 text-sm font-medium text-yellow-300"
+    >
+      You are offline — cached data is shown. Changes will sync when you reconnect.
+    </p>
+  </div>
+</div>
+`;
+
+exports[`async component snapshots PasskeyManager empty: PasskeyManager empty 1`] = `
+<div
+  class="space-y-6"
+>
+  <div>
+    <h3
+      class="font-display text-xl text-amber-100 mb-1"
+    >
+      Passkeys
+    </h3>
+    <p
+      class="text-sm text-amber-800"
+    >
+      Register your fingerprint, Face ID, or a hardware security key to sign in without your wallet. Works on Chrome, Safari, Firefox, and Edge.
+    </p>
+  </div>
+  <div
+    class="card space-y-3 max-w-lg"
+  >
+    <p
+      class="text-sm font-medium text-amber-200"
+    >
+      Add a new passkey
+    </p>
+    <input
+      class="input-field"
+      maxlength="64"
+      placeholder="Name (e.g. iPhone, YubiKey)"
+      type="text"
+      value=""
+    />
+    <button
+      class="btn-primary text-sm"
+    >
+      Register passkey
+    </button>
+  </div>
+  <div
+    class="space-y-2"
+  >
+    <p
+      class="text-xs uppercase tracking-wider text-amber-800/70"
+    >
+      Registered passkeys (
+      0
+      /5)
+    </p>
+    <div
+      class="card text-center py-8"
+    >
+      <p
+        class="text-amber-800 text-sm"
+      >
+        No passkeys registered yet.
+      </p>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`async component snapshots PasskeyManager loading: PasskeyManager loading 1`] = `
+<div
+  class="space-y-6"
+>
+  <div>
+    <h3
+      class="font-display text-xl text-amber-100 mb-1"
+    >
+      Passkeys
+    </h3>
+    <p
+      class="text-sm text-amber-800"
+    >
+      Register your fingerprint, Face ID, or a hardware security key to sign in without your wallet. Works on Chrome, Safari, Firefox, and Edge.
+    </p>
+  </div>
+  <div
+    class="card space-y-3 max-w-lg"
+  >
+    <p
+      class="text-sm font-medium text-amber-200"
+    >
+      Add a new passkey
+    </p>
+    <input
+      class="input-field"
+      maxlength="64"
+      placeholder="Name (e.g. iPhone, YubiKey)"
+      type="text"
+      value=""
+    />
+    <button
+      class="btn-primary text-sm"
+    >
+      Register passkey
+    </button>
+  </div>
+  <div
+    class="space-y-2"
+  >
+    <p
+      class="text-xs uppercase tracking-wider text-amber-800/70"
+    >
+      Registered passkeys (
+      0
+      /5)
+    </p>
+    <div
+      class="space-y-2"
+    >
+      <div
+        class="card animate-pulse h-14"
+      />
+      <div
+        class="card animate-pulse h-14"
+      />
+    </div>
+  </div>
+</div>
+`;
+
+exports[`async component snapshots ReferralDashboard empty: ReferralDashboard empty 1`] = `
+<div
+  class="space-y-6"
+>
+  <div
+    class="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/20 relative overflow-hidden"
+  >
+    <div
+      class="absolute top-0 right-0 w-40 h-40 bg-market-500/5 rounded-full blur-3xl pointer-events-none"
+    />
+    <div
+      class="relative"
+    >
+      <div
+        class="flex items-start justify-between gap-4 mb-4"
+      >
+        <div>
+          <h2
+            class="font-display text-xl font-semibold text-amber-100 mb-1"
+          >
+            Refer & Earn
+          </h2>
+          <p
+            class="text-sm text-amber-700"
+          >
+            Share your link. Earn
+             
+            <span
+              class="text-market-400 font-semibold"
+            >
+              2
+              %
+            </span>
+             
+            of your referee's first job earnings — paid automatically on-chain.
+          </p>
+        </div>
+        <div
+          class="flex-shrink-0 w-12 h-12 rounded-xl bg-market-500/10 border border-market-500/20 flex items-center justify-center"
+        >
+          <svg
+            class="w-6 h-6 text-market-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+            />
+          </svg>
+        </div>
+      </div>
+      <div
+        class="flex items-center gap-2"
+      >
+        <div
+          class="flex-1 bg-ink-950/60 border border-market-500/20 rounded-xl px-4 py-2.5 font-mono text-xs text-amber-400 truncate select-all"
+        >
+          https://stellar-marketpay.com/?ref=GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF
+        </div>
+        <button
+          class="flex-shrink-0 flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all border btn-primary border-transparent"
+        >
+          <svg
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+            />
+          </svg>
+          Copy Link
+        </button>
+      </div>
+    </div>
+  </div>
+  <div
+    class="grid grid-cols-2 sm:grid-cols-4 gap-3"
+  >
+    <div
+      class="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/15 text-center py-4"
+    >
+      <p
+        class="font-display text-2xl font-bold text-amber-100"
+      >
+        0
+      </p>
+      <p
+        class="text-xs text-amber-700 mt-1"
+      >
+        Total Invited
+      </p>
+    </div>
+    <div
+      class="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/15 text-center py-4"
+    >
+      <p
+        class="font-display text-2xl font-bold text-amber-400"
+      >
+        0
+      </p>
+      <p
+        class="text-xs text-amber-700 mt-1"
+      >
+        Pending
+      </p>
+    </div>
+    <div
+      class="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/15 text-center py-4"
+    >
+      <p
+        class="font-display text-2xl font-bold text-emerald-400"
+      >
+        0
+      </p>
+      <p
+        class="text-xs text-amber-700 mt-1"
+      >
+        Paid Out
+      </p>
+    </div>
+    <div
+      class="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/15 text-center py-4"
+    >
+      <p
+        class="font-display text-2xl font-bold text-market-400"
+      >
+        0 XLM
+      </p>
+      <p
+        class="text-xs text-amber-700 mt-1"
+      >
+        Total Earned
+      </p>
+    </div>
+  </div>
+  <div
+    class="card text-center py-14"
+  >
+    <div
+      class="w-14 h-14 rounded-2xl bg-market-500/10 border border-market-500/20 flex items-center justify-center mx-auto mb-4"
+    >
+      <svg
+        class="w-7 h-7 text-market-400"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.5"
+        />
+      </svg>
+    </div>
+    <p
+      class="font-display text-lg text-amber-100 mb-1"
+    >
+      No referrals yet
+    </p>
+    <p
+      class="text-sm text-amber-700 max-w-xs mx-auto"
+    >
+      Share your referral link above. When someone signs up and completes their first job, you'll automatically receive 
+      2
+      % of their earnings.
+    </p>
+  </div>
+</div>
+`;
+
+exports[`async component snapshots ReferralDashboard error: ReferralDashboard error 1`] = `
+<div
+  class="card text-center py-12"
+>
+  <p
+    class="text-red-400 text-sm mb-4"
+  >
+    Failed to load referral data. Please try again.
+  </p>
+  <button
+    class="btn-secondary text-sm"
+  >
+    Retry
+  </button>
+</div>
+`;
+
+exports[`async component snapshots ReferralDashboard loading: ReferralDashboard loading 1`] = `
+<div
+  class="space-y-4"
+>
+  <div
+    class="card animate-pulse h-20"
+  />
+  <div
+    class="card animate-pulse h-20"
+  />
+  <div
+    class="card animate-pulse h-20"
+  />
+</div>
+`;
+
+exports[`async component snapshots TimeTracker empty client view: TimeTracker empty 1`] = `
+<div
+  class="card mt-6 space-y-5"
+>
+  <div
+    class="flex items-center justify-between"
+  >
+    <h2
+      class="text-lg font-semibold text-amber-100"
+    >
+      ⏱ Time Tracker
+    </h2>
+  </div>
+  <p
+    class="text-sm text-amber-800 text-center py-2"
+  >
+    No time entries yet.
+  </p>
+</div>
+`;
+
+exports[`async component snapshots TimeTracker loading: TimeTracker loading 1`] = `
+<div
+  class="card mt-6 animate-pulse"
+>
+  <div
+    class="h-5 bg-market-500/10 rounded w-1/3 mb-3"
+  />
+  <div
+    class="h-4 bg-market-500/8 rounded w-2/3"
+  />
+</div>
+`;
+
+exports[`async component snapshots XlmPriceWidget error: XlmPriceWidget error 1`] = `
+<div
+  class="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18"
+>
+  <div
+    class="flex items-center justify-between"
+  >
+    <h3
+      class="font-display text-lg font-semibold text-amber-100"
+    >
+      XLM / USD
+    </h3>
+    <button
+      class="btn-secondary text-xs py-1 px-2"
+      type="button"
+    >
+      Collapse
+    </button>
+  </div>
+  <div
+    class="mt-3 space-y-3"
+  >
+    <p
+      class="text-sm text-red-400"
+    >
+      Failed to load XLM price chart.
+    </p>
+  </div>
+</div>
+`;
+
+exports[`async component snapshots XlmPriceWidget loading: XlmPriceWidget loading 1`] = `
+<div
+  class="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18"
+>
+  <div
+    class="flex items-center justify-between"
+  >
+    <h3
+      class="font-display text-lg font-semibold text-amber-100"
+    >
+      XLM / USD
+    </h3>
+    <button
+      class="btn-secondary text-xs py-1 px-2"
+      type="button"
+    >
+      Collapse
+    </button>
+  </div>
+  <div
+    class="mt-3 space-y-3"
+  >
+    <div
+      class="h-28 rounded-lg bg-market-500/10 animate-pulse"
+    />
+  </div>
+</div>
+`;
+
+exports[`async component snapshots XlmPriceWidget populated: XlmPriceWidget populated 1`] = `
+<div
+  class="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18"
+>
+  <div
+    class="flex items-center justify-between"
+  >
+    <h3
+      class="font-display text-lg font-semibold text-amber-100"
+    >
+      XLM / USD
+    </h3>
+    <button
+      class="btn-secondary text-xs py-1 px-2"
+      type="button"
+    >
+      Collapse
+    </button>
+  </div>
+  <div
+    class="mt-3 space-y-3"
+  >
+    <div
+      class="flex items-end justify-between"
+    >
+      <div>
+        <p
+          class="text-xs text-amber-800"
+        >
+          Current price
+        </p>
+        <p
+          class="text-2xl font-bold text-amber-100"
+        >
+          $0.1200
+        </p>
+      </div>
+      <div
+        class="text-sm font-semibold text-emerald-400"
+      >
+        1.20% (24h)
+      </div>
+    </div>
+    <div
+      class="h-28"
+    >
+      <div
+        data-testid="chart-line"
+      />
+    </div>
+    <p
+      class="text-xs text-amber-700"
+    >
+      7-day sparkline
+    </p>
+  </div>
+</div>
+`;

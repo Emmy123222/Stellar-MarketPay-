@@ -1,0 +1,61 @@
+{
+    "name":  "Stellar MarketPay",
+    "short_name":  "MarketPay",
+    "description":  "Decentralized freelance marketplace powered by Stellar",
+    "start_url":  "/",
+    "scope":  "/",
+    "display":  "standalone",
+    "orientation":  "portrait-primary",
+    "theme_color":  "#f59e0b",
+    "background_color":  "#0c0a06",
+    "categories":  [
+                       "business",
+                       "productivity"
+                   ],
+    "icons":  [
+                  {
+                      "purpose":  "any",
+                      "type":  "image/png",
+                      "sizes":  "192x192",
+                      "src":  "/icon-192x192.png"
+                  },
+                  {
+                      "purpose":  "any",
+                      "type":  "image/png",
+                      "sizes":  "512x512",
+                      "src":  "/icon-512x512.png"
+                  },
+                  {
+                      "purpose":  "maskable",
+                      "type":  "image/png",
+                      "sizes":  "192x192",
+                      "src":  "/icon-maskable.png"
+                  }
+              ],
+    "shortcuts":  [
+                      {
+                          "name":  "Post Job",
+                          "short_name":  "New Job",
+                          "description":  "Create a new job posting",
+                          "url":  "/post-job?source=shortcut",
+                          "icons":  [
+                                        {
+                                            "src":  "/icon-96x96.png",
+                                            "sizes":  "96x96"
+                                        }
+                                    ]
+                      },
+                      {
+                          "name":  "Browse Jobs",
+                          "short_name":  "Jobs",
+                          "description":  "Browse available jobs",
+                          "url":  "/jobs?source=shortcut",
+                          "icons":  [
+                                        {
+                                            "src":  "/icon-96x96.png",
+                                            "sizes":  "96x96"
+                                        }
+                                    ]
+                      }
+                  ]
+}
