@@ -774,10 +774,13 @@ async function assignFreelancer(jobId, freelancerAddress) {
  *
  * @param {number|string} jobId - The ID of the job.
  * @param {string} escrowContractId - The escrow contract ID.
+ * @param {Object} [options] - Optional overrides.
+ * @param {string|number} [options.amount] - Escrow amount override (e.g. accepted bid amount).
+ *   Falls back to job.budget when omitted.
  * @returns {Promise<Object>} The updated job object.
  * @throws {Error} If the escrowContractId is invalid or the job is not found.
  */
-async function updateJobEscrowId(jobId, escrowContractId) {
+async function updateJobEscrowId(jobId, escrowContractId, { amount } = {}) {
   if (!escrowContractId || typeof escrowContractId !== "string") {
     const e = new Error("Invalid escrow contract ID");
     e.status = 400;
@@ -791,6 +794,10 @@ async function updateJobEscrowId(jobId, escrowContractId) {
 
   if (rows.length) {
     const job = rowToJob(rows[0]);
+    // Use explicit amount when provided (e.g. accepted bid amount); fall back to job budget
+    const escrowAmount = amount !== undefined
+      ? parseFloat(amount).toFixed(7)
+      : job.budget;
     await pool.query(
       `INSERT INTO escrows (job_id, contract_id, amount_xlm, milestones, status, created_at, updated_at)
        VALUES ($1, $2, $3, $4, 'funded', NOW(), NOW())
@@ -799,7 +806,7 @@ async function updateJobEscrowId(jobId, escrowContractId) {
            amount_xlm = EXCLUDED.amount_xlm,
            milestones = EXCLUDED.milestones,
            updated_at = NOW()`,
-      [job.id, escrowContractId, job.budget, JSON.stringify(job.milestones)],
+      [job.id, escrowContractId, escrowAmount, JSON.stringify(job.milestones)],
     );
     return job;
   }

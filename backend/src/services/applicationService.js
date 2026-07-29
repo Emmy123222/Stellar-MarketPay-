@@ -499,6 +499,17 @@ async function acceptApplication(applicationId, clientAddress) {
 
     await assignFreelancer(app.job_id, app.freelancer_address);
 
+    // Bug #850: Update escrow amount to match the accepted bid amount,
+    // not the original job budget.  If the escrow row hasn't been created
+    // yet (front-end hasn't submitted the on-chain tx), this is a no-op
+    // and updateJobEscrowId will use the bid amount when it runs.
+    await pool.query(
+      `UPDATE escrows
+         SET amount_xlm = $1, updated_at = NOW()
+       WHERE job_id = $2`,
+      [app.bid_amount, app.job_id],
+    );
+
     return rowToApp(updated[0]);
   } catch (err) {
     await client.query("ROLLBACK");

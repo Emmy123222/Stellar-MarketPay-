@@ -127,5 +127,26 @@ describe("applicationService", () => {
       ).rejects.toThrow("Only the job client can accept applications");
       expect(pool.applications.get(applicationId).status).toBe("pending");
     });
+
+    // Bug #850: Regression test — escrow amount must match accepted bid, not job budget
+    it("updates escrow amount to match accepted bid amount (bug #850)", async () => {
+      const acceptedApp = await acceptApplication(
+        applicationId,
+        validClientAddress,
+      );
+
+      // The accepted application has bid_amount = "450.0000000"
+      expect(pool.applications.get(applicationId).bid_amount).toBe("450.0000000");
+
+      // Verify the escrow amount was updated to the bid amount
+      const escrowUpdateCalls = pool.query.mock.calls.filter(
+        ([sql]) =>
+          typeof sql === "string" &&
+          sql.replace(/\s+/g, " ").trim().startsWith("UPDATE escrows SET amount_xlm"),
+      );
+      expect(escrowUpdateCalls.length).toBe(1);
+      expect(escrowUpdateCalls[0][1][0]).toBe("450.0000000"); // bid_amount passed as first param
+      expect(escrowUpdateCalls[0][1][1]).toBe(openJob.id);    // job_id passed as second param
+    });
   });
 });
