@@ -736,7 +736,7 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
               variant="danger"
               requireTypedConfirm
               typedConfirmText="CONFIRM"
-              actionDetails={`Job: ${job?.title || ""}`}
+              actionDetails={`Job: ${job?.title || ""} · Amount: ${job?.budget || ""} ${job?.currency || ""}`}
               onConfirm={handleReleaseEscrow}
               onCancel={() => setShowReleaseConfirm(false)}
               loading={releasingEscrow}
