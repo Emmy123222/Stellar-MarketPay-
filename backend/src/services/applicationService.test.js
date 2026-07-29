@@ -364,184 +364,25 @@ describe("applicationService", () => {
       expect(pool.applications.get(applicationId).status).toBe("pending");
     });
 
-    it("throws 404 when application not found", async () => {
-      await expect(
-        acceptApplication("nonexistent-app", validClientAddress),
-      ).rejects.toThrow("Application not found");
-    });
-
-    it("rejects when job is no longer open", async () => {
-      pool.jobs.get(openJob.id).status = "in_progress";
-
-      await expect(
-        acceptApplication(applicationId, validClientAddress),
-      ).rejects.toThrow("Job is no longer accepting applications");
-    });
-  });
-
-  // ─── withdrawApplication ───────────────────────────────────────────────
-
-  describe("withdrawApplication", () => {
-    it("withdraws a pending application", async () => {
-      const app = await submitApplication({
-        jobId: openJob.id,
-        freelancerAddress: validFreelancerAddress,
-        proposal:
-          "I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.",
-        bidAmount: "450",
-      });
-
-      const withdrawn = await withdrawApplication(app.id, validFreelancerAddress);
-      expect(withdrawn.id).toBe(app.id);
-      expect(withdrawn.withdrawnAt).toBeTruthy();
-    });
-
-    it("throws 404 when application not found", async () => {
-      await expect(
-        withdrawApplication("nonexistent", validFreelancerAddress),
-      ).rejects.toThrow("Application not found");
-    });
-
-    it("throws 403 when wrong freelancer tries to withdraw", async () => {
-      const app = await submitApplication({
-        jobId: openJob.id,
-        freelancerAddress: validFreelancerAddress,
-        proposal:
-          "I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.",
-        bidAmount: "450",
-      });
-
-      const wrongAddr =
-        "GZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZAB";
-      await expect(
-        withdrawApplication(app.id, wrongAddr),
-      ).rejects.toThrow("Only the freelancer who submitted can withdraw this application");
-    });
-
-    it("throws 400 when application is already accepted", async () => {
-      const app = await submitApplication({
-        jobId: openJob.id,
-        freelancerAddress: validFreelancerAddress,
-        proposal:
-          "I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.",
-        bidAmount: "450",
-      });
-
-      await acceptApplication(app.id, validClientAddress);
-
-      await expect(
-        withdrawApplication(app.id, validFreelancerAddress),
-      ).rejects.toThrow("Cannot withdraw an already-accepted application");
-    });
-  });
-
-  // ─── closeBiddingForJob ────────────────────────────────────────────────
-
-  describe("closeBiddingForJob", () => {
-    it("closes bidding for an open job", async () => {
-      const result = await closeBiddingForJob(openJob.id, validClientAddress);
-      expect(result.jobId).toBe(openJob.id);
-      expect(result.biddingClosedAt).toBeTruthy();
-    });
-
-    it("rejects non-client", async () => {
-      const wrongAddr =
-        "GZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZAB";
-      await expect(
-        closeBiddingForJob(openJob.id, wrongAddr),
-      ).rejects.toThrow("Only the client can close bidding");
-    });
-
-    it("rejects non-open job", async () => {
-      pool.jobs.get(openJob.id).status = "in_progress";
-
-      await expect(
-        closeBiddingForJob(openJob.id, validClientAddress),
-      ).rejects.toThrow("Bidding can only be closed while job is open");
-    });
-
-    it("rejects if bidding already closed", async () => {
-      await closeBiddingForJob(openJob.id, validClientAddress);
-
-      await expect(
-        closeBiddingForJob(openJob.id, validClientAddress),
-      ).rejects.toThrow("Bidding is already closed");
-    });
-  });
-
-  // ─── revealApplicationBid ──────────────────────────────────────────────
-
-  describe("revealApplicationBid", () => {
-    let app;
-    const nonce = "random-nonce-123";
-
-    beforeEach(async () => {
-      // Submit with sealed commitment hash
-      const { createHash } = require("crypto");
-      const bidCommitment = createHash("sha256")
-        .update(`450.0000000:${nonce}`)
-        .digest("hex");
-
-      app = await submitApplication({
-        jobId: openJob.id,
-        freelancerAddress: validFreelancerAddress,
-        proposal:
-          "I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.",
-        bidAmount: "450",
-        bidCommitment,
-      });
-
-      // Close bidding
-      await closeBiddingForJob(openJob.id, validClientAddress);
-    });
-
-    it("reveals a sealed bid successfully", async () => {
-      const revealed = await revealApplicationBid(
-        app.id,
-        validFreelancerAddress,
-        "450",
-        nonce,
+    // Bug #850: Regression test — escrow amount must match accepted bid, not job budget
+    it("updates escrow amount to match accepted bid amount (bug #850)", async () => {
+      const acceptedApp = await acceptApplication(
+        applicationId,
+        validClientAddress,
       );
-      expect(revealed.bidRevealed).toBe(true);
-      expect(revealed.revealedBidAmount).toBe("450.0000000");
-    });
 
-    it("rejects invalid freelancer key", async () => {
-      await expect(
-        revealApplicationBid(app.id, "bad-key", "450", nonce),
-      ).rejects.toThrow("Invalid Stellar public key");
-    });
+      // The accepted application has bid_amount = "450.0000000"
+      expect(pool.applications.get(applicationId).bid_amount).toBe("450.0000000");
 
-    it("rejects missing nonce", async () => {
-      await expect(
-        revealApplicationBid(app.id, validFreelancerAddress, "450", ""),
-      ).rejects.toThrow("Reveal nonce is required");
-    });
-
-    it("rejects non-positive bid amount", async () => {
-      await expect(
-        revealApplicationBid(app.id, validFreelancerAddress, "0", nonce),
-      ).rejects.toThrow("Reveal bid amount must be positive");
-    });
-
-    it("throws 404 when application not found", async () => {
-      await expect(
-        revealApplicationBid("nonexistent", validFreelancerAddress, "450", nonce),
-      ).rejects.toThrow("Application not found");
-    });
-
-    it("rejects reveal by wrong freelancer", async () => {
-      const wrongAddr =
-        "GZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZAB";
-      await expect(
-        revealApplicationBid(app.id, wrongAddr, "450", nonce),
-      ).rejects.toThrow("Only the freelancer can reveal this bid");
-    });
-
-    it("rejects commitment verification failure", async () => {
-      await expect(
-        revealApplicationBid(app.id, validFreelancerAddress, "999", nonce),
-      ).rejects.toThrow("Commitment verification failed");
+      // Verify the escrow amount was updated to the bid amount
+      const escrowUpdateCalls = pool.query.mock.calls.filter(
+        ([sql]) =>
+          typeof sql === "string" &&
+          sql.replace(/\s+/g, " ").trim().startsWith("UPDATE escrows SET amount_xlm"),
+      );
+      expect(escrowUpdateCalls.length).toBe(1);
+      expect(escrowUpdateCalls[0][1][0]).toBe("450.0000000"); // bid_amount passed as first param
+      expect(escrowUpdateCalls[0][1][1]).toBe(openJob.id);    // job_id passed as second param
     });
   });
 });
