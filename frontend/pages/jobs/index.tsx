@@ -59,6 +59,42 @@ interface Suggestion {
   value: string;
 }
 
+// Intersection Observer hook for infinite scroll
+function useInfiniteScroll(callback: () => void, hasNextPage: boolean, isLoading: boolean) {
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const lastElementRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (isLoading || !hasNextPage) return;
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          callback();
+        }
+      },
+      { threshold: 0.1, rootMargin: "100px" }
+    );
+
+    if (lastElementRef.current) {
+      observerRef.current.observe(lastElementRef.current);
+    }
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [callback, hasNextPage, isLoading]);
+
+  return lastElementRef;
+}
+
+interface Suggestion {
+  type: string;
+  value: string;
+}
+
 // ── Job Alert localStorage helpers ──────────────────────────────────────────
 const ALERT_KEY = "marketpay_job_alerts";
 
