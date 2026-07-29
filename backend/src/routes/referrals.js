@@ -48,14 +48,12 @@ router.get(
       const { publicKey } = req.params;
 
       if (!/^G[A-Z0-9]{55}$/.test(publicKey)) {
-        return res
-          .status(400)
-          .json({ success: false, error: "Invalid public key" });
+        return res.status(400).json({ error: "Invalid public key" });
       }
 
       // Users may only fetch their own referral data
       if (req.user?.publicKey && req.user.publicKey !== publicKey) {
-        return res.status(403).json({ success: false, error: "Forbidden" });
+        return res.status(403).json({ error: "Forbidden" });
       }
 
       const stats = await getReferralStats(publicKey);
@@ -76,10 +74,7 @@ router.post("/register", generalRateLimiter, async (req, res, next) => {
     const { referrerAddress, refereeAddress } = req.body;
 
     if (!referrerAddress || !refereeAddress) {
-      return res.status(400).json({
-        success: false,
-        error: "referrerAddress and refereeAddress are required",
-      });
+      return res.status(400).json({ error: "referrerAddress and refereeAddress are required" });
     }
 
     const referral = await registerReferral(referrerAddress, refereeAddress);

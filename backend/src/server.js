@@ -421,6 +421,11 @@ app.use("/api/transactions",   transactionRoutes);
 app.use("/api/dao",            daoRoutes);
 app.use("/api/proposal-templates", proposalTemplateRoutes);
 
+// 404 handler — must come after all routes
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found", code: "NOT_FOUND" });
+});
+
 app.use((err, req, res, next) => {
   logError(req.logger || serviceLogger, err, {
     method: req.method,

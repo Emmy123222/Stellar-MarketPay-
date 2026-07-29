@@ -33,7 +33,7 @@ router.post("/setup", verifyJWT, requireAdminRole, async (req, res, next) => {
 
     const { rows } = await pool.query("SELECT totp_enabled FROM admin_profiles WHERE id = $1", [publicKey]);
     if (rows[0]?.totp_enabled) {
-      return res.status(400).json({ success: false, error: "2FA is already enabled" });
+      return res.status(400).json({ error: "2FA is already enabled" });
     }
 
     const secret = generateSecret(publicKey);
@@ -63,14 +63,14 @@ router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
     const { token, setup } = req.body;
 
     if (!token || String(token).length !== 6) {
-      return res.status(400).json({ success: false, error: "A 6-digit TOTP code is required" });
+      return res.status(400).json({ error: "A 6-digit TOTP code is required" });
     }
 
     const status = await get2FAStatus(publicKey);
     const secret = await getDecryptedSecret(publicKey);
 
     if (!secret) {
-      return res.status(400).json({ success: false, error: "2FA setup not initiated. Call /setup first." });
+      return res.status(400).json({ error: "2FA setup not initiated. Call /setup first." });
     }
 
     let backupCodes;
@@ -84,7 +84,7 @@ router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
       });
 
       if (!verified) {
-        return res.status(400).json({ success: false, error: "Invalid verification code" });
+        return res.status(400).json({ error: "Invalid verification code" });
       }
 
       backupCodes = Array.from({ length: 10 }, () =>
@@ -94,7 +94,7 @@ router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
     } else {
       const result = await verify2FA(publicKey, String(token));
       if (!result.success) {
-        return res.status(400).json({ success: false, error: result.error });
+        return res.status(400).json({ error: result.error });
       }
     }
 

@@ -59,10 +59,7 @@ router.get("/search", tokenRateLimiter, async (req, res, next) => {
     const { q } = req.query;
     
     if (!q) {
-      return res.status(400).json({
-        success: false,
-        error: "Search query is required"
-      });
+      return res.status(400).json({ error: "Search query is required" });
     }
 
     const tokens = await searchTokens(q);
@@ -120,10 +117,7 @@ router.post("/validate", tokenRateLimiter, async (req, res, next) => {
     const { contractId } = req.body;
     
     if (!contractId) {
-      return res.status(400).json({
-        success: false,
-        error: "Contract ID is required"
-      });
+      return res.status(400).json({ error: "Contract ID is required" });
     }
 
     const validation = await validateTokenContract(contractId);

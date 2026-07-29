@@ -568,7 +568,7 @@ router.get("/reports/latest", verifyJWT, requireAdminRole, async (req, res, next
     const pdfBuffer = await downloadLatestFromS3();
 
     if (!pdfBuffer) {
-      return res.status(404).json({ success: false, error: "No report has been generated yet" });
+      return res.status(404).json({ error: "No report has been generated yet" });
     }
 
     const date = new Date().toISOString().split("T")[0];

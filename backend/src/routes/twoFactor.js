@@ -27,7 +27,7 @@ router.post("/setup", verifyJWT, async (req, res, next) => {
 
     // Check if admin
     const { rows } = await pool.query("SELECT id, email FROM admin_profiles WHERE id = $1", [publicKey]);
-    if (!rows[0]) return res.status(403).json({ success: false, error: "Admin access required" });
+    if (!rows[0]) return res.status(403).json({ error: "Admin access required" });
 
     const secret = generateSecret(rows[0].email || publicKey);
     const qrCodeUrl = await QRCode.toDataURL(secret.otpauthURL());
@@ -54,11 +54,11 @@ router.post("/verify", verifyJWT, async (req, res, next) => {
     const { publicKey } = req.user;
     const { token } = req.body;
 
-    if (!token) return res.status(400).json({ success: false, error: "Token is required" });
+    if (!token) return res.status(400).json({ error: "Token is required" });
 
     const { rows } = await pool.query("SELECT totp_secret FROM admin_profiles WHERE id = $1", [publicKey]);
     if (!rows[0] || !rows[0].totp_secret) {
-      return res.status(400).json({ success: false, error: "2FA setup not initiated" });
+      return res.status(400).json({ error: "2FA setup not initiated" });
     }
 
     const verified = speakeasy.totp.verify({
@@ -69,7 +69,7 @@ router.post("/verify", verifyJWT, async (req, res, next) => {
     });
 
     if (!verified) {
-      return res.status(400).json({ success: false, error: "Invalid verification code" });
+      return res.status(400).json({ error: "Invalid verification code" });
     }
 
     // Generate backup codes
@@ -96,7 +96,7 @@ router.post("/disable", verifyJWT, async (req, res, next) => {
     const { token, backupCode } = req.body;
 
     if (!token && !backupCode) {
-      return res.status(400).json({ success: false, error: "Token or backup code required" });
+      return res.status(400).json({ error: "Token or backup code required" });
     }
 
     let verified = false;
@@ -109,7 +109,7 @@ router.post("/disable", verifyJWT, async (req, res, next) => {
     }
 
     if (!verified) {
-      return res.status(400).json({ success: false, error: "Invalid token or backup code" });
+      return res.status(400).json({ error: "Invalid token or backup code" });
     }
 
     await disable2FA(publicKey);
@@ -123,10 +123,13 @@ router.post("/validate", verifyJWT, async (req, res, next) => {
     const { publicKey } = req.user;
     const { token } = req.body;
 
-    if (!token) return res.status(400).json({ success: false, error: "Token is required" });
+    if (!token) return res.status(400).json({ error: "Token is required" });
 
     const result = await verify2FA(publicKey, token);
-    res.json({ success: result.success, error: result.error });
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+    res.json({ success: true });
   } catch (e) { next(e); }
 });
 

@@ -25,10 +25,7 @@ router.post("/submit", turretRateLimiter, async (req, res, next) => {
     const { transactionXDR, useTurret } = req.body;
     
     if (!transactionXDR) {
-      return res.status(400).json({
-        success: false,
-        error: "Transaction XDR is required"
-      });
+      return res.status(400).json({ error: "Transaction XDR is required" });
     }
 
     const options = { useTurret };
@@ -68,10 +65,7 @@ router.post("/estimate", turretRateLimiter, async (req, res, next) => {
     const { transactionXDR } = req.body;
     
     if (!transactionXDR) {
-      return res.status(400).json({
-        success: false,
-        error: "Transaction XDR is required"
-      });
+      return res.status(400).json({ error: "Transaction XDR is required" });
     }
 
     const estimation = await estimateTurretFee(transactionXDR);
