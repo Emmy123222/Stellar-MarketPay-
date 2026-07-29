@@ -5,7 +5,12 @@ title = "Stellar MarketPay Gitleaks Configuration"
 
 # Allowlist for known false positives
 [allowlist]
-  description = "Global allowlist for known false positives"
+  description = "Project-specific allow-list for Stellar MarketPay"
+  regexes = [
+    '''G[A-Z2-7]{55}''',
+    '''TEST_SECRET_KEY_.*''',
+    '''S[A-Z2-7]{55}testmock.*'''
+  ]
   paths = [
     '''node_modules''',
     '''.next''',
