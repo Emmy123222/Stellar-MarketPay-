@@ -192,6 +192,22 @@ async function del(key) {
   }
 }
 
+/**
+ * Ping Redis to verify connectivity. Returns 'up' or 'down'.
+ * Used by the health check endpoint.
+ * @returns {Promise<'up'|'down'>}
+ */
+async function ping() {
+  const redis = getClient();
+  if (!redis) return "down";
+  try {
+    await redis.ping();
+    return "up";
+  } catch {
+    return "down";
+  }
+}
+
 module.exports = {
   get,
   set,
@@ -201,6 +217,7 @@ module.exports = {
   profileKey,
   incrWithExpiry,
   rateLimitKey,
+  ping,
 };
 
 // TTL constants exported so callers don't hard-code numbers.
