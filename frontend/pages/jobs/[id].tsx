@@ -1,6 +1,6 @@
 import TimeTracker from "@/components/TimeTracker";
 import FeeEstimationModal from "@/components/FeeEstimationModal";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import Head from "next/head";
@@ -9,6 +9,8 @@ import ApplicationForm from "@/components/ApplicationForm";
 import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
+import RealtimeBidComparison from "@/components/RealtimeBidComparison";
+import { useRealtimeBids } from "@/hooks/useRealtimeBids";
 import {
   fetchJob,
   fetchApplications,
@@ -197,6 +199,25 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
   const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
   const hasApplied = optimisticallyApplied || applications.some((a) => a.freelancerAddress === publicKey);
+
+  // ── fetchApplications wrapper for useRealtimeBids ────────────────────────
+  const fetchAppsForJob = useCallback(async (): Promise<Application[]> => {
+    if (!jobId) return [];
+    try {
+      return await fetchApplications(jobId);
+    } catch {
+      return [];
+    }
+  }, [jobId]);
+
+  // ── Real-time bids via useRealtimeBids ───────────────────────────────────
+  const {
+    applications: realtimeApplications,
+  } = useRealtimeBids({
+    jobId: jobId ?? "",
+    initialApplications: applications,
+    fetchApplications: fetchAppsForJob,
+  });
 
   useEffect(() => {
     if (!jobId || !router.isReady) return;
@@ -518,7 +539,7 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
                 <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex flex-wrap gap-3 text-xs sm:text-sm text-amber-700">
                     <span>Posted {timeAgo(job.createdAt)}</span>
-                    <span>{applications.length} application{applications.length === 1 ? "" : "s"}</span>
+                    <span>{realtimeApplications.length} application{realtimeApplications.length === 1 ? "" : "s"}</span>
                     {job.deadline && <span>Deadline: {formatDate(job.deadline)}</span>}
                   </div>
 
@@ -594,51 +615,16 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
           <TimeTracker jobId={job.id} isFreelancer={isFreelancer} isClient={isClient} />
         )}
 
-        {/* ── Applications list (client only) ── */}
-        {isClient && applications.length > 0 && (
+        {/* ── Applications list (client only, real-time via RealtimeBidComparison) ── */}
+        {isClient && (
           <div className="mb-6">
-            <h2 className="font-display text-xl font-bold text-amber-100 mb-4">
-              Applications ({applications.length})
-            </h2>
-
-            <div className="space-y-4">
-              {applications.map((application) => (
-                <div key={application.id} className="card">
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-3">
-                    <a
-                      href={accountUrl(application.freelancerAddress)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="address-tag hover:border-market-500/40 transition-colors break-all text-xs"
-                    >
-                      {shortenAddress(application.freelancerAddress)} ↗
-                    </a>
-
-                    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                      <span className="font-mono text-market-400 font-semibold text-xs sm:text-sm whitespace-nowrap">
-                        {formatXLM(application.bidAmount)}
-                      </span>
-                      <span className={`text-xs px-2.5 py-1 rounded-full border flex-shrink-0 ${badgeClass(application.status)}`}>
-                        {application.status}
-                      </span>
-                    </div>
-                  </div>
-
-                  <p className="text-amber-700/80 text-xs sm:text-sm leading-relaxed mb-4 break-words">
-                    {application.proposal}
-                  </p>
-
-                  {application.status === "pending" && job.status === "open" && (
-                    <button
-                      onClick={() => handleAcceptApplication(application.id)}
-                      className="btn-secondary text-xs sm:text-sm py-2 px-4 min-h-[44px] flex items-center w-full sm:w-auto"
-                    >
-                      Accept Proposal
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
+            <RealtimeBidComparison
+              jobId={job.id}
+              initialApplications={applications}
+              isClient={isClient}
+              fetchApplications={fetchAppsForJob}
+              onAcceptApplication={handleAcceptApplication}
+            />
           </div>
         )}
 
