@@ -372,7 +372,7 @@ router.get("/wallets/frozen", verifyJWT, requireAdminRole, requireAdmin2FA, asyn
 });
 
 // ── GET /api/admin/jobs/expired — list expired jobs ───────────────────────────
-router.get("/jobs/expired", verifyJWT, requireAdminRole, async (req, res, next) => {
+router.get("/jobs/expired", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, title, client_address, budget, currency, status, expires_at, created_at
@@ -562,7 +562,7 @@ router.get("/metrics/time-series", verifyJWT, requireAdminRole, requireAdmin2FA,
 });
 
 // ── GET /api/admin/reports/latest — download the most recent weekly PDF ───────
-router.get("/reports/latest", verifyJWT, requireAdminRole, async (req, res, next) => {
+router.get("/reports/latest", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { downloadLatestFromS3 } = require("../services/adminReportService");
     const pdfBuffer = await downloadLatestFromS3();
