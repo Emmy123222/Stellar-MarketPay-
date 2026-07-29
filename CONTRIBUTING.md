@@ -8,7 +8,7 @@ Stellar MarketPay is a decentralized freelance marketplace built on the Stellar 
 
 1. [Prerequisites](#prerequisites)
 2. [Local Setup](#local-setup)
-3. [Environment Variables](#environment-variables)
+3. [Environment Variables](#environment-variables) (full reference at [docs/environment-variables.md](docs/environment-variables.md))
 4. [Running the App](#running-the-app)
 5. [Docker Setup (Alternative)](#docker-setup-alternative)
 6. [Project Structure](#project-structure)
@@ -75,7 +75,7 @@ The backend runs schema migrations automatically on startup, so no manual `psql`
 
 ### 4. Configure environment variables
 
-See the [Environment Variables](#environment-variables) section below. At minimum you need:
+See [docs/environment-variables.md](docs/environment-variables.md) for the full reference. At minimum you need:
 
 ```bash
 # backend/.env
@@ -84,7 +84,7 @@ DATABASE_URL=postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork
 DATABASE_ENCRYPTION_KEY=any-16-char-string-or-longer
 ```
 
-The frontend `.env.local` defaults work out of the box for local development.
+The frontend `.env.local` defaults work out of the box for local development. See the [Environment Variables](#environment-variables) section below for a quick-start summary.
 
 ### 5. Start the dev servers
 
@@ -108,41 +108,18 @@ Visit [friendbot.stellar.org](https://friendbot.stellar.org) with your Freighter
 
 ## Environment Variables
 
-### Backend (`backend/.env`)
+See [docs/environment-variables.md](docs/environment-variables.md) for the complete reference — every variable, type, default, validation rule, and example.
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `PORT` | No | `4000` | Express server port |
-| `NODE_ENV` | No | `development` | `development` \| `production` |
-| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
-| `DATABASE_ENCRYPTION_KEY` | Yes | — | Key for pgp_sym_encrypt (min 16 chars) |
-| `JWT_SECRET` | Yes | — | Signs auth tokens — use 32+ random chars |
-| `STELLAR_NETWORK` | No | `testnet` | `testnet` \| `mainnet` |
-| `HORIZON_URL` | No | testnet URL | Stellar Horizon endpoint |
-| `CONTRACT_ID` | No | — | Soroban escrow contract address |
-| `ALLOWED_ORIGINS` | No | `http://localhost:3000` | CORS whitelist (comma-separated) |
-| `REDIS_URL` | No | — | Redis connection string |
-| `SMTP_HOST` | No | — | Mail server (weekly digest feature) |
-| `SMTP_PORT` | No | `587` | SMTP port |
-| `SMTP_USER` | No | — | SMTP username |
-| `SMTP_PASS` | No | — | SMTP password |
-| `SMTP_FROM` | No | — | From address for sent emails |
-| `ADMIN_WALLET_ADDRESSES` | No | — | Comma-separated admin Stellar addresses |
-| `SERVER_PRIVATE_KEY` | No | — | Backend Stellar key for faucet/turrets |
-| `BASE_URL` | No | `http://localhost:3000` | Used in email links |
-| `FRONTEND_URL` | No | `http://localhost:3000` | Frontend origin in digest emails |
-| `API_BASE_URL` | No | `http://localhost:4000` | Backend origin in digest emails |
+### Minimum required for local development
 
-### Frontend (`frontend/.env.local`)
+```bash
+# backend/.env
+JWT_SECRET=any-long-random-string-here
+DATABASE_URL=postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork
+DATABASE_ENCRYPTION_KEY=any-16-char-string-or-longer
+```
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `NEXT_PUBLIC_API_URL` | No | `http://localhost:4000` | Backend base URL |
-| `NEXT_PUBLIC_STELLAR_NETWORK` | No | `testnet` | `testnet` \| `mainnet` |
-| `NEXT_PUBLIC_HORIZON_URL` | No | testnet URL | Horizon endpoint |
-| `NEXT_PUBLIC_SOROBAN_RPC_URL` | No | testnet URL | Soroban RPC endpoint |
-| `NEXT_PUBLIC_CONTRACT_ID` | No | — | Escrow contract address |
-| `NEXT_PUBLIC_USE_CONTRACT_MOCK` | No | `false` | Skip real contract calls in E2E tests |
+The frontend `.env.local` defaults work out of the box for local development.
 
 ---
 
