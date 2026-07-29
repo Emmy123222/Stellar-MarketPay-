@@ -1208,6 +1208,7 @@ export async function logTimeEntry(payload: {
   jobId: string;
   durationMinutes: number;
   description?: string;
+  milestoneIndex?: number;
   startedAt?: string;
 }) {
   const { data } = await api.post<{ success: boolean; data: TimeEntry }>(

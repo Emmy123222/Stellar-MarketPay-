@@ -284,7 +284,7 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
         >
           Expires:
            
-          Jul 6, 2026
+          Aug 5, 2026
         </p>
       </button>
       <button
@@ -324,7 +324,7 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
         >
           Expires:
            
-          Jul 29, 2026
+          Aug 28, 2026
         </p>
       </button>
     </div>
@@ -1388,21 +1388,25 @@ exports[`static component snapshots FreelancerTierBadge Top Rated: FreelancerTie
 
 exports[`static component snapshots JobCard bookmarked: JobCard bookmarked 1`] = `
 <div
-  class="card-hover group animate-fade-in relative cursor-pointer outline-none "
+  class="card-hover group animate-fade-in relative cursor-pointer outline-none  "
   tabindex="0"
 >
   <div
     class="flex items-start justify-between gap-3 mb-3"
   >
-    <a
-      href="/jobs/job-bookmarked"
+    <div
+      class="flex items-center gap-2"
     >
-      <h3
-        class="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2"
+      <a
+        href="/jobs/job-bookmarked"
       >
-        Build a Soroban escrow contract for marketplace payouts
-      </h3>
-    </a>
+        <h3
+          class="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2"
+        >
+          Build a Soroban escrow contract for marketplace payouts
+        </h3>
+      </a>
+    </div>
     <div
       class="flex items-center gap-2"
     >
@@ -1513,7 +1517,7 @@ exports[`static component snapshots JobCard bookmarked: JobCard bookmarked 1`] =
       <p
         class="text-xs text-amber-800/60"
       >
-        6 months ago
+        7 months ago
       </p>
     </div>
   </div>
@@ -1585,21 +1589,25 @@ exports[`static component snapshots JobCard bookmarked: JobCard bookmarked 1`] =
 
 exports[`static component snapshots JobCard default: JobCard default 1`] = `
 <div
-  class="card-hover group animate-fade-in relative cursor-pointer outline-none "
+  class="card-hover group animate-fade-in relative cursor-pointer outline-none  "
   tabindex="0"
 >
   <div
     class="flex items-start justify-between gap-3 mb-3"
   >
-    <a
-      href="/jobs/job-1"
+    <div
+      class="flex items-center gap-2"
     >
-      <h3
-        class="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2"
+      <a
+        href="/jobs/job-1"
       >
-        Build a Soroban escrow contract for marketplace payouts
-      </h3>
-    </a>
+        <h3
+          class="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2"
+        >
+          Build a Soroban escrow contract for marketplace payouts
+        </h3>
+      </a>
+    </div>
     <div
       class="flex items-center gap-2"
     >
@@ -1710,7 +1718,7 @@ exports[`static component snapshots JobCard default: JobCard default 1`] = `
       <p
         class="text-xs text-amber-800/60"
       >
-        6 months ago
+        7 months ago
       </p>
     </div>
   </div>
@@ -4050,10 +4058,10 @@ exports[`static component snapshots RealtimeBidComparison empty: RealtimeBidComp
   class="space-y-6"
 >
   <div
-    class="flex items-center justify-between"
+    class="flex items-center justify-between flex-wrap gap-2"
   >
     <div
-      class="flex items-center gap-4"
+      class="flex items-center gap-4 flex-wrap"
     >
       <h2
         class="font-display text-xl font-bold text-amber-100"
@@ -4068,6 +4076,9 @@ exports[`static component snapshots RealtimeBidComparison empty: RealtimeBidComp
         Sealed phase
       </span>
     </div>
+    <div
+      class="flex items-center gap-2"
+    />
   </div>
   <div
     class="border border-dashed border-market-500/20 rounded-xl p-8 text-center"
@@ -4075,7 +4086,7 @@ exports[`static component snapshots RealtimeBidComparison empty: RealtimeBidComp
     <p
       class="text-amber-800 text-sm"
     >
-      No applications yet. Waiting for freelancers to apply...
+      No applications yet. Waiting for freelancers to apply…
     </p>
   </div>
   <div
@@ -4084,7 +4095,7 @@ exports[`static component snapshots RealtimeBidComparison empty: RealtimeBidComp
     <p
       class="text-xs text-amber-800"
     >
-      🔴 Disconnected from live updates. Attempting to reconnect...
+      🟡 Connecting to live updates…
     </p>
   </div>
 </div>
@@ -4095,10 +4106,10 @@ exports[`static component snapshots RealtimeBidComparison with applications: Rea
   class="space-y-6"
 >
   <div
-    class="flex items-center justify-between"
+    class="flex items-center justify-between flex-wrap gap-2"
   >
     <div
-      class="flex items-center gap-4"
+      class="flex items-center gap-4 flex-wrap"
     >
       <h2
         class="font-display text-xl font-bold text-amber-100"
@@ -4113,12 +4124,15 @@ exports[`static component snapshots RealtimeBidComparison with applications: Rea
         Sealed phase
       </span>
     </div>
+    <div
+      class="flex items-center gap-2"
+    />
   </div>
   <div
     class="space-y-4"
   >
     <div
-      class="card transition-all duration-500  "
+      class="card transition-all duration-500 opacity-100 scale-100  "
     >
       <div
         class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3"
@@ -4139,11 +4153,6 @@ exports[`static component snapshots RealtimeBidComparison with applications: Rea
             class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold tracking-wide border-slate-400/20 bg-slate-400/10 text-slate-200 px-2 py-0.5"
           >
             Newcomer
-          </span>
-          <span
-            class="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded-full border border-green-500/30"
-          >
-            Lowest Bid
           </span>
         </div>
         <div
@@ -4177,7 +4186,7 @@ exports[`static component snapshots RealtimeBidComparison with applications: Rea
           class="text-xs text-amber-800"
         >
           Applied 
-          6 months ago
+          7 months ago
         </p>
       </div>
     </div>
@@ -4188,7 +4197,7 @@ exports[`static component snapshots RealtimeBidComparison with applications: Rea
     <p
       class="text-xs text-amber-800"
     >
-      🔴 Disconnected from live updates. Attempting to reconnect...
+      🟡 Connecting to live updates…
     </p>
   </div>
 </div>
@@ -4327,6 +4336,24 @@ exports[`static component snapshots ShareJobModal default: ShareJobModal 1`] = `
           XLM
            
           500.0000000
+        </p>
+        <p
+          class="text-amber-800/80 text-xs mt-2 leading-relaxed"
+        >
+          <span
+            aria-hidden="true"
+            class="mr-1"
+          >
+            🪪
+          </span>
+          Shared on Discord, X, LinkedIn, Slack, or iMessage this link renders a rich preview card with the job title, budget, and category — generated automatically by
+           
+          <code
+            class="font-mono text-[11px] text-amber-700"
+          >
+            /api/og/[jobId]
+          </code>
+          .
         </p>
       </div>
       <div

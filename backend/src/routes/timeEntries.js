@@ -29,11 +29,11 @@ const writeLimiter  = createRateLimiter(30, 1);
  * POST /api/time-entries
  * Log a time entry for a job.
  *
- * Body: { jobId, freelancerAddress, durationMinutes, description?, startedAt? }
+ * Body: { jobId, freelancerAddress, durationMinutes, description?, milestoneIndex?, startedAt? }
  */
 router.post("/", verifyJWT, writeLimiter, async (req, res, next) => {
   try {
-    const { jobId, durationMinutes, description, startedAt } = req.body;
+    const { jobId, durationMinutes, description, milestoneIndex, startedAt } = req.body;
     const freelancerAddress = req.user.publicKey;
 
     const entry = await logTimeEntry({
@@ -41,6 +41,7 @@ router.post("/", verifyJWT, writeLimiter, async (req, res, next) => {
       freelancerAddress,
       durationMinutes,
       description,
+      milestoneIndex,
       startedAt,
     });
 
