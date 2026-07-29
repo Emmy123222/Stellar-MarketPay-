@@ -44,6 +44,9 @@
     "recharts": "^3.9.0",
     "tweetnacl": "^1.0.3"
   },
+  "overrides": {
+    "ansi-regex": ">=6.0.0 <6.2.2 || >=6.2.3"
+  },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.61.1",
