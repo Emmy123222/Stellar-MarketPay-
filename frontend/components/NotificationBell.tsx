@@ -78,9 +78,15 @@ export default function NotificationBell({ publicKey }: NotificationBellProps) {
   }
 
   async function handleMarkAllRead() {
-    await markAllNotificationsRead();
-    setNotifications((items) => items.map((item) => ({ ...item, read: true })));
+    const previousCount = unreadCount;
     setUnreadCount(0);
+    setNotifications((items) => items.map((item) => ({ ...item, read: true })));
+    try {
+      await markAllNotificationsRead();
+    } catch {
+      setUnreadCount(previousCount);
+      setNotifications((items) => items.map((item) => ({ ...item, read: false })));
+    }
   }
 
   return (
