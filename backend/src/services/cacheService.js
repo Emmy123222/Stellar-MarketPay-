@@ -65,6 +65,58 @@ function rateLimitKey(apiKeyId, endpoint, minuteBucket) {
   return `rl:${apiKeyId}:${endpoint}:${minuteBucket}`;
 }
 
+/**
+ * Delete all keys matching a glob pattern.
+ * Used to invalidate job list cache on write operations.
+ *
+ * @param {string} pattern  e.g. "jobs:list:*"
+ */
+async function delPattern(pattern) {
+  const redis = getClient();
+  if (!redis) return;
+  try {
+    let cursor = "0";
+    do {
+      const [nextCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
+      cursor = nextCursor;
+      if (keys.length) await redis.del(...keys);
+    } while (cursor !== "0");
+  } catch {
+    // Swallow — graceful degradation
+  }
+}
+
+/**
+ * Delete a single key.
+ *
+ * @param {string} key
+ */
+async function del(key) {
+  const redis = getClient();
+  if (!redis) return;
+  try {
+    await redis.del(key);
+  } catch {
+    // Swallow — graceful degradation
+  }
+}
+
+/**
+ * Ping Redis to verify connectivity. Returns 'up' or 'down'.
+ * Used by the health check endpoint.
+ * @returns {Promise<'up'|'down'>}
+ */
+async function ping() {
+  const redis = getClient();
+  if (!redis) return "down";
+  try {
+    await redis.ping();
+    return "up";
+  } catch {
+    return "down";
+  }
+}
+
 module.exports = {
   getClient,
   get: cacheUtil.get,
@@ -76,6 +128,6 @@ module.exports = {
   profileKey,
   incrWithExpiry,
   rateLimitKey,
-  TTL: cacheUtil.TTL,
+  ping,
 };
 
