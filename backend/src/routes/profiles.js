@@ -334,31 +334,6 @@ router.post("/:publicKey/notifications", profileUpdateRateLimiter, async (req, r
   }
 });
 
-/**
- * @swagger
- * /api/profiles/{publicKey}/availability:
- *   post:
- *     summary: Update availability status
- *     tags: [Profiles]
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               availability:
- *                 type: string
- *                 enum: [available, busy, unavailable]
- *     parameters:
- *       - in: path
- *         name: publicKey
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Availability updated
- */
 // PATCH /api/profiles/:publicKey/notificationPreferences - Update detailed preferences
 router.patch("/:publicKey/notificationPreferences", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
   try {
