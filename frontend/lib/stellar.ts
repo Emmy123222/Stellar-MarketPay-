@@ -37,6 +37,7 @@ export interface EscrowParams {
   jobId: string;
   budget?: number;
   budgetXlm?: number;
+  currency?: string;
 }
 
 export interface EscrowResult {
