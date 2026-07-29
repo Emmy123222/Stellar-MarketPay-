@@ -27,6 +27,8 @@ const { createCorsOptions } = require("./config/cors");
 const { doubleCsrfProtection } = require("./middleware/csrf");
 const { structuredErrorHandler } = require("./utils/errors");
 const { jsonDepthLimitMiddleware } = require("./middleware/jsonbValidator");
+const jwt = require("jsonwebtoken");
+const JWT_SECRET = require("./middleware/auth").requireJwtSecret();
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -431,6 +433,28 @@ app.use((err, req, res, next) => {
   structuredErrorHandler(err, req, res, next);
 });
 
+function parseWsCookies(cookieHeader) {
+  return String(cookieHeader || "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((cookies, part) => {
+      const separatorIndex = part.indexOf("=");
+      if (separatorIndex === -1) return cookies;
+      const name = part.slice(0, separatorIndex);
+      const value = part.slice(separatorIndex + 1);
+      cookies[name] = decodeURIComponent(value);
+      return cookies;
+    }, {});
+}
+
+function getWsToken(request) {
+  const cookies = parseWsCookies(request.headers.cookie);
+  if (cookies.token) return cookies.token;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  return url.searchParams.get("token") || null;
+}
+
 const wsServer = new WebSocketServer({ noServer: true });
 
 function sendJson(ws, event, payload) {
@@ -459,11 +483,33 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
+    const token = getWsToken(request);
+    if (token) {
+      try {
+        ws.user = jwt.verify(token, JWT_SECRET);
+      } catch {
+        ws.close(4001, "Unauthorized: Invalid or expired token");
+        return;
+      }
+    }
+    if (ws.user) {
+      const userAddress = ws.user.publicKey;
+      if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
+      userClients.get(userAddress).add(ws);
+    }
     realtimeClients.add(ws);
     wsConnectionsActive.set(realtimeClients.size);
     sendJson(ws, "connected", { channel: "realtime" });
     ws.on("close", () => {
       realtimeClients.delete(ws);
+      if (ws.user) {
+        const userAddress = ws.user.publicKey;
+        const clients = userClients.get(userAddress);
+        if (clients) {
+          clients.delete(ws);
+          if (clients.size === 0) userClients.delete(userAddress);
+        }
+      }
       wsConnectionsActive.set(realtimeClients.size);
     });
     return;

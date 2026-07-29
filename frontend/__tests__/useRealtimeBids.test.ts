@@ -3,11 +3,19 @@
  * Issue #856 — Verifies useRealtimeBids only ever keeps one WebSocket
  * connection active through a React Strict Mode mount/cleanup/remount
  * cycle, and that unmounting closes the connection.
+ *
+ * Issue #849 — Verifies that when the WebSocket closes with code 4001
+ * (auth failure), the hook calls refreshAccessToken() before reconnecting.
  */
 import { renderHook, act } from "@testing-library/react";
 import React from "react";
 import { useRealtimeBids } from "@/hooks/useRealtimeBids";
 import type { Application } from "@/utils/types";
+import { refreshAccessToken } from "@/lib/api";
+
+jest.mock("@/lib/api", () => ({
+  refreshAccessToken: jest.fn().mockResolvedValue("new-token"),
+}));
 
 // ── Mock WebSocket ────────────────────────────────────────────────────────────
 
@@ -38,6 +46,13 @@ class MockWebSocket {
   /** Test helper — simulates a server-pushed message. */
   simulateMessage(data: unknown) {
     this.onmessage?.({ data: JSON.stringify(data) });
+  }
+
+  /** Test helper — simulates the server closing with an optional code. */
+  simulateClose(code?: number) {
+    this.readyState = MockWebSocket.CLOSED;
+    const event = { code: code ?? 1000 } as CloseEvent;
+    queueMicrotask(() => this.onclose?.(event));
   }
 
   close() {
@@ -133,5 +148,36 @@ describe("useRealtimeBids (#856)", () => {
     expect(result.current.wsStatus).toBe("open"); // unaffected by the stale close resolving
 
     fetchApplications.mockClear();
+  });
+
+  it("refreshes token and reconnects on close code 4001 (auth failure)", async () => {
+    jest.useFakeTimers();
+
+    renderHook(() =>
+      useRealtimeBids({ jobId: "job-1", initialApplications, fetchApplications }),
+    );
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    const ws = MockWebSocket.instances[0];
+
+    act(() => ws.simulateOpen());
+
+    act(() => ws.simulateClose(4001));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(refreshAccessToken).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(3000);
+      await Promise.resolve();
+    });
+
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1);
+    expect(MockWebSocket.instances.length).toBe(2);
+
+    jest.useRealTimers();
   });
 });
