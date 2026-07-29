@@ -111,8 +111,13 @@
             {
                 "displayName": "unit",
                 "testEnvironment": "node",
-                "setupFiles": ["<rootDir>/jest.setup.js"],
-                "testPathIgnorePatterns": ["/node_modules/", "src/tests/integration"],
+                "setupFiles": [
+                    "<rootDir>/jest.setup.js"
+                ],
+                "testPathIgnorePatterns": [
+                    "/node_modules/",
+                    "src/tests/integration"
+                ],
                 "transformIgnorePatterns": [
                     "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus)/)"
                 ],
@@ -123,8 +128,12 @@
             {
                 "displayName": "integration",
                 "testEnvironment": "node",
-                "testMatch": ["**/src/tests/integration/**/*.test.js"],
-                "setupFiles": ["<rootDir>/jest.setup.js"],
+                "testMatch": [
+                    "**/src/tests/integration/**/*.test.js"
+                ],
+                "setupFiles": [
+                    "<rootDir>/jest.setup.js"
+                ],
                 "testTimeout": 30000,
                 "runInBand": true,
                 "transformIgnorePatterns": [

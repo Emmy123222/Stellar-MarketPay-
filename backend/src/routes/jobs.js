@@ -31,6 +31,7 @@ const { getClientReputation } = require("../services/profileService");
 const cache = require("../services/cacheService");
 const jobDraftService = require("../services/jobDraftService");
 const recommendationService = require("../services/recommendationService");
+const invoiceService = require("../services/invoiceService");
 const { validateJsonb } = require("../middleware/jsonbValidator");
 const milestonesSchema = require("../schemas/milestones.schema");
 
@@ -319,6 +320,30 @@ router.get("/:id", generalJobRateLimiter, async (req, res, next) => {
   try {
     const includeDeleted = req.query.include_deleted === "true" && isAdmin(req);
     res.json({ success: true, data: await getJob(req.params.id, { includeDeleted }) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/jobs/:id/invoice — generate a PDF invoice for a completed job
+router.get("/:id/invoice", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const job = await getJob(req.params.id, { includeDeleted: false });
+    
+    // Authorization: only client or freelancer can download the invoice
+    if (job.clientAddress !== req.user.publicKey && job.freelancerAddress !== req.user.publicKey && !isAdmin(req)) {
+      return res.status(403).json({ success: false, error: "Only the client or freelancer can download the invoice" });
+    }
+
+    // Must be completed (optional depending on strictness, but typical for invoices)
+    if (job.status !== "completed") {
+      return res.status(400).json({ success: false, error: "Invoice is only available for completed jobs" });
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", \`attachment; filename=invoice-\${job.id}.pdf\`);
+
+    await invoiceService.generateInvoicePdf(job, res);
   } catch (e) {
     next(e);
   }
