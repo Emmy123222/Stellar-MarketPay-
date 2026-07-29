@@ -264,6 +264,24 @@ pub struct RecurringEscrow {
     pub status: EscrowStatus,
 }
 
+/// Admin-configured dispute bond parameters (Issue #437).
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct DisputeBondConfig {
+    pub token: Address,
+    pub amount: i128,
+}
+
+/// Per-job record of the locked dispute bond (Issue #437).
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct DisputeBond {
+    pub caller: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub raised_at_ledger: u32,
+}
+
 /// Storage key per job
 #[contracttype]
 pub enum DataKey {
@@ -309,16 +327,13 @@ pub enum DataKey {
     TreasuryAddress,
     /// Platform fee in basis points (e.g. 100 = 1%)
     PlatformFeeBps,
-    /// Maximum referrer bonus cap in token stroops
-    MaxReferrerBonusXlm,
-    /// Global dispute bond configuration
     DisputeBondConfig,
-    /// Per-job locked dispute bond
     DisputeBond(String),
-    /// Pending timeout extension request
+    Admins,
+    Frozen,
+    UnfreezeThreshold,
     ExtensionRequest(String),
-    /// The single designated arbitrator address that can resolve disputes
-    ArbitratorAddress,
+    MaxReferrerBonusXlm,
 }
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
@@ -2823,28 +2838,6 @@ impl MarketPayContract {
             .get(&DataKey::Escrow(job_id.clone()))
             .expect("Escrow not found");
 
-    /// Append an IPFS CID to a job's on-chain dispute-evidence audit trail
-    /// (Issue #448 --- AC #1).
-    ///
-    /// Caller: the escrow's client OR the escrow's freelancer. The explicit
-    /// `caller` parameter is `require_auth`'d so every chain row carries
-    /// cryptographic provenance of who anchored the CID.
-    ///
-    /// Storage: a Soroban `Vec<Bytes>` of CID bytes is appended at
-    /// `DataKey::EvidenceCids(job_id)`. The vector is append-only; existing
-    /// entries are never overwritten.
-    pub fn submit_evidence_cid(
-        env: Env,
-        job_id: String,
-        cid: Bytes,
-        caller: Address,
-    ) {
-        caller.require_auth();
-
-        if cid.is_empty() {
-            panic!("IPFS CID cannot be empty");
-        }
-
         let cert = Certificate {
             job_id: job_id.clone(),
             freelancer: escrow.freelancer.clone(),
@@ -2870,6 +2863,56 @@ impl MarketPayContract {
 
         env.events()
             .publish((symbol_short!("certmnt"), client), (job_id, escrow.amount));
+    }
+
+    /// Append an IPFS CID to a job's on-chain dispute-evidence audit trail
+    /// (Issue #448 --- AC #1).
+    ///
+    /// Caller: the escrow's client OR the escrow's freelancer. The explicit
+    /// `caller` parameter is `require_auth`'d so every chain row carries
+    /// cryptographic provenance of who anchored the CID.
+    ///
+    /// Storage: a Soroban `Vec<Bytes>` of CID bytes is appended at
+    /// `DataKey::EvidenceCids(job_id)`. The vector is append-only; existing
+    /// entries are never overwritten.
+    pub fn submit_evidence_cid(
+        env: Env,
+        job_id: String,
+        cid: Bytes,
+        caller: Address,
+    ) {
+        caller.require_auth();
+
+        if cid.is_empty() {
+            panic!("IPFS CID cannot be empty");
+        }
+
+        let escrow: Escrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .expect("Escrow not found");
+
+        if escrow.status == EscrowStatus::Refunded {
+            panic!("Cannot record evidence on a refunded escrow");
+        }
+
+        let mut cids: soroban_sdk::Vec<Bytes> = env
+            .storage()
+            .instance()
+            .get(&DataKey::EvidenceCids(job_id.clone()))
+            .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
+
+        cids.push_back(cid.clone());
+
+        env.storage()
+            .instance()
+            .set(&DataKey::EvidenceCids(job_id.clone()), &cids);
+
+        env.events().publish(
+            (symbol_short!("evd_add"), job_id),
+            (caller, env.ledger().sequence()),
+        );
     }
 
     /// Get a certificate.
@@ -2925,18 +2968,29 @@ impl MarketPayContract {
         if !(1..=5).contains(&score) {
             panic!("Score must be between 1 and 5");
         }
+
         let escrow: Escrow = env
             .storage()
             .instance()
             .get(&DataKey::Escrow(job_id.clone()))
             .expect("Escrow not found");
-        if escrow.status == EscrowStatus::Refunded {
-            panic!("Cannot rate a refunded escrow");
-        }
-        env.events().publish(
-            (symbol_short!("rating"), job_id),
-            (freelancer, score),
-        );
+
+        let mut stats: FreelancerRatingStats = env
+            .storage()
+            .instance()
+            .get(&DataKey::FreelancerRatingStats(escrow.freelancer.clone()))
+            .unwrap_or(FreelancerRatingStats {
+                total_score: 0,
+                count: 0,
+            });
+        stats.total_score = stats
+            .total_score
+            .checked_add(score)
+            .expect("Arithmetic overflow");
+        stats.count = stats.count.checked_add(1).expect("Arithmetic overflow");
+        env.storage()
+            .instance()
+            .set(&DataKey::FreelancerRatingStats(escrow.freelancer), &stats);
     }
 
     pub fn resolve_arbitration(env: Env, case_id: u32) {
@@ -2970,10 +3024,6 @@ impl MarketPayContract {
         env.storage()
             .instance()
             .set(&DataKey::ArbitrationCase(case_id), &case);
-        env.events().publish(
-            (symbol_short!("arb_rslv"), case_id),
-            (case.resolution,),
-        );
     }
 
     /// Read the IPFS CIDs anchoring dispute evidence on-chain for a job
@@ -3604,7 +3654,8 @@ mod upgrade_tests {
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(&env, &id);
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
 
         let depositor = Address::generate(&env);
         let freelancer = Address::generate(&env);
@@ -3637,7 +3688,8 @@ mod upgrade_tests {
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(&env, &id);
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
 
         let depositor = Address::generate(&env);
         let freelancer = Address::generate(&env);
@@ -3662,43 +3714,30 @@ mod upgrade_tests {
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(&env, &id);
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        let treasury = Address::generate(&env);
+        client.initialize(&admin, &treasury);
         assert_eq!(client.is_frozen(), false);
     }
 }
 
 #[cfg(test)]
+mod freeze_tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, testutils::Ledger, Address, Bytes, BytesN, Env, String};
+    use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
-    fn bid_commitment(env: &Env, amount: i128, nonce: BytesN<32>) -> BytesN<32> {
-        let mut payload = Bytes::new(env);
-        for byte in amount.to_be_bytes().iter() {
-            payload.push_back(*byte);
-        }
-        for byte in nonce.to_array().iter() {
-            payload.push_back(*byte);
-        }
-        env.crypto().sha256(&payload).into()
-    }
-
-    fn setup(env: &Env) -> (Address, MarketPayContractClient, Address, Address, String) {
+    fn setup(env: &Env) -> (MarketPayContractClient, Address, String) {
         env.mock_all_auths();
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(env, &id);
         let admin = Address::generate(env);
         let treasury = Address::generate(env);
-        let owner = Address::generate(env);
         client.initialize(&admin, &treasury);
-        let job_id = String::from_str(env, "sealed-bid-job-1");
-        client.commit_budget(&job_id, &1_000, &owner);
-        (id, client, owner, admin, job_id)
+        (client, admin, id.to_string())
     }
 
     #[test]
-    fn test_reveal_bid_verifies_commitment() {
+    fn test_freeze_contract_can_freeze() {
         let env = Env::default();
-Enforce-deliverable-hash-verification-before-fund-release
         let (client, admin, _id) = setup(&env);
 
         assert_eq!(client.is_frozen(), false);
@@ -4391,7 +4430,7 @@ mod deliverable_hash_tests {
         let escrow = contract.get_escrow(&job_id);
         assert_eq!(escrow.status, EscrowStatus::Released);
         let token_client = token::Client::new(&env, &token_id);
-        assert_eq!(token_client.balance(&freelancer), 1_000);
+        assert_eq!(token_client.balance(&freelancer), 990);
     }
 
     #[test]
@@ -4581,7 +4620,8 @@ mod extension_tests {
         let id = env.register(MarketPayContract, ());
         let client = MarketPayContractClient::new(env, &id);
         let admin = Address::generate(env);
-        client.initialize(&admin);
+        let treasury = Address::generate(env);
+        client.initialize(&admin, &treasury);
 
         let contract_client = Address::generate(env);
         let freelancer = Address::generate(env);
