@@ -28,7 +28,7 @@ const {
 
 const { logContractInteraction } = require("../services/contractAuditService");
 const { getClientReputation } = require("../services/profileService");
-const cache = require("../services/cacheService");
+const cache = require("../utils/cache");
 const jobDraftService = require("../services/jobDraftService");
 const recommendationService = require("../services/recommendationService");
 const { validateJsonb } = require("../middleware/jsonbValidator");
@@ -412,7 +412,27 @@ router.post("/", jobCreationRateLimiter, verifyJWT, validateJsonb({ milestones: 
     }
 
     const job = await createJob({ ...req.body, clientAddress: signedAddress });
+    await cache.invalidateJobListCache();
     res.status(201).json({ success: true, data: job });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// PATCH /api/jobs/:id — update job status or details
+router.patch("/:id", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    let job;
+    if (status) {
+      const { updateJobStatus } = jobService.default || jobService;
+      job = await updateJobStatus(req.params.id, status);
+    } else {
+      const { getJob } = jobService.default || jobService;
+      job = await getJob(req.params.id);
+    }
+    await cache.invalidateJobListCache();
+    res.json({ success: true, data: job });
   } catch (e) {
     next(e);
   }
@@ -497,6 +517,7 @@ router.patch(
         jobId: req.params.id,
         txHash: escrowContractId,
       });
+      await cache.invalidateJobListCache();
       res.json({ success: true, data: job });
     } catch (e) {
       next(e);
@@ -518,6 +539,7 @@ router.patch("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, ne
     const boostDays = amount >= 15 ? 30 : 7;
 
     const job = await boostJob(req.params.id, txHash, boostDays);
+    await cache.invalidateJobListCache();
     res.json({ success: true, data: job });
   } catch (e) { next(e); }
 });
@@ -551,6 +573,7 @@ router.patch(
         });
       }
       const job = await extendJobExpiry(req.params.id, daysNum, req.user.publicKey);
+      await cache.invalidateJobListCache();
       res.json({ success: true, data: job });
     } catch (e) {
       next(e);
