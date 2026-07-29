@@ -24,6 +24,7 @@ import EarningsChart from "@/components/EarningsChart";
 import PostedJobsTab from "@/components/dashboard-tabs/PostedJobsTab";
 import AppliedJobsTab from "@/components/dashboard-tabs/AppliedJobsTab";
 import InvitationsTab from "@/components/dashboard-tabs/InvitationsTab";
+import ProposalComparison from "@/components/ProposalComparison";
 import { usePriceContext } from "@/contexts/PriceContext";
 import ProfileCompletenessWidget from "@/components/ProfileCompletenessWidget";
 import { useOnboarding } from "@/hooks/useOnboarding";
@@ -60,7 +61,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "invitations" | "analytics" | "earnings" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals";
+type Tab = "posted" | "applied" | "proposals" | "invitations" | "analytics" | "earnings" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 async function fetchBalances(
@@ -111,6 +112,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [canViewSpending, setCanViewSpending] = useState(true);
   const [myJobs, setMyJobs] = useState<Job[]>([]);
   const [myApplications, setMyApplications] = useState<Application[]>([]);
+  const [jobApplications, setJobApplications] = useState<Map<string, Application[]>>(new Map());
   const [myInvitations, setMyInvitations] = useState<JobInvitation[]>([]);
   const [balance, setBalance]           = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance]   = useState<string | null>(null);
@@ -211,6 +213,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
     setMyJobs(jobs);
     setMyApplications(apps);
+    setJobApplications(jobApplications);
     setMyInvitations(invitations);
     setBalance(bal);
     setUsdcBalance(usdc);
@@ -577,9 +580,15 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
       {/* Tabs */}
       {(() => {
+        const totalProposalCount = (() => {
+          let count = 0;
+          jobApplications.forEach((apps) => { count += apps.length; });
+          return count;
+        })();
         const tabIds: Tab[] = [
           "posted",
           "applied",
+          "proposals",
           "invitations",
           "analytics",
           "earnings",
@@ -594,6 +603,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         const tabLabel = (t: Tab): string =>
           t === "posted" ? `Jobs Posted (${myJobs.length})` :
           t === "applied" ? `Applications (${myApplications.length})` :
+          t === "proposals" ? `Proposals (${totalProposalCount})` :
           t === "invitations" ? `Invitations${myInvitations.length > 0 ? ` (${myInvitations.length})` : ""}` :
           t === "analytics" ? "Job Analytics" :
           t === "earnings" ? "Earnings" :
@@ -671,6 +681,12 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           />
         ) : tab === "applied" ? (
           <AppliedJobsTab myApplications={myApplications} />
+        ) : tab === "proposals" ? (
+          <ProposalComparison
+            myJobs={myJobs}
+            jobApplications={jobApplications}
+            publicKey={publicKey}
+          />
         ) : tab === "analytics" ? (
           selectedJob ? (
             <JobAnalytics
