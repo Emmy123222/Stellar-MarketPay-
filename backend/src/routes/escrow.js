@@ -16,10 +16,8 @@ const escrowActionRateLimiter = createRateLimiter(30, 1);
 const router = express.Router();
 const pool = require("../db/pool");
 const { getJob, updateJobStatus } = require("../services/jobService");
-const {
-  logContractInteraction,
-  verifyOnChainTransaction,
-} = require("../services/contractAuditService");
+const { logContractInteraction } = require("../services/contractAuditService");
+const { insertAuditLog } = require("../services/auditLogService");
 const {
   notifyEscrowEvent,
   EVENT_TYPES,
@@ -84,6 +82,20 @@ router.post("/:jobId/release", async (req, res, next) => {
       contractTxHash || null,
     );
     await updateJobStatus(jobId, "completed");
+
+    // Audit log the escrow release event
+    try {
+      await insertAuditLog({
+        actorAddress: clientAddress,
+        action: "escrow_release",
+        entityType: "escrow",
+        entityId: escrowRows.length ? `${jobId}` : jobId,
+        oldValue: { jobStatus: job.status, escrowStatus: escrowRows.length ? escrowRows[0]?.status : null },
+        newValue: { jobStatus: "completed", escrowStatus: "released" },
+      });
+    } catch {
+      // Non-fatal
+    }
 
     res.json({
       success: true,
