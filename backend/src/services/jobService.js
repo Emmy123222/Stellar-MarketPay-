@@ -235,6 +235,7 @@ function rowToJob(row) {
     extendedUntil: row.extended_until,
     biddingClosedAt: row.bidding_closed_at,
     viewCount: row.view_count,
+    deletedAt: row.deleted_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     searchHeadline: row.headline_title || null,
@@ -848,7 +849,7 @@ async function purgeDeletedJobs(days = 90) {
  */
 async function boostJob(jobId, txHash, boostDays = 7) {
   // Verify job exists
-  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1`, [
+  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`, [
     jobId,
   ]);
   if (!rows.length) {
@@ -1032,7 +1033,7 @@ async function extendJobExpiry(jobId, days = 30, clientAddress) {
     throw e;
   }
 
-  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1`, [jobId]);
+  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`, [jobId]);
   if (!rows.length) {
     const e = new Error("Job not found");
     e.status = 404;
@@ -1111,7 +1112,7 @@ async function incrementViewCount(jobId) {
  */
 async function getJobAnalytics(jobId) {
   const { rows: jobRows } = await pool.query(
-    `${JOB_SELECT_CLAUSE} WHERE id = $1`,
+    `${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`,
     [jobId]
   );
   if (!jobRows.length) {
@@ -1265,15 +1266,16 @@ async function getRecommendedJobs(publicKey) {
   if (!skills.length) {
     // No skills, return recent open jobs excluding applied ones
     const { rows } = await pool.query(
-      `SELECT j.*, COALESCE((SELECT array_agg(s.display_name) FROM job_skills js JOIN skills s ON s.id = js.skill_id WHERE js.job_id = j.id), '{}') AS skills FROM jobs j
-       WHERE j.status = 'open'
-         AND j.visibility = 'public'
-         AND NOT EXISTS (
-           SELECT 1 FROM applications a
-           WHERE a.job_id = j.id AND a.freelancer_address = $1
-         )
-       ORDER BY j.created_at DESC
-       LIMIT 5`,
+       `SELECT j.*, COALESCE((SELECT array_agg(s.display_name) FROM job_skills js JOIN skills s ON s.id = js.skill_id WHERE js.job_id = j.id), '{}') AS skills FROM jobs j
+        WHERE j.status = 'open'
+          AND j.visibility = 'public'
+          AND j.deleted_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM applications a
+            WHERE a.job_id = j.id AND a.freelancer_address = $1
+          )
+        ORDER BY j.created_at DESC
+        LIMIT 5`,
       [publicKey]
     );
     return rows.map(rowToJob);
