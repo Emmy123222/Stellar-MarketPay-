@@ -6,10 +6,18 @@ const jwt = require("jsonwebtoken");
 const TEST_USER_1 = "GAXJ4S6F7W2K3H5N8D9P0Q2R4T6V8W1Z3X5C7V9B2N4M6P8R0T2V4X6Z8";
 const TEST_USER_2 = "GBYJ4S6F7W2K3H5N8D9P0Q2R4T6V8W1Z3X5C7V9B2N4M6P8R0T2V4X6Z9";
 
+// ── Prevent process.exit from killing the test runner ─────────────────────
+const realExit = process.exit;
+process.exit = jest.fn((code) => {
+  const err = new Error(`process.exit called with ${code}`);
+  Error.captureStackTrace(err, process.exit);
+  throw err;
+});
+
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 jest.mock("../db/pool", () => {
   const notifications = [];
-  return {
+  const poolMock = {
     query: jest.fn(async (sql, params) => {
       const text = sql.replace(/\s+/g, " ").trim();
       if (/^INSERT INTO notifications/i.test(text)) {
@@ -47,7 +55,14 @@ jest.mock("../db/pool", () => {
       query: jest.fn().mockResolvedValue({ rows: [] }),
       release: jest.fn(),
     }),
+    totalCount: 0,
+    idleCount: 0,
+    waitingCount: 0,
   };
+  // readPool & writePool aliases used by services like jobService
+  poolMock.readPool = poolMock;
+  poolMock.writePool = poolMock;
+  return poolMock;
 });
 
 jest.mock("../services/indexerService", () =>
@@ -75,9 +90,13 @@ describe("WebSocket real-time notification delivery", () => {
 
   beforeAll(async () => {
     server = app._ws.server;
-    await new Promise((resolve) => server.listen(0, resolve));
+    // bootstrap() already called server.listen() — just wait for readiness
+    await new Promise((resolve) => {
+      if (server.listening) return resolve();
+      server.once("listening", resolve);
+    });
     port = server.address().port;
-  }, 10000);
+  }, 10_000);
 
   afterAll(() => {
     server.close();

@@ -63,6 +63,7 @@ const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
 const { startSavedSearchAlertChecker } = require("./services/savedSearchAlertService");
+const { startWsEventCleanup } = require("./services/wsEventCleanupService");
 
 const serviceLogger = createServiceLogger('server');
 const app  = express();
@@ -209,6 +210,16 @@ function broadcastRealtime(event, payload) {
     if (ws.readyState === WS_OPEN) ws.send(message);
   }
   wsConnectionsActive.set(realtimeClients.size);
+}
+
+function broadcastToUser(userAddress, event, payload) {
+  const message = JSON.stringify({ event, payload });
+  const sockets = userClients.get(userAddress);
+  if (sockets) {
+    for (const ws of sockets) {
+      if (ws.readyState === WS_OPEN) ws.send(message);
+    }
+  }
 }
 
 async function upsertScopeSession(sessionId, patch) {
@@ -459,12 +470,32 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
+    const token = url.searchParams.get("token") || "";
+    let userAddress = null;
+    if (token) {
+      try {
+        const jwt = require("jsonwebtoken");
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        userAddress = decoded.publicKey;
+      } catch { /* token is optional, e.g. anonymous tab */ }
+    }
     realtimeClients.add(ws);
     wsConnectionsActive.set(realtimeClients.size);
+    if (userAddress) {
+      if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
+      userClients.get(userAddress).add(ws);
+    }
     sendJson(ws, "connected", { channel: "realtime" });
     ws.on("close", () => {
       realtimeClients.delete(ws);
       wsConnectionsActive.set(realtimeClients.size);
+      if (userAddress) {
+        const sockets = userClients.get(userAddress);
+        if (sockets) {
+          sockets.delete(ws);
+          if (!sockets.size) userClients.delete(userAddress);
+        }
+      }
     });
     return;
   }
@@ -882,5 +913,12 @@ function startRecurringEscrowTicker() {
 bootstrap();
 
 app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
+
+// Expose WebSocket internals for tests
+app._ws = wsServer;
+app._ws.server = server;
+app._ws.realtimeClients = realtimeClients;
+app._ws.userClients = userClients;
+app._ws.scopeSessionClients = scopeSessionClients;
 
 module.exports = app;
