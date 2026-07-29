@@ -182,6 +182,26 @@ router.post("/:publicKey/notifications", profileUpdateRateLimiter, async (req, r
   }
 });
 
+// PATCH /api/profiles/:publicKey/notificationPreferences - Update detailed preferences
+router.patch("/:publicKey/notificationPreferences", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+    if (req.user.publicKey !== publicKey) {
+      return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "Unauthorized" } });
+    }
+    const notificationPreferencesService = require("../services/notificationPreferencesService");
+    const { preferences } = req.body;
+    if (!preferences || typeof preferences !== "object") {
+      return res.status(400).json({ error: { code: ErrorCodes.BAD_REQUEST, message: "Invalid preferences format" } });
+    }
+    await notificationPreferencesService.updatePreferences(publicKey, preferences);
+    const updated = await notificationPreferencesService.getPreferences(publicKey);
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post("/:publicKey/availability", profileUpdateRateLimiter, async (req, res, next) => {
   try {
     res.json({
