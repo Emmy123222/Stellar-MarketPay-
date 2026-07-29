@@ -1,5 +1,6 @@
 import TimeTracker from "@/components/TimeTracker";
 import FeeEstimationModal from "@/components/FeeEstimationModal";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
@@ -174,6 +175,7 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const [actionError, setActionError] = useState<string | null>(null);
   const [releasingEscrow, setReleasingEscrow] = useState(false);
   const [releaseSuccess, setReleaseSuccess] = useState(false);
+  const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [prefillData, setPrefillData] = useState<any>(null);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
@@ -724,12 +726,26 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
             </h2>
 
             <button
-              onClick={handleReleaseEscrow}
+              onClick={() => setShowReleaseConfirm(true)}
               disabled={releasingEscrow}
               className="btn-primary w-full sm:w-auto"
             >
               {releasingEscrow ? "Releasing..." : "Release Escrow"}
             </button>
+
+            <ConfirmDialog
+              open={showReleaseConfirm}
+              title="Release Escrow"
+              description="This will release all escrowed funds to the freelancer. This is an irreversible on-chain action."
+              confirmLabel="Yes, Release Escrow"
+              variant="danger"
+              requireTypedConfirm
+              typedConfirmText="CONFIRM"
+              actionDetails={`Job: ${job?.title || ""}`}
+              onConfirm={handleReleaseEscrow}
+              onCancel={() => setShowReleaseConfirm(false)}
+              loading={releasingEscrow}
+            />
 
             {releaseSuccess && (
               <p className="mt-3 text-emerald-400 text-sm">Escrow released successfully.</p>
