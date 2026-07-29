@@ -2,9 +2,10 @@
  * src/routes/assessments.js
  * Skill assessment endpoints.
  *
- * GET  /api/assessments/:skill          — get questions (options only, no answers)
- * POST /api/assessments/:skill/submit   — submit answers, record result
- * GET  /api/assessments/results/:publicKey — get all results for a user
+ * @swagger
+ * tags:
+ *   name: Assessments
+ *   description: Skill assessments and certificates
  */
 "use strict";
 
@@ -18,8 +19,26 @@ const questions = require("../data/skillQuestions.json");
 const PASS_SCORE   = 70;   // percent
 const COOLDOWN_MS  = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-// ─── GET /api/assessments/:skill ─────────────────────────────────────────────
-// Returns questions without answers. Also returns last attempt info if authed.
+/**
+ * @swagger
+ * /api/assessments/{skill}:
+ *   get:
+ *     summary: Get assessment questions for a skill
+ *     tags: [Assessments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: skill
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Questions (without answers)
+ *       404:
+ *         description: Unknown skill
+ */
 router.get("/:skill", verifyJWT, async (req, res, next) => {
   try {
     const skill = req.params.skill.toLowerCase();
@@ -61,8 +80,38 @@ router.get("/:skill", verifyJWT, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ─── POST /api/assessments/:skill/submit ─────────────────────────────────────
-// Body: { answers: { [questionId]: selectedOptionIndex } }
+/**
+ * @swagger
+ * /api/assessments/{skill}/submit:
+ *   post:
+ *     summary: Submit assessment answers
+ *     tags: [Assessments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: skill
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - answers
+ *             properties:
+ *               answers:
+ *                 type: object
+ *                 description: Map of question IDs to selected option indices
+ *     responses:
+ *       200:
+ *         description: Score and result
+ *       429:
+ *         description: Cooldown active
+ */
 router.post("/:skill/submit", verifyJWT, async (req, res, next) => {
   try {
     const skill = req.params.skill.toLowerCase();
@@ -139,8 +188,22 @@ router.post("/:skill/submit", verifyJWT, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ─── GET /api/assessments/results/:publicKey ─────────────────────────────────
-// Public — returns verified (passed) badges for a profile
+/**
+ * @swagger
+ * /api/assessments/results/{publicKey}:
+ *   get:
+ *     summary: Get assessment results for a user (public)
+ *     tags: [Assessments]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Assessment results
+ */
 router.get("/results/:publicKey", async (req, res, next) => {
   try {
     const { rows } = await pool.query(

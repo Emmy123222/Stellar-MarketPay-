@@ -1,5 +1,10 @@
 /**
- * Admin TOTP 2FA — POST /api/admin/2fa/setup, POST /api/admin/2fa/verify
+ * Admin TOTP 2FA routes
+ *
+ * @swagger
+ * tags:
+ *   name: Admin 2FA
+ *   description: Admin two-factor authentication
  */
 "use strict";
 
@@ -25,7 +30,20 @@ function issueAdminToken(publicKey, twoFaVerified) {
   return signAccessToken({ publicKey, role: "admin", "2fa_verified": twoFaVerified });
 }
 
-// POST /api/admin/2fa/setup — generate TOTP secret and QR code
+/**
+ * @swagger
+ * /api/admin/2fa/setup:
+ *   post:
+ *     summary: Generate TOTP secret and QR code for admin
+ *     tags: [Admin 2FA]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: QR code and manual entry key
+ *       400:
+ *         description: 2FA already enabled
+ */
 router.post("/setup", verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const { publicKey } = req.user;
@@ -56,7 +74,33 @@ router.post("/setup", verifyJWT, requireAdminRole, async (req, res, next) => {
   }
 });
 
-// POST /api/admin/2fa/verify — verify TOTP, enable 2FA (setup), upgrade JWT
+/**
+ * @swagger
+ * /api/admin/2fa/verify:
+ *   post:
+ *     summary: Verify TOTP, enable 2FA, upgrade JWT
+ *     tags: [Admin 2FA]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *               setup:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: 2FA enabled/verified with upgraded token
+ *       400:
+ *         description: Invalid code
+ */
 router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const { publicKey } = req.user;
@@ -115,7 +159,18 @@ router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
   }
 });
 
-// GET /api/admin/2fa/status
+/**
+ * @swagger
+ * /api/admin/2fa/status:
+ *   get:
+ *     summary: Get admin 2FA status
+ *     tags: [Admin 2FA]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: 2FA status including verification state
+ */
 router.get("/status", verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const status = await get2FAStatus(req.user.publicKey);

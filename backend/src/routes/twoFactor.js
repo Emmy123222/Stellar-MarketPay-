@@ -1,6 +1,11 @@
 /**
  * src/routes/twoFactor.js
  * TOTP 2FA routes for admin accounts
+ *
+ * @swagger
+ * tags:
+ *   name: 2FA
+ *   description: Two-factor authentication (TOTP)
  */
 "use strict";
 const express = require("express");
@@ -12,7 +17,18 @@ const speakeasy = require("speakeasy");
 
 const { pool } = require("../db/pool");
 
-// GET /api/2fa/status — check if 2FA is enabled
+/**
+ * @swagger
+ * /api/2fa/status:
+ *   get:
+ *     summary: Check if 2FA is enabled
+ *     tags: [2FA]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: 2FA status
+ */
 router.get("/status", verifyJWT, async (req, res, next) => {
   try {
     const status = await get2FAStatus(req.user.publicKey);
@@ -20,7 +36,20 @@ router.get("/status", verifyJWT, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/2fa/setup — generate secret and QR code
+/**
+ * @swagger
+ * /api/2fa/setup:
+ *   post:
+ *     summary: Generate TOTP secret and QR code
+ *     tags: [2FA]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Secret and QR code
+ *       403:
+ *         description: Admin access required
+ */
 router.post("/setup", verifyJWT, async (req, res, next) => {
   try {
     const { publicKey } = req.user;
@@ -48,7 +77,31 @@ router.post("/setup", verifyJWT, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/2fa/verify — verify TOTP code and enable 2FA
+/**
+ * @swagger
+ * /api/2fa/verify:
+ *   post:
+ *     summary: Verify TOTP code and enable 2FA
+ *     tags: [2FA]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: 2FA enabled with backup codes
+ *       400:
+ *         description: Invalid code
+ */
 router.post("/verify", verifyJWT, async (req, res, next) => {
   try {
     const { publicKey } = req.user;
@@ -89,7 +142,31 @@ router.post("/verify", verifyJWT, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/2fa/disable — disable 2FA (requires wallet + TOTP or backup code)
+/**
+ * @swagger
+ * /api/2fa/disable:
+ *   post:
+ *     summary: Disable 2FA (requires token or backup code)
+ *     tags: [2FA]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               token:
+ *                 type: string
+ *               backupCode:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: 2FA disabled
+ *       400:
+ *         description: Invalid code
+ */
 router.post("/disable", verifyJWT, async (req, res, next) => {
   try {
     const { publicKey } = req.user;
@@ -117,7 +194,29 @@ router.post("/disable", verifyJWT, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/2fa/validate — validate TOTP during login
+/**
+ * @swagger
+ * /api/2fa/validate:
+ *   post:
+ *     summary: Validate TOTP during login
+ *     tags: [2FA]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Validation result
+ */
 router.post("/validate", verifyJWT, async (req, res, next) => {
   try {
     const { publicKey } = req.user;

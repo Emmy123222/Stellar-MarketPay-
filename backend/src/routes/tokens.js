@@ -1,6 +1,11 @@
 /**
  * src/routes/tokens.js
  * Stellar token routes for custom token support
+ *
+ * @swagger
+ * tags:
+ *   name: Tokens
+ *   description: Stellar token registry and metadata
  */
 "use strict";
 const express = require("express");
@@ -18,9 +23,14 @@ const {
 const tokenRateLimiter = createRateLimiter(30, 1);
 
 /**
- * GET /api/tokens
- * List all supported tokens (whitelist).
- * Cached for 1 hour via the in-memory cache in tokenService.
+ * @swagger
+ * /api/tokens:
+ *   get:
+ *     summary: List supported tokens (cached 1 hour)
+ *     tags: [Tokens]
+ *     responses:
+ *       200:
+ *         description: Token list
  */
 router.get("/", tokenRateLimiter, async (_req, res, next) => {
   try {
@@ -35,8 +45,14 @@ router.get("/", tokenRateLimiter, async (_req, res, next) => {
 });
 
 /**
- * GET /api/tokens/popular
- * Get list of popular tokens
+ * @swagger
+ * /api/tokens/popular:
+ *   get:
+ *     summary: Get popular tokens
+ *     tags: [Tokens]
+ *     responses:
+ *       200:
+ *         description: Popular tokens list
  */
 router.get("/popular", tokenRateLimiter, async (req, res, next) => {
   try {
@@ -51,8 +67,22 @@ router.get("/popular", tokenRateLimiter, async (req, res, next) => {
 });
 
 /**
- * GET /api/tokens/search
- * Search for tokens by name or symbol
+ * @swagger
+ * /api/tokens/search:
+ *   get:
+ *     summary: Search tokens by name or symbol
+ *     tags: [Tokens]
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Search results
+ *       400:
+ *         description: Missing search query
  */
 router.get("/search", tokenRateLimiter, async (req, res, next) => {
   try {
@@ -76,8 +106,20 @@ router.get("/search", tokenRateLimiter, async (req, res, next) => {
 });
 
 /**
- * GET /api/tokens/:contractId/metadata
- * Get token metadata
+ * @swagger
+ * /api/tokens/{contractId}/metadata:
+ *   get:
+ *     summary: Get token metadata by contract ID
+ *     tags: [Tokens]
+ *     parameters:
+ *       - in: path
+ *         name: contractId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Token metadata
  */
 router.get("/:contractId/metadata", tokenRateLimiter, async (req, res, next) => {
   try {
@@ -94,8 +136,25 @@ router.get("/:contractId/metadata", tokenRateLimiter, async (req, res, next) => 
 });
 
 /**
- * GET /api/tokens/:contractId/balance/:publicKey
- * Get token balance for an account
+ * @swagger
+ * /api/tokens/{contractId}/balance/{publicKey}:
+ *   get:
+ *     summary: Get token balance for an account
+ *     tags: [Tokens]
+ *     parameters:
+ *       - in: path
+ *         name: contractId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Token balance
  */
 router.get("/:contractId/balance/:publicKey", tokenRateLimiter, async (req, res, next) => {
   try {
@@ -112,8 +171,27 @@ router.get("/:contractId/balance/:publicKey", tokenRateLimiter, async (req, res,
 });
 
 /**
- * POST /api/tokens/validate
- * Validate if a contract is a token contract
+ * @swagger
+ * /api/tokens/validate:
+ *   post:
+ *     summary: Validate if a contract is a token contract
+ *     tags: [Tokens]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - contractId
+ *             properties:
+ *               contractId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Validation result
+ *       400:
+ *         description: Missing contract ID
  */
 router.post("/validate", tokenRateLimiter, async (req, res, next) => {
   try {

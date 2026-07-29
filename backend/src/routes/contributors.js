@@ -1,3 +1,9 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Contributors
+ *   description: GitHub contributor fetching
+ */
 const express = require("express");
 const router = express.Router();
 const axios = require("axios");
@@ -36,7 +42,16 @@ async function fetchGitHubContributors() {
   }
 }
 
-// GET /api/contributors
+/**
+ * @swagger
+ * /api/contributors:
+ *   get:
+ *     summary: Get top GitHub contributors (cached 24h)
+ *     tags: [Contributors]
+ *     responses:
+ *       200:
+ *         description: Contributor list
+ */
 router.get("/", async (req, res, next) => {
   try {
     const contributors = await fetchGitHubContributors();
@@ -46,7 +61,16 @@ router.get("/", async (req, res, next) => {
   }
 });
 
-// POST /api/contributors/refresh (admin only, refreshes cache)
+/**
+ * @swagger
+ * /api/contributors/refresh:
+ *   post:
+ *     summary: Refresh contributor cache
+ *     tags: [Contributors]
+ *     responses:
+ *       200:
+ *         description: Cache refreshed
+ */
 router.post("/refresh", async (req, res, next) => {
   try {
     contributorCache = { data: null, timestamp: 0 };

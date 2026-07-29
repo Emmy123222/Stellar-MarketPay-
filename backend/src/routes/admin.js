@@ -1,6 +1,11 @@
 /**
  * src/routes/admin.js
  * Admin-only moderation routes — protected by JWT role=admin check.
+ *
+ * @swagger
+ * tags:
+ *   name: Admin
+ *   description: Admin-only moderation and analytics
  */
 "use strict";
 

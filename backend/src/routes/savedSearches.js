@@ -1,6 +1,11 @@
 /**
  * routes/savedSearches.js
  * CRUD endpoints for saved job search alerts (Issue #284).
+ *
+ * @swagger
+ * tags:
+ *   name: Saved Searches
+ *   description: Saved job search alerts
  */
 "use strict";
 
@@ -14,8 +19,41 @@ const logger = createServiceLogger("saved-searches");
 const MAX_SAVED_SEARCHES = 10;
 
 /**
- * GET /api/saved-searches
- * List the authenticated user's saved searches.
+ * @swagger
+ * /api/saved-searches:
+ *   get:
+ *     summary: List saved searches
+ *     tags: [Saved Searches]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Saved searches list
+ *   post:
+ *     summary: Save a new search (max 10)
+ *     tags: [Saved Searches]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - query_params
+ *             properties:
+ *               query_params:
+ *                 type: object
+ *               notify_in_app:
+ *                 type: boolean
+ *               notify_email:
+ *                 type: boolean
+ *     responses:
+ *       201:
+ *         description: Search saved
+ *       400:
+ *         description: Limit reached or invalid params
  */
 router.get("/", verifyJWT, async (req, res, next) => {
   try {
@@ -76,8 +114,36 @@ router.post("/", verifyJWT, async (req, res, next) => {
 });
 
 /**
- * PATCH /api/saved-searches/:id
- * Update notification preferences for a saved search.
+ * @swagger
+ * /api/saved-searches/{id}:
+ *   patch:
+ *     summary: Update saved search notification prefs
+ *     tags: [Saved Searches]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Search updated
+ *   delete:
+ *     summary: Delete a saved search
+ *     tags: [Saved Searches]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Search deleted
  */
 router.patch("/:id", verifyJWT, async (req, res, next) => {
   try {
