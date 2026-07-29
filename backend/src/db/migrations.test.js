@@ -8,7 +8,7 @@ const {
   getExpectedMigrationVersion,
 } = require("./migrate");
 
-describe("Database Migrations (V1–V17)", () => {
+describe("Database Migrations (V1–V22)", () => {
   let hasPostgres = false;
 
   beforeAll(async () => {

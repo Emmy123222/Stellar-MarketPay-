@@ -64,12 +64,13 @@ router.post("/:jobId/release", async (req, res, next) => {
       throw e;
     }
 
-    // Fetch escrow amount for referral bonus calculation.
+    // Fetch escrow amount and status for referral bonus and audit log.
     // DB status is updated asynchronously by the indexer when it processes the on-chain event.
     const { rows: escrowRows } = await pool.query(
-      `SELECT amount_xlm FROM escrows WHERE job_id = $1`,
+      `SELECT amount_xlm, status FROM escrows WHERE job_id = $1`,
       [jobId],
     );
+    const escrowStatus = escrowRows.length ? escrowRows[0].status : null;
 
     // Process referral bonus payout (2% of earnings to referrer on referee's first job).
     // The on-chain transfer is handled by the Soroban contract's release_escrow();
@@ -89,8 +90,8 @@ router.post("/:jobId/release", async (req, res, next) => {
         actorAddress: clientAddress,
         action: "escrow_release",
         entityType: "escrow",
-        entityId: escrowRows.length ? `${jobId}` : jobId,
-        oldValue: { jobStatus: job.status, escrowStatus: escrowRows.length ? escrowRows[0]?.status : null },
+        entityId: jobId,
+        oldValue: { jobStatus: job.status, escrowStatus },
         newValue: { jobStatus: "completed", escrowStatus: "released" },
       });
     } catch {
