@@ -21,8 +21,8 @@ if ! command -v gitleaks &> /dev/null; then
     fi
 fi
 
-# Run gitleaks detect on staged files
-gitleaks detect --source . --config .gitleaks.toml --verbose --no-git --staged
+# Run gitleaks on staged files
+gitleaks protect -v --staged
 
 # Check the exit code
 if [ $? -ne 0 ]; then
