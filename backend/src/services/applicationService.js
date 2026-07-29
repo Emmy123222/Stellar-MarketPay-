@@ -95,6 +95,7 @@ function rowToApp(row) {
     revealedAt: row.revealed_at || null,
     createdAt: row.created_at,
     acceptedAt: row.accepted_at,
+    withdrawnAt: row.withdrawn_at || null,
   };
 }
 

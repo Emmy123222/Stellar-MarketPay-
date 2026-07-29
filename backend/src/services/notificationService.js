@@ -693,6 +693,9 @@ module.exports = {
   generateEmailContent,
   getNextRetryTime,
   sendPushNotificationForEvent,
+  generateInAppContent,
+  sendEmail,
+  sendWebhook,
   EVENT_TYPES,
   setBroadcastToUser,
 };

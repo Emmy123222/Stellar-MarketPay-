@@ -210,6 +210,7 @@ function rowToJob(row) {
     categoryId: row.category_id_resolved || row.category_id || null,
     skills: row.skills,
     status: row.status,
+    visibility: row.visibility || "public",
     clientAddress: row.client_address,
     freelancerAddress: row.freelancer_address,
     escrowContractId: row.escrow_contract_id,
