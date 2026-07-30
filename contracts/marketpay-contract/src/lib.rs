@@ -4822,3 +4822,6 @@ mod extension_tests {
         client.approve_extension(&job_id, &freelancer);
     }
 }
+
+#[cfg(test)]
+mod test;
