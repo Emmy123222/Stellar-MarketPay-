@@ -39,10 +39,19 @@
     "schemas": {
       "Error": {
         "type": "object",
+        "required": ["error"],
         "properties": {
           "error": {
             "type": "string",
-            "description": "Error message"
+            "description": "Human-readable error message"
+          },
+          "code": {
+            "type": "string",
+            "description": "Machine-readable error code"
+          },
+          "details": {
+            "type": "object",
+            "description": "Optional extra context (validation errors, etc.)"
           }
         }
       },
@@ -112,6 +121,45 @@
             "type": "string",
             "format": "date-time",
             "description": "Expiration timestamp"
+          }
+        }
+      },
+      "PublicJob": {
+        "type": "object",
+        "description": "Syndication-safe job listing (no client address or applicant details)",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Job ID"
+          },
+          "title": {
+            "type": "string",
+            "description": "Job title"
+          },
+          "category": {
+            "type": "string",
+            "description": "Job category"
+          },
+          "budget": {
+            "type": "number",
+            "description": "Job budget"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Payment currency"
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Required skills"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
           }
         }
       },
@@ -407,6 +455,60 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/public/jobs": {
+      "get": {
+        "summary": "List public job listings (no auth required)",
+        "description": "Read-only feed of open, publicly-visible job listings intended for third-party job board syndication. Rate-limited to 60 requests per minute per IP address. Excludes client address and applicant details.",
+        "tags": [
+          "Public"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by job category"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            },
+            "description": "Maximum number of jobs to return"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public job listings retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PublicJob"
+                      }
+                    }
+                  }
                 }
               }
             }

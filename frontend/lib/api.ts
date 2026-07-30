@@ -10,6 +10,7 @@ import type {
   Rating,
   ProposalTemplate,
   PriceAlertPreference,
+  PriceAlert,
   SkillEndorsement,
   ClientSpendingAnalytics,
   PortfolioFile,
@@ -26,7 +27,11 @@ import type {
   ProfileStats,
   ResponseTime,
   AuditLogEntry,
+  PasskeyCredential,
 } from "@/utils/types";
+
+// Re-export PasskeyCredential for components that import it directly from @/lib/api
+export type { PasskeyCredential };
 
 // ─── Structured error code → user-facing string map (#461) ───────────────────
 export const API_ERROR_MESSAGES: Record<string, string> = {
@@ -1166,6 +1171,40 @@ export async function upsertPriceAlertPreference(
   return data.data;
 }
 
+// ─── Price Alerts (Issue #887) ─────────────────────────────────────────────────
+
+/**
+ * Create a new price alert with condition/threshold.
+ */
+export async function createPriceAlert(payload: {
+  condition: "above" | "below";
+  threshold: number;
+  oneTime?: boolean;
+}): Promise<PriceAlert> {
+  const { data } = await api.post<{ success: boolean; data: PriceAlert }>(
+    "/api/price-alerts",
+    payload,
+  );
+  return data.data;
+}
+
+/**
+ * List price alerts for the authenticated user.
+ */
+export async function fetchPriceAlerts(): Promise<PriceAlert[]> {
+  const { data } = await api.get<{ success: boolean; data: PriceAlert[] }>(
+    "/api/price-alerts",
+  );
+  return data.data;
+}
+
+/**
+ * Delete a price alert by ID.
+ */
+export async function deletePriceAlert(id: string): Promise<void> {
+  await api.delete(`/api/price-alerts/${id}`);
+}
+
 /**
  * Stores the on-chain escrow contract ID against a job record.
  *
@@ -1858,9 +1897,17 @@ export async function fetchEvidenceSignedUrl(
   return data.data;
 }
 
+export async function fetchPasskeyRegistrationOptions(publicKey: string) {
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    "/api/webauthn/register/begin",
+    {},
+  );
+  return data.data;
+}
+
 export async function verifyPasskeyRegistration(credential: any, name: string) {
   const { data } = await api.post<{ success: boolean; message: string }>(
-    "/api/webauthn/register-verify",
+    "/api/webauthn/register/finish",
     { credential, name },
   );
   return data;
@@ -1868,7 +1915,7 @@ export async function verifyPasskeyRegistration(credential: any, name: string) {
 
 export async function fetchPasskeyLoginOptions(publicKey: string) {
   const { data } = await api.post<{ success: boolean; data: any }>(
-    "/api/webauthn/login-options",
+    "/api/webauthn/login/begin",
     { publicKey },
   );
   return data.data;
@@ -1876,7 +1923,7 @@ export async function fetchPasskeyLoginOptions(publicKey: string) {
 
 export async function verifyPasskeyLogin(credential: any, publicKey: string) {
   const { data } = await api.post<{ success: boolean; token: string }>(
-    "/api/webauthn/login-verify",
+    "/api/webauthn/login/finish",
     { credential, publicKey },
   );
   return data;
@@ -2278,52 +2325,7 @@ export async function registerReferral(
   });
 }
 
-// ─── Saved Searches (Issue #284) ─────────────────────────────────────────────
 
-export interface SavedSearch {
-  id: string;
-  user_address: string;
-  query_params: Record<string, string>;
-  notify_in_app: boolean;
-  notify_email: boolean;
-  last_notified_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export async function fetchSavedSearches(): Promise<SavedSearch[]> {
-  const { data } = await api.get<{ success: boolean; data: SavedSearch[] }>(
-    "/api/saved-searches"
-  );
-  return data.data;
-}
-
-export async function createSavedSearch(payload: {
-  query_params: Record<string, string>;
-  notify_in_app?: boolean;
-  notify_email?: boolean;
-}): Promise<SavedSearch> {
-  const { data } = await api.post<{ success: boolean; data: SavedSearch }>(
-    "/api/saved-searches",
-    payload
-  );
-  return data.data;
-}
-
-export async function updateSavedSearch(
-  id: string,
-  payload: { notify_in_app?: boolean; notify_email?: boolean }
-): Promise<SavedSearch> {
-  const { data } = await api.patch<{ success: boolean; data: SavedSearch }>(
-    `/api/saved-searches/${id}`,
-    payload
-  );
-  return data.data;
-}
-
-export async function deleteSavedSearch(id: string): Promise<void> {
-  await api.delete(`/api/saved-searches/${id}`);
-}
 
 // ─── Job Boost (Issue #344) ───────────────────────────────────────────────────
 

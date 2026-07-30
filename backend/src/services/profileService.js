@@ -209,8 +209,10 @@ function validateAvailability(availability) {
  */
 
 function rowToProfile(row) {
-  const decryptedEmail = row.email || null;
-  const decryptedWebhookSecret = row.webhook_secret || null;
+  const decryptedEmail = encryptionService.decrypt(row.encrypted_email) || row.email || null;
+  const decryptedWebhookSecret = encryptionService.decrypt(row.encrypted_webhook_secret) || row.webhook_secret || null;
+  const decryptedPhone = encryptionService.decrypt(row.encrypted_phone) || null;
+  const decryptedKycData = encryptionService.decrypt(row.encrypted_kyc_data) || null;
 
   return {
     publicKey: row.public_key,
@@ -231,6 +233,8 @@ function rowToProfile(row) {
     emailNotificationsEnabled: row.email_notifications_enabled !== null ? row.email_notifications_enabled : null,
     webhookUrl: row.webhook_url || null,
     webhookSecret: decryptedWebhookSecret,
+    phone: decryptedPhone,
+    kycData: decryptedKycData,
     isKycVerified: row.is_kyc_verified !== null ? row.is_kyc_verified : null,
     didHash: row.did_hash || null,
     encryptionPublicKey: row.encryption_public_key || null,
@@ -251,7 +255,6 @@ function rowToProfile(row) {
 async function getProfile(publicKey) {
   validatePublicKey(publicKey);
 
-  const encKey = encryptionService.getEncryptionKey();
   const { rows } = await pool.query(
     `SELECT p.public_key, p.display_name, p.bio, p.skills, p.portfolio_items,
             p.portfolio_files, p.availability, p.role, p.completed_jobs,
@@ -261,18 +264,8 @@ async function getProfile(publicKey) {
             p.is_kyc_verified, p.did_hash, p.encryption_public_key,
             p.migrated_to, p.migrated_at,
             p.created_at, p.updated_at,
-            COALESCE(
-              CASE WHEN p.encrypted_email IS NOT NULL
-                THEN pgp_sym_decrypt(p.encrypted_email, $2)
-              END,
-              p.email
-            ) AS email,
-            COALESCE(
-              CASE WHEN p.encrypted_webhook_secret IS NOT NULL
-                THEN pgp_sym_decrypt(p.encrypted_webhook_secret, $3)
-              END,
-              p.webhook_secret
-            ) AS webhook_secret,
+            p.email, p.encrypted_email, p.webhook_secret, p.encrypted_webhook_secret,
+            p.encrypted_phone, p.encrypted_kyc_data, p.email_hash,
        ROUND(AVG(r.stars)::numeric, 2) AS avg_rating,
        COUNT(r.id)::int                AS rating_count,
        (SELECT ROUND(AVG(EXTRACT(EPOCH FROM (a.accepted_at - j.created_at)) / 3600)::numeric, 1)
@@ -289,7 +282,7 @@ async function getProfile(publicKey) {
      LEFT JOIN ratings r ON r.rated_address = p.public_key
      WHERE p.public_key = $1 AND (p.deletion_status IS NULL OR p.deletion_status = 'active')
      GROUP BY p.public_key`,
-    [publicKey, encKey, encKey]
+    [publicKey]
   );
 
   if (!rows.length) {
@@ -370,7 +363,7 @@ async function getProfile(publicKey) {
  *   role: 'freelancer',
  * });
  */
-async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, portfolioFiles, availability, role, email, emailNotificationsEnabled, webhookUrl, webhookSecret, encryptionPublicKey }) {
+async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, portfolioFiles, availability, role, email, emailNotificationsEnabled, webhookUrl, webhookSecret, phone, kycData, encryptionPublicKey }) {
   validatePublicKey(publicKey);
 
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 15) : null;
@@ -378,15 +371,17 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
   const safePortfolioFiles = validatePortfolioFiles(portfolioFiles);
   const safeAvailability = availability === undefined ? null : validateAvailability(availability);
   const safeRole = validateProfileRole(role);
-  const encKey = encryptionService.getEncryptionKey();
+
+  const encryptedEmail = encryptionService.encrypt(email?.trim());
+  const emailHash = encryptionService.hashEmail(email);
+  const encryptedWebhookSecret = encryptionService.encrypt(webhookSecret?.trim());
+  const encryptedPhone = encryptionService.encrypt(phone?.trim());
+  const encryptedKycData = encryptionService.encrypt(kycData?.trim());
 
   const { rows } = await pool.query(
     `
-    INSERT INTO profiles (public_key, display_name, bio, skills, portfolio_items, portfolio_files, availability, role, email, email_notifications_enabled, webhook_url, webhook_secret, encrypted_email, encrypted_webhook_secret, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12,
-            CASE WHEN $9 IS NOT NULL AND $9 != '' THEN pgp_sym_encrypt($9, $13) END,
-            CASE WHEN $12 IS NOT NULL AND $12 != '' THEN pgp_sym_encrypt($12, $13) END,
-            NOW(), NOW())
+    INSERT INTO profiles (public_key, display_name, bio, skills, portfolio_items, portfolio_files, availability, role, email, email_notifications_enabled, webhook_url, webhook_secret, encrypted_email, encrypted_webhook_secret, email_hash, encrypted_phone, encrypted_kyc_data, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW())
     ON CONFLICT (public_key) DO UPDATE
       SET display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), profiles.display_name),
           bio = COALESCE(NULLIF(EXCLUDED.bio, ''), profiles.bio),
@@ -399,8 +394,11 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
           email_notifications_enabled = COALESCE(EXCLUDED.email_notifications_enabled, profiles.email_notifications_enabled),
           webhook_url = COALESCE(NULLIF(EXCLUDED.webhook_url, ''), profiles.webhook_url),
           webhook_secret = COALESCE(NULLIF(EXCLUDED.webhook_secret, ''), profiles.webhook_secret),
-          encrypted_email = CASE WHEN EXCLUDED.email IS NOT NULL AND EXCLUDED.email != '' THEN pgp_sym_encrypt(EXCLUDED.email, $13) ELSE profiles.encrypted_email END,
-          encrypted_webhook_secret = CASE WHEN EXCLUDED.webhook_secret IS NOT NULL AND EXCLUDED.webhook_secret != '' THEN pgp_sym_encrypt(EXCLUDED.webhook_secret, $13) ELSE profiles.encrypted_webhook_secret END,
+          encrypted_email = COALESCE(EXCLUDED.encrypted_email, profiles.encrypted_email),
+          encrypted_webhook_secret = COALESCE(EXCLUDED.encrypted_webhook_secret, profiles.encrypted_webhook_secret),
+          email_hash = COALESCE(EXCLUDED.email_hash, profiles.email_hash),
+          encrypted_phone = COALESCE(EXCLUDED.encrypted_phone, profiles.encrypted_phone),
+          encrypted_kyc_data = COALESCE(EXCLUDED.encrypted_kyc_data, profiles.encrypted_kyc_data),
           updated_at = NOW()
     RETURNING *
     `,
@@ -417,7 +415,11 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
       emailNotificationsEnabled !== undefined ? emailNotificationsEnabled : null,
       webhookUrl?.trim() || null,
       webhookSecret?.trim() || null,
-      encKey,
+      encryptedEmail,
+      encryptedWebhookSecret,
+      emailHash,
+      encryptedPhone,
+      encryptedKycData,
     ]
   );
 
@@ -532,8 +534,6 @@ async function listProfiles({ role, availability, search, limit = 50, after } = 
   values.push(safeLimit + 1);
   const limitIdx = idx;
   idx += 1;
-  const encKey = encryptionService.getEncryptionKey();
-  values.push(encKey, encKey);
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";    const { rows } = await pool.query(
     `SELECT p.public_key, p.display_name, p.bio, p.skills, p.portfolio_items,
@@ -555,6 +555,9 @@ async function listProfiles({ role, availability, search, limit = 50, after } = 
               END,
               p.webhook_secret
             ) AS webhook_secret
+            p.is_kyc_verified, p.did_hash, p.created_at, p.updated_at,
+            p.email, p.encrypted_email, p.webhook_secret, p.encrypted_webhook_secret,
+            p.encrypted_phone, p.encrypted_kyc_data, p.email_hash
      FROM profiles p ${whereClause} ORDER BY p.updated_at DESC, p.public_key DESC LIMIT $${limitIdx}`,
     values,
   );

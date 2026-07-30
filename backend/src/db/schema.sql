@@ -181,6 +181,33 @@ ALTER TABLE jobs
     setweight(to_tsvector('simple', COALESCE(description, '')), 'B')
   ) STORED;
 
+-- Issue #773: Full-text search column (managed by trigger, uses 'english' config for stemming)
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS search_vector TSVECTOR;
+
+-- Trigger function to automatically keep search_vector in sync
+CREATE OR REPLACE FUNCTION jobs_search_vector_update()
+RETURNS trigger AS $$
+BEGIN
+  NEW.search_vector := to_tsvector(
+    'english',
+    coalesce(NEW.title, '') || ' ' || coalesce(NEW.description, '')
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create the trigger (fires on INSERT or UPDATE of title/description)
+DROP TRIGGER IF EXISTS trg_jobs_search_vector ON jobs;
+CREATE TRIGGER trg_jobs_search_vector
+  BEFORE INSERT OR UPDATE OF title, description ON jobs
+  FOR EACH ROW
+  EXECUTE FUNCTION jobs_search_vector_update();
+
+-- Backfill search_vector for existing rows
+UPDATE jobs
+SET search_vector = to_tsvector('english', coalesce(title, '') || ' ' || coalesce(description, ''))
+WHERE search_vector IS NULL;
+
 -- enforce valid visibility values for all rows
 DO $$
 BEGIN
@@ -332,6 +359,9 @@ CREATE INDEX IF NOT EXISTS jobs_status_category_created_idx
 CREATE INDEX IF NOT EXISTS jobs_search_vector_idx
   ON jobs USING GIN (job_search_vector);
 
+-- Issue #773: GIN index for full-text search on search_vector (trigger-managed, english config)
+CREATE INDEX IF NOT EXISTS idx_jobs_search_vector ON jobs USING GIN (search_vector);
+
 CREATE INDEX IF NOT EXISTS jobs_title_trgm_idx
   ON jobs USING GIN (lower(title) gin_trgm_ops);
 
@@ -410,6 +440,7 @@ CREATE TABLE IF NOT EXISTS scope_sessions (
   content           TEXT          NOT NULL DEFAULT '',
   cursors           JSONB         NOT NULL DEFAULT '{}'::jsonb,
   finalized         BOOLEAN       NOT NULL DEFAULT false,
+  finalized_hash    TEXT,
   finalized_payload JSONB,
   expires_at        TIMESTAMPTZ   NOT NULL,
   created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
@@ -559,3 +590,37 @@ CREATE TABLE IF NOT EXISTS ledger_timestamps (
 );
 
 CREATE INDEX IF NOT EXISTS ledger_timestamps_timestamp_idx ON ledger_timestamps(timestamp);
+
+-- -----------------------------------------
+-- project_assessments (V22)
+-- -----------------------------------------
+CREATE TABLE IF NOT EXISTS project_assessments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_address TEXT NOT NULL REFERENCES profiles(public_key),
+  job_id UUID REFERENCES jobs(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  time_limit_minutes INTEGER NOT NULL CHECK (time_limit_minutes > 0),
+  questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS project_assessments_client_idx ON project_assessments(client_address);
+CREATE INDEX IF NOT EXISTS project_assessments_job_idx ON project_assessments(job_id);
+
+CREATE TABLE IF NOT EXISTS project_assessment_submissions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  assessment_id UUID NOT NULL REFERENCES project_assessments(id) ON DELETE CASCADE,
+  freelancer_address TEXT NOT NULL REFERENCES profiles(public_key),
+  answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+  score INTEGER,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('started', 'submitted', 'graded')),
+  started_at TIMESTAMPTZ,
+  submitted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (assessment_id, freelancer_address)
+);
+
+CREATE INDEX IF NOT EXISTS project_assessment_submissions_freelancer_idx ON project_assessment_submissions(freelancer_address);
+CREATE INDEX IF NOT EXISTS project_assessment_submissions_assessment_idx ON project_assessment_submissions(assessment_id);
