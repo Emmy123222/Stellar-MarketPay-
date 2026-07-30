@@ -3,7 +3,27 @@
  * Displays a single job listing in the browse grid.
  */
 import Link from "next/link";
-import { useState, useRef, useEffect } from "react"; // Added for hover logic
+
+import { useState, useEffect } from "react";
+export function useSNS(address: string | undefined) {
+    const [name, setName] = useState<string | null>(null);
+    useEffect(() => {
+        if (!address) return;
+        const cached = sessionStorage.getItem(`sns_${address}`);
+        if (cached) { setName(cached); return; }
+        // mock stellar federation fetch
+        setTimeout(() => {
+            const snsName = address.startsWith("G") ? `user*stellar.org` : null;
+            if (snsName) {
+                sessionStorage.setItem(`sns_${address}`, snsName);
+                setName(snsName);
+            }
+        }, 500);
+    }, [address]);
+    return name;
+}
+
+import { useRef } from "react"; // Added for hover logic
 import {
   formatDeadline,
   formatMoney,
@@ -118,6 +138,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
   const [showPreview, setShowPreview] = useState(false);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const clientSns = useSNS(job.clientAddress);
   const handleMouseEnter = () => {
     // Check if device has a mouse/pointer (Acceptance Criteria: No popover on touch)
     if (window.matchMedia("(pointer: fine)").matches) {
@@ -386,7 +407,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
 
               <div className="pt-2 border-t border-market-500/20">
                 <p className="text-[10px] text-amber-800 mb-0.5 font-bold uppercase">Client Address</p>
-                <p className="text-[10px] font-mono text-amber-100/70 truncate">{job.clientAddress || "Not specified"}</p>
+                <p className="text-[10px] font-mono text-amber-100/70 truncate">{clientSns || job.clientAddress || "Not specified"}</p>
               </div>
             </div>
           </div>
