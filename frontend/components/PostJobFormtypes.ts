@@ -9,6 +9,7 @@ export interface Milestone {
 }
 
 export interface JobFormData {
+  id?: string;
   title: string;
   description: string;
   budget: string;

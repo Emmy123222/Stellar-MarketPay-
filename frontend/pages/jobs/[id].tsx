@@ -1,5 +1,6 @@
 import TimeTracker from "@/components/TimeTracker";
 import FeeEstimationModal from "@/components/FeeEstimationModal";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
@@ -9,12 +10,14 @@ import ApplicationForm from "@/components/ApplicationForm";
 import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
+import { usePriceContext } from "@/contexts/PriceContext";
 import {
   fetchJob,
   fetchApplications,
   acceptApplication,
   releaseEscrow,
   raiseDispute,
+  inviteFreelancer,
 } from "@/lib/api";
 import {
   formatXLM,
@@ -23,6 +26,7 @@ import {
   shortenAddress,
   statusLabel,
   statusClass,
+  formatUSDEquivalent,
 } from "@/utils/format";
 import {
   accountUrl,
@@ -160,6 +164,7 @@ function Spinner() {
 }
 
 export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: JobDetailProps) {
+  const { xlmPriceUsd } = usePriceContext();
   const router = useRouter();
   const jobId = typeof router.query.id === "string" ? router.query.id : null;
 
@@ -173,6 +178,7 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const [actionError, setActionError] = useState<string | null>(null);
   const [releasingEscrow, setReleasingEscrow] = useState(false);
   const [releaseSuccess, setReleaseSuccess] = useState(false);
+  const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [prefillData, setPrefillData] = useState<any>(null);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
@@ -187,6 +193,11 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   // Milestone/partial-release state
   const [releasingMilestoneIndex, setReleasingMilestoneIndex] = useState<number | null>(null);
   const [pendingRelease, setPendingRelease] = useState<{ transaction: Transaction; fnName: string } | null>(null);
+  // Invite freelancer state
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteFreelancerAddress, setInviteFreelancerAddress] = useState("");
+  const [inviting, setInviting] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
   const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
   const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
@@ -300,7 +311,31 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
     }
   };
 
-  const handleConfirmTimeoutRefundFee = () => {
+  const handleInviteFreelancer = async () => {
+    if (!publicKey || !job) return;
+    if (!inviteFreelancerAddress || !/^G[A-Z0-9]{55}$/.test(inviteFreelancerAddress)) {
+      setInviteError("Please enter a valid Stellar public key (starts with G, 56 characters)");
+      return;
+    }
+
+    setInviting(true);
+    setInviteError(null);
+
+    try {
+      await inviteFreelancer(job.id, inviteFreelancerAddress);
+      setShowInviteModal(false);
+      setInviteFreelancerAddress("");
+    } catch (e: any) {
+      setInviteError(e.response?.data?.error || "Failed to invite freelancer.");
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const handleConfirmTimeoutRefundFee = (_details: { maxFeeMultiplier: number; maxFeeStroops: bigint }) => {
+    console.debug(
+      `[FeeEstimationModal] User confirmed with maxFeeMultiplier=${_details.maxFeeMultiplier}, maxFeeStroops=${_details.maxFeeStroops.toString()}`
+    );
     setPendingTimeoutRefund(null);
   };
 
@@ -498,6 +533,11 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
                   <div className="sm:text-right">
                     <p className="text-xs text-amber-800 mb-1">Budget</p>
                     <p className="font-mono font-bold text-xl sm:text-2xl text-market-400">{formatXLM(job.budget)} {job.currency}</p>
+                    {xlmPriceUsd !== null && (
+                      <p className="text-xs text-amber-700 mt-1">
+                        {formatUSDEquivalent(job.budget, xlmPriceUsd)}
+                      </p>
+                    )}
                     <a
                       href={accountUrl(job.clientAddress)}
                       target="_blank"
@@ -544,13 +584,21 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
             </div>
           )}
 
-          <div className="mt-5">
+          <div className="mt-5 flex gap-4">
             <button
               onClick={() => setShowShareModal(true)}
               className="text-xs text-market-400 hover:text-market-300 underline"
             >
               Share job
             </button>
+            {isClient && job.visibility === "invite_only" && (
+              <button
+                onClick={() => setShowInviteModal(true)}
+                className="text-xs text-market-400 hover:text-market-300 underline"
+              >
+                Invite freelancer
+              </button>
+            )}
           </div>
         </div>
 
@@ -689,12 +737,26 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
             </h2>
 
             <button
-              onClick={handleReleaseEscrow}
+              onClick={() => setShowReleaseConfirm(true)}
               disabled={releasingEscrow}
               className="btn-primary w-full sm:w-auto"
             >
               {releasingEscrow ? "Releasing..." : "Release Escrow"}
             </button>
+
+            <ConfirmDialog
+              open={showReleaseConfirm}
+              title="Release Escrow"
+              description={`This will release ${job?.budget || "the"} escrowed funds to the freelancer. This on-chain action is irreversible.`}
+              actionDetails={job?.freelancerAddress ? `Freelancer: ${job.freelancerAddress.slice(0, 8)}...${job.freelancerAddress.slice(-4)}` : undefined}
+              requireTypedConfirm
+              onConfirm={async () => {
+                await handleReleaseEscrow();
+                setShowReleaseConfirm(false);
+              }}
+              onCancel={() => setShowReleaseConfirm(false)}
+              loading={releasingEscrow}
+            />
 
             {releaseSuccess && (
               <p className="mt-3 text-emerald-400 text-sm">Escrow released successfully.</p>
@@ -751,7 +813,7 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
           <div className="relative w-full max-w-md bg-ink-900 border border-market-500/20 rounded-2xl p-4 sm:p-6 shadow-2xl animate-scale-in max-h-[90vh] overflow-y-auto">
             <h3 className="font-display text-lg sm:text-xl font-bold text-amber-100 mb-2">Raise a Dispute</h3>
             <p className="text-xs sm:text-sm text-amber-800 mb-6">Flag this job for admin review. This will block escrow release until resolved.</p>
-            
+
             <div className="space-y-4">
               <div>
                 <label className="label">Reason</label>
@@ -773,32 +835,85 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
                 <textarea
                   value={disputeDescription}
                   onChange={(e) => setDisputeDescription(e.target.value)}
-                  placeholder="Explain the issue in detail..."
-                  rows={3}
-                  className="textarea-field"
+                  className="input-field min-h-[100px]"
+                  placeholder="Describe the issue in detail..."
                 />
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3 mt-6 sm:mt-8">
+            {actionError && (
+              <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+                {actionError}
+              </div>
+            )}
+
+            <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setShowDisputeModal(false)}
-                className="btn-secondary text-sm py-2.5"
-                disabled={raisingDispute}
+                className="btn-secondary flex-1 text-xs sm:text-sm py-2.5 min-h-[44px]"
               >
                 Cancel
               </button>
               <button
                 onClick={handleRaiseDispute}
-                className="btn-primary text-sm py-2.5 flex items-center justify-center gap-2"
-                disabled={raisingDispute || !disputeReason || !disputeDescription}
+                disabled={raisingDispute}
+                className="btn-primary flex-1 text-xs sm:text-sm py-2.5 min-h-[44px]"
               >
-                {raisingDispute ? <Spinner /> : "Raise Dispute"}
+                {raisingDispute ? "Submitting..." : "Raise Dispute"}
               </button>
             </div>
-            {actionError && (
-              <p className="mt-3 text-red-400 text-xs sm:text-sm text-center">{actionError}</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Invite Freelancer modal ── */}
+      {showInviteModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-ink-950/80 backdrop-blur-sm" onClick={() => setShowInviteModal(false)} />
+          <div className="relative w-full max-w-md bg-ink-900 border border-market-500/20 rounded-2xl p-4 sm:p-6 shadow-2xl animate-scale-in">
+            <h3 className="font-display text-lg sm:text-xl font-bold text-amber-100 mb-2">Invite Freelancer</h3>
+            <p className="text-xs sm:text-sm text-amber-800 mb-6">Enter the freelancer's Stellar public key to invite them to this job.</p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="label">Freelancer Public Key</label>
+                <input
+                  type="text"
+                  value={inviteFreelancerAddress}
+                  onChange={(e) => setInviteFreelancerAddress(e.target.value)}
+                  className="input-field"
+                  placeholder="G..."
+                  maxLength={56}
+                />
+                <p className="text-xs text-amber-800 mt-1">Must start with G and be 56 characters long</p>
+              </div>
+            </div>
+
+            {inviteError && (
+              <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+                {inviteError}
+              </div>
             )}
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowInviteModal(false);
+                  setInviteFreelancerAddress("");
+                  setInviteError(null);
+                }}
+                className="btn-secondary flex-1 text-xs sm:text-sm py-2.5 min-h-[44px]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleInviteFreelancer}
+                disabled={inviting}
+                className="btn-primary flex-1 text-xs sm:text-sm py-2.5 min-h-[44px]"
+              >
+                {inviting ? "Inviting..." : "Send Invitation"}
+              </button>
+            </div>
           </div>
         </div>
       )}

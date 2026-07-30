@@ -1,18 +1,61 @@
-# Security Policy
+# Security Header Policy
 
-## Container Image Scanning
+Stellar MarketPay aims for an **A rating** on [securityheaders.com](https://securityheaders.com). This document describes the security headers we set, where they are configured, and how to verify them.
 
-We take security seriously and have integrated automated security scanning into our CI/CD pipeline using [Trivy](https://trivy.dev/).
+## Required Headers
 
-### Process
-1. **Automated Scanning**: During the CI build process, all Docker images (e.g., backend, frontend) are automatically scanned for vulnerabilities.
-2. **Failure Threshold**: The CI pipeline is configured to automatically fail if any vulnerabilities with a severity of **CRITICAL** or **HIGH** are detected in the images.
-3. **Artifacts**: The detailed scan reports in SARIF format are uploaded as artifacts for each CI run, which can be downloaded and reviewed. They are also uploaded to the GitHub Security tab for easy tracking.
+The following headers must be present on every HTTP response served by the application:
 
-### Handling False Positives
-Occasionally, security scanners may flag vulnerabilities that are false positives or are not applicable to our specific runtime environment (e.g., a vulnerability in a development dependency that is never loaded in production).
+| Header | Value | Purpose |
+| --- | --- | --- |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains; preload` | Enforces HTTPS for one year, includes subdomains, and opts into HSTS preload. |
+| `X-Content-Type-Options` | `nosniff` | Prevents browsers from MIME-sniffing responses into unintended content types. |
+| `X-Frame-Options` | `SAMEORIGIN` | Allows the page to be framed only by the same origin, mitigating clickjacking. |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Sends the full referrer on same-origin requests and only the origin on cross-origin requests. |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), interest-cohort=()` | Disables access to sensitive browser features and interest-cohort tracking. |
 
-If a vulnerability is determined to be a false positive or an acceptable risk:
-1. Document the reasoning for ignoring the vulnerability.
-2. Add the CVE identifier to the `.trivyignore` file located at the root of the repository.
-3. Include a comment in `.trivyignore` directly above the CVE explaining why it is being ignored, ensuring future maintainers understand the context.
+In addition, a `Content-Security-Policy` is also configured to mitigate XSS and data injection attacks.
+
+## Where Headers Are Configured
+
+Headers are configured at three layers for defense-in-depth:
+
+### 1. Next.js Frontend
+
+- **Static/default headers**: `frontend/next.config.mjs` applies the security headers to all routes via the `headers()` configuration.
+- **Runtime CSP with nonce**: `frontend/middleware.ts` sets a per-request `Content-Security-Policy` header with a random nonce for inline script protection.
+- **Shared CSP directives**: `frontend/lib/csp.ts` contains the canonical CSP directives used by both the middleware and the Next.js config.
+
+### 2. Express Backend
+
+- `backend/src/server.js` uses [Helmet](https://helmetjs.github.io/) to set security headers on all API responses, including HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and Permissions-Policy.
+
+### 3. Nginx Reverse Proxy
+
+- `infra/nginx.conf` adds the same headers on the edge for all responses served through Nginx. This ensures the headers are present even if an upstream service omits them.
+
+## Verification
+
+### Local Check
+
+Start the frontend and run the helper script from the repository root:
+
+```bash
+./scripts/check-security-headers.sh http://localhost:3000
+```
+
+You can also check any deployed URL:
+
+```bash
+./scripts/check-security-headers.sh https://stellar-marketpay.com
+```
+
+### CI Check
+
+The GitHub Actions workflow in `.github/workflows/security-headers.yml` builds the frontend, starts the production server, and runs the curl-based header check on every push and pull request to `main`.
+
+## Notes
+
+- The `preload` directive in `Strict-Transport-Security` signals intent to be included in browser HSTS preload lists. Submit the domain to [hstspreload.org](https://hstspreload.org) once this header is live in production.
+- `X-XSS-Protection` is retained in the Nginx configuration for legacy browser support but is not required for an A rating.
+- If the application needs to embed third-party content via iframes or allow camera/microphone access in the future, update the `Permissions-Policy` and `frame-src` CSP directive accordingly, and document the change here.

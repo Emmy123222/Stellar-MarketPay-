@@ -7,6 +7,7 @@
         "dev": "nodemon src/server.js",
         "start": "node src/server.js",
         "lint": "eslint src/**/*.js",
+        "lint:fix": "eslint src/**/*.js --fix",
         "test": "jest --coverage",
         "test:unit": "jest",
         "test:integration": "jest --testPathPattern=src/tests/integration --runInBand",
@@ -42,7 +43,7 @@
         "jsonwebtoken": "^9.0.3",
         "morgan": "^1.10.0",
         "multer": "^1.4.5-lts.1",
-        "nodemailer": "^8.0.10",
+        "nodemailer": "^8.0.11",
         "p-limit": "^3.1.0",
         "pdfkit": "^0.19.1",
         "pg": "^8.20.0",
@@ -83,11 +84,9 @@
             "src/tests/integration"
         ],
         "collectCoverageFrom": [
-            "src/middleware/sanitize.js",
-            "src/services/profileService.js",
-            "src/services/escrowService.js",
-            "src/services/disputeService.js",
-            "src/services/gas_estimator.js"
+            "src/services/jobService.js",
+            "src/services/applicationService.js",
+            "src/services/notificationService.js"
         ],
         "coverageDirectory": "coverage",
         "coverageReporters": [
@@ -96,9 +95,17 @@
             "html"
         ],
         "coverageThreshold": {
-            "global": {
-                "lines": 60,
-                "branches": 50
+            "src/services/jobService.js": {
+                "lines": 80,
+                "branches": 80
+            },
+            "src/services/applicationService.js": {
+                "lines": 80,
+                "branches": 80
+            },
+            "src/services/notificationService.js": {
+                "lines": 80,
+                "branches": 80
             }
         },
         "transformIgnorePatterns": [
@@ -111,8 +118,13 @@
             {
                 "displayName": "unit",
                 "testEnvironment": "node",
-                "setupFiles": ["<rootDir>/jest.setup.js"],
-                "testPathIgnorePatterns": ["/node_modules/", "src/tests/integration"],
+                "setupFiles": [
+                    "<rootDir>/jest.setup.js"
+                ],
+                "testPathIgnorePatterns": [
+                    "/node_modules/",
+                    "src/tests/integration"
+                ],
                 "transformIgnorePatterns": [
                     "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus)/)"
                 ],
@@ -123,8 +135,12 @@
             {
                 "displayName": "integration",
                 "testEnvironment": "node",
-                "testMatch": ["**/src/tests/integration/**/*.test.js"],
-                "setupFiles": ["<rootDir>/jest.setup.js"],
+                "testMatch": [
+                    "**/src/tests/integration/**/*.test.js"
+                ],
+                "setupFiles": [
+                    "<rootDir>/jest.setup.js"
+                ],
                 "testTimeout": 30000,
                 "runInBand": true,
                 "transformIgnorePatterns": [

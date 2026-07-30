@@ -14,9 +14,12 @@
     "test": "jest --ci",
     "test:update-snapshots": "jest -u",
     "test:e2e": "playwright test",
+    "test:a11y": "playwright test accessibility",
+    "audit:contrast": "node scripts/audit-contrast.mjs",
     "analyze": "ANALYZE=true next build",
     "storybook": "storybook dev -p 6006",
-    "storybook:build": "storybook build -o storybook-static"
+    "storybook:build": "storybook build -o storybook-static",
+    "i18n:check": "node scripts/check-translations.mjs --strict"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",
@@ -36,6 +39,7 @@
     "i18next": "^26.3.0",
     "i18next-browser-languagedetector": "^8.2.1",
     "next": "14.2.3",
+    "next-i18next": "^15.4.2",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-chartjs-2": "^5.2.0",
@@ -65,12 +69,14 @@
     "axe-core": "^4.12.1",
     "eslint": "^8",
     "eslint-config-next": "14.2.3",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-sri": "file:eslint-plugin-sri",
     "fast-check": "^4.8.0",
     "jest": "^29.7.0",
+    "jest-axe": "^9.0.0",
     "jest-environment-jsdom": "^29.7.0",
     "postcss": "^8",
-    "storybook": "^8.6.0",
+    "storybook": "^8.6.18",
     "tailwindcss": "^3.4.1",
     "typescript": "^5",
     "vite": "^6.4.3"

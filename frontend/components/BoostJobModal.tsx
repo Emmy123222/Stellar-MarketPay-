@@ -103,7 +103,7 @@ export default function BoostJobModal({
 
       // Notify backend
       const res = await fetch(`/api/jobs/${jobId}/boost`, {
-        method: "PATCH",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ txHash: hash, amountXlm: selectedTier.amountXlm }),
       });
@@ -137,8 +137,10 @@ export default function BoostJobModal({
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="text-amber-700 hover:text-amber-400 text-xl leading-none ml-4"
+            aria-label="Close boost job modal"
           >
             ✕
           </button>
