@@ -327,7 +327,10 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
     }
   };
 
-  const handleConfirmTimeoutRefundFee = () => {
+  const handleConfirmTimeoutRefundFee = (_details: { maxFeeMultiplier: number; maxFeeStroops: bigint }) => {
+    console.debug(
+      `[FeeEstimationModal] User confirmed with maxFeeMultiplier=${_details.maxFeeMultiplier}, maxFeeStroops=${_details.maxFeeStroops.toString()}`
+    );
     setPendingTimeoutRefund(null);
   };
 

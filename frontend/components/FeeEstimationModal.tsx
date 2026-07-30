@@ -1,16 +1,19 @@
 /**
  * components/FeeEstimationModal.tsx
- * Pre-flight confirmation for Soroban contract calls (Issue #222).
+ * Pre-flight confirmation for Soroban contract calls (Issue #222, enhanced per #845).
  *
  * Runs `simulateTransaction` to compute the actual fee, shows it in XLM
- * and USD, warns when the wallet's XLM balance is below the fee, and lets
- * the user cancel before signing.
+ * and USD, lets the user set a custom max fee via a slider (1× to 3× of
+ * the estimated fee), warns when the wallet's XLM balance is below the fee,
+ * and allows proceeding with a default fee when estimation fails.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import type { Transaction } from "@stellar/stellar-sdk";
-import { estimateSorobanFee, describeContractCall, type FeeEstimate } from "@/lib/sorobanFees";
+import { estimateSorobanFee, describeContractCall, stroopsToXlm, type FeeEstimate } from "@/lib/sorobanFees";
 import { getXLMBalance } from "@/lib/stellar";
 import { usePriceContext } from "@/contexts/PriceContext";
+
+const DEFAULT_FEE_STROOPS = BigInt(100_000); // 0.01 XLM default fallback
 
 interface FeeEstimationModalProps {
   /** Pre-built (but not yet prepared) Soroban transaction. */
@@ -21,8 +24,8 @@ interface FeeEstimationModalProps {
   payerPublicKey: string;
   /** Platform fee in basis points (e.g. 100 = 1%), shown for informational purposes. */
   platformFeeBps?: number;
-  /** User clicked "Confirm & Sign". */
-  onConfirm: () => void;
+  /** User clicked "Confirm & Sign". Passes the chosen max fee multiplier and computed max stroops. */
+  onConfirm: (details: { maxFeeMultiplier: number; maxFeeStroops: bigint }) => void;
   /** User cancelled or closed the modal. */
   onCancel: () => void;
 }
@@ -38,6 +41,7 @@ export default function FeeEstimationModal({
   const [estimate, setEstimate] = useState<FeeEstimate | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [maxFeeMultiplier, setMaxFeeMultiplier] = useState(1);
   const { xlmPriceUsd } = usePriceContext();
 
   useEffect(() => {
@@ -60,9 +64,21 @@ export default function FeeEstimationModal({
     };
   }, [transaction, payerPublicKey, xlmPriceUsd]);
 
+  const safeEstimateStroops = estimate?.totalStroops ?? DEFAULT_FEE_STROOPS;
+  const maxFeeStroops = safeEstimateStroops * BigInt(Math.round(maxFeeMultiplier * 2)) / BigInt(2);
+  const maxFeeXlm = stroopsToXlm(maxFeeStroops);
+  const maxFeeUsd =
+    typeof xlmPriceUsd === "number" && xlmPriceUsd > 0
+      ? Number(maxFeeXlm) * xlmPriceUsd
+      : null;
+
   const balanceXlm = balance ? parseFloat(balance) : null;
   const feeXlm = estimate ? parseFloat(estimate.totalXlm) : null;
   const insufficient = balanceXlm !== null && feeXlm !== null && balanceXlm < feeXlm;
+
+  const handleConfirm = useCallback(() => {
+    onConfirm({ maxFeeMultiplier, maxFeeStroops });
+  }, [onConfirm, maxFeeMultiplier, maxFeeStroops]);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
@@ -74,7 +90,16 @@ export default function FeeEstimationModal({
           {describeContractCall(functionName)} — review the fee before signing.
         </p>
 
-        {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+        {error && (
+          <div className="bg-red-900/30 border border-red-500/30 rounded-lg p-3 mb-4">
+            <p className="text-red-400 text-sm mb-1">
+              <span className="font-semibold">Fee estimation failed:</span> {error}
+            </p>
+            <p className="text-amber-300 text-xs">
+              You can still proceed with a default max fee of {stroopsToXlm(DEFAULT_FEE_STROOPS)} XLM.
+            </p>
+          </div>
+        )}
 
         {!estimate && !error && (
           <p className="text-amber-200 text-sm mb-4">Simulating contract call…</p>
@@ -95,6 +120,23 @@ export default function FeeEstimationModal({
                 )}
               </dd>
             </div>
+            <div className="flex justify-between">
+              <dt className="text-amber-700">Max fee ({maxFeeMultiplier}×)</dt>
+              <dd className="font-mono">
+                {maxFeeXlm} XLM
+                {maxFeeUsd != null && (
+                  <span className="text-amber-700 ml-2">≈ ${maxFeeUsd.toFixed(4)} USD</span>
+                )}
+              </dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-amber-700">Exchange rate</dt>
+              <dd className="font-mono">
+                {xlmPriceUsd != null
+                  ? `1 XLM ≈ $${xlmPriceUsd.toFixed(4)} USD`
+                  : "—"}
+              </dd>
+            </div>
             {platformFeeBps != null && platformFeeBps > 0 && (
               <div className="flex justify-between">
                 <dt className="text-amber-700">Platform fee</dt>
@@ -110,6 +152,36 @@ export default function FeeEstimationModal({
           </dl>
         )}
 
+        {/* Custom max-fee slider */}
+        <div className="mb-4">
+          <label
+            htmlFor="max-fee-slider"
+            className="block text-xs text-amber-700 mb-2"
+          >
+            Max fee multiplier: <span className="font-mono text-amber-300">{maxFeeMultiplier}×</span>
+            <span className="ml-2 text-amber-600">
+              (max: {maxFeeXlm} XLM
+              {maxFeeUsd != null && ` ≈ $${maxFeeUsd.toFixed(4)}`})
+            </span>
+          </label>
+          <input
+            id="max-fee-slider"
+            type="range"
+            min={1}
+            max={3}
+            step={0.5}
+            value={maxFeeMultiplier}
+            onChange={(e) => setMaxFeeMultiplier(parseFloat(e.target.value))}
+            className="w-full h-2 bg-market-500/20 rounded-lg appearance-none cursor-pointer accent-market-400"
+            aria-label="Set custom max fee multiplier"
+          />
+          <div className="flex justify-between text-[11px] text-amber-700 mt-1">
+            <span>1× (minimum)</span>
+            <span>2×</span>
+            <span>3× (maximum)</span>
+          </div>
+        </div>
+
         {insufficient && (
           <p className="text-red-400 text-xs mb-3">
             Insufficient balance — top up XLM and try again.
@@ -121,11 +193,11 @@ export default function FeeEstimationModal({
             Cancel
           </button>
           <button
-            onClick={onConfirm}
-            disabled={!estimate || Boolean(error) || insufficient}
+            onClick={handleConfirm}
+            disabled={insufficient}
             className="btn-primary flex-1 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Confirm & Sign
+            {error ? "Proceed with default fee" : "Confirm & Sign"}
           </button>
         </div>
       </div>
