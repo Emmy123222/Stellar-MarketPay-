@@ -538,7 +538,7 @@ router.post("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, nex
   try {
     const { txHash, amountXlm } = req.body;
     if (!txHash || typeof txHash !== "string") {
-      return res.status(400).json({ success: false, error: "Transaction hash is required" });
+      return res.status(400).json({ error: "Transaction hash is required" });
     }
 
     const amount = parseFloat(amountXlm) || 0;
@@ -607,10 +607,7 @@ router.patch(
       const validDays = [7, 14, 30];
       const daysNum = parseInt(days, 10) || 30;
       if (!validDays.includes(daysNum)) {
-        return res.status(400).json({
-          success: false,
-          error: "Extension days must be 7, 14, or 30",
-        });
+        return res.status(400).json({ error: "Extension days must be 7, 14, or 30" });
       }
       const job = await extendJobExpiry(req.params.id, daysNum, req.user.publicKey);
       await cache.invalidateJobListCache();
@@ -626,9 +623,7 @@ router.post("/:id/referral", generalJobRateLimiter, async (req, res, next) => {
   try {
     const { referrer } = req.body;
     if (!referrer)
-      return res
-        .status(400)
-        .json({ success: false, error: "Referrer address is required" });
+      return res.status(400).json({ error: "Referrer address is required" });
     await incrementShareCount(req.params.id);
     res.json({ success: true });
   } catch (e) {
@@ -659,19 +654,13 @@ router.post("/:id/report", reportJobRateLimiter, (req, res, next) => {
     const normalizedReporterAddress = normalizeAddress(reporterAddress);
 
     if (!normalizedReporterAddress)
-      return res
-        .status(400)
-        .json({ success: false, error: "Reporter address is required" });
+      return res.status(400).json({ error: "Reporter address is required" });
     if (!isValidReportCategory(category))
-      return res
-        .status(400)
-        .json({ success: false, error: "Valid report category is required" });
+      return res.status(400).json({ error: "Valid report category is required" });
 
     const duplicateKey = `${jobId}:${normalizedReporterAddress}`;
     if (jobReports.has(duplicateKey))
-      return res
-        .status(409)
-        .json({ success: false, error: "You have already reported this job" });
+      return res.status(409).json({ error: "You have already reported this job" });
 
     const report = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -706,10 +695,7 @@ router.post(
     try {
       const { reason, description } = req.body;
       if (!reason || !description) {
-        return res.status(400).json({
-          success: false,
-          error: "Reason and description are required",
-        });
+        return res.status(400).json({ error: "Reason and description are required" });
       }
       const job = await raiseDispute(req.params.id, {
         reason,
@@ -733,9 +719,7 @@ router.post(
       // Basic admin check - in a real app this would be more robust
       const adminKey = process.env.ADMIN_PUBLIC_KEY;
       if (adminKey && req.user.publicKey !== adminKey) {
-        return res
-          .status(403)
-          .json({ success: false, error: "Only admins can resolve disputes" });
+        return res.status(403).json({ error: "Only admins can resolve disputes" });
       }
 
       const job = await resolveDispute(req.params.id);
@@ -876,7 +860,7 @@ router.get("/drafts/:id", verifyJWT, async (req, res, next) => {
       req.user.publicKey,
     );
     if (!draft)
-      return res.status(404).json({ success: false, error: "Draft not found" });
+      return res.status(404).json({ error: "Draft not found" });
     res.json({ success: true, data: draft });
   } catch (e) {
     next(e);
@@ -967,9 +951,7 @@ router.post(
     try {
       const { jobIds } = req.body;
       if (!Array.isArray(jobIds) || jobIds.length === 0) {
-        return res
-          .status(400)
-          .json({ success: false, error: "jobIds must be a non-empty array" });
+        return res.status(400).json({ error: "jobIds must be a non-empty array" });
       }
       const { bulkCancelJobs } = require("../services/jobService");
       const results = await bulkCancelJobs(jobIds, req.user.publicKey);
@@ -994,9 +976,7 @@ router.post(
     try {
       const { jobIds, days } = req.body;
       if (!Array.isArray(jobIds) || jobIds.length === 0) {
-        return res
-          .status(400)
-          .json({ success: false, error: "jobIds must be a non-empty array" });
+        return res.status(400).json({ error: "jobIds must be a non-empty array" });
       }
       const { bulkExtendJobs } = require("../services/jobService");
       const results = await bulkExtendJobs(
@@ -1025,14 +1005,10 @@ router.post(
     try {
       const { jobIds, txHash } = req.body;
       if (!Array.isArray(jobIds) || jobIds.length === 0) {
-        return res
-          .status(400)
-          .json({ success: false, error: "jobIds must be a non-empty array" });
+        return res.status(400).json({ error: "jobIds must be a non-empty array" });
       }
       if (!txHash) {
-        return res
-          .status(400)
-          .json({ success: false, error: "txHash is required for bulk boost" });
+        return res.status(400).json({ error: "txHash is required for bulk boost" });
       }
       const { bulkBoostJobs } = require("../services/jobService");
       const results = await bulkBoostJobs(jobIds, req.user.publicKey, txHash);

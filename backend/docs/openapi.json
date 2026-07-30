@@ -39,10 +39,19 @@
     "schemas": {
       "Error": {
         "type": "object",
+        "required": ["error"],
         "properties": {
           "error": {
             "type": "string",
-            "description": "Error message"
+            "description": "Human-readable error message"
+          },
+          "code": {
+            "type": "string",
+            "description": "Machine-readable error code"
+          },
+          "details": {
+            "type": "object",
+            "description": "Optional extra context (validation errors, etc.)"
           }
         }
       },
