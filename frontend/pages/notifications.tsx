@@ -9,6 +9,7 @@ import {
 } from "@/lib/api";
 import { timeAgo } from "@/utils/format";
 import type { NotificationItem } from "@/utils/types";
+import StateMessage from "@/components/StateMessage";
 
 interface NotificationsPageProps {
   publicKey: string | null;
@@ -106,9 +107,14 @@ export default function NotificationsPage({ publicKey, onConnect }: Notification
             Loading notifications...
           </div>
         ) : notifications.length === 0 ? (
-          <div className="border border-amber-900/30 rounded-lg p-6 bg-ink-800/50 text-amber-700">
-            No notifications yet.
-          </div>
+          <StateMessage
+            type="empty"
+            illustration="no-notifications"
+            title="You're all caught up"
+            description="You'll see updates on your jobs and applications here as they happen."
+            ctaLabel="Browse Jobs"
+            onCta={() => router.push('/jobs')}
+          />
         ) : (
           <div className="border border-amber-900/30 rounded-lg bg-ink-800/50 overflow-hidden">
             {notifications.map((notification) => (
