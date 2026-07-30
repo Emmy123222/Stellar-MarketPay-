@@ -1,5 +1,6 @@
 import TimeTracker from "@/components/TimeTracker";
 import FeeEstimationModal from "@/components/FeeEstimationModal";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
@@ -9,6 +10,7 @@ import ApplicationForm from "@/components/ApplicationForm";
 import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
+import { usePriceContext } from "@/contexts/PriceContext";
 import {
   fetchJob,
   fetchApplications,
@@ -24,6 +26,7 @@ import {
   shortenAddress,
   statusLabel,
   statusClass,
+  formatUSDEquivalent,
 } from "@/utils/format";
 import {
   accountUrl,
@@ -161,6 +164,7 @@ function Spinner() {
 }
 
 export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: JobDetailProps) {
+  const { xlmPriceUsd } = usePriceContext();
   const router = useRouter();
   const jobId = typeof router.query.id === "string" ? router.query.id : null;
 
@@ -174,6 +178,7 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const [actionError, setActionError] = useState<string | null>(null);
   const [releasingEscrow, setReleasingEscrow] = useState(false);
   const [releaseSuccess, setReleaseSuccess] = useState(false);
+  const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [prefillData, setPrefillData] = useState<any>(null);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
@@ -327,7 +332,10 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
     }
   };
 
-  const handleConfirmTimeoutRefundFee = () => {
+  const handleConfirmTimeoutRefundFee = (_details: { maxFeeMultiplier: number; maxFeeStroops: bigint }) => {
+    console.debug(
+      `[FeeEstimationModal] User confirmed with maxFeeMultiplier=${_details.maxFeeMultiplier}, maxFeeStroops=${_details.maxFeeStroops.toString()}`
+    );
     setPendingTimeoutRefund(null);
   };
 
@@ -525,6 +533,11 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
                   <div className="sm:text-right">
                     <p className="text-xs text-amber-800 mb-1">Budget</p>
                     <p className="font-mono font-bold text-xl sm:text-2xl text-market-400">{formatXLM(job.budget)} {job.currency}</p>
+                    {xlmPriceUsd !== null && (
+                      <p className="text-xs text-amber-700 mt-1">
+                        {formatUSDEquivalent(job.budget, xlmPriceUsd)}
+                      </p>
+                    )}
                     <a
                       href={accountUrl(job.clientAddress)}
                       target="_blank"
@@ -724,12 +737,26 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
             </h2>
 
             <button
-              onClick={handleReleaseEscrow}
+              onClick={() => setShowReleaseConfirm(true)}
               disabled={releasingEscrow}
               className="btn-primary w-full sm:w-auto"
             >
               {releasingEscrow ? "Releasing..." : "Release Escrow"}
             </button>
+
+            <ConfirmDialog
+              open={showReleaseConfirm}
+              title="Release Escrow"
+              description={`This will release ${job?.budget || "the"} escrowed funds to the freelancer. This on-chain action is irreversible.`}
+              actionDetails={job?.freelancerAddress ? `Freelancer: ${job.freelancerAddress.slice(0, 8)}...${job.freelancerAddress.slice(-4)}` : undefined}
+              requireTypedConfirm
+              onConfirm={async () => {
+                await handleReleaseEscrow();
+                setShowReleaseConfirm(false);
+              }}
+              onCancel={() => setShowReleaseConfirm(false)}
+              loading={releasingEscrow}
+            />
 
             {releaseSuccess && (
               <p className="mt-3 text-emerald-400 text-sm">Escrow released successfully.</p>

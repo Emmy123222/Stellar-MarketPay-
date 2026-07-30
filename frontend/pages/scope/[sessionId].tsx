@@ -1,17 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/router";
-import dynamic from "next/dynamic";
-
-// This page is already code-split by Next.js as a dynamic route
-// The collaborative editor is loaded on-demand when users navigate to /scope/[sessionId]
-// No additional dynamic import needed here as Next.js handles automatic code splitting
 
 type CursorMap = Record<string, { start: number; end: number; updatedAt: number }>;
 
 type ScopeMessage =
-  | { event: "scope:init"; payload: { sessionId: string; participantId: string; content: string; cursors: CursorMap; finalized?: boolean; expiresAt?: string } }
+  | { event: "scope:init"; payload: { sessionId: string; participantId: string; content: string; cursors: CursorMap; finalized?: boolean; finalizedHash?: string; expiresAt?: string } }
   | { event: "scope:update"; payload: { sessionId: string; content: string; cursors: CursorMap } }
-  | { event: "scope:finalized"; payload: { sessionId: string; content: string; payload?: Record<string, string> } }
+  | { event: "scope:finalized"; payload: { sessionId: string; content: string; finalizedHash?: string; payload?: Record<string, string> } }
   | { event: "scope:error"; payload: { error: string } }
   | { event: "connected"; payload: { channel: string } };
 
@@ -32,6 +27,27 @@ function reconnectDelay(attempt: number) {
   return Math.min(1000 * 2 ** attempt, 30000);
 }
 
+function renderMarkdown(text: string): string {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const html = escaped
+    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/^- (.+)$/gm, "<li>$1</li>")
+    .replace(/(<li>.*<\/li>\n?)+/g, "<ul>$&</ul>")
+    .replace(/^(\d+)\. (.+)$/gm, "<li>$2</li>")
+    .replace(/(<li>.*<\/li>\n?)+/g, "<ol>$&</ol>")
+    .replace(/\n\n/g, "</p><p>")
+    .replace(/\n/g, "<br>");
+  return `<div class="prose prose-sm max-w-none">${html}</div>`;
+}
+
 export default function ScopeSessionPage() {
   const router = useRouter();
   const sessionId = useMemo(() => {
@@ -47,9 +63,11 @@ export default function ScopeSessionPage() {
   const [shareUrl, setShareUrl] = useState("");
   const [error, setError] = useState("");
   const [finalized, setFinalized] = useState(false);
+  const [finalizedHash, setFinalizedHash] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [showExpiryWarning, setShowExpiryWarning] = useState(false);
+  const [previewTab, setPreviewTab] = useState<"edit" | "preview" | "split">("edit");
 
   const socketRef = useRef<WebSocket | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -86,6 +104,7 @@ export default function ScopeSessionPage() {
       setParticipantId(msg.payload.participantId);
       participantIdRef.current = msg.payload.participantId;
       if (msg.payload.finalized) setFinalized(true);
+      if (msg.payload.finalizedHash) setFinalizedHash(msg.payload.finalizedHash);
       if (msg.payload.expiresAt) setExpiresAt(msg.payload.expiresAt);
       return;
     }
@@ -97,6 +116,7 @@ export default function ScopeSessionPage() {
     if (msg.event === "scope:finalized") {
       setDocumentText(msg.payload.content || "");
       setFinalized(true);
+      if (msg.payload.finalizedHash) setFinalizedHash(msg.payload.finalizedHash);
       setConnectionStatus("connected");
       return;
     }
@@ -313,6 +333,7 @@ export default function ScopeSessionPage() {
   }[connectionStatus];
 
   const activePeerCursors = Object.entries(cursors).filter(([id]) => id !== participantId);
+  const previewHtml = useMemo(() => renderMarkdown(documentText), [documentText]);
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
@@ -337,7 +358,17 @@ export default function ScopeSessionPage() {
           )}
         </div>
 
-        {finalized && (
+        {finalized && finalizedHash && (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-center gap-3">
+            <span className="text-emerald-400 text-lg">✓</span>
+            <div>
+              <p className="text-sm font-medium text-emerald-300">Scope finalized and anchored on-chain</p>
+              <p className="text-xs text-emerald-600 font-mono mt-0.5 break-all">Hash: {finalizedHash}</p>
+            </div>
+          </div>
+        )}
+
+        {finalized && !finalizedHash && (
           <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-center gap-3">
             <span className="text-emerald-400 text-lg">✓</span>
             <div>
@@ -417,37 +448,112 @@ export default function ScopeSessionPage() {
         )}
 
         <div>
-          <label className="label">
-            Shared Scope Document
-            {!finalized && <span className="ml-2 text-xs text-amber-800 font-normal">(auto-saves every 2s)</span>}
-          </label>
-          <textarea
-            ref={textareaRef}
-            value={documentText}
-            onChange={(e) => handleTextChange(e.target.value)}
-            onSelect={(e) => {
-              if (finalized) return;
-              const target = e.target as HTMLTextAreaElement;
-              sendUpdate(documentText, target.selectionStart, target.selectionEnd);
-            }}
-            onKeyDown={(e) => {
-              if (finalized) return;
-              if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-                e.preventDefault();
+          <div className="flex items-center justify-between mb-2">
+            <label className="label">
+              Shared Scope Document
+              {!finalized && <span className="ml-2 text-xs text-amber-800 font-normal">(auto-saves every 2s)</span>}
+            </label>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setPreviewTab("edit")}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${previewTab === "edit" ? "bg-market-700 text-amber-100" : "text-amber-800 hover:text-amber-300"}`}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewTab("preview")}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${previewTab === "preview" ? "bg-market-700 text-amber-100" : "text-amber-800 hover:text-amber-300"}`}
+              >
+                Preview
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewTab("split")}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${previewTab === "split" ? "bg-market-700 text-amber-100" : "text-amber-800 hover:text-amber-300"}`}
+              >
+                Split
+              </button>
+            </div>
+          </div>
+
+          {previewTab === "edit" && (
+            <textarea
+              ref={textareaRef}
+              value={documentText}
+              onChange={(e) => handleTextChange(e.target.value)}
+              onSelect={(e) => {
+                if (finalized) return;
                 const target = e.target as HTMLTextAreaElement;
-                if (saveTimer.current) clearTimeout(saveTimer.current);
                 sendUpdate(documentText, target.selectionStart, target.selectionEnd);
-              } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-                e.preventDefault();
-                if (documentText.trim()) finalizeScope();
-              }
-            }}
-            rows={16}
-            className="textarea-field"
-            placeholder="Write requirements, milestones, and acceptance criteria together..."
-            readOnly={finalized}
-            disabled={finalized}
-          />
+              }}
+              onKeyDown={(e) => {
+                if (finalized) return;
+                if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+                  e.preventDefault();
+                  const target = e.target as HTMLTextAreaElement;
+                  if (saveTimer.current) clearTimeout(saveTimer.current);
+                  sendUpdate(documentText, target.selectionStart, target.selectionEnd);
+                } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  if (documentText.trim()) finalizeScope();
+                }
+              }}
+              rows={16}
+              className="textarea-field font-mono text-sm"
+              placeholder="Write requirements, milestones, and acceptance criteria together...
+
+Use markdown: # Title, **bold**, *italic*, `code`, - lists"
+              readOnly={finalized}
+              disabled={finalized}
+            />
+          )}
+
+          {previewTab === "preview" && (
+            <div
+              className="border border-market-500/20 bg-market-900/30 rounded-xl p-4 min-h-[16rem] overflow-auto"
+              dangerouslySetInnerHTML={{ __html: previewHtml }}
+            />
+          )}
+
+          {previewTab === "split" && (
+            <div className="flex gap-2">
+              <textarea
+                ref={textareaRef}
+                value={documentText}
+                onChange={(e) => handleTextChange(e.target.value)}
+                onSelect={(e) => {
+                  if (finalized) return;
+                  const target = e.target as HTMLTextAreaElement;
+                  sendUpdate(documentText, target.selectionStart, target.selectionEnd);
+                }}
+                onKeyDown={(e) => {
+                  if (finalized) return;
+                  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+                    e.preventDefault();
+                    const target = e.target as HTMLTextAreaElement;
+                    if (saveTimer.current) clearTimeout(saveTimer.current);
+                    sendUpdate(documentText, target.selectionStart, target.selectionEnd);
+                  }
+                }}
+                rows={16}
+                className="textarea-field font-mono text-sm w-1/2"
+                placeholder="Write in markdown..."
+                readOnly={finalized}
+                disabled={finalized}
+              />
+              <div
+                className="border border-market-500/20 bg-market-900/30 rounded-xl p-4 min-h-[16rem] w-1/2 overflow-auto"
+                dangerouslySetInnerHTML={{ __html: previewHtml }}
+              />
+            </div>
+          )}
+
+          <p className="text-xs text-amber-800 mt-2">
+            Supports markdown: # Heading, **bold**, *italic*, `code`, - unordered list, 1. ordered list &mdash;
+            Ctrl+S to save, Ctrl+Enter to finalize
+          </p>
         </div>
 
         {error && <p className="text-sm text-red-400">{error}</p>}

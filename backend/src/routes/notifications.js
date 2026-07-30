@@ -23,10 +23,7 @@ const adminRateLimiter = createRateLimiter(30, 1);
 router.get("/vapid-public-key", (req, res) => {
   const publicKey = pushSubscriptionService.getVapidPublicKey();
   if (!publicKey) {
-    return res.status(503).json({
-      success: false,
-      error: "Push notifications not configured",
-    });
+    return res.status(503).json({ error: "Push notifications not configured" });
   }
   res.json({ success: true, data: { publicKey } });
 });
@@ -102,7 +99,7 @@ router.get("/failed-webhooks", verifyJWT, adminRateLimiter, async (req, res, nex
       .map((a) => a.trim())
       .filter(Boolean);
     if (!adminAddresses.includes(req.user.publicKey) && req.user.role !== "admin") {
-      return res.status(403).json({ success: false, error: "Admin access required" });
+      return res.status(403).json({ error: "Admin access required" });
     }
 
     const { rows } = await pool.query(
@@ -145,7 +142,7 @@ router.post("/failed-webhooks/:id/retry", verifyJWT, adminRateLimiter, async (re
       .map((a) => a.trim())
       .filter(Boolean);
     if (!adminAddresses.includes(req.user.publicKey) && req.user.role !== "admin") {
-      return res.status(403).json({ success: false, error: "Admin access required" });
+      return res.status(403).json({ error: "Admin access required" });
     }
 
     const { id } = req.params;
@@ -158,7 +155,7 @@ router.post("/failed-webhooks/:id/retry", verifyJWT, adminRateLimiter, async (re
     );
 
     if (!rows.length) {
-      return res.status(404).json({ success: false, error: "Failed notification not found" });
+      return res.status(404).json({ error: "Failed notification not found" });
     }
 
     res.json({ success: true, message: "Notification queued for retry" });
