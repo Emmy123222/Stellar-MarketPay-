@@ -36,3 +36,4 @@ export * from "./invitations";
 export * from "./dao";
 export * from "./health";
 export * from "./scope";
+export * from "./priceAlerts";
