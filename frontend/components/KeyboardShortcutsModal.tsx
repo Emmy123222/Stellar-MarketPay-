@@ -35,6 +35,8 @@ export default function KeyboardShortcutsModal({ isOpen, onClose, showJobDetailS
     { keys: ["G"], description: "Go to Jobs listing" },
     { keys: ["D"], description: "Go to Dashboard" },
     { keys: ["P"], description: "Post a new job" },
+    { keys: ["Shift", "T"], description: "Cycle through themes (Light/Dark/High Contrast)" },
+    { keys: ["Cmd/Ctrl", "K"], description: "Open command palette" },
     { keys: ["?"], description: "Show this shortcut guide" },
     { keys: ["Esc"], description: "Close modal / dialog" },
     { keys: ["/"], description: "Focus search bar" },
@@ -78,7 +80,12 @@ export default function KeyboardShortcutsModal({ isOpen, onClose, showJobDetailS
             {shortcuts.map((row) => (
               <tr key={row.description}>
                 <td className="py-2.5 pr-4">
-                  <Key>{row.keys[0]}</Key>
+                  {row.keys.map((key, idx) => (
+                    <span key={key}>
+                      {idx > 0 && <span className="mx-1 text-amber-800">+</span>}
+                      <Key>{key}</Key>
+                    </span>
+                  ))}
                 </td>
                 <td className="py-2.5 text-amber-200/90">{row.description}</td>
               </tr>
