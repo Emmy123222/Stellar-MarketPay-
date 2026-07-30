@@ -65,9 +65,16 @@ export default function NotificationsPage({ publicKey, onConnect }: Notification
   }
 
   async function markEverythingRead() {
-    await markAllNotificationsRead();
-    setNotifications((items) => items.map((item) => ({ ...item, read: true })));
+    const previousCount = unreadCount;
     setUnreadCount(0);
+    setNotifications((items) => items.map((item) => ({ ...item, read: true })));
+    try {
+      await markAllNotificationsRead();
+      await loadNotifications();
+    } catch {
+      setUnreadCount(previousCount);
+      setNotifications((items) => items.map((item) => ({ ...item, read: false })));
+    }
   }
 
   return (
