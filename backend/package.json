@@ -84,11 +84,9 @@
             "src/tests/integration"
         ],
         "collectCoverageFrom": [
-            "src/middleware/sanitize.js",
-            "src/services/profileService.js",
-            "src/services/escrowService.js",
-            "src/services/disputeService.js",
-            "src/services/gas_estimator.js"
+            "src/services/jobService.js",
+            "src/services/applicationService.js",
+            "src/services/notificationService.js"
         ],
         "coverageDirectory": "coverage",
         "coverageReporters": [
@@ -97,9 +95,17 @@
             "html"
         ],
         "coverageThreshold": {
-            "global": {
-                "lines": 60,
-                "branches": 50
+            "src/services/jobService.js": {
+                "lines": 80,
+                "branches": 80
+            },
+            "src/services/applicationService.js": {
+                "lines": 80,
+                "branches": 80
+            },
+            "src/services/notificationService.js": {
+                "lines": 80,
+                "branches": 80
             }
         },
         "transformIgnorePatterns": [
