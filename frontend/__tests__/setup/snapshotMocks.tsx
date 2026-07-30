@@ -87,6 +87,7 @@ jest.mock("@/components/Toast", () => {
 });
 
 jest.mock("@/lib/api", () => ({
+  fetchCategories: jest.fn().mockResolvedValue([]),
   submitRating: jest.fn().mockResolvedValue({}),
   submitApplication: jest.fn().mockResolvedValue({}),
   fetchProposalTemplates: jest.fn().mockResolvedValue([]),

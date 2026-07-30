@@ -189,6 +189,8 @@ export default function PostJobForm({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [postedBudget, setPostedBudget] = useState<string>("");
+  const [postedCurrency, setPostedCurrency] = useState<string>("");
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -414,8 +416,31 @@ export default function PostJobForm({
       });
       await updateJobEscrowId(createdJobId, hash);
       setTxHash(hash);
+      setPostedBudget(form.budget);
+      setPostedCurrency(form.currency);
       setSubmitStep("complete");
       localStorage.removeItem(DRAFT_STORAGE_KEY);
+
+      // Call form.reset() equivalent and clear step states
+      setForm({
+        title: "",
+        description: "",
+        budget: "50",
+        currency: "XLM",
+        category: initialCategory || "Smart Contracts",
+        skills: "",
+        deadline: "",
+        milestones: [{ description: "Final delivery", amount: "50" }],
+        visibility: "public",
+        screeningQuestions: [""],
+        isRecurring: false,
+        intervalDays: "30",
+        totalReleases: "12",
+      });
+      setCurrentStep(1);
+      setCompletedSteps(new Set());
+      setTouched({});
+      setDraftId(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "An unexpected error occurred.";
       if (createdJobId) await deleteJob(createdJobId).catch(() => {});
@@ -430,6 +455,8 @@ export default function PostJobForm({
     setErrorMsg(null);
     setTxHash(null);
     setJobId(null);
+    setPostedBudget("");
+    setPostedCurrency("");
     setCurrentStep(1);
     setCompletedSteps(new Set());
     setForm({
@@ -437,7 +464,7 @@ export default function PostJobForm({
       description: "",
       budget: "50",
       currency: "XLM",
-      category: "Smart Contracts",
+      category: initialCategory || "Smart Contracts",
       skills: "",
       deadline: "",
       visibility: "public",
@@ -463,7 +490,7 @@ export default function PostJobForm({
           <h2 className="text-2xl font-bold text-gray-900 dark:text-amber-100">Job Posted!</h2>
           <p className="text-gray-500 dark:text-amber-700 text-sm">
             Your budget of{" "}
-            <span className="font-semibold text-market-400">{form.budget} {form.currency}</span>{" "}
+            <span className="font-semibold text-market-400">{postedBudget || form.budget} {postedCurrency || form.currency}</span>{" "}
             has been locked in escrow.
           </p>
         </div>
