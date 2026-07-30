@@ -364,6 +364,12 @@ function App({ Component, pageProps }: AppProps) {
 
   return (
     <>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[100] focus:rounded-lg focus:bg-market-500 focus:px-4 focus:py-2 focus:font-semibold focus:text-ink-900 focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
       {/*
        * Non-critical third-party scripts — loaded after the page is interactive
        * so they don't block TTI. Add any analytics, widgets, or tracking scripts
@@ -400,7 +406,7 @@ function App({ Component, pageProps }: AppProps) {
             <div className="min-h-screen bg-lines" style={{ backgroundColor: "var(--bg)" }}>
               <Navbar publicKey={publicKey} onConnect={handleConnect} onDisconnect={() => setPublicKey(null)} />
               <MobileTabBar publicKey={publicKey} />
-              <main>
+              <main id="main-content">
                 <Component {...pageProps} publicKey={publicKey} onConnect={handleConnect} />
               </main>
               {publicKey && <FaucetButton publicKey={publicKey} />}
