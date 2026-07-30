@@ -246,6 +246,14 @@ npm run test:e2e
 
 The spec at `tests/e2e/full-marketplace-flow.spec.ts` exercises the complete client and freelancer journey with `NEXT_PUBLIC_USE_CONTRACT_MOCK=true`.
 
+### Backend linting
+
+```bash
+cd backend
+npm run lint        # Check for lint errors
+npm run lint:fix    # Auto-fix lint errors where possible
+```
+
 ### Running all checks locally (CI equivalent)
 
 ```bash
