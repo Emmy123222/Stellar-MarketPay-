@@ -1,457 +1,292 @@
 "use client";
 
-import { useState } from "react";
-import { createEscrowOnChain } from "@/lib/stellar";
+import { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/router";
+import { acceptApplication, fetchPublicProfile } from "@/lib/api";
+import { formatXLM, shortenAddress } from "@/utils/format";
+import type { Application, Job, UserProfile } from "@/utils/types";
+import StateMessage from "@/components/StateMessage";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface JobFormData {
-  title: string;
-  description: string;
-  budgetXlm: number;
-  skills: string;
-  deadline: string;
+interface Props {
+  myJobs: Job[];
+  jobApplications: Map<string, Application[]>;
+  publicKey: string;
 }
 
-type Step = "idle" | "posting" | "escrow" | "complete" | "error";
+const TIER_COLORS: Record<string, string> = {
+  Newcomer: "bg-gray-500/10 text-gray-400 border-gray-500/30",
+  "Rising Talent": "bg-blue-500/10 text-blue-400 border-blue-500/30",
+  "Top Rated": "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+  Expert: "bg-purple-500/10 text-purple-400 border-purple-500/30",
+};
 
-interface StepState {
-  current: Step;
-  txHash?: string;
-  jobId?: string;
-  errorMessage?: string;
-}
+export default function ProposalComparison({ myJobs, jobApplications, publicKey }: Props) {
+  const router = useRouter();
+  const [selectedJobId, setSelectedJobId] = useState<string>("");
+  const [selectedProposalIds, setSelectedProposalIds] = useState<Set<string>>(new Set());
+  const [profiles, setProfiles] = useState<Map<string, UserProfile>>(new Map());
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
 
-// ---------------------------------------------------------------------------
-// Step progress indicator
-// ---------------------------------------------------------------------------
+  const applications = selectedJobId ? jobApplications.get(selectedJobId) ?? [] : [];
+  const selectedApplications = applications.filter((a) => selectedProposalIds.has(a.id));
 
-const STEPS = [
-  { id: "posting", label: "Posting Job" },
-  { id: "escrow", label: "Locking Escrow" },
-  { id: "complete", label: "Complete" },
-] as const;
+  const totalProposals = useMemo(() => {
+    let count = 0;
+    jobApplications.forEach((apps) => { count += apps.length; });
+    return count;
+  }, [jobApplications]);
 
-function StepIndex(step: Step): number {
-  if (step === "posting") return 0;
-  if (step === "escrow") return 1;
-  if (step === "complete") return 2;
-  return -1;
-}
-
-function ProgressBar({ step }: { step: Step }) {
-  const active = StepIndex(step);
-  const isError = step === "error";
-
-  return (
-    <div className="w-full my-6">
-      <div className="flex items-center justify-between relative">
-        {/* Connector line */}
-        <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-0.5 bg-gray-200 dark:bg-gray-700 z-0" />
-        <div
-          className="absolute left-0 top-1/2 -translate-y-1/2 h-0.5 bg-indigo-500 z-0 transition-all duration-700"
-          style={{
-            width:
-              active < 0
-                ? "0%"
-                : active === 0
-                ? "0%"
-                : active === 1
-                ? "50%"
-                : "100%",
-          }}
-        />
-
-        {STEPS.map((s, i) => {
-          const done = active > i;
-          const current = active === i;
-          const errored = isError && current;
-
-          return (
-            <div
-              key={s.id}
-              className="flex flex-col items-center gap-2 z-10"
-            >
-              <div
-                className={[
-                  "w-9 h-9 rounded-full flex items-center justify-center border-2 text-sm font-bold transition-all duration-500",
-                  done
-                    ? "bg-indigo-500 border-indigo-500 text-white"
-                    : current && !errored
-                    ? "bg-white dark:bg-ink-800 border-indigo-500 text-indigo-600 dark:text-indigo-400 animate-pulse"
-                    : errored
-                    ? "bg-red-500 border-red-500 text-white"
-                    : "bg-white dark:bg-ink-800 border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500",
-                ].join(" ")}
-              >
-                {done ? (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : errored ? (
-                  "✕"
-                ) : (
-                  i + 1
-                )}
-              </div>
-              <span
-                className={[
-                  "text-xs font-medium whitespace-nowrap",
-                  done
-                    ? "text-indigo-600 dark:text-indigo-400"
-                    : current && !errored
-                    ? "text-indigo-500 dark:text-indigo-400"
-                    : errored
-                    ? "text-red-500 dark:text-red-400"
-                    : "text-gray-400 dark:text-gray-500",
-                ].join(" ")}
-              >
-                {s.label}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
-
-export default function PostJobForm() {
-  const [form, setForm] = useState<JobFormData>({
-    title: "",
-    description: "",
-    budgetXlm: 50,
-    skills: "",
-    deadline: "",
-  });
-
-  const [stepState, setStepState] = useState<StepState>({ current: "idle" });
-  const [submitting, setSubmitting] = useState(false);
-
-  const isInProgress =
-    stepState.current === "posting" || stepState.current === "escrow";
-
-  // -------------------------------------------------------------------------
-  // Handlers
-  // -------------------------------------------------------------------------
-
-  function handleChange(
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) {
-    const { name, value } = e.target;
-    setForm((prev) => ({
-      ...prev,
-      [name]: name === "budgetXlm" ? Number(value) : value,
-    }));
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (submitting) return;
-
-    setSubmitting(true);
-    setStepState({ current: "posting" });
-
-    let jobId: string | undefined;
-
-    try {
-      // ── Step 1: POST to backend ──────────────────────────────────────────
-      const createRes = await fetch("/api/jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: form.title,
-          description: form.description,
-        budget: form.budgetXlm,
-        budgetXlm: form.budgetXlm,
-          skills: form.skills
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean),
-          deadline: form.deadline,
-        }),
-      });
-
-      if (!createRes.ok) {
-        const err = await createRes.json().catch(() => ({}));
-        throw new Error(err?.message ?? "Failed to create job");
-      }
-
-      const { job } = await createRes.json();
-      jobId = job.id as string;
-
-      // ── Step 2: Lock escrow on-chain ─────────────────────────────────────
-      setStepState({ current: "escrow", jobId });
-
-      // Resolve the client's Freighter public key
-      const { getPublicKey } = await import("@stellar/freighter-api");
-      const clientPublicKey = await getPublicKey();
-
-      const { txHash } = await createEscrowOnChain({
-        clientPublicKey,
-        jobId,
-        budget: form.budgetXlm,
-        budgetXlm: form.budgetXlm,
-      });
-
-      // ── Step 2b: Store the contract tx hash in the job record ────────────
-      await fetch(`/api/jobs/${jobId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contractTxHash: txHash }),
-      });
-
-      // ── Step 3: Done ─────────────────────────────────────────────────────
-      setStepState({ current: "complete", jobId, txHash });
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "An unexpected error occurred.";
-
-      // Roll back the job if it was created but escrow failed
-      if (jobId) {
-        try {
-          await fetch(`/api/jobs/${jobId}`, { method: "DELETE" });
-        } catch {
-          // Best-effort rollback; ignore secondary failures
-        }
-      }
-
-      setStepState({
-        current: "error",
-        jobId,
-        errorMessage: message,
-      });
-    } finally {
-      setSubmitting(false);
+  useEffect(() => {
+    const job = router.query.job as string;
+    const compare = router.query.compare as string;
+    if (job && myJobs.some((j) => j.id === job)) {
+      setSelectedJobId(job);
     }
-  }
+    if (compare) {
+      const ids = compare.split(",").filter(Boolean);
+      if (ids.length >= 2 && ids.length <= 4) {
+        setSelectedProposalIds(new Set(ids));
+      }
+    }
+  }, []);
 
-  function handleReset() {
-    setStepState({ current: "idle" });
-    setForm({
-      title: "",
-      description: "",
-      budgetXlm: 50,
-      skills: "",
-      deadline: "",
+  useEffect(() => {
+    if (!selectedJobId) return;
+    const freshest = jobApplications.get(selectedJobId) ?? [];
+    const validIds = new Set(freshest.map((a) => a.id));
+    const pruned = new Set([...selectedProposalIds].filter((id) => validIds.has(id)));
+    if (pruned.size !== selectedProposalIds.size) {
+      setSelectedProposalIds(pruned);
+    }
+  }, [selectedJobId, jobApplications]);
+
+  const syncUrl = (jobId: string, ids: Set<string>) => {
+    const query: Record<string, string | undefined> = { ...router.query };
+    if (jobId) query.job = jobId;
+    else delete query.job;
+    if (ids.size >= 2) query.compare = [...ids].join(",");
+    else delete query.compare;
+    router.push({ pathname: router.pathname, query }, undefined, { shallow: true });
+  };
+
+  const selectJob = (jobId: string) => {
+    setSelectedProposalIds(new Set());
+    setSelectedJobId(jobId);
+    syncUrl(jobId, new Set());
+  };
+
+  const toggleProposal = (id: string) => {
+    setSelectedProposalIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        if (next.size >= 4) return prev;
+        next.add(id);
+      }
+      syncUrl(selectedJobId, next);
+      return next;
     });
-  }
+  };
 
-  // -------------------------------------------------------------------------
-  // Render: success state
-  // -------------------------------------------------------------------------
+  const handleAccept = async (application: Application) => {
+    setAcceptingId(application.id);
+    try {
+      await acceptApplication(application.id, publicKey);
+      window.location.reload();
+    } catch {
+      setAcceptingId(null);
+    }
+  };
 
-  if (stepState.current === "complete") {
+  useEffect(() => {
+    if (selectedApplications.length < 2) return;
+    const addresses = selectedApplications.map((a) => a.freelancerAddress).filter(Boolean);
+    addresses.forEach((addr) => {
+      if (profiles.has(addr)) return;
+      fetchPublicProfile(addr).then((profile) => {
+        if (profile) {
+          setProfiles((prev) => new Map(prev).set(addr, profile));
+        }
+      });
+    });
+  }, [selectedProposalIds]);
+
+  if (myJobs.length === 0) {
     return (
-      <div className="max-w-lg mx-auto bg-white dark:bg-ink-800 rounded-2xl shadow-lg p-8 text-center space-y-4">
-        <ProgressBar step="complete" />
-
-        <div className="flex flex-col items-center gap-3 pt-2">
-          <div className="w-16 h-16 rounded-full bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center">
-            <svg className="w-8 h-8 text-indigo-500 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-amber-100">Job Posted!</h2>
-          <p className="text-gray-500 dark:text-amber-800 text-sm">
-            Your budget of{" "}
-            <span className="font-semibold text-indigo-600 dark:text-indigo-400">
-              {form.budgetXlm} XLM
-            </span>{" "}
-            has been locked in the escrow contract.
-          </p>
-        </div>
-
-        {stepState.txHash && (
-          <div className="bg-gray-50 dark:bg-ink-700 rounded-xl p-4 text-left space-y-1">
-            <p className="text-xs font-semibold text-gray-500 dark:text-amber-800 uppercase tracking-wider">
-              Contract Transaction Hash
-            </p>
-            <p className="text-xs font-mono text-gray-800 dark:text-amber-100 break-all">
-              {stepState.txHash}
-            </p>
-            <a
-              href={`https://stellar.expert/explorer/testnet/tx/${stepState.txHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-indigo-500 hover:underline inline-flex items-center gap-1"
-            >
-              View on Stellar Expert
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
-          </div>
-        )}
-
-        <button
-          onClick={handleReset}
-          className="w-full py-2.5 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition-colors text-sm"
-        >
-          Post Another Job
-        </button>
-      </div>
+      <StateMessage
+        type="empty"
+        title="No jobs posted yet"
+        description="Post a job to start receiving proposals"
+        ctaLabel="Post a Job"
+        onCta={() => router.push("/post-job")}
+      />
     );
   }
 
-  // -------------------------------------------------------------------------
-  // Render: form + in-progress overlay
-  // -------------------------------------------------------------------------
-
   return (
-    <div className="max-w-lg mx-auto bg-white dark:bg-ink-800 rounded-2xl shadow-lg p-8">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-amber-100 mb-1">Post a Job</h1>
-      <p className="text-gray-500 dark:text-amber-800 text-sm mb-6">
-        Your XLM budget will be locked in a Soroban escrow contract on-chain.
-      </p>
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold text-amber-100 mb-3">Your Jobs</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {myJobs.map((job) => {
+            const apps = jobApplications.get(job.id) ?? [];
+            const pending = apps.filter((a) => a.status === "pending").length;
+            return (
+              <button
+                key={job.id}
+                onClick={() => selectJob(job.id)}
+                className={`text-left rounded-xl border p-4 transition-all ${
+                  selectedJobId === job.id
+                    ? "border-market-400 bg-market-500/10"
+                    : "border-market-500/20 bg-ink-800/50 hover:border-market-500/40"
+                }`}
+              >
+                <p className="text-sm font-medium text-amber-100 truncate">{job.title}</p>
+                <div className="flex items-center gap-3 mt-2 text-xs text-amber-700">
+                  <span>{apps.length} proposal{apps.length !== 1 ? "s" : ""}</span>
+                  {pending > 0 && (
+                    <span className="text-market-400">{pending} pending</span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-      {/* 3-step progress (shown while submitting) */}
-      {isInProgress && <ProgressBar step={stepState.current} />}
+      {selectedJobId && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-amber-200">
+              Proposals ({applications.length})
+            </h3>
+            {selectedProposalIds.size > 0 && selectedProposalIds.size < 2 && (
+              <p className="text-xs text-amber-600">
+                Select at least 2 proposals to compare
+              </p>
+            )}
+          </div>
 
-      {/* Error banner */}
-      {stepState.current === "error" && (
-        <div className="mb-5 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 p-4 space-y-1">
-          <ProgressBar step={stepState.current} />
-          <p className="text-sm font-semibold text-red-700 dark:text-red-400">
-            Something went wrong
-          </p>
-          <p className="text-xs text-red-600 dark:text-red-300">{stepState.errorMessage}</p>
-          {stepState.jobId && (
-            <p className="text-xs text-red-500 dark:text-red-400">
-              The job record has been rolled back. Please try again.
-            </p>
+          {applications.length === 0 ? (
+            <StateMessage
+              type="empty"
+              title="No proposals yet"
+              description="Proposals will appear here when freelancers apply"
+            />
+          ) : selectedProposalIds.size < 2 ? (
+            <div className="space-y-2">
+              {applications.map((app) => (
+                <button
+                  key={app.id}
+                  onClick={() => toggleProposal(app.id)}
+                  disabled={!selectedProposalIds.has(app.id) && selectedProposalIds.size >= 4}
+                  className={`w-full text-left rounded-xl border p-4 transition-all ${
+                    selectedProposalIds.has(app.id)
+                      ? "border-market-400 bg-market-500/10"
+                      : "border-market-500/20 bg-ink-800/50 hover:border-market-500/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                        selectedProposalIds.has(app.id)
+                          ? "border-market-400 bg-market-400"
+                          : "border-amber-600"
+                      }`}>
+                        {selectedProposalIds.has(app.id) && (
+                          <svg className="w-2.5 h-2.5 text-ink-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="text-sm text-amber-100 font-medium truncate">
+                        {shortenAddress(app.freelancerAddress)}
+                      </span>
+                      {app.freelancerTier && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${TIER_COLORS[app.freelancerTier] || TIER_COLORS.Newcomer}`}>
+                          {app.freelancerTier}
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-mono text-sm text-market-400 flex-shrink-0">
+                      {formatXLM(app.bidAmount)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-700 mt-2 line-clamp-2">{app.proposal}</p>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className={`grid gap-4 ${
+              selectedApplications.length === 2 ? "grid-cols-1 sm:grid-cols-2" :
+              selectedApplications.length === 3 ? "grid-cols-1 sm:grid-cols-3" :
+              "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
+            }`}>
+              {selectedApplications.map((app) => {
+                const profile = app.freelancerAddress ? profiles.get(app.freelancerAddress) : undefined;
+                return (
+                  <div key={app.id} className="rounded-xl border border-market-500/20 bg-ink-800/50 p-4 flex flex-col gap-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-amber-100 truncate">
+                          {shortenAddress(app.freelancerAddress)}
+                        </p>
+                        {app.freelancerTier && (
+                          <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${TIER_COLORS[app.freelancerTier] || TIER_COLORS.Newcomer}`}>
+                            {app.freelancerTier}
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-mono text-lg font-bold text-market-400 flex-shrink-0">
+                        {formatXLM(app.bidAmount)}
+                      </span>
+                    </div>
+
+                    {profile && profile.rating != null && (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-600">
+                        <span className="text-yellow-400">{Array(Math.round(profile.rating)).fill("★").join("")}</span>
+                        <span>{profile.rating.toFixed(1)}</span>
+                        {profile.ratingCount != null && (
+                          <span>({profile.ratingCount})</span>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex-1 min-h-0">
+                      <p className="text-xs text-amber-700 leading-relaxed line-clamp-6 whitespace-pre-wrap">
+                        {app.proposal}
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => handleAccept(app)}
+                      disabled={acceptingId === app.id || app.status !== "pending"}
+                      className={`w-full py-2 rounded-lg text-xs font-semibold transition-all ${
+                        app.status === "accepted"
+                          ? "bg-emerald-500/20 text-emerald-400 cursor-default"
+                          : app.status === "rejected"
+                          ? "bg-red-500/20 text-red-400 cursor-default"
+                          : acceptingId === app.id
+                          ? "bg-indigo-500/50 text-white cursor-wait"
+                          : "bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95"
+                      }`}
+                    >
+                      {app.status === "accepted"
+                        ? "Accepted"
+                        : app.status === "rejected"
+                        ? "Rejected"
+                        : acceptingId === app.id
+                        ? "Accepting..."
+                        : "Accept Proposal"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           )}
-          <button
-            onClick={() => setStepState({ current: "idle" })}
-            className="mt-2 text-xs text-red-600 underline"
-          >
-            Dismiss and retry
-          </button>
         </div>
       )}
-
-      <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Title */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">
-            Job Title
-          </label>
-          <input
-            name="title"
-            value={form.title}
-            onChange={handleChange}
-            required
-            disabled={isInProgress}
-            placeholder="e.g. Build a Soroban DEX interface"
-            className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-4 py-2.5 text-sm text-gray-900 dark:text-amber-100 placeholder-gray-400 dark:placeholder-amber-900 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-60"
-          />
-        </div>
-
-        {/* Description */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">
-            Description
-          </label>
-          <textarea
-            name="description"
-            value={form.description}
-            onChange={handleChange}
-            required
-            rows={4}
-            disabled={isInProgress}
-            placeholder="Describe the work, deliverables, and any context..."
-            className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-4 py-2.5 text-sm text-gray-900 dark:text-amber-100 placeholder-gray-400 dark:placeholder-amber-900 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-60 resize-none"
-          />
-        </div>
-
-        {/* Budget */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">
-            Budget (XLM)
-          </label>
-          <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-indigo-500 dark:text-indigo-400">
-              XLM
-            </span>
-            <input
-              name="budgetXlm"
-              type="number"
-              min={1}
-              step={1}
-              value={form.budgetXlm}
-              onChange={handleChange}
-              required
-              disabled={isInProgress}
-              className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 pl-14 pr-4 py-2.5 text-sm text-gray-900 dark:text-amber-100 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-60"
-            />
-          </div>
-          <p className="mt-1 text-xs text-gray-400 dark:text-amber-800">
-            This exact amount will be deducted from your wallet and held in escrow.
-          </p>
-        </div>
-
-        {/* Skills */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">
-            Required Skills
-          </label>
-          <input
-            name="skills"
-            value={form.skills}
-            onChange={handleChange}
-            disabled={isInProgress}
-            placeholder="Rust, Soroban, TypeScript (comma-separated)"
-            className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-4 py-2.5 text-sm text-gray-900 dark:text-amber-100 placeholder-gray-400 dark:placeholder-amber-900 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-60"
-          />
-        </div>
-
-        {/* Deadline */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">
-            Deadline
-          </label>
-          <input
-            name="deadline"
-            type="date"
-            value={form.deadline}
-            onChange={handleChange}
-            disabled={isInProgress}
-            className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-4 py-2.5 text-sm text-gray-900 dark:text-amber-100 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-60"
-          />
-        </div>
-
-        {/* Submit */}
-        <button
-          type="submit"
-          disabled={isInProgress}
-          className={[
-            "w-full py-3 rounded-xl font-semibold text-sm transition-all duration-200",
-            isInProgress
-              ? "bg-indigo-300 text-white cursor-not-allowed"
-              : "bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95",
-          ].join(" ")}
-        >
-          {stepState.current === "posting"
-            ? "Posting job…"
-            : stepState.current === "escrow"
-            ? "Waiting for Freighter signature…"
-            : `Post Job & Lock ${form.budgetXlm} XLM Escrow`}
-        </button>
-
-        {isInProgress && (
-          <p className="text-center text-xs text-gray-400 dark:text-amber-800">
-            {stepState.current === "escrow"
-              ? "Please approve the transaction in your Freighter wallet."
-              : "Submitting your job to the platform…"}
-          </p>
-        )}
-      </form>
     </div>
   );
 }

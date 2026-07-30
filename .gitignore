@@ -38,3 +38,4 @@ backend/.stryker-tmp/
 
 # Cargo
 Cargo.lock
+.opencode

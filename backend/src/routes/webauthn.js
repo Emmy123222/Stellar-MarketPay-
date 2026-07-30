@@ -3,12 +3,12 @@
  * WebAuthn / Passkey authentication routes (Issue #218)
  *
  * Registration flow:
- *   POST /api/webauthn/register-options  → get options (requires JWT)
- *   POST /api/webauthn/register-verify   → verify & store credential (requires JWT)
+ *   POST /api/webauthn/register/begin   → get options (requires JWT)
+ *   POST /api/webauthn/register/finish  → verify & store credential (requires JWT)
  *
  * Authentication flow:
- *   POST /api/webauthn/login-options     → get options (public)
- *   POST /api/webauthn/login-verify      → verify & issue JWT (public)
+ *   POST /api/webauthn/login/begin      → get options (public)
+ *   POST /api/webauthn/login/finish     → verify & issue JWT (public)
  *
  * Credential management:
  *   GET    /api/webauthn/credentials     → list passkeys (requires JWT)
@@ -56,7 +56,7 @@ const webauthnRateLimiter = createRateLimiter(10, 1);
 
 // ─── Registration ──────────────────────────────────────────────────────────────
 
-router.post("/register-options", verifyJWT, webauthnRateLimiter, async (req, res, next) => {
+async function handleRegisterBegin(req, res, next) {
   try {
     const publicKey = req.user.publicKey;
     await assertCanRegisterCredential(publicKey);
@@ -86,9 +86,9 @@ router.post("/register-options", verifyJWT, webauthnRateLimiter, async (req, res
     challengeStore.set(`reg:${publicKey}`, { challenge: options.challenge, createdAt: Date.now() });
     res.json({ success: true, data: options });
   } catch (e) { next(e); }
-});
+}
 
-router.post("/register-verify", verifyJWT, webauthnRateLimiter, async (req, res, next) => {
+async function handleRegisterFinish(req, res, next) {
   try {
     const publicKey = req.user.publicKey;
     const { credential, name } = req.body;
@@ -129,11 +129,11 @@ router.post("/register-verify", verifyJWT, webauthnRateLimiter, async (req, res,
 
     res.json({ success: true, message: "Passkey registered successfully" });
   } catch (e) { next(e); }
-});
+}
 
 // ─── Authentication ─────────────────────────────────────────────────────────────
 
-router.post("/login-options", webauthnRateLimiter, async (req, res, next) => {
+async function handleLoginBegin(req, res, next) {
   try {
     const { publicKey } = req.body;
     if (!publicKey || !/^G[A-Z0-9]{55}$/.test(publicKey)) {
@@ -160,9 +160,9 @@ router.post("/login-options", webauthnRateLimiter, async (req, res, next) => {
     challengeStore.set(`auth:${publicKey}`, { challenge: options.challenge, createdAt: Date.now() });
     res.json({ success: true, data: options });
   } catch (e) { next(e); }
-});
+}
 
-router.post("/login-verify", webauthnRateLimiter, async (req, res, next) => {
+async function handleLoginFinish(req, res, next) {
   try {
     const { credential, publicKey } = req.body;
     if (!publicKey || !/^G[A-Z0-9]{55}$/.test(publicKey)) {
@@ -222,7 +222,7 @@ router.post("/login-verify", webauthnRateLimiter, async (req, res, next) => {
 
     res.json({ success: true, token: accessToken });
   } catch (e) { next(e); }
-});
+}
 
 // ─── Credential management ─────────────────────────────────────────────────────
 
@@ -239,6 +239,20 @@ router.delete("/credentials/:id", verifyJWT, async (req, res, next) => {
     res.json({ success: true, message: "Passkey removed" });
   } catch (e) { next(e); }
 });
+
+// ── Register route handlers ─────────────────────────────────────────────────────
+
+// New RESTful paths (primary)
+router.post("/register/begin",  verifyJWT, webauthnRateLimiter, handleRegisterBegin);
+router.post("/register/finish", verifyJWT, webauthnRateLimiter, handleRegisterFinish);
+router.post("/login/begin",     webauthnRateLimiter,          handleLoginBegin);
+router.post("/login/finish",    webauthnRateLimiter,          handleLoginFinish);
+
+// Legacy paths (backward compatibility)
+router.post("/register-options", verifyJWT, webauthnRateLimiter, handleRegisterBegin);
+router.post("/register-verify",  verifyJWT, webauthnRateLimiter, handleRegisterFinish);
+router.post("/login-options",    webauthnRateLimiter,          handleLoginBegin);
+router.post("/login-verify",     webauthnRateLimiter,          handleLoginFinish);
 
 router.get("/admin/credentials", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
