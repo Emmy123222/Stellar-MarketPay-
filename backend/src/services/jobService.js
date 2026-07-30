@@ -6,6 +6,10 @@
 "use strict";
 
 const { readPool, writePool } = require("../db/pool");
+const {
+  findJobById,
+  listJobs: queryListJobs,
+} = require("../db/queries/jobs");
 const pool = writePool; // default alias — write-safe; read-only paths use readPool
 const { refreshFreelancerTier } = require("./profileService");
 const { createJobNotification, EVENT_TYPES } = require("./notificationService");
@@ -443,17 +447,13 @@ function tokenize(text) {
  * @throws {Error} If the job is not found.
  */
 async function getJob(id, { includeDeleted = false } = {}) {
-  const deletedFilter = includeDeleted ? "" : "AND deleted_at IS NULL";
-  const { rows } = await pool.query(
-    `SELECT * FROM jobs WHERE id = $1 ${deletedFilter}`,
-    [id]
-  );
-  if (!rows.length) {
+  const row = await findJobById(pool, { id, includeDeleted });
+  if (!row) {
     const e = new Error("Job not found");
     e.status = 404;
     throw e;
   }
-  return rowToJob(rows[0]);
+  return rowToJob(row);
 }
 
 /**
@@ -660,24 +660,13 @@ async function listJobs({
     );
   }
 
-  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-
-  params.push(limit);
-
-  const { rows } = await readPool.query(
-    `SELECT ${selectColumns}, COALESCE(agg.skills, '{}') AS skills
-     FROM jobs
-     LEFT JOIN LATERAL (
-       SELECT array_agg(s.display_name ORDER BY s.display_name) AS skills
-       FROM   job_skills js
-       JOIN   skills s ON s.id = js.skill_id
-       WHERE  js.job_id = jobs.id
-     ) agg ON true
-     ${where}
-     ORDER BY ${orderClause}
-     LIMIT $${params.length}`,
+  const rows = await queryListJobs(readPool, {
+    selectColumns,
+    conditions,
     params,
-  );
+    orderClause,
+    limit,
+  });
 
   const jobs = rows.map(rowToJob);
   let nextCursor = null;
