@@ -15,7 +15,8 @@ const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
 const { sendEmail, smtpTransport } = require("./utils/email");
-const promClient = require("prom-client");
+const metrics = require("./metrics");
+const metricsAuth = require("./middleware/metricsAuth");
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
 const { requestLoggerMiddleware, xRequestIdMiddleware, logError, createServiceLogger } = require('./utils/logger');
@@ -74,80 +75,20 @@ const STELLAR_NETWORK = requireChoice("STELLAR_NETWORK", ["testnet", "mainnet"],
   fallback: "testnet",
 });
 
-const metricsRegistry = new promClient.Registry();
-promClient.collectDefaultMetrics({
-  register: metricsRegistry,
-  prefix: "marketpay_",
-});
+// ─── Prometheus metrics ───────────────────────────────────────────────────────
+// The registry and every metric live in ./metrics so that low-level modules
+// (e.g. src/db/pool.js) can record into the same registry without importing
+// the server and creating a require cycle.
+const {
+  registry: metricsRegistry,
+  notificationQueuePending,
+  resolveRouteLabel,
+  observeHttpRequest,
+  setWebsocketConnections,
+  renderMetrics,
+} = metrics;
 
-const httpRequestsTotal = new promClient.Counter({
-  name: "marketpay_http_requests_total",
-  help: "Total HTTP requests handled by the API",
-  labelNames: ["method", "route", "status_code"],
-  registers: [metricsRegistry],
-});
-
-const httpRequestDurationSeconds = new promClient.Histogram({
-  name: "marketpay_http_request_duration_seconds",
-  help: "HTTP request duration in seconds",
-  labelNames: ["method", "route", "status_code"],
-  buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5],
-  registers: [metricsRegistry],
-});
-
-const dbConnectionGauge = new promClient.Gauge({
-  name: "marketpay_db_connections",
-  help: "Current PostgreSQL pool connection counts",
-  labelNames: ["state"],
-  registers: [metricsRegistry],
-});
-
-dbConnectionGauge.collect = function collectDbConnections() {
-  this.set({ state: "total" }, pool.totalCount);
-  this.set({ state: "idle" }, pool.idleCount);
-  this.set({ state: "waiting" }, pool.waitingCount);
-};
-
-const pgPoolTotal = new promClient.Gauge({
-  name: "pg_pool_total",
-  help: "Total PostgreSQL pool connections",
-  registers: [metricsRegistry],
-});
-
-const pgPoolIdle = new promClient.Gauge({
-  name: "pg_pool_idle",
-  help: "Idle PostgreSQL pool connections",
-  registers: [metricsRegistry],
-});
-
-const pgPoolWaiting = new promClient.Gauge({
-  name: "pg_pool_waiting",
-  help: "Waiting PostgreSQL pool requests",
-  registers: [metricsRegistry],
-});
-
-pgPoolTotal.collect = function collectPgPoolTotal() {
-  this.set(pool.totalCount);
-};
-pgPoolIdle.collect = function collectPgPoolIdle() {
-  this.set(pool.idleCount);
-};
-pgPoolWaiting.collect = function collectPgPoolWaiting() {
-  this.set(pool.waitingCount);
-};
-
-const wsConnectionsActive = new promClient.Gauge({
-  name: "ws_connections_active",
-  help: "Active WebSocket connections",
-  registers: [metricsRegistry],
-});
-
-const notificationQueuePending = new promClient.Gauge({
-  name: "notification_queue_pending",
-  help: "Pending notifications in the queue",
-  registers: [metricsRegistry],
-});
-
+// Pool connection gauges are attached in src/db/pool.js (where the pool lives).
 notificationQueuePending.collect = async function collectNotificationQueue() {
   try {
     const { rows } = await pool.query(
@@ -202,13 +143,28 @@ const realtimeClients = new Set();
 const userClients = new Map(); // userAddress -> Set<WebSocket>
 const scopeSessionClients = new Map();
 
+/**
+ * Publish the current WebSocket connection counts to
+ * `active_websocket_connections` (labelled by channel).
+ *
+ * Called on every connect/disconnect so the gauge never drifts.
+ *
+ * @returns {void}
+ */
+function refreshWsMetrics() {
+  let scopeCount = 0;
+  for (const clients of scopeSessionClients.values()) scopeCount += clients.size;
+  setWebsocketConnections("realtime", realtimeClients.size);
+  setWebsocketConnections("scope", scopeCount);
+}
+
 function broadcastRealtime(event, payload) {
   const message = JSON.stringify({ event, payload });
   serviceLogger.debug({ event, payload }, 'Broadcasting realtime message');
   for (const ws of realtimeClients) {
     if (ws.readyState === WS_OPEN) ws.send(message);
   }
-  wsConnectionsActive.set(realtimeClients.size);
+  refreshWsMetrics();
 }
 
 async function upsertScopeSession(sessionId, patch) {
@@ -338,28 +294,53 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
 app.use(cors(createCorsOptions()));
 app.use(doubleCsrfProtection);
 
+// ─── HTTP request instrumentation ─────────────────────────────────────────────
+// Records http_requests_total and http_request_duration_ms (plus the legacy
+// marketpay_* series) for every request except the scrape endpoint itself.
 app.use((req, res, next) => {
   if (req.path === "/metrics") {
     return next();
   }
 
-  const endTimer = httpRequestDurationSeconds.startTimer();
-  res.on("finish", () => {
-    const routeLabel = req.route?.path
-      ? `${req.baseUrl || ""}${req.route.path}`
-      : req.path;
-    const statusCode = String(res.statusCode);
+  const start = process.hrtime.bigint();
 
-    httpRequestsTotal.inc({
-      method: req.method,
-      route: routeLabel,
-      status_code: statusCode,
-    });
-    endTimer({
-      method: req.method,
-      route: routeLabel,
-      status_code: statusCode,
-    });
+  // Express restores `req.baseUrl` once the router unwinds, so by the time the
+  // "finish" event fires the mount path is gone. Snapshot the label while the
+  // handler is still on the stack (res.end runs inside the route).
+  let routeSnapshot = null;
+  const originalEnd = res.end;
+  res.end = function captureRoute(...args) {
+    if (routeSnapshot === null && req.route?.path) {
+      routeSnapshot =
+        `${req.baseUrl || ""}${req.route.path}`.replace(/\/$/, "") || "/";
+    }
+    return originalEnd.apply(this, args);
+  };
+
+  res.on("finish", () => {
+    // Prefer the matched route pattern ("/api/jobs/:id") over the raw path so
+    // path parameters never explode label cardinality.
+    // resolveRouteLabel prefers the matched Express pattern and falls back to
+    // a normalised URL (ids collapsed to ":id") for 404s and error responses,
+    // where Express has already discarded the route mount prefix.
+    const routeLabel = resolveRouteLabel(routeSnapshot, req.originalUrl || req.path);
+
+    const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
+
+    observeHttpRequest(
+      {
+        method: req.method,
+        route: routeLabel,
+        status_code: String(res.statusCode),
+      },
+      durationMs
+    );
+  });
+
+  res.on("close", () => {
+    // Restore the original end() if the response was aborted before finishing,
+    // so no wrapper leaks onto a pooled response object.
+    res.end = originalEnd;
   });
 
   next();
@@ -373,18 +354,14 @@ app.use(rateLimit({
   keyGenerator: (req) => getClientIp(req),
 }));
 
-app.get("/metrics", async (req, res, next) => {
+// ─── GET /metrics — Prometheus text exposition (internal auth required) ───────
+// Guarded by src/middleware/metricsAuth.js: a shared bearer token
+// (METRICS_TOKEN) or an internal/private source IP. Never publicly readable.
+app.get("/metrics", metricsAuth, async (req, res, next) => {
   try {
-    const metricsSecret = process.env.METRICS_SECRET;
-    if (metricsSecret) {
-      const authHeader = req.headers.authorization || "";
-      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      if (token !== metricsSecret) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-    }
     res.set("Content-Type", metricsRegistry.contentType);
-    res.end(await metricsRegistry.metrics());
+    res.set("Cache-Control", "no-store");
+    res.end(await renderMetrics());
   } catch (error) {
     next(error);
   }
@@ -460,11 +437,11 @@ wsServer.on("connection", async (ws, request) => {
 
   if (url.pathname === "/ws/realtime") {
     realtimeClients.add(ws);
-    wsConnectionsActive.set(realtimeClients.size);
+    refreshWsMetrics();
     sendJson(ws, "connected", { channel: "realtime" });
     ws.on("close", () => {
       realtimeClients.delete(ws);
-      wsConnectionsActive.set(realtimeClients.size);
+      refreshWsMetrics();
     });
     return;
   }
@@ -479,6 +456,7 @@ wsServer.on("connection", async (ws, request) => {
 
     const clients = getScopeSessionSet(sessionId);
     clients.add(ws);
+    refreshWsMetrics();
 
     let session = await loadScopeSession(sessionId);
     if (!session) {
@@ -541,6 +519,7 @@ wsServer.on("connection", async (ws, request) => {
 
     ws.on("close", async () => {
       clients.delete(ws);
+      refreshWsMetrics();
       const freshSession = await loadScopeSession(sessionId);
       if (!freshSession) return;
       const nextCursors = { ...(freshSession.cursors || {}) };
