@@ -57,6 +57,7 @@ const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
+const priceAlertRoutes     = require("./routes/priceAlerts");
 
 const pool            = require("./db/pool");
 const { migrate, getCurrentMigrationVersion, getExpectedMigrationVersion, validateMigrationVersion } = require("./db/migrate");
@@ -397,6 +398,7 @@ app.use("/api/gas-estimate",   gasEstimatorRoutes);
 app.use("/api/transactions",   transactionRoutes);
 app.use("/api/dao",            daoRoutes);
 app.use("/api/proposal-templates", proposalTemplateRoutes);
+app.use("/api/price-alerts",      priceAlertRoutes);
 
 app.use((err, req, res, next) => {
   logError(req.logger || serviceLogger, err, {

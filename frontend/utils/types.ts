@@ -193,6 +193,17 @@ export interface PriceAlertPreference {
   last_max_alert_at?: string | null;
 }
 
+export interface PriceAlert {
+  id: string;
+  userAddress: string;
+  condition: "above" | "below";
+  threshold: number;
+  oneTime: boolean;
+  triggered: boolean;
+  triggeredAt: string | null;
+  createdAt: string;
+}
+
 export interface ClientSpendingFreelancer {
   freelancerAddress: string;
   jobsCount: number;
