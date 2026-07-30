@@ -415,3 +415,11 @@ export interface AuditLogEntry {
   changesDiff?: Record<string, any>;
 }
 
+// ─── Passkeys (WebAuthn) ────────────────────────────────────────────────────
+
+export interface PasskeyCredential {
+  id: string;
+  credential_name: string;
+  created_at: string;
+}
+

@@ -27,7 +27,11 @@ import type {
   ProfileStats,
   ResponseTime,
   AuditLogEntry,
+  PasskeyCredential,
 } from "@/utils/types";
+
+// Re-export PasskeyCredential for components that import it directly from @/lib/api
+export type { PasskeyCredential };
 
 // ─── Structured error code → user-facing string map (#461) ───────────────────
 export const API_ERROR_MESSAGES: Record<string, string> = {
@@ -1873,9 +1877,17 @@ export async function fetchEvidenceSignedUrl(
   return data.data;
 }
 
+export async function fetchPasskeyRegistrationOptions(publicKey: string) {
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    "/api/webauthn/register/begin",
+    {},
+  );
+  return data.data;
+}
+
 export async function verifyPasskeyRegistration(credential: any, name: string) {
   const { data } = await api.post<{ success: boolean; message: string }>(
-    "/api/webauthn/register-verify",
+    "/api/webauthn/register/finish",
     { credential, name },
   );
   return data;
@@ -1883,7 +1895,7 @@ export async function verifyPasskeyRegistration(credential: any, name: string) {
 
 export async function fetchPasskeyLoginOptions(publicKey: string) {
   const { data } = await api.post<{ success: boolean; data: any }>(
-    "/api/webauthn/login-options",
+    "/api/webauthn/login/begin",
     { publicKey },
   );
   return data.data;
@@ -1891,7 +1903,7 @@ export async function fetchPasskeyLoginOptions(publicKey: string) {
 
 export async function verifyPasskeyLogin(credential: any, publicKey: string) {
   const { data } = await api.post<{ success: boolean; token: string }>(
-    "/api/webauthn/login-verify",
+    "/api/webauthn/login/finish",
     { credential, publicKey },
   );
   return data;
