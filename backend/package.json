@@ -37,7 +37,7 @@
         "express-rate-limit": "^7.3.1",
         "form-data": "^4.0.6",
         "graphql": "^17.0.2",
-        "helmet": "^7.1.0",
+        "helmet": "^8.3.0",
         "ioredis": "^5.11.1",
         "jsdom": "^24.1.0",
         "jsonwebtoken": "^9.0.3",
