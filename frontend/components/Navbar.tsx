@@ -4,13 +4,13 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { shortenAddress } from "@/utils/format";
 import clsx from "clsx";
 import { useTranslation } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import FaucetButton from "@/components/FaucetButton";
 import { usePriceContext } from "@/contexts/PriceContext";
 import NotificationBell from "@/components/NotificationBell";
+import WalletAddressDisplay from "@/components/WalletAddressDisplay";
 
 interface NavbarProps {
   publicKey: string | null;
@@ -215,19 +215,11 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
           {publicKey ? (
             <>
               <NotificationBell publicKey={publicKey} />
-              <button
-                onClick={() => router.push("/dashboard/transactions")}
+              <WalletAddressDisplay
+                address={publicKey}
                 className="flex items-center gap-1 sm:gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity text-xs sm:text-sm px-2 py-2 sm:px-3 sm:py-2 min-h-[44px]"
-                title={t("wallet.balance") as string}
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="hidden sm:inline">{shortenAddress(publicKey)}</span>
-                <span className="sm:hidden text-[10px]">{shortenAddress(publicKey, 6)}</span>
-                {balanceLoading ? (
-                  <span className="text-xs text-amber-800">{t("wallet.loading")}</span>
-                ) : balance ? (
-                  <span className="text-xs font-medium text-market-400 hidden sm:inline">{balance}</span>
-                ) : null}
+                truncatedChars={6}
+              />
               </button>
               <button 
                 onClick={onDisconnect} 
