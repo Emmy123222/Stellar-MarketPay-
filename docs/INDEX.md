@@ -16,6 +16,10 @@ Welcome to Stellar MarketPay documentation. This index helps you find what you n
 
 ## 📚 Core Documentation
 
+### Security
+
+- **[Security Header Policy](./security.md)** - HTTP security headers, verification, and CI checks
+
 ### Architecture & Design
 
 - **[Architecture Overview](./architecture.md)** - System design and components

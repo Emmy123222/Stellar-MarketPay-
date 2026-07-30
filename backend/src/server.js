@@ -276,7 +276,21 @@ app.use(helmet({
   },
   noSniff: true,
   xssFilter: true,
+  frameguard: { action: "sameorigin" },
   referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  permissionsPolicy: {
+    features: {
+      camera: [],
+      microphone: [],
+      geolocation: [],
+      payment: [],
+      usb: [],
+      magnetometer: [],
+      gyroscope: [],
+      accelerometer: [],
+      "interest-cohort": [],
+    },
+  },
 }));
 
 // Correlation-id tracing middleware (Issue #453). Allocates the
