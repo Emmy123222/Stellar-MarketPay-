@@ -9,6 +9,7 @@ import ApplicationForm from "@/components/ApplicationForm";
 import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
+import { usePriceContext } from "@/contexts/PriceContext";
 import {
   fetchJob,
   fetchApplications,
@@ -24,6 +25,7 @@ import {
   shortenAddress,
   statusLabel,
   statusClass,
+  formatUSDEquivalent,
 } from "@/utils/format";
 import {
   accountUrl,
@@ -161,6 +163,7 @@ function Spinner() {
 }
 
 export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: JobDetailProps) {
+  const { xlmPriceUsd } = usePriceContext();
   const router = useRouter();
   const jobId = typeof router.query.id === "string" ? router.query.id : null;
 
@@ -528,6 +531,11 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
                   <div className="sm:text-right">
                     <p className="text-xs text-amber-800 mb-1">Budget</p>
                     <p className="font-mono font-bold text-xl sm:text-2xl text-market-400">{formatXLM(job.budget)} {job.currency}</p>
+                    {xlmPriceUsd !== null && (
+                      <p className="text-xs text-amber-700 mt-1">
+                        {formatUSDEquivalent(job.budget, xlmPriceUsd)}
+                      </p>
+                    )}
                     <a
                       href={accountUrl(job.clientAddress)}
                       target="_blank"
