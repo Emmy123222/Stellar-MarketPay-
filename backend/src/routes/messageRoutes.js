@@ -83,7 +83,7 @@ router.post("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next)
     const senderAddress = req.user.publicKey;
 
     if (!content || typeof content !== "string") {
-      return res.status(400).json({ success: false, error: "Message content is required" });
+      return res.status(400).json({ error: "Message content is required" });
     }
 
     const message = await messageService.createMessage({
@@ -168,7 +168,7 @@ router.patch("/:messageId/tx-hash", verifyJWT, generalRateLimiter, async (req, r
     const { txHash } = req.body;
 
     if (!txHash || typeof txHash !== "string") {
-      return res.status(400).json({ success: false, error: "txHash is required" });
+      return res.status(400).json({ error: "txHash is required" });
     }
 
     const message = await messageService.attachTxHash(messageId, txHash);
@@ -212,7 +212,7 @@ router.patch("/:messageId/tx-hash", verifyJWT, generalRateLimiter, async (req, r
  */
 router.post("/job/:jobId/attachments", verifyJWT, generalRateLimiter, upload.single("file"), async (req, res, next) => {
   try {
-    if (!req.file) return res.status(400).json({ success: false, error: "File is required" });
+    if (!req.file) return res.status(400).json({ error: "File is required" });
     const { jobId } = req.params;
     const senderAddress = req.user.publicKey;
     const senderNaclPub = req.body.senderNaclPub || null;

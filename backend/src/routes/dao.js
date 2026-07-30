@@ -244,7 +244,7 @@ router.get("/arbitrators/:publicKey", daoRateLimiter, async (req, res, next) => 
     const arbitrators = await daoService.listArbitrators();
     const found = arbitrators.find((a) => a.publicKey === req.params.publicKey);
     if (!found) {
-      return res.status(404).json({ success: false, error: "Arbitrator not found" });
+      return res.status(404).json({ error: "Arbitrator not found" });
     }
     res.json({ success: true, data: found });
   } catch (e) {

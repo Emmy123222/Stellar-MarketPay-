@@ -168,6 +168,45 @@ List endpoints support cursor-based pagination via the \`after\` query parameter
             boostedUntil: { type: 'string', format: 'date-time', description: 'Boost expiration', nullable: true }
           }
         },
+        PublicJob: {
+          type: 'object',
+          description: 'Syndication-safe job listing (no client address or applicant details)',
+          properties: {
+            id: {
+              type: 'string',
+              format: 'uuid',
+              description: 'Job ID'
+            },
+            title: {
+              type: 'string',
+              description: 'Job title'
+            },
+            category: {
+              type: 'string',
+              description: 'Job category'
+            },
+            budget: {
+              type: 'number',
+              description: 'Job budget'
+            },
+            currency: {
+              type: 'string',
+              description: 'Payment currency'
+            },
+            skills: {
+              type: 'array',
+              items: {
+                type: 'string'
+              },
+              description: 'Required skills'
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Creation timestamp'
+            }
+          }
+        },
         Application: {
           type: 'object',
           properties: {

@@ -1,5 +1,9 @@
 /**
- * Admin TOTP 2FA routes
+ * Admin TOTP 2FA
+ * POST /api/admin/2fa/setup   — generate secret + QR code
+ * POST /api/admin/2fa/verify  — verify code, enable 2FA, issue upgraded JWT
+ * POST /api/admin/2fa/disable — disable 2FA (requires valid TOTP or backup code)
+ * GET  /api/admin/2fa/status  — check enabled state
  *
  * @swagger
  * tags:
@@ -17,8 +21,11 @@ const { signAccessToken } = require("../services/authTokens");
 const { encrypt } = require("../utils/encryption");
 const {
   generateSecret,
+  generateBackupCodes,
   enable2FA,
   verify2FA,
+  verifyBackupCode,
+  disable2FA,
   get2FAStatus,
   ensureAdminProfile,
   getDecryptedSecret,
@@ -49,13 +56,16 @@ router.post("/setup", verifyJWT, requireAdminRole, async (req, res, next) => {
     const { publicKey } = req.user;
     await ensureAdminProfile(publicKey);
 
-    const { rows } = await pool.query("SELECT totp_enabled FROM admin_profiles WHERE id = $1", [publicKey]);
+    const { rows } = await pool.query(
+      "SELECT totp_enabled FROM admin_profiles WHERE id = $1",
+      [publicKey]
+    );
     if (rows[0]?.totp_enabled) {
-      return res.status(400).json({ success: false, error: "2FA is already enabled" });
+      return res.status(400).json({ error: "2FA is already enabled" });
     }
 
     const secret = generateSecret(publicKey);
-    const qrCode = await QRCode.toDataURL(secret.otpauth_url || secret.otpauthURL);
+    const qrCode = await QRCode.toDataURL(secret.otpauth_url);
 
     await pool.query(
       "UPDATE admin_profiles SET totp_secret = $1, totp_enabled = false, updated_at = NOW() WHERE id = $2",
@@ -64,10 +74,7 @@ router.post("/setup", verifyJWT, requireAdminRole, async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        qrCode,
-        manualEntryKey: secret.base32,
-      },
+      data: { qrCode, manualEntryKey: secret.base32 },
     });
   } catch (e) {
     next(e);
@@ -107,19 +114,20 @@ router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
     const { token, setup } = req.body;
 
     if (!token || String(token).length !== 6) {
-      return res.status(400).json({ success: false, error: "A 6-digit TOTP code is required" });
+      return res.status(400).json({ error: "A 6-digit TOTP code is required" });
     }
 
     const status = await get2FAStatus(publicKey);
     const secret = await getDecryptedSecret(publicKey);
 
     if (!secret) {
-      return res.status(400).json({ success: false, error: "2FA setup not initiated. Call /setup first." });
+      return res.status(400).json({ error: "2FA setup not initiated. Call /setup first." });
     }
 
-    let backupCodes;
+    let plainBackupCodes;
 
     if (setup || !status.totp_enabled) {
+      // First-time enable: verify the code against the pending secret
       const verified = speakeasy.totp.verify({
         secret,
         encoding: "base32",
@@ -128,17 +136,17 @@ router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
       });
 
       if (!verified) {
-        return res.status(400).json({ success: false, error: "Invalid verification code" });
+        return res.status(400).json({ error: "Invalid verification code" });
       }
 
-      backupCodes = Array.from({ length: 10 }, () =>
-        Math.random().toString(36).substring(2, 10).toUpperCase()
-      );
-      await enable2FA(publicKey, secret, backupCodes);
+      const { plain, hashed } = generateBackupCodes();
+      plainBackupCodes = plain;
+      await enable2FA(publicKey, secret, hashed);
     } else {
+      // Already enabled: just verify (e.g. login step-up)
       const result = await verify2FA(publicKey, String(token));
       if (!result.success) {
-        return res.status(400).json({ success: false, error: result.error });
+        return res.status(400).json({ error: result.error });
       }
     }
 
@@ -148,12 +156,40 @@ router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
       success: true,
       token: upgradedToken,
       data: {
-        backupCodes,
-        message: backupCodes
+        backupCodes: plainBackupCodes || undefined,
+        message: plainBackupCodes
           ? "2FA enabled. Save your backup codes — they will not be shown again."
           : "2FA verified",
       },
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/admin/2fa/disable
+router.post("/disable", verifyJWT, requireAdminRole, async (req, res, next) => {
+  try {
+    const { publicKey } = req.user;
+    const { token, backupCode } = req.body;
+
+    if (!token && !backupCode) {
+      return res.status(400).json({ error: "A TOTP token or backup code is required" });
+    }
+
+    let ok = false;
+    if (token) {
+      const result = await verify2FA(publicKey, String(token));
+      ok = result.success;
+      if (!ok) return res.status(400).json({ error: result.error });
+    } else {
+      const result = await verifyBackupCode(publicKey, backupCode);
+      ok = result.success;
+      if (!ok) return res.status(400).json({ error: result.error });
+    }
+
+    await disable2FA(publicKey);
+    res.json({ success: true, message: "2FA disabled" });
   } catch (e) {
     next(e);
   }
@@ -176,10 +212,7 @@ router.get("/status", verifyJWT, requireAdminRole, async (req, res, next) => {
     const status = await get2FAStatus(req.user.publicKey);
     res.json({
       success: true,
-      data: {
-        ...status,
-        verified: Boolean(req.user["2fa_verified"]),
-      },
+      data: { ...status, verified: Boolean(req.user["2fa_verified"]) },
     });
   } catch (e) {
     next(e);

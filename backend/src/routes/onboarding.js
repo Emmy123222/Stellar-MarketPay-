@@ -46,7 +46,7 @@ router.patch("/", async (req, res, next) => {
   try {
     const { publicKey, currentStep = 0, completedSteps = [], dismissed = false, completed = false } = req.body || {};
     if (!publicKey || typeof publicKey !== "string") {
-      return res.status(400).json({ success: false, error: "publicKey is required" });
+      return res.status(400).json({ error: "publicKey is required" });
     }
     const { rows } = await pool.query(
       `INSERT INTO onboarding_progress (public_key, current_step, completed_steps, dismissed, completed, updated_at)

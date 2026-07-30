@@ -175,10 +175,7 @@ function sanitizeMiddleware(options = {}) {
       next();
     } catch (error) {
       console.error("[sanitize] Error during sanitization:", error);
-      res.status(400).json({
-        success: false,
-        error: "Invalid input data",
-      });
+      res.status(400).json({ error: "Invalid input data" });
     }
   };
 }

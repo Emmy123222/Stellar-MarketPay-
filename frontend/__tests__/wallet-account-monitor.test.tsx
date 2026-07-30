@@ -1,11 +1,4 @@
-/**
- * __tests__/wallet-account-monitor.test.tsx
- * Issue #499 — Tests for WalletAccountMonitor: Freighter account change and
- * disconnection handling using a mock Freighter API.
- */
 import { render, act, waitFor } from "@testing-library/react";
-
-// ── Module mocks (hoisted by Jest) ────────────────────────────────────────────
 
 jest.mock("@/lib/wallet", () => ({
   subscribeToAccountChanges: jest.fn().mockReturnValue(() => {}),
@@ -26,7 +19,10 @@ jest.mock("@/components/Toast", () => ({
   ToastProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-// ── Imports after mocks ───────────────────────────────────────────────────────
+const mockRouterPush = jest.fn();
+jest.mock("next/router", () => ({
+  useRouter: () => ({ push: mockRouterPush }),
+}));
 
 import WalletAccountMonitor from "@/components/WalletAccountMonitor";
 import * as walletLib from "@/lib/wallet";
@@ -35,12 +31,13 @@ import * as apiLib from "@/lib/api";
 const MOCK_PK = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const MOCK_PK_B = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 
-describe("WalletAccountMonitor (#499)", () => {
+describe("WalletAccountMonitor", () => {
   let onDisconnect: jest.Mock;
 
   beforeEach(() => {
     onDisconnect = jest.fn();
     jest.clearAllMocks();
+    mockRouterPush.mockClear();
     localStorage.clear();
     localStorage.setItem("smp_wallet_public_key", MOCK_PK);
   });
@@ -88,12 +85,13 @@ describe("WalletAccountMonitor (#499)", () => {
     expect(onDisconnect).toHaveBeenCalledTimes(1);
   });
 
-  it("calls onDisconnect when wallet disconnects (event delivers null)", async () => {
+  it("calls onDisconnect, clears JWT, and redirects when wallet disconnects", async () => {
     let capturedCb: ((pk: string | null) => void) | null = null;
     jest.spyOn(walletLib, "subscribeToAccountChanges").mockImplementation((cb) => {
       capturedCb = cb;
       return () => {};
     });
+    const setJwtSpy = jest.spyOn(apiLib, "setJwtToken");
 
     render(
       <WalletAccountMonitor currentPublicKey={MOCK_PK} onDisconnect={onDisconnect} />,
@@ -101,7 +99,9 @@ describe("WalletAccountMonitor (#499)", () => {
 
     await act(async () => { capturedCb!(null); });
 
+    expect(setJwtSpy).toHaveBeenCalledWith(null);
     expect(onDisconnect).toHaveBeenCalledTimes(1);
+    expect(mockRouterPush).toHaveBeenCalledWith("/");
   });
 
   it("does NOT call onDisconnect when the same account key is reported", async () => {
@@ -136,6 +136,26 @@ describe("WalletAccountMonitor (#499)", () => {
     jest.useRealTimers();
   });
 
+  it("polls isConnected every 30s and disconnects when Freighter reports not connected", async () => {
+    jest.useFakeTimers();
+    jest.spyOn(walletLib, "subscribeToAccountChanges").mockReturnValue(null);
+    jest.spyOn(walletLib, "getConnectedPublicKey").mockResolvedValue(MOCK_PK);
+    jest.spyOn(walletLib, "isFreighterInstalled").mockResolvedValue(false);
+
+    render(
+      <WalletAccountMonitor currentPublicKey={MOCK_PK} onDisconnect={onDisconnect} />,
+    );
+
+    await act(async () => { jest.advanceTimersByTime(31000); });
+
+    await waitFor(() => {
+      expect(onDisconnect).toHaveBeenCalledTimes(1);
+      expect(mockRouterPush).toHaveBeenCalledWith("/");
+    });
+
+    jest.useRealTimers();
+  });
+
   it("does nothing when currentPublicKey is null", () => {
     render(
       <WalletAccountMonitor currentPublicKey={null} onDisconnect={onDisconnect} />,
@@ -144,7 +164,7 @@ describe("WalletAccountMonitor (#499)", () => {
     expect(onDisconnect).not.toHaveBeenCalled();
   });
 
-  it("stops polling after unmount (no spurious onDisconnect calls)", () => {
+  it("stops polling after unmount", () => {
     jest.useFakeTimers();
     jest.spyOn(walletLib, "subscribeToAccountChanges").mockReturnValue(null);
     jest.spyOn(walletLib, "getConnectedPublicKey").mockResolvedValue(MOCK_PK);
