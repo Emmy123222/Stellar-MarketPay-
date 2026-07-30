@@ -33,7 +33,8 @@ const jobDraftService = require("../services/jobDraftService");
 const recommendationService = require("../services/recommendationService");
 const { validateJsonb } = require("../middleware/jsonbValidator");
 const milestonesSchema = require("../schemas/milestones.schema");
-
+const { Horizon } = require("@stellar/stellar-sdk");
+const horizonClient = require("../utils/horizonClient");
 const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per minute
 const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per minute
 const reportJobRateLimiter = createRateLimiter(20, 1);
@@ -504,17 +505,49 @@ router.patch(
   },
 );
 
-// PATCH /api/jobs/:id/boost — boost a job listing for 7 days
-router.patch("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
+// POST /api/jobs/:id/boost — boost a job listing for 7 days
+router.post("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
   try {
     const { txHash, amountXlm } = req.body;
     if (!txHash || typeof txHash !== "string") {
       return res.status(400).json({ success: false, error: "Transaction hash is required" });
     }
 
+    const amount = parseFloat(amountXlm) || 0;
+    if (amount < 5) {
+      return res.status(400).json({ success: false, error: "Minimum boost amount is 5 XLM" });
+    }
+
+    // Verify on-chain via Horizon
+    const server = new Horizon.Server(process.env.HORIZON_URL || "https://horizon-testnet.stellar.org");
+    
+    const verifyTx = async () => {
+      const tx = await server.transactions().transaction(txHash).call();
+      if (!tx.successful) {
+        throw new Error("Transaction was not successful on-chain");
+      }
+      const { records: ops } = await tx.operations();
+      const paymentOp = ops.find(
+        (op) =>
+          op.type === "payment" &&
+          op.asset_type === "native" &&
+          op.from === req.user.publicKey &&
+          parseFloat(op.amount) >= amount
+      );
+      if (!paymentOp) {
+        throw new Error("Valid payment operation not found in transaction");
+      }
+      return paymentOp;
+    };
+
+    try {
+      await horizonClient.callWithLimit(verifyTx, "verifyBoostPayment");
+    } catch (err) {
+      return res.status(400).json({ success: false, error: err.message || "Failed to verify transaction" });
+    }
+
     // Determine boost duration from payment amount
     // 5 XLM = 7 days, 15 XLM = 30 days
-    const amount = parseFloat(amountXlm) || 0;
     const boostDays = amount >= 15 ? 30 : 7;
 
     const job = await boostJob(req.params.id, txHash, boostDays);

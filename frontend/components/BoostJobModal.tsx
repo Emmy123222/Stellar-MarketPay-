@@ -103,7 +103,7 @@ export default function BoostJobModal({
 
       // Notify backend
       const res = await fetch(`/api/jobs/${jobId}/boost`, {
-        method: "PATCH",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ txHash: hash, amountXlm: selectedTier.amountXlm }),
       });
