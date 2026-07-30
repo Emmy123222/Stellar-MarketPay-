@@ -41,7 +41,7 @@ router.post("/", verifyJWT, async (req, res, next) => {
     const { query_params, notify_in_app, notify_email } = req.body;
 
     if (!query_params || typeof query_params !== "object") {
-      return res.status(400).json({ success: false, error: "query_params is required and must be an object" });
+      return res.status(400).json({ error: "query_params is required and must be an object" });
     }
 
     // Check limit
@@ -51,7 +51,6 @@ router.post("/", verifyJWT, async (req, res, next) => {
     );
     if (Number(countResult.rows[0].cnt) >= MAX_SAVED_SEARCHES) {
       return res.status(400).json({
-        success: false,
         error: `You can save up to ${MAX_SAVED_SEARCHES} searches. Please delete one first.`,
       });
     }
@@ -95,7 +94,7 @@ router.patch("/:id", verifyJWT, async (req, res, next) => {
     );
 
     if (rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Saved search not found" });
+      return res.status(404).json({ error: "Saved search not found" });
     }
 
     res.json({ success: true, data: rows[0] });
@@ -117,7 +116,7 @@ router.delete("/:id", verifyJWT, async (req, res, next) => {
     );
 
     if (result.rowCount === 0) {
-      return res.status(404).json({ success: false, error: "Saved search not found" });
+      return res.status(404).json({ error: "Saved search not found" });
     }
 
     logger.info({ userId: req.user.publicKey, searchId: id }, "Saved search deleted");

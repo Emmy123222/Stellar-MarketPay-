@@ -23,18 +23,12 @@ router.post("/fund", faucetRateLimiter, async (req, res, next) => {
     const { publicKey } = req.body;
 
     if (!publicKey) {
-      return res.status(400).json({
-        success: false,
-        error: "Public key is required"
-      });
+      return res.status(400).json({ error: "Public key is required" });
     }
 
     // Check if we're on testnet
     if (!isTestnet()) {
-      return res.status(403).json({
-        success: false,
-        error: "Faucet only available on testnet"
-      });
+      return res.status(403).json({ error: "Faucet only available on testnet" });
     }
 
     const result = await fundTestnetWallet(publicKey);
@@ -57,18 +51,12 @@ router.get("/check/:publicKey", async (req, res, next) => {
     const { publicKey } = req.params;
 
     if (!publicKey) {
-      return res.status(400).json({
-        success: false,
-        error: "Public key is required"
-      });
+      return res.status(400).json({ error: "Public key is required" });
     }
 
     // Check if we're on testnet
     if (!isTestnet()) {
-      return res.status(403).json({
-        success: false,
-        error: "Faucet only available on testnet"
-      });
+      return res.status(403).json({ error: "Faucet only available on testnet" });
     }
 
     const result = await checkAccountNeedsFunding(publicKey);
