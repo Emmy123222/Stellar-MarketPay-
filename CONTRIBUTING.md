@@ -1,3 +1,11 @@
+## Code of Conduct
+
+This project follows the guidelines outlined in our
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+By participating in this project, you agree to uphold these standards and help
+maintain a welcoming environment for everyone.
+
 # Contributing to Stellar MarketPay
 
 Stellar MarketPay is a decentralized freelance marketplace built on the Stellar network. Contributions of all kinds are welcome — bug fixes, features, docs, and tests.
