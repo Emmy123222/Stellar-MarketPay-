@@ -9,6 +9,7 @@ import { useTranslation } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import FaucetButton from "@/components/FaucetButton";
 import { usePriceContext } from "@/contexts/PriceContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import NotificationBell from "@/components/NotificationBell";
 import WalletAddressDisplay from "@/components/WalletAddressDisplay";
 
@@ -36,39 +37,14 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
   const [hasNotification, setHasNotification] = useState(false);
   const [hasJobAlertBadge, setHasJobAlertBadge] = useState(false);
   const { currencyMode, setCurrencyMode, priceLoading } = usePriceContext();
-  const [darkMode, setDarkMode] = useState(false);
-    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [balance, setBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
 
-  // Dark mode initialization — respect OS preference on first visit
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = localStorage.getItem("theme");
-      if (stored === "dark" || stored === "light") {
-        setDarkMode(stored === "dark");
-        document.documentElement.classList.toggle("dark", stored === "dark");
-      } else {
-        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-        setDarkMode(prefersDark);
-        document.documentElement.classList.toggle("dark", prefersDark);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const toggleDarkMode = () => {
-    const next = !darkMode;
-    setDarkMode(next);
-    document.documentElement.classList.toggle("dark", next);
-    try {
-      localStorage.setItem("theme", next ? "dark" : "light");
-    } catch {
-      // ignore
-    }
-  };
+  // Hydration-safe mount tracking for theme toggle
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     const handleActivity = () => {
@@ -190,25 +166,28 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
           </button>
         </div>
 
-        {/* Dark Mode Toggle */}
-        <div className="hidden md:flex items-center">
-          <button
-            onClick={toggleDarkMode}
-            className="p-1.5 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors"
-            title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-            aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            {darkMode ? (
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-              </svg>
-            )}
-          </button>
-        </div>
+        {/* Dark Mode Toggle — Desktop */}
+        {mounted && (
+          <div className="hidden md:flex items-center">
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {theme === "dark" ? (
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+                  <circle cx="12" cy="12" r="4" />
+                  <path strokeLinecap="round" d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                </svg>
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Wallet - responsive */}
         <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
@@ -241,7 +220,7 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
         {/* Mobile Menu Toggle */}
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="hidden w-10 h-10 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-market-500/10 transition-colors"
+          className="md:hidden w-10 h-10 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-market-500/10 transition-colors"
           aria-label="Toggle menu"
           aria-expanded={mobileMenuOpen}
         >
@@ -277,6 +256,34 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
             <div className="flex items-center px-3 py-2">
               <LanguageSwitcher className="bg-market-900/40 border border-amber-900/30 rounded px-2 py-2 text-xs text-amber-100 cursor-pointer w-full min-h-[44px]" />
             </div>
+
+            {/* Mobile Dark Mode Toggle */}
+            {mounted && (
+              <button
+                onClick={() => {
+                  toggleTheme();
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors min-h-[44px]"
+              >
+                {theme === "dark" ? (
+                  <>
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+                      <circle cx="12" cy="12" r="4" />
+                      <path strokeLinecap="round" d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                    </svg>
+                    Light Mode
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                    </svg>
+                    Dark Mode
+                  </>
+                )}
+              </button>
+            )}
 
             {/* Mobile Disconnect Button */}
             {publicKey && (
