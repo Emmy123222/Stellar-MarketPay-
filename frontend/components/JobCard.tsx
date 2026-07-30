@@ -18,6 +18,7 @@ import type { Job } from "@/utils/types";
 import { usePriceContext } from "@/contexts/PriceContext";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import JobStatusTimeline from "@/components/JobStatusTimeline";
+import { Download } from "lucide-react";
 
 interface JobCardProps {
   job: Job;
@@ -154,6 +155,34 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
     return est ? `Estimated monthly: ${est}` : null;
   };
 
+  const [downloadingInvoice, setDownloadingInvoice] = useState(false);
+  const handleDownloadInvoice = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (downloadingInvoice) return;
+    setDownloadingInvoice(true);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/invoice`);
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `invoice-${job.id}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } else {
+        console.error("Failed to download invoice");
+      }
+    } catch (err) {
+      console.error("Error downloading invoice:", err);
+    } finally {
+      setDownloadingInvoice(false);
+    }
+  };
+
   return (
       <div
         className={[
@@ -250,6 +279,22 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
             )}
           </div>
           <div className="text-right flex items-center gap-2">
+            {job.status === "completed" && (
+              <button
+                type="button"
+                onClick={handleDownloadInvoice}
+                disabled={downloadingInvoice}
+                className="p-1.5 rounded-md transition-all flex items-center justify-center hover:bg-market-500/10 text-market-400 min-h-[44px] min-w-[44px] group/invoice"
+                title="Download Invoice"
+                aria-label="Download Invoice"
+              >
+                {downloadingInvoice ? (
+                  <span className="w-4 h-4 border-2 border-market-400 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 transition-transform group-hover/invoice:scale-110" />
+                )}
+              </button>
+            )}
             {/* Bookmark Button */}
             <button
               type="button"
