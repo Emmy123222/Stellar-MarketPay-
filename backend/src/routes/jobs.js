@@ -265,6 +265,13 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       viewerAddress,
       includeExpired,
       includeDeleted,
+      min_budget,
+      max_budget,
+      skills,
+      min_client_rating,
+      duration,
+      posted_since,
+      max_applications,
     });
 
     const jobsWithRep = await enrichJobsWithClientReputation(result.jobs);
