@@ -58,7 +58,7 @@ const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
 
 const pool            = require("./db/pool");
-const { migrate } = require("./db/migrate");
+const { migrate, getCurrentMigrationVersion, getExpectedMigrationVersion, validateMigrationVersion } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
@@ -559,6 +559,14 @@ wsServer.on("connection", async (ws, request) => {
 async function bootstrap() {
   try {
   await migrate();
+
+  // Validate that the database is at the expected migration version
+  const migrationVersion = await getCurrentMigrationVersion();
+  const expectedVersion = getExpectedMigrationVersion();
+  validateMigrationVersion(migrationVersion, expectedVersion, serviceLogger);
+
+  app.locals.migrationVersion = migrationVersion;
+
   await cleanupExpiredScopeSessions();
   await indexerService.start();
   priceAlertService.start();
