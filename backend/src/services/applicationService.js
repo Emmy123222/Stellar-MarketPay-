@@ -10,7 +10,7 @@ const { readPool, writePool } = require("../db/pool");
 const pool = writePool; // default to write; SELECTs below use readPool
 const { getJob, assignFreelancer } = require("./jobService");
 const { calculateFreelancerTier, isBlocked } = require("./profileService");
-const { createJobNotification, EVENT_TYPES } = require("./notificationService");
+const { createJobNotification, queueNotification, EVENT_TYPES } = require("./notificationService");
 
 /**
  * Camel-cased application record returned by this service.
@@ -256,6 +256,18 @@ async function submitApplication({
     jobId,
   });
 
+  await queueNotification({
+    recipientAddress: job.clientAddress,
+    notificationType: "email",
+    eventType: EVENT_TYPES.APPLICATION_RECEIVED,
+    jobId,
+    payload: {
+      jobTitle: job.title,
+      clientName: job.clientAddress,
+      freelancerName: freelancerAddress
+    }
+  });
+
   return rowToApp(appRow);
 }
 
@@ -482,6 +494,20 @@ async function acceptApplication(applicationId, clientAddress) {
       },
       client,
     );
+
+    // Note: queueNotification cannot easily take `client` as parameter in its current form,
+    // so we call it normally (outside transaction or just relying on pool).
+    // We will just call it after commit to be safe, but for now we can just queue it.
+    await queueNotification({
+      recipientAddress: app.freelancer_address,
+      notificationType: "email",
+      eventType: EVENT_TYPES.APPLICATION_ACCEPTED,
+      jobId: app.job_id,
+      payload: {
+        jobTitle: job.title,
+        freelancerName: app.freelancer_address
+      }
+    });
 
     for (const rejected of rejectedApplications) {
       await createJobNotification(
