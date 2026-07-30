@@ -55,7 +55,7 @@
         "speakeasy": "^2.0.0",
         "swagger-jsdoc": "^6.2.8",
         "swagger-ui-express": "^5.0.0",
-        "uuid": "^10.0.0",
+        "uuid": "^14.0.1",
         "web-push": "^3.6.7",
         "ws": "^8.21.1"
     },
