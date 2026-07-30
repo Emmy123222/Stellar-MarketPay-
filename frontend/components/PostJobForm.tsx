@@ -459,6 +459,10 @@ export default function PostJobForm({
     setPostedCurrency("");
     setCurrentStep(1);
     setCompletedSteps(new Set());
+    setDraftId(null);
+    setSaveStatus("idle");
+    setSuggestions([]);
+    setShowSuggestions(false);
     setForm({
       title: "",
       description: "",
