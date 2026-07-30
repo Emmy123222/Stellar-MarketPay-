@@ -430,6 +430,7 @@ CREATE TABLE IF NOT EXISTS scope_sessions (
   content           TEXT          NOT NULL DEFAULT '',
   cursors           JSONB         NOT NULL DEFAULT '{}'::jsonb,
   finalized         BOOLEAN       NOT NULL DEFAULT false,
+  finalized_hash    TEXT,
   finalized_payload JSONB,
   expires_at        TIMESTAMPTZ   NOT NULL,
   created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),

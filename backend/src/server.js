@@ -169,31 +169,43 @@ function broadcastRealtime(event, payload) {
   refreshWsMetrics();
 }
 
+function broadcastToUser(userAddress, event, payload) {
+  const message = JSON.stringify({ event, payload });
+  const clients = userClients.get(userAddress);
+  if (clients) {
+    for (const ws of clients) {
+      if (ws.readyState === WS_OPEN) ws.send(message);
+    }
+  }
+}
+
 async function upsertScopeSession(sessionId, patch) {
   const content = typeof patch.content === "string" ? patch.content : "";
   const cursors = patch.cursors && typeof patch.cursors === "object" ? patch.cursors : {};
   const finalized = Boolean(patch.finalized);
+  const finalizedHash = patch.finalizedHash || null;
   const finalizedPayload = patch.finalizedPayload || null;
 
   const { rows } = await pool.query(
-    `INSERT INTO scope_sessions (session_id, content, cursors, finalized, finalized_payload, expires_at, created_at, updated_at)
-     VALUES ($1, $2, $3::jsonb, $4, $5::jsonb, NOW() + INTERVAL '24 hours', NOW(), NOW())
+    `INSERT INTO scope_sessions (session_id, content, cursors, finalized, finalized_hash, finalized_payload, expires_at, created_at, updated_at)
+     VALUES ($1, $2, $3::jsonb, $4, $5, $6::jsonb, NOW() + INTERVAL '24 hours', NOW(), NOW())
      ON CONFLICT (session_id) DO UPDATE SET
        content = EXCLUDED.content,
        cursors = EXCLUDED.cursors,
        finalized = EXCLUDED.finalized,
+       finalized_hash = EXCLUDED.finalized_hash,
        finalized_payload = EXCLUDED.finalized_payload,
        expires_at = NOW() + INTERVAL '24 hours',
        updated_at = NOW()
-     RETURNING session_id, content, cursors, finalized, finalized_payload, expires_at, updated_at`,
-    [sessionId, content, JSON.stringify(cursors), finalized, JSON.stringify(finalizedPayload)]
+     RETURNING session_id, content, cursors, finalized, finalized_hash, finalized_payload, expires_at, updated_at`,
+    [sessionId, content, JSON.stringify(cursors), finalized, finalizedHash, JSON.stringify(finalizedPayload)]
   );
   return rows[0];
 }
 
 async function loadScopeSession(sessionId) {
   const { rows } = await pool.query(
-    `SELECT session_id, content, cursors, finalized, finalized_payload, expires_at, updated_at
+    `SELECT session_id, content, cursors, finalized, finalized_hash, finalized_payload, expires_at, updated_at
      FROM scope_sessions
      WHERE session_id = $1 AND expires_at > NOW()`,
     [sessionId]
@@ -478,6 +490,7 @@ wsServer.on("connection", async (ws, request) => {
       content: session.content || "",
       cursors: session.cursors || {},
       finalized: session.finalized,
+      finalizedHash: session.finalized_hash || null,
       finalizedPayload: session.finalized_payload || null,
       expiresAt: session.expires_at,
     });
@@ -492,6 +505,7 @@ wsServer.on("connection", async (ws, request) => {
             content: typeof message.content === "string" ? message.content : session.content,
             cursors: nextCursors,
             finalized: false,
+            finalizedHash: session.finalized_hash || null,
             finalizedPayload: session.finalized_payload || null,
           });
           for (const client of clients) {
@@ -499,6 +513,7 @@ wsServer.on("connection", async (ws, request) => {
               sessionId,
               content: session.content,
               cursors: session.cursors || {},
+              finalizedHash: session.finalized_hash || null,
               updatedAt: session.updated_at,
             });
           }
@@ -506,16 +521,22 @@ wsServer.on("connection", async (ws, request) => {
         }
 
         if (message.type === "scope:finalize") {
+          const finalContent = typeof message.content === "string" ? message.content : (session.content || "");
+          const crypto = require("crypto");
+          const contentHash = crypto.createHash("sha256").update(finalContent).digest("hex");
+
           session = await upsertScopeSession(sessionId, {
-            content: typeof message.content === "string" ? message.content : session.content,
+            content: finalContent,
             cursors: session.cursors || {},
             finalized: true,
+            finalizedHash: contentHash,
             finalizedPayload: message.payload || null,
           });
           for (const client of clients) {
             sendJson(client, "scope:finalized", {
               sessionId,
               content: session.content,
+              finalizedHash: contentHash,
               payload: session.finalized_payload || null,
               updatedAt: session.updated_at,
             });
@@ -537,6 +558,7 @@ wsServer.on("connection", async (ws, request) => {
         content: freshSession.content || "",
         cursors: nextCursors,
         finalized: freshSession.finalized,
+        finalizedHash: freshSession.finalized_hash || null,
         finalizedPayload: freshSession.finalized_payload || null,
       });
       if (!clients.size) scopeSessionClients.delete(sessionId);
@@ -875,7 +897,20 @@ function startRecurringEscrowTicker() {
   startTicker();
 }
 
-bootstrap();
+if (process.env.NODE_ENV !== 'test') {
+  bootstrap();
+}
+
+// Expose WebSocket internals for testing
+app._ws = {
+  server,
+  wsServer,
+  realtimeClients,
+  userClients,
+  scopeSessionClients,
+  broadcastRealtime,
+  broadcastToUser,
+};
 
 app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
 
