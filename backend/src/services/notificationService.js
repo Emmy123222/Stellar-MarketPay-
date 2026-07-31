@@ -383,7 +383,13 @@ function generateEmailContent(eventType, data) {
     [EVENT_TYPES.ESCROW_RELEASED]: {
       subject: `Payment Released: ${jobTitle}`,
       text: `Payment for "${jobTitle}" has been released.\n\nAmount: ${amount} ${currency}\nJob: ${jobUrl}\n\nThe escrow has been released to the freelancer.`,
-      html: `<h2>Payment Released</h2><p>Payment for "<strong>${jobTitle}</strong>" has been released.</p><p><strong>Amount:</strong> ${amount} ${currency}</p><p><a href="${jobUrl}">View Job</a></p><p>The escrow has been released to the freelancer.</p>`,
+      html: require("../emails/templateRenderer").renderTemplate("escrow_released", {
+        userName: data.userName || "User",
+        jobTitle,
+        amount,
+        currency,
+        jobUrl
+      }),
     },
     [EVENT_TYPES.REFUND_ISSUED]: {
       subject: `Refund Issued: ${jobTitle}`,
@@ -398,7 +404,21 @@ function generateEmailContent(eventType, data) {
     [EVENT_TYPES.APPLICATION_ACCEPTED]: {
       subject: `Application Accepted: ${jobTitle}`,
       text: `Your application for "${jobTitle}" has been accepted!\n\nJob: ${jobUrl}\n\nYou can now start working on this job.`,
-      html: `<h2>Application Accepted</h2><p>Your application for "<strong>${jobTitle}</strong>" has been accepted!</p><p><a href="${jobUrl}">View Job</a></p><p>You can now start working on this job.</p>`,
+      html: require("../emails/templateRenderer").renderTemplate("application_accepted", {
+        freelancerName: data.freelancerName || "Freelancer",
+        jobTitle,
+        jobUrl
+      }),
+    },
+    [EVENT_TYPES.APPLICATION_RECEIVED]: {
+      subject: `New Application Received: ${jobTitle}`,
+      text: `You have received a new application for your job "${jobTitle}".\n\nJob: ${jobUrl}`,
+      html: require("../emails/templateRenderer").renderTemplate("new_application", {
+        clientName: data.clientName || "Client",
+        jobTitle,
+        freelancerName: data.freelancerName || "A freelancer",
+        jobUrl
+      }),
     },
     [EVENT_TYPES.JOB_COMPLETED]: {
       subject: `Job Completed: ${jobTitle}`,
@@ -693,6 +713,9 @@ module.exports = {
   generateEmailContent,
   getNextRetryTime,
   sendPushNotificationForEvent,
+  generateInAppContent,
+  sendEmail,
+  sendWebhook,
   EVENT_TYPES,
   setBroadcastToUser,
 };

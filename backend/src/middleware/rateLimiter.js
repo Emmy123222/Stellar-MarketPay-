@@ -71,7 +71,7 @@ const createRateLimiter = (maxRequests, windowMinutes, options = {}) => {
         requestId: req.requestId,
       }, "Rate limit exceeded");
       return res.status(429).json({
-        message: "Too many requests — please wait before trying again",
+        error: "Too many requests — please wait before trying again",
       });
     },
   });
@@ -115,16 +115,16 @@ async function createDisputeRateLimiter(req, res, next) {
     if (openCount >= MAX_OPEN_DISPUTES) {
       res.set("Retry-After", "3600");
       return res.status(429).json({
-        success: false,
         error: `You already have ${openCount} open ${openCount === 1 ? "dispute" : "disputes"}. Maximum is ${MAX_OPEN_DISPUTES}. Resolve existing disputes before opening new ones.`,
+        code: "RATE_LIMITED",
       });
     }
 
     if (recentCount >= MAX_DISPUTES_30_DAYS) {
       res.set("Retry-After", "86400");
       return res.status(429).json({
-        success: false,
         error: `You have opened ${recentCount} ${recentCount === 1 ? "dispute" : "disputes"} in the last 30 days. Maximum is ${MAX_DISPUTES_30_DAYS}. Please wait before opening more.`,
+        code: "RATE_LIMITED",
       });
     }
 

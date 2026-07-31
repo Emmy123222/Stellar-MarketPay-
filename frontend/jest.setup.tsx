@@ -1,4 +1,5 @@
 import "@testing-library/jest-dom";
+import "jest-axe/extend-expect";
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,

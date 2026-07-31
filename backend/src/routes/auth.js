@@ -101,7 +101,7 @@ router.get("/csrf-token", authReadRateLimiter, (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get("/", authReadRateLimiter, (req, res) => {
+router.get("/", (req, res, next) => {
   try {
     const accountId = req.query.account;
     if (!accountId) {
@@ -121,7 +121,7 @@ router.get("/", authReadRateLimiter, (req, res) => {
 
     res.json({ transaction: challenge, network });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    next(e);
   }
 });
 
@@ -171,7 +171,7 @@ router.get("/", authReadRateLimiter, (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post("/", authWriteRateLimiter, async (req, res) => {
+router.post("/", async (req, res, next) => {
   try {
     const { transaction, network: reqNetwork } = req.body;
     if (!transaction) {
@@ -220,7 +220,8 @@ router.post("/", authWriteRateLimiter, async (req, res) => {
     setAuthCookies(res, accessToken, refreshToken, csrfToken);
     res.json({ success: true, token: accessToken, csrfToken });
   } catch (e) {
-    res.status(401).json({ error: "Unauthorized: " + e.message });
+    const err = Object.assign(new Error("Unauthorized: " + e.message), { status: 401 });
+    next(err);
   }
 });
 
