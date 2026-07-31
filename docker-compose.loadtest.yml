@@ -79,3 +79,14 @@ services:
       RATE_LIMIT_SCALE: "1000"
       DB_POOL_MAX: "50"
     command: ["node", "src/server.js"]
+
+  k6:
+    image: grafana/k6:latest
+    depends_on:
+      backend:
+        condition: service_started
+    volumes:
+      - ./k6:/work
+    working_dir: /work
+    environment:
+      K6_BASE_URL: http://backend:4000
