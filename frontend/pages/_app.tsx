@@ -10,6 +10,7 @@ import { ToastProvider } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
 import ShortcutsModal from "@/components/ShortcutsModal";
 import OfflineBanner from "@/components/OfflineBanner";
+import RateLimitWatcher from "@/components/RateLimitWatcher";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import "../lib/i18n";
 
@@ -108,6 +109,7 @@ function App({ Component, pageProps }: AppProps) {
             showJobDetailShortcuts={isJobDetailPage}
           />
         </div>
+        <RateLimitWatcher />
         </PriceProvider>
       </ToastProvider>
     </>

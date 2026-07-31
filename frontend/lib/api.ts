@@ -34,6 +34,27 @@ api.interceptors.request.use((config: any) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (response) => {
+    const remaining = response.headers["x-ratelimit-remaining"];
+    if (remaining && parseInt(remaining, 10) < 5) {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("ratelimit-warning"));
+      }
+    }
+    return response;
+  },
+  (error) => {
+    const remaining = error.response?.headers?.["x-ratelimit-remaining"];
+    if (remaining && parseInt(remaining, 10) < 5) {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("ratelimit-warning"));
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 export async function fetchAuthChallenge(publicKey: string) {
