@@ -3,6 +3,21 @@ jest.mock("../db/pool", () => {
   return createPgMock();
 });
 
+jest.mock("../utils/logger", () => ({
+  createServiceLogger: jest.fn(() => ({
+    debug: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+  })),
+}));
+
+jest.mock("../utils/queue", () => ({
+  emailQueue: {
+    add: jest.fn().mockResolvedValue({}),
+  },
+}));
+
 const pool = require("../db/pool");
 const {
   createJob,

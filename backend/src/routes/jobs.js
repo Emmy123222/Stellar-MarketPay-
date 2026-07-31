@@ -349,7 +349,7 @@ router.get("/:id/invoice", verifyJWT, generalJobRateLimiter, async (req, res, ne
     }
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", \`attachment; filename=invoice-\${job.id}.pdf\`);
+    res.setHeader("Content-Disposition", `attachment; filename=invoice-${job.id}.pdf`);
 
     await invoiceService.generateInvoicePdf(job, res);
   } catch (e) {
