@@ -199,8 +199,7 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
                 className="flex items-center gap-1 sm:gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity text-xs sm:text-sm px-2 py-2 sm:px-3 sm:py-2 min-h-[44px]"
                 truncatedChars={6}
               />
-              </button>
-              <button 
+              <button
                 onClick={onDisconnect} 
                 className="hidden sm:inline text-xs text-amber-800 hover:text-amber-500 transition-colors px-2 py-1"
               >
