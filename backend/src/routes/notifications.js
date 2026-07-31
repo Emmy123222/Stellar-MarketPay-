@@ -1,3 +1,9 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Notifications
+ *   description: Push/in-app notification management
+ */
 const express = require("express");
 const router = express.Router();
 const { verifyJWT } = require("../middleware/auth");
@@ -16,9 +22,16 @@ const adminRateLimiter = createRateLimiter(30, 1);
 // ─── Web Push Notifications ──────────────────────────────────────────────────
 
 /**
- * GET /api/notifications/vapid-public-key
- * Returns the VAPID public key for push notification subscription
- * Public endpoint - no auth required
+ * @swagger
+ * /api/notifications/vapid-public-key:
+ *   get:
+ *     summary: Get VAPID public key for push notifications
+ *     tags: [Notifications]
+ *     responses:
+ *       200:
+ *         description: VAPID public key
+ *       503:
+ *         description: Push notifications not configured
  */
 router.get("/vapid-public-key", (req, res) => {
   const publicKey = pushSubscriptionService.getVapidPublicKey();
@@ -29,9 +42,27 @@ router.get("/vapid-public-key", (req, res) => {
 });
 
 /**
- * POST /api/notifications/push-subscribe
- * Save a push notification subscription
- * Requires authentication
+ * @swagger
+ * /api/notifications/push-subscribe:
+ *   post:
+ *     summary: Save a push notification subscription
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - subscription
+ *             properties:
+ *               subscription:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Subscription saved
  */
 router.post("/push-subscribe", verifyJWT, async (req, res, next) => {
   try {
@@ -58,9 +89,27 @@ router.post("/push-subscribe", verifyJWT, async (req, res, next) => {
 });
 
 /**
- * POST /api/notifications/push-unsubscribe
- * Remove a push notification subscription
- * Requires authentication
+ * @swagger
+ * /api/notifications/push-unsubscribe:
+ *   post:
+ *     summary: Remove a push notification subscription
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - endpoint
+ *             properties:
+ *               endpoint:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Subscription removed
  */
 router.post("/push-unsubscribe", verifyJWT, async (req, res, next) => {
   try {
@@ -89,8 +138,18 @@ router.post("/push-unsubscribe", verifyJWT, async (req, res, next) => {
 // ─── Admin: failed webhooks ──────────────────────────────────────────────────
 
 /**
- * GET /api/notifications/failed-webhooks
- * Returns failed webhook notifications with payload for manual retry (admin only).
+ * @swagger
+ * /api/notifications/failed-webhooks:
+ *   get:
+ *     summary: List failed webhook notifications (admin only)
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Failed webhooks list
+ *       403:
+ *         description: Admin access required
  */
 router.get("/failed-webhooks", verifyJWT, adminRateLimiter, async (req, res, next) => {
   try {
@@ -132,8 +191,24 @@ router.get("/failed-webhooks", verifyJWT, adminRateLimiter, async (req, res, nex
 });
 
 /**
- * POST /api/notifications/failed-webhooks/:id/retry
- * Manually retry a failed webhook notification (admin only).
+ * @swagger
+ * /api/notifications/failed-webhooks/{id}/retry:
+ *   post:
+ *     summary: Retry a failed webhook (admin only)
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Notification queued for retry
+ *       404:
+ *         description: Failed notification not found
  */
 router.post("/failed-webhooks/:id/retry", verifyJWT, adminRateLimiter, async (req, res, next) => {
   try {
@@ -166,6 +241,37 @@ router.post("/failed-webhooks/:id/retry", verifyJWT, adminRateLimiter, async (re
 
 // ─── Authenticated preference endpoints ───────────────────────────────────────
 
+/**
+ * @swagger
+ * /api/notifications/preferences:
+ *   get:
+ *     summary: Get notification preferences
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User notification preferences
+ *   patch:
+ *     summary: Update notification preferences
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - preferences
+ *             properties:
+ *               preferences:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Preferences updated
+ */
 router.get("/preferences", verifyJWT, async (req, res, next) => {
   try {
     const preferences = await notificationPreferencesService.getPreferences(
@@ -206,6 +312,31 @@ router.patch("/preferences", verifyJWT, async (req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/notifications:
+ *   get:
+ *     summary: List in-app notifications
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: cursor
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: after
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Notification list with unread count
+ */
 router.get("/", verifyJWT, async (req, res, next) => {
   try {
     const { limit, cursor, after, page } = req.query;
@@ -238,6 +369,18 @@ router.get("/", verifyJWT, async (req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/notifications/read-all:
+ *   patch:
+ *     summary: Mark all notifications as read
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: All notifications marked read
+ */
 router.patch("/read-all", verifyJWT, async (req, res, next) => {
   try {
     const result = await markAllInAppNotificationsRead(req.user.publicKey);
@@ -247,6 +390,24 @@ router.patch("/read-all", verifyJWT, async (req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/notifications/{id}/read:
+ *   patch:
+ *     summary: Mark a notification as read
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Notification marked read
+ */
 router.patch("/:id/read", verifyJWT, async (req, res, next) => {
   try {
     const notification = await markInAppNotificationRead(
@@ -262,11 +423,22 @@ router.patch("/:id/read", verifyJWT, async (req, res, next) => {
 // ─── Token-based unsubscribe (no auth required) ───────────────────────────────
 
 /**
- * GET /api/notifications/unsubscribe?token=<uuid>
- *
- * Looks up the profile by digest_unsubscribe_token, disables the weekly_digest
- * email preference, then returns an HTML confirmation page.  No login required —
- * the token acts as a bearer credential for this single action.
+ * @swagger
+ * /api/notifications/unsubscribe:
+ *   get:
+ *     summary: Unsubscribe from weekly digest (HTML page, no auth)
+ *     tags: [Notifications]
+ *     parameters:
+ *       - in: query
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: HTML confirmation page
+ *       400:
+ *         description: Invalid token
  */
 router.get("/unsubscribe", async (req, res) => {
   const { token } = req.query;
