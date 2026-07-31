@@ -125,7 +125,7 @@ describe("Database Migrations (V1–V17)", () => {
         expect(remaining.length).toBe(count);
       }
 
-      // After rolling back everything (V11 -> V1), public schema should have no core tables left
+      // After rolling back everything (V23 -> V1), public schema should have no core tables left
       const { rows: remainingTables } = await client.query(`
         SELECT table_name 
         FROM information_schema.tables 
