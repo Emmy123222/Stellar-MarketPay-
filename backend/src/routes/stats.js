@@ -1,5 +1,6 @@
 /**
  * Platform statistics routes for Issue #232: analytics dashboard
+ * Redis caching added for hot-read endpoint (#774).
  */
 "use strict";
 const express = require("express");
@@ -7,13 +8,22 @@ const router = express.Router();
 const { createRateLimiter } = require("../middleware/rateLimiter");
 const statsService = require("../services/statsService");
 const { getXlmUsd7dHistory, PRICE_HISTORY_TTL_SECONDS } = require("../services/xlmPriceService");
+const cache = require("../utils/cache");
 
 const statsRateLimiter = createRateLimiter(30, 1); // 30 requests per minute
 
 // GET /api/stats — get platform-wide metrics
 router.get("/", statsRateLimiter, async (req, res, next) => {
   try {
+    const cacheKey = "stats:overview";
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      res.set("X-Cache", "HIT");
+      return res.json({ success: true, data: cached });
+    }
     const stats = await statsService.getStats();
+    await cache.set(cacheKey, stats, cache.TTL.STATS);
+    res.set("X-Cache", "MISS");
     res.json({ success: true, data: stats });
   } catch (e) { next(e); }
 });

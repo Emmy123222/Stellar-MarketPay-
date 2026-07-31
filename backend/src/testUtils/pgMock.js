@@ -658,8 +658,11 @@ function createPgMock() {
     connect.mockClear();
   }
 
-  const mockPool = { query, connect, jobs, applications, invitations, reset, end: jest.fn() };
-  return { readPool: mockPool, writePool: mockPool, ...mockPool };
+  const mock = { query, connect, jobs, applications, invitations, reset, end: jest.fn() };
+  // jobService/applicationService destructure { readPool, writePool } from pool
+  mock.readPool = { query };
+  mock.writePool = mock;
+  return mock;
 }
 
 module.exports = { createPgMock, defaultJobRow, defaultApplicationRow };

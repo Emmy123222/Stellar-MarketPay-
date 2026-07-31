@@ -23,6 +23,13 @@ Stellar MarketPay is an open-source decentralised freelance marketplace where cl
 
 ---
 
+## 🎥 Demo
+
+> 🎥 **Demo video coming soon** — follow the [recording script](docs/video-walkthrough-script.md) to capture the 3‑minute happy path: post a job → receive bids → accept proposal → release escrow.  
+> 📝 [Subtitled captions (.srt)](docs/demo-walkthrough-captions.srt) included for accessibility.
+
+---
+
 ## 🗂 Project Structure
 
 ```
