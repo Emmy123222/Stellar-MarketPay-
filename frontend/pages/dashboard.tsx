@@ -7,7 +7,13 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
-import { fetchMyJobs, fetchMyApplications, fetchApplications, fetchMyInvitations, declineInvitation } from "@/lib/api";
+import {
+  fetchMyJobs, fetchMyApplications, fetchApplications, fetchMyInvitations, declineInvitation,
+  fetchProposalTemplates, fetchProfile,
+  fetchClientSpendingAnalytics, fetchPriceAlertPreference, upsertPriceAlertPreference,
+  fetchSavedSearches, updateSavedSearch, deleteSavedSearch,
+  createProposalTemplate, updateProposalTemplate, deleteProposalTemplate,
+} from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
 import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV } from "@/utils/format";
 import type { Job, Application, ClientSpendingAnalytics, JobInvitation } from "@/utils/types";
@@ -131,6 +137,80 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [extendModalJob, setExtendModalJob] = useState<Job | null>(null);
   const [confirmDeleteTemplate, setConfirmDeleteTemplate] = useState<string | null>(null);
   const [confirmDeleteSearch, setConfirmDeleteSearch] = useState<string | null>(null);
+
+  // ── Missing state declarations (referenced throughout component) ──────────
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [showBuyXLM, setShowBuyXLM] = useState(false);
+  const [withdrawHistory, setWithdrawHistory] = useState<Array<{ id: string; amount: string; asset: string; fiatCurrency: string }>>([]);
+  const [spendingAnalytics, setSpendingAnalytics] = useState<ClientSpendingAnalytics | null>(null);
+  const [spendingLoading, setSpendingLoading] = useState(false);
+  const [savedSearches, setSavedSearches] = useState<Array<{ id: string; query_params: Record<string, string>; notify_in_app: boolean; notify_email: boolean; created_at: string }>>([]);
+  const [savedSearchesLoading, setSavedSearchesLoading] = useState(false);
+  const [templates, setTemplates] = useState<Array<{ id: string; name: string; content: string }>>([]);
+  const [templateName, setTemplateName] = useState("");
+  const [templateContent, setTemplateContent] = useState("");
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [emailEnabled, setEmailEnabled] = useState(false);
+  const [alertEmail, setAlertEmail] = useState("");
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [alertMatchesDismissed, setAlertMatchesDismissed] = useState(false);
+  const [alertMatches, setAlertMatches] = useState<Job[]>([]);
+  const [extendingJob, setExtendingJob] = useState<string | null>(null);
+
+  // ── Destructure onboarding progress ──────────────────────────────────────
+  const { checklistItems, progress } = useOnboarding(publicKey);
+
+  // ── Derived values ────────────────────────────────────────────────────────
+  const { xlmPriceUsd } = usePriceContext();
+  const { success } = toast;
+  const router = useRouter();
+
+  // ── Missing local helpers ─────────────────────────────────────────────────
+  function loadWithdrawHistory(): Array<{ id: string; amount: string; asset: string; fiatCurrency: string }> {
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem("marketpay_withdraw_history") : null;
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  const refreshBalances = useCallback(async () => {
+    if (!publicKey) return;
+    try {
+      const [xlm, usdc] = await Promise.all([
+        getXLMBalance(publicKey),
+        getUSDCBalance(publicKey),
+      ]);
+      setBalance(xlm);
+      setUsdcBalance(usdc);
+    } catch {
+      // ignore
+    }
+  }, [publicKey]);
+
+  const handleExtendJob = useCallback((jobId: string) => {
+    setExtendingJob(jobId);
+    const job = myJobs.find((j) => j.id === jobId) ?? null;
+    setExtendModalJob(job);
+  }, [myJobs]);
+
+  const handleRepost = useCallback((job: Job) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(REPOST_JOB_PREFILL_STORAGE_KEY, JSON.stringify(job));
+    }
+    router.push("/post-job");
+  }, [router]);
+
+  const handleResetContractMock = useCallback(() => {
+    if (typeof window !== "undefined") {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith("mock_escrow_"))
+        .forEach((k) => localStorage.removeItem(k));
+    }
+  }, []);
 
   const handleJobExtended = useCallback((updated: Job) => {
     setMyJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
