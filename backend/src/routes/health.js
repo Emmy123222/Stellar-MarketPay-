@@ -12,10 +12,14 @@
  *
  * Response shape:
  *   {
- *     "status": "ok" | "degraded",
- *     "postgres": "up" | "down",
- *     "redis": "up" | "down",
- *     "horizon": "up" | "down"
+ *     "status": "healthy" | "degraded",
+ *     "database": { "status": "ok", "latency_ms": 12 }
+ *                | { "status": "error", "message": "..." },
+ *     "stellar":  { "status": "ok", "network": "testnet", "ledger": 12345678 }
+ *                | { "status": "error", "message": "..." },
+ *     "uptime_seconds": 3600,
+ *     "version": "1.0.0",
+ *     "migrationVersion": 21
  *   }
  */
 "use strict";
@@ -118,16 +122,25 @@ async function checkHorizon() {
  *               properties:
  *                 status:
  *                   type: string
- *                   example: ok
- *                 postgres:
- *                   type: string
- *                   example: up
- *                 redis:
- *                   type: string
- *                   example: up
- *                 horizon:
- *                   type: string
- *                   example: up
+ *                   example: healthy
+ *                 database:
+ *                   type: object
+ *                   properties:
+ *                     status: { type: string, example: ok }
+ *                     latency_ms: { type: number, example: 12 }
+ *                 stellar:
+ *                   type: object
+ *                   properties:
+ *                     status: { type: string, example: ok }
+ *                     network: { type: string, example: testnet }
+ *                     ledger: { type: number, example: 12345678 }
+ *                 uptime_seconds: { type: number, example: 3600 }
+ *                 version: { type: string, example: "1.0.0" }
+ *                 migrationVersion:
+ *                   type: integer
+ *                   nullable: true
+ *                   example: 21
+ *                   description: Current schema_migrations version from the database
  *       503:
  *         description: One or more dependencies are down
  */
@@ -141,10 +154,16 @@ router.get("/", healthRateLimiter, async (req, res) => {
   const allUp = postgres === "up" && redis === "up" && horizon === "up";
 
   const body = {
-    status: allUp ? "ok" : "degraded",
-    postgres,
-    redis,
-    horizon,
+    status: healthy ? "healthy" : "degraded",
+    database,
+    stellar,
+    ipfs,
+    uptime_seconds: Math.floor((Date.now() - SERVER_START) / 1000),
+    version: VERSION,
+    indexer: req.app.locals.indexerService
+      ? req.app.locals.indexerService.getHealth()
+      : null,
+    migrationVersion: req.app.locals.migrationVersion ?? null,
   };
 
   res.status(allUp ? 200 : 503).json(body);

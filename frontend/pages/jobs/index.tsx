@@ -59,6 +59,42 @@ interface Suggestion {
   value: string;
 }
 
+// Intersection Observer hook for infinite scroll
+function useInfiniteScroll(callback: () => void, hasNextPage: boolean, isLoading: boolean) {
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const lastElementRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (isLoading || !hasNextPage) return;
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          callback();
+        }
+      },
+      { threshold: 0.1, rootMargin: "100px" }
+    );
+
+    if (lastElementRef.current) {
+      observerRef.current.observe(lastElementRef.current);
+    }
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [callback, hasNextPage, isLoading]);
+
+  return lastElementRef;
+}
+
+interface Suggestion {
+  type: string;
+  value: string;
+}
+
 // ── Job Alert localStorage helpers ──────────────────────────────────────────
 const ALERT_KEY = "marketpay_job_alerts";
 
@@ -1174,11 +1210,14 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
               onCta={() => window.location.reload()}
             />
           ) : filtered.length === 0 ? (
-            <div className="card text-center py-16 border border-amber-500 bg-amber-500/10">
-              <h2 className="font-display text-xl mb-2 text-amber-100">No jobs found</h2>
-              <p className="text-sm text-amber-800 mb-6 max-w-xs mx-auto">No jobs are currently available.</p>
-              <Link href="/post-job" className="btn-primary text-sm">Post the first job</Link>
-            </div>
+            <StateMessage
+              type="empty"
+              illustration="no-jobs"
+              title="No jobs found"
+              description="No jobs are currently available. Be the first to post one."
+              ctaLabel="Post the first job"
+              onCta={() => router.push('/post-job')}
+            />
           ) : (
             <div ref={parentRef} className="w-full">
               <div

@@ -1,3 +1,9 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Audit
+ *   description: Audit log access
+ */
 "use strict";
 
 const express = require("express");
@@ -12,7 +18,47 @@ const adminList = (process.env.ADMIN_PUBLIC_KEYS || "")
   .map((value) => value.trim())
   .filter(Boolean);
 
-// GET /api/audit — admin-only audit log list with cursor pagination
+/**
+ * @swagger
+ * /api/audit:
+ *   get:
+ *     summary: List audit logs (admin only, cursor pagination)
+ *     tags: [Audit]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: action
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: resource_type
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: from
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: to
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *       - in: query
+ *         name: after
+ *         schema:
+ *           type: string
+ *         description: Cursor for next page (base64-encoded ID)
+ *     responses:
+ *       200:
+ *         description: Audit log entries
+ */
 router.get("/", verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const { action, resource_type, from, to, limit = "50", after } = req.query;
@@ -84,6 +130,26 @@ router.get("/", verifyJWT, requireAdminRole, async (req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/audit/{jobId}:
+ *   get:
+ *     summary: Get audit logs for a specific job
+ *     tags: [Audit]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Job audit logs
+ *       403:
+ *         description: Not a participant or admin
+ */
 router.get("/:jobId", verifyJWT, async (req, res, next) => {
   try {
     const job = await getJob(req.params.jobId);

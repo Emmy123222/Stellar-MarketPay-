@@ -22,8 +22,40 @@ const readLimiter  = createRateLimiter(60, 1);
 const writeLimiter = createRateLimiter(20, 1);
 
 /**
- * GET /api/invitations
- * Returns all pending invitations for the authenticated freelancer.
+ * src/routes/invitations.js
+ * Issue #342 — Job invitation endpoints for freelancers.
+ *
+ * @swagger
+ * tags:
+ *   name: Invitations
+ *   description: Job invitation system
+ */
+"use strict";
+
+const express = require("express");
+const router = express.Router();
+const { verifyJWT } = require("../middleware/auth");
+const { createRateLimiter } = require("../middleware/rateLimiter");
+const {
+  getInvitationsForFreelancer,
+  declineInvitation,
+} = require("../services/jobInvitationService");
+const { submitApplication } = require("../services/applicationService");
+
+const readLimiter  = createRateLimiter(60, 1);
+const writeLimiter = createRateLimiter(20, 1);
+
+/**
+ * @swagger
+ * /api/invitations:
+ *   get:
+ *     summary: List pending invitations for authenticated freelancer
+ *     tags: [Invitations]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Pending invitations
  */
 router.get("/", verifyJWT, readLimiter, async (req, res, next) => {
   try {
@@ -35,8 +67,22 @@ router.get("/", verifyJWT, readLimiter, async (req, res, next) => {
 });
 
 /**
- * PATCH /api/invitations/:id/decline
- * Freelancer declines an invitation.
+ * @swagger
+ * /api/invitations/{id}/decline:
+ *   patch:
+ *     summary: Decline a job invitation
+ *     tags: [Invitations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Invitation declined
  */
 router.patch("/:id/decline", verifyJWT, writeLimiter, async (req, res, next) => {
   try {
@@ -48,9 +94,40 @@ router.patch("/:id/decline", verifyJWT, writeLimiter, async (req, res, next) => 
 });
 
 /**
- * POST /api/invitations/:id/accept
- * Freelancer accepts an invitation — auto-creates a pending application.
- * Body: { proposal, bidAmount }
+ * @swagger
+ * /api/invitations/{id}/accept:
+ *   post:
+ *     summary: Accept a job invitation (auto-creates application)
+ *     tags: [Invitations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - proposal
+ *               - bidAmount
+ *             properties:
+ *               proposal:
+ *                 type: string
+ *               bidAmount:
+ *                 type: number
+ *     responses:
+ *       201:
+ *         description: Application created
+ *       400:
+ *         description: Missing proposal or bidAmount
+ *       403:
+ *         description: Not the invited freelancer
  */
 router.post("/:id/accept", verifyJWT, writeLimiter, async (req, res, next) => {
   try {

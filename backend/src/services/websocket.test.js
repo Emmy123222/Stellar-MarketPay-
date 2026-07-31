@@ -75,7 +75,11 @@ describe("WebSocket real-time notification delivery", () => {
 
   beforeAll(async () => {
     server = app._ws.server;
-    await new Promise((resolve) => server.listen(0, resolve));
+    // Server is already listening from bootstrap(); just read the bound port
+    const addr = server.address();
+    if (!addr) {
+      await new Promise((resolve) => server.listen(0, resolve));
+    }
     port = server.address().port;
   }, 10000);
 
@@ -237,5 +241,37 @@ describe("WebSocket real-time notification delivery", () => {
 
     ws1.close();
     ws2.close();
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Rate limiting test
+  // ───────────────────────────────────────────────────────────────────────────
+  test("TC4: rejects connection with close code 1008 if user has > 5 active connections", async () => {
+    const connections = [];
+    
+    // Open 5 connections (should succeed)
+    for (let i = 0; i < 5; i++) {
+      const ws = wsConnect(TEST_USER_1);
+      await waitForOpen(ws);
+      await ws._waitForMessage((m) => m.event === "connected", 1000);
+      connections.push(ws);
+    }
+
+    // Try to open a 6th connection (should be rejected)
+    const ws6 = wsConnect(TEST_USER_1);
+    
+    // Wait for the connection to be closed
+    const closePromise = new Promise((resolve) => {
+      ws6.on("close", (code, reason) => {
+        resolve({ code, reason: reason.toString() });
+      });
+    });
+
+    const { code, reason } = await closePromise;
+    expect(code).toBe(1008);
+    expect(reason).toBe("Too many connections");
+
+    // Clean up all connections
+    connections.forEach((ws) => ws.close());
   });
 });
