@@ -186,35 +186,7 @@ jest.mock("@/components/Toast", () => {
 });
 
 jest.mock("@/lib/api", () => ({
-  // ── Dashboard page API calls ──────────────────────────────────────────────
-  fetchMyJobs: jest.fn().mockResolvedValue({ jobs: [], total: 0 }),
-  fetchMyApplications: jest.fn().mockResolvedValue({ applications: [], total: 0 }),
-  fetchApplications: jest.fn().mockResolvedValue({ applications: [], total: 0 }),
-  fetchMyInvitations: jest.fn().mockResolvedValue({ invitations: [], total: 0 }),
-  declineInvitation: jest.fn().mockResolvedValue({}),
-  fetchClientSpending: jest.fn().mockResolvedValue({
-    hasCompletedJobs: false,
-    totalSpentXlm: "0",
-    jobsBreakdown: { posted: 0, completed: 0, cancelled: 0, inProgress: 0 },
-    averageBudgetXlm: "0",
-    averagePaidXlm: "0",
-    topFreelancers: [],
-  }),
-  fetchSavedSearches: jest.fn().mockResolvedValue([]),
-  fetchPriceAlerts: jest.fn().mockResolvedValue(null),
-  savePriceAlert: jest.fn().mockResolvedValue({}),
-  deleteSavedSearch: jest.fn().mockResolvedValue({}),
-  saveSearch: jest.fn().mockResolvedValue({ id: "search-1" }),
-  fetchWithdrawals: jest.fn().mockResolvedValue({ withdrawals: [], total: 0 }),
-  // ── PostJobForm API calls ─────────────────────────────────────────────────
-  createJob: jest.fn().mockResolvedValue({ id: "job-new-1", title: "Test job" }),
-  deleteJob: jest.fn().mockResolvedValue({}),
-  updateJobEscrowId: jest.fn().mockResolvedValue({}),
-  getJwtToken: jest.fn().mockReturnValue("mock-jwt-token"),
-  setJwtToken: jest.fn(),
-  saveDraft: jest.fn().mockResolvedValue({ id: "draft-1" }),
-  updateDraft: jest.fn().mockResolvedValue({ id: "draft-1" }),
-  // ── General / shared API calls ────────────────────────────────────────────
+  fetchCategories: jest.fn().mockResolvedValue([]),
   submitRating: jest.fn().mockResolvedValue({}),
   submitApplication: jest.fn().mockResolvedValue({}),
   fetchProposalTemplates: jest.fn().mockResolvedValue([]),
@@ -372,8 +344,16 @@ jest.mock("@/lib/wallet", () => ({
 }));
 
 jest.mock("@/lib/sorobanFees", () => ({
-  estimateSorobanFee: jest.fn().mockResolvedValue({ fee: "100", resourceFee: "50" }),
+  estimateSorobanFee: jest.fn().mockResolvedValue({
+    totalStroops: BigInt(2500000),
+    totalXlm: "0.2500000",
+    totalUsd: 0.0375,
+    resourceFeeStroops: BigInt(1500000),
+    inclusionFeeStroops: BigInt(1000000),
+  }),
   describeContractCall: jest.fn().mockReturnValue("create_escrow"),
+  stroopsToXlm: jest.fn().mockReturnValue("0.0100000"),
+  calculateMaxFee: jest.fn().mockReturnValue(BigInt(5000000)),
 }));
 
 jest.mock("@/lib/anchors", () => ({

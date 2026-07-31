@@ -33,13 +33,16 @@ beforeAll(() => {
 
 jest.mock("../../db/pool", () => {
   const mockQuery = jest.fn().mockResolvedValue({ rows: [] });
-  return {
+  const mock = {
     query: mockQuery,
     connect: jest.fn().mockResolvedValue({
       query: mockQuery,
       release: jest.fn(),
     }),
   };
+  mock.readPool = { query: mockQuery };
+  mock.writePool = mock;
+  return mock;
 });
 
 jest.mock("../../services/indexerService", () =>
@@ -94,6 +97,11 @@ const FAKE_CLIENT_KEY = "G" + "B".repeat(55);
 const FAKE_JOB_ID = "11111111-1111-1111-1111-111111111111";
 const FAKE_APP_ID = "22222222-2222-2222-2222-222222222222";
 const FAKE_CHALLENGE_XDR = "AAAAAFakeChallengeTransactionXDRBase64Encoded==";
+const CSRF_TOKEN = "test-csrf-token";
+const CSRF_HEADERS = {
+  Cookie: `XSRF-TOKEN=${CSRF_TOKEN}`,
+  "X-XSRF-Token": CSRF_TOKEN,
+};
 const FAKE_SIGNED_XDR = "AAAAAFakeSignedChallengeTransactionXDRBase64Signed==";
 // Proposal must be at least 50 characters per application service validation
 const LONG_PROPOSAL =
@@ -378,6 +386,7 @@ describe("POST /api/jobs — create job", () => {
     const res = await request(app)
       .post("/api/jobs")
       .set("Authorization", `Bearer ${VALID_TOKEN}`)
+      .set(CSRF_HEADERS)
       .send(VALID_JOB_BODY);
 
     expect(res.status).toBe(201);
@@ -389,6 +398,7 @@ describe("POST /api/jobs — create job", () => {
     const res = await request(app)
       .post("/api/jobs")
       .set("Authorization", `Bearer ${VALID_TOKEN}`)
+      .set(CSRF_HEADERS)
       .send({ ...VALID_JOB_BODY, title: "Short" }); // < 10 chars → 400
 
     expect(res.status).toBe(400);
@@ -399,6 +409,7 @@ describe("POST /api/jobs — create job", () => {
   it("401 — error shape matches OpenAPI contract (no Authorization header)", async () => {
     const res = await request(app)
       .post("/api/jobs")
+      .set(CSRF_HEADERS)
       .send(VALID_JOB_BODY);
 
     expect(res.status).toBe(401);
@@ -410,6 +421,7 @@ describe("POST /api/jobs — create job", () => {
     const res = await request(app)
       .post("/api/jobs")
       .set("Authorization", "Bearer invalid.jwt.token")
+      .set(CSRF_HEADERS)
       .send(VALID_JOB_BODY);
 
     expect(res.status).toBe(401);
@@ -467,7 +479,7 @@ describe("POST /api/applications — submit application", () => {
   //  5. notification    → INSERT INTO notifications … RETURNING *
   function mockSubmitApplicationQueries() {
     pool.query.mockImplementation(async (sql) => {
-      if (sql === "SELECT * FROM jobs WHERE id = $1") {
+      if (sql.includes("FROM jobs WHERE id = $1")) {
         return { rows: [buildJobRow({ client_address: FAKE_CLIENT_KEY })] };
       }
       if (sql.includes("blocked_addresses")) {
@@ -494,6 +506,7 @@ describe("POST /api/applications — submit application", () => {
   it("201 — response shape matches OpenAPI contract", async () => {
     const res = await request(app)
       .post("/api/applications")
+      .set(CSRF_HEADERS)
       .send({
         jobId: FAKE_JOB_ID,
         freelancerAddress: FAKE_FREELANCER_KEY, // implementation uses freelancerAddress (not freelancerId)
@@ -509,6 +522,7 @@ describe("POST /api/applications — submit application", () => {
   it("400 — error shape matches OpenAPI contract (missing required fields)", async () => {
     const res = await request(app)
       .post("/api/applications")
+      .set(CSRF_HEADERS)
       .send({ jobId: FAKE_JOB_ID }); // missing freelancerAddress, proposal, bidAmount
 
     expect(res.status).toBe(400);
@@ -519,6 +533,7 @@ describe("POST /api/applications — submit application", () => {
   it("400 — error shape matches OpenAPI contract (proposal too short)", async () => {
     const res = await request(app)
       .post("/api/applications")
+      .set(CSRF_HEADERS)
       .send({
         jobId: FAKE_JOB_ID,
         freelancerAddress: FAKE_FREELANCER_KEY,
@@ -532,7 +547,7 @@ describe("POST /api/applications — submit application", () => {
 
   it("409 — error shape matches OpenAPI contract (duplicate application)", async () => {
     pool.query.mockImplementation(async (sql) => {
-      if (sql === "SELECT * FROM jobs WHERE id = $1") {
+      if (sql.includes("FROM jobs WHERE id = $1")) {
         return { rows: [buildJobRow({ client_address: FAKE_CLIENT_KEY })] };
       }
       if (sql.includes("blocked_addresses")) {
@@ -548,6 +563,7 @@ describe("POST /api/applications — submit application", () => {
 
     const res = await request(app)
       .post("/api/applications")
+      .set(CSRF_HEADERS)
       .send({
         jobId: FAKE_JOB_ID,
         freelancerAddress: FAKE_FREELANCER_KEY,
