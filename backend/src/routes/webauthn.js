@@ -13,6 +13,11 @@
  * Credential management:
  *   GET    /api/webauthn/credentials     → list passkeys (requires JWT)
  *   DELETE /api/webauthn/credentials/:id → remove passkey (requires JWT)
+ *
+ * @swagger
+ * tags:
+ *   name: WebAuthn
+ *   description: Passkey/WebAuthn authentication
  */
 "use strict";
 
@@ -54,6 +59,18 @@ setInterval(() => {
 
 const webauthnRateLimiter = createRateLimiter(10, 1);
 
+/**
+ * @swagger
+ * /api/webauthn/register-options:
+ *   post:
+ *     summary: Get WebAuthn registration options
+ *     tags: [WebAuthn]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Registration options for creating a passkey
+ */
 // ─── Registration ──────────────────────────────────────────────────────────────
 
 async function handleRegisterBegin(req, res, next) {
@@ -88,6 +105,33 @@ async function handleRegisterBegin(req, res, next) {
   } catch (e) { next(e); }
 }
 
+/**
+ * @swagger
+ * /api/webauthn/register-verify:
+ *   post:
+ *     summary: Verify and store a WebAuthn credential
+ *     tags: [WebAuthn]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - credential
+ *             properties:
+ *               credential:
+ *                 type: object
+ *               name:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Passkey registered
+ *       400:
+ *         description: Verification failed or no pending challenge
+ */
 async function handleRegisterFinish(req, res, next) {
   try {
     const publicKey = req.user.publicKey;
@@ -131,6 +175,27 @@ async function handleRegisterFinish(req, res, next) {
   } catch (e) { next(e); }
 }
 
+/**
+ * @swagger
+ * /api/webauthn/login-options:
+ *   post:
+ *     summary: Get WebAuthn login options
+ *     tags: [WebAuthn]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - publicKey
+ *             properties:
+ *               publicKey:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Authentication options
+ */
 // ─── Authentication ─────────────────────────────────────────────────────────────
 
 async function handleLoginBegin(req, res, next) {
@@ -162,6 +227,32 @@ async function handleLoginBegin(req, res, next) {
   } catch (e) { next(e); }
 }
 
+/**
+ * @swagger
+ * /api/webauthn/login-verify:
+ *   post:
+ *     summary: Verify WebAuthn authentication and issue JWT
+ *     tags: [WebAuthn]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - credential
+ *               - publicKey
+ *             properties:
+ *               credential:
+ *                 type: object
+ *               publicKey:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: JWT token issued
+ *       401:
+ *         description: Authentication failed
+ */
 async function handleLoginFinish(req, res, next) {
   try {
     const { credential, publicKey } = req.body;
@@ -224,6 +315,33 @@ async function handleLoginFinish(req, res, next) {
   } catch (e) { next(e); }
 }
 
+/**
+ * @swagger
+ * /api/webauthn/credentials:
+ *   get:
+ *     summary: List registered passkeys
+ *     tags: [WebAuthn]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Credential list
+ * /api/webauthn/credentials/{id}:
+ *   delete:
+ *     summary: Remove a passkey
+ *     tags: [WebAuthn]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Passkey removed
+ */
 // ─── Credential management ─────────────────────────────────────────────────────
 
 router.get("/credentials", verifyJWT, async (req, res, next) => {
@@ -240,6 +358,23 @@ router.delete("/credentials/:id", verifyJWT, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * @swagger
+ * /api/webauthn/admin/credentials:
+ *   get:
+ *     summary: Admin list credentials for any user
+ *     tags: [WebAuthn]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: publicKey
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Credential list
+ */
 // ── Register route handlers ─────────────────────────────────────────────────────
 
 // New RESTful paths (primary)
@@ -261,6 +396,24 @@ router.get("/admin/credentials", verifyJWT, requireAdminRole, requireAdmin2FA, a
   } catch (e) { next(e); }
 });
 
+/**
+ * @swagger
+ * /api/webauthn/admin/credentials/{id}:
+ *   delete:
+ *     summary: Admin revoke a passkey
+ *     tags: [WebAuthn]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Passkey revoked
+ */
 router.delete("/admin/credentials/:id", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const credential = await adminRevokeCredential(req.params.id);

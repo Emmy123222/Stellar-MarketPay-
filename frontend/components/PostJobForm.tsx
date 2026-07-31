@@ -11,7 +11,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft, updateDraft } from "@/lib/api";
+import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft, updateDraft, fetchSkillSuggestions } from "@/lib/api";
 import { performSEP0010Auth } from "@/lib/wallet";
 import { createEscrowOnChain } from "@/lib/stellar";
 import { usePriceContext } from "@/contexts/PriceContext";
@@ -251,12 +251,9 @@ export default function PostJobForm({
     if (lastPart.length < 1) { setSuggestions([]); setShowSuggestions(false); return; }
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/skills?q=${encodeURIComponent(lastPart)}`);
-        if (res.ok) {
-          const data = await res.json();
-          setSuggestions(data);
-          setShowSuggestions(data.length > 0);
-        }
+        const data = await fetchSkillSuggestions(lastPart);
+        setSuggestions(data);
+        setShowSuggestions(data.length > 0);
       } catch { /* ignore */ }
     }, 300);
     return () => clearTimeout(timer);

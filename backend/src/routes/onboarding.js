@@ -1,8 +1,47 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Onboarding
+ *   description: User onboarding progress tracking
+ */
 "use strict";
 const express = require("express");
 const router = express.Router();
 const pool = require("../db/pool");
 
+/**
+ * @swagger
+ * /api/onboarding:
+ *   patch:
+ *     summary: Update onboarding progress
+ *     tags: [Onboarding]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - publicKey
+ *             properties:
+ *               publicKey:
+ *                 type: string
+ *               currentStep:
+ *                 type: integer
+ *               completedSteps:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               dismissed:
+ *                 type: boolean
+ *               completed:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Onboarding progress updated
+ *       400:
+ *         description: Missing publicKey
+ */
 router.patch("/", async (req, res, next) => {
   try {
     const { publicKey, currentStep = 0, completedSteps = [], dismissed = false, completed = false } = req.body || {};
@@ -25,6 +64,22 @@ router.patch("/", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * @swagger
+ * /api/onboarding/{publicKey}:
+ *   get:
+ *     summary: Get onboarding progress for a user
+ *     tags: [Onboarding]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Onboarding progress retrieved (null if none)
+ */
 router.get("/:publicKey", async (req, res, next) => {
   try {
     const { rows } = await pool.query(

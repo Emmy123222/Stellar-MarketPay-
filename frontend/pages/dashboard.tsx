@@ -721,6 +721,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         ) : tab === "send" ? (
           <SendPaymentForm fromPublicKey={publicKey} />
         ) : tab === "templates" ? (
+          <>
           <div className="space-y-4">
             <div className="card space-y-3">
               <input
@@ -823,6 +824,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             }}
             onCancel={() => setConfirmDeleteTemplate(null)}
           />
+          </>
         ) : tab === "invitations" ? (
           <InvitationsTab
             myInvitations={myInvitations}
@@ -916,7 +918,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             </div>
           )
         ) : tab === "saved_searches" ? (
-          savedSearchesLoading ? (
+          <>
+          {savedSearchesLoading ? (
             <div className="space-y-3">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="card animate-pulse h-20" />
@@ -987,7 +990,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                 </div>
               ))}
             </div>
-          )
+          )}
 
           <ConfirmDialog
             open={confirmDeleteSearch !== null}
@@ -1006,6 +1009,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             }}
             onCancel={() => setConfirmDeleteSearch(null)}
           />
+          </>
         ) : tab === "referrals" ? (
           <ReferralDashboard publicKey={publicKey} />
         ) : (

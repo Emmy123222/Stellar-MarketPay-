@@ -1,5 +1,10 @@
 /**
  * src/routes/escrow.js
+ *
+ * @swagger
+ * tags:
+ *   name: Escrow
+ *   description: Escrow management (release, refund, milestones, recurring)
  */
 "use strict";
 

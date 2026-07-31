@@ -1,6 +1,11 @@
 /**
  * src/routes/faucet.js
  * Stellar testnet faucet routes
+ *
+ * @swagger
+ * tags:
+ *   name: Faucet
+ *   description: Testnet XLM faucet
  */
 "use strict";
 const express = require("express");
@@ -15,8 +20,30 @@ const faucetMaxRequests = parseInt(process.env.FAUCET_RATE_LIMIT, 10) || (isDev 
 const faucetRateLimiter = createRateLimiter(faucetMaxRequests, 60);
 
 /**
- * POST /api/faucet/fund
- * Fund a testnet wallet using Friendbot
+ * @swagger
+ * /api/faucet/fund:
+ *   post:
+ *     summary: Fund a testnet wallet
+ *     tags: [Faucet]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - publicKey
+ *             properties:
+ *               publicKey:
+ *                 type: string
+ *                 description: Stellar public key to fund
+ *     responses:
+ *       200:
+ *         description: Wallet funded successfully
+ *       400:
+ *         description: Missing public key
+ *       403:
+ *         description: Faucet only available on testnet
  */
 router.post("/fund", faucetRateLimiter, async (req, res, next) => {
   try {
@@ -43,8 +70,22 @@ router.post("/fund", faucetRateLimiter, async (req, res, next) => {
 });
 
 /**
- * GET /api/faucet/check/:publicKey
- * Check if an account needs funding
+ * @swagger
+ * /api/faucet/check/{publicKey}:
+ *   get:
+ *     summary: Check if an account needs funding
+ *     tags: [Faucet]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Account funding status
+ *       403:
+ *         description: Faucet only available on testnet
  */
 router.get("/check/:publicKey", async (req, res, next) => {
   try {
@@ -71,8 +112,34 @@ router.get("/check/:publicKey", async (req, res, next) => {
 });
 
 /**
- * GET /api/faucet/status
- * Get faucet status and configuration
+ * @swagger
+ * /api/faucet/status:
+ *   get:
+ *     summary: Get faucet status and configuration
+ *     tags: [Faucet]
+ *     responses:
+ *       200:
+ *         description: Faucet status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     enabled:
+ *                       type: boolean
+ *                     network:
+ *                       type: string
+ *                     amount:
+ *                       type: string
+ *                     asset:
+ *                       type: string
+ *                     rateLimitPerMinute:
+ *                       type: integer
  */
 router.get("/status", (req, res) => {
   res.json({

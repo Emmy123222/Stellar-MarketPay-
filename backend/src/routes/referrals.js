@@ -20,8 +20,52 @@ const router = express.Router();
 const generalRateLimiter = createRateLimiter(60, 1);
 
 /**
- * GET /api/referrals/info
- * Public — returns the current bonus percentage so the frontend can display it.
+ * src/routes/referrals.js
+ *
+ * @swagger
+ * tags:
+ *   name: Referrals
+ *   description: Referral program management
+ */
+"use strict";
+
+const express = require("express");
+const { createRateLimiter } = require("../middleware/rateLimiter");
+const { verifyJWT } = require("../middleware/auth");
+const {
+  registerReferral,
+  getReferralStats,
+  REFERRAL_BONUS_BPS,
+} = require("../services/referralService");
+
+const router = express.Router();
+const generalRateLimiter = createRateLimiter(60, 1);
+
+/**
+ * @swagger
+ * /api/referrals/info:
+ *   get:
+ *     summary: Get referral bonus info (public)
+ *     tags: [Referrals]
+ *     responses:
+ *       200:
+ *         description: Referral bonus percentage
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     bonusBps:
+ *                       type: integer
+ *                     bonusPercent:
+ *                       type: string
+ *                     description:
+ *                       type: string
  */
 router.get("/info", (req, res) => {
   res.json({
@@ -35,9 +79,24 @@ router.get("/info", (req, res) => {
 });
 
 /**
- * GET /api/referrals/:publicKey
- * Returns referral stats and history for the given referrer address.
- * Requires JWT auth — users can only view their own referral data.
+ * @swagger
+ * /api/referrals/{publicKey}:
+ *   get:
+ *     summary: Get referral stats and history
+ *     tags: [Referrals]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Referral stats
+ *       403:
+ *         description: Can only view own referral data
  */
 router.get(
   "/:publicKey",
@@ -65,9 +124,28 @@ router.get(
 );
 
 /**
- * POST /api/referrals/register
- * Called during profile creation when a ?ref= query param was present.
- * Body: { referrerAddress, refereeAddress }
+ * @swagger
+ * /api/referrals/register:
+ *   post:
+ *     summary: Register a new referral
+ *     tags: [Referrals]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - referrerAddress
+ *               - refereeAddress
+ *             properties:
+ *               referrerAddress:
+ *                 type: string
+ *               refereeAddress:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Referral registered (or already exists)
  */
 router.post("/register", generalRateLimiter, async (req, res, next) => {
   try {

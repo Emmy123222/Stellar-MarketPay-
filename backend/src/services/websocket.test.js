@@ -75,7 +75,11 @@ describe("WebSocket real-time notification delivery", () => {
 
   beforeAll(async () => {
     server = app._ws.server;
-    await new Promise((resolve) => server.listen(0, resolve));
+    // Server is already listening from bootstrap(); just read the bound port
+    const addr = server.address();
+    if (!addr) {
+      await new Promise((resolve) => server.listen(0, resolve));
+    }
     port = server.address().port;
   }, 10000);
 

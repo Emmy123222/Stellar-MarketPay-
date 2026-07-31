@@ -9,6 +9,8 @@
 
 import { useState } from "react";
 import { buildBoostJobTx, signAndSubmitSorobanTx, XLM_SAC_ADDRESS } from "@/lib/stellar";
+import { boostJob } from "@/lib/api/jobs";
+import { getApiErrorMessage } from "@/lib/api/client";
 import { formatDate } from "@/utils/format";
 
 // ─── Boost tiers ─────────────────────────────────────────────────────────────
@@ -102,23 +104,14 @@ export default function BoostJobModal({
       setTxHash(hash);
 
       // Notify backend
-      const res = await fetch(`/api/jobs/${jobId}/boost`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ txHash: hash, amountXlm: selectedTier.amountXlm }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error ?? "Backend boost update failed");
-      }
+      await boostJob(jobId, hash, selectedTier.amountXlm);
 
       const boostedUntil = new Date();
       boostedUntil.setDate(boostedUntil.getDate() + selectedTier.days);
       setStep("done");
       onSuccess(boostedUntil.toISOString());
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "Boost failed");
+      setErrorMsg(getApiErrorMessage(e, e instanceof Error ? e.message : "Boost failed"));
       setStep("error");
     }
   };
