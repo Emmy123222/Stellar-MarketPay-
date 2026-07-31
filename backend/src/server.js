@@ -15,6 +15,9 @@ const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
 const { sendEmail, smtpTransport } = require("./utils/email");
+const jwt = require("jsonwebtoken");
+const { JWT_SECRET } = require("./middleware/auth");
+const promClient = require("prom-client");
 const metrics = require("./metrics");
 const metricsAuth = require("./middleware/metricsAuth");
 const swaggerUi = require('swagger-ui-express');
@@ -148,6 +151,7 @@ const realtimeClients = new Set();
 const userClients = new Map(); // userAddress -> Set<WebSocket>
 const userLastSeen = new Map(); // userAddress -> Date (last disconnect time)
 const scopeSessionClients = new Map();
+const MAX_WS_CONNECTIONS_PER_USER = 5;
 
 /**
  * Publish the current WebSocket connection counts to
@@ -171,16 +175,6 @@ function broadcastRealtime(event, payload) {
     if (ws.readyState === WS_OPEN) ws.send(message);
   }
   refreshWsMetrics();
-}
-
-function broadcastToUser(userAddress, event, payload) {
-  const message = JSON.stringify({ event, payload });
-  const clients = userClients.get(userAddress);
-  if (clients) {
-    for (const ws of clients) {
-      if (ws.readyState === WS_OPEN) ws.send(message);
-    }
-  }
 }
 
 function broadcastToUser(userAddress, event, payload) {
@@ -502,24 +496,42 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
-    realtimeClients.add(ws);
-    wsConnectionsActive.set(realtimeClients.size);
-
-    // Authenticate user from token query param for per-user delivery
-    let userAddress = null;
     const token = url.searchParams.get("token");
+    let userAddress = null;
+
     if (token) {
       try {
-        const { JWT_SECRET } = require("./middleware/auth");
-        const jwt = require("jsonwebtoken");
         const decoded = jwt.verify(token, JWT_SECRET);
         userAddress = decoded.publicKey;
-        if (userAddress) {
-          if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
-          userClients.get(userAddress).add(ws);
-        }
-      } catch { /* invalid token — treat as anonymous */ }
+      } catch (err) {
+        serviceLogger.warn({ error: err.message }, 'Invalid JWT token for WebSocket connection');
+        ws.close(1008, "Invalid token");
+        return;
+      }
     }
+
+    // Enforce per-user connection cap (Issue #879): reject with 1008 if the
+    // user already has MAX_WS_CONNECTIONS_PER_USER active connections.
+    if (userAddress) {
+      const userConnections = userClients.get(userAddress) || new Set();
+      if (userConnections.size >= MAX_WS_CONNECTIONS_PER_USER) {
+        serviceLogger.warn({
+          userAddress,
+          connectionCount: userConnections.size,
+          maxAllowed: MAX_WS_CONNECTIONS_PER_USER
+        }, 'WebSocket connection rejected: too many active connections for user');
+        ws.close(1008, "Too many connections");
+        return;
+      }
+
+      if (!userClients.has(userAddress)) {
+        userClients.set(userAddress, new Set());
+      }
+      userClients.get(userAddress).add(ws);
+    }
+
+    realtimeClients.add(ws);
+    refreshWsMetrics();
 
     sendJson(ws, "connected", { channel: "realtime" });
 
@@ -552,15 +564,17 @@ wsServer.on("connection", async (ws, request) => {
 
     ws.on("close", () => {
       realtimeClients.delete(ws);
-      wsConnectionsActive.set(realtimeClients.size);
       if (userAddress) {
-        const sockets = userClients.get(userAddress);
-        if (sockets) {
-          sockets.delete(ws);
-          if (!sockets.size) userClients.delete(userAddress);
+        const connections = userClients.get(userAddress);
+        if (connections) {
+          connections.delete(ws);
+          if (connections.size === 0) {
+            userClients.delete(userAddress);
+          }
         }
         userLastSeen.set(userAddress, new Date());
       }
+      refreshWsMetrics();
     });
     return;
   }
@@ -1005,12 +1019,12 @@ app._ws = {
   wsServer,
   realtimeClients,
   userClients,
+  userLastSeen,
   scopeSessionClients,
   broadcastRealtime,
   broadcastToUser,
 };
 
 app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
-app._ws = { server, wsServer, userClients, realtimeClients, userLastSeen };
 
 module.exports = app;
