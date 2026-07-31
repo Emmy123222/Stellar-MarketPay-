@@ -61,7 +61,7 @@ stellar-marketpay/
 ### 1. Clone
 
 ```bash
-git clone https://github.com/your-org/stellar-marketpay.git
+git clone https://github.com/Emmy123222/Stellar-MarketPay-.git
 cd stellar-marketpay
 ```
 
