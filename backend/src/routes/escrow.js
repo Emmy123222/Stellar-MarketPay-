@@ -1,5 +1,10 @@
 /**
  * src/routes/escrow.js
+ *
+ * @swagger
+ * tags:
+ *   name: Escrow
+ *   description: Escrow management (release, refund, milestones, recurring)
  */
 "use strict";
 
@@ -11,7 +16,10 @@ const escrowActionRateLimiter = createRateLimiter(30, 1);
 const router = express.Router();
 const pool = require("../db/pool");
 const { getJob, updateJobStatus } = require("../services/jobService");
-const { logContractInteraction } = require("../services/contractAuditService");
+const {
+  logContractInteraction,
+  verifyOnChainTransaction,
+} = require("../services/contractAuditService");
 const {
   notifyEscrowEvent,
   EVENT_TYPES,
@@ -117,11 +125,17 @@ router.post(
         throw e;
       }
 
+      const txInfo = await verifyOnChainTransaction(contractTxHash);
+      const txHashInner = contractTxHash || `offchain-${Date.now()}`;
+
       await logContractInteraction({
         functionName: "partial_release",
         callerAddress: clientAddress,
         jobId,
-        txHash: contractTxHash || `offchain-${Date.now()}`,
+        txHash: txHashInner,
+        ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+        feeCharged: txInfo ? txInfo.feeCharged : undefined,
+        eventData: txInfo ? txInfo.eventData : undefined,
       });
 
       // Notify users about escrow release
@@ -249,11 +263,17 @@ router.post("/:jobId/refund", async (req, res, next) => {
 
     // DB status is updated asynchronously by the indexer when it processes the on-chain event.
 
+    const txInfo = await verifyOnChainTransaction(contractTxHash);
+    const txHashInner = contractTxHash || `offchain-${Date.now()}`;
+
     await logContractInteraction({
       functionName: "refund_escrow",
       callerAddress: clientAddress,
       jobId,
-      txHash: contractTxHash || `offchain-${Date.now()}`,
+      txHash: txHashInner,
+      ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+      feeCharged: txInfo ? txInfo.feeCharged : undefined,
+      eventData: txInfo ? txInfo.eventData : undefined,
     });
 
     // Notify users about refund

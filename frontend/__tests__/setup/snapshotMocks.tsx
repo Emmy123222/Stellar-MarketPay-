@@ -87,6 +87,7 @@ jest.mock("@/components/Toast", () => {
 });
 
 jest.mock("@/lib/api", () => ({
+  fetchCategories: jest.fn().mockResolvedValue([]),
   submitRating: jest.fn().mockResolvedValue({}),
   submitApplication: jest.fn().mockResolvedValue({}),
   fetchProposalTemplates: jest.fn().mockResolvedValue([]),
@@ -224,8 +225,16 @@ jest.mock("@/lib/wallet", () => ({
 }));
 
 jest.mock("@/lib/sorobanFees", () => ({
-  estimateSorobanFee: jest.fn().mockResolvedValue({ fee: "100", resourceFee: "50" }),
+  estimateSorobanFee: jest.fn().mockResolvedValue({
+    totalStroops: BigInt(2500000),
+    totalXlm: "0.2500000",
+    totalUsd: 0.0375,
+    resourceFeeStroops: BigInt(1500000),
+    inclusionFeeStroops: BigInt(1000000),
+  }),
   describeContractCall: jest.fn().mockReturnValue("create_escrow"),
+  stroopsToXlm: jest.fn().mockReturnValue("0.0100000"),
+  calculateMaxFee: jest.fn().mockReturnValue(BigInt(5000000)),
 }));
 
 jest.mock("@/lib/anchors", () => ({
