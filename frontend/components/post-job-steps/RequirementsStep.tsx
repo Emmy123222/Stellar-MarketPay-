@@ -73,7 +73,14 @@ export default function RequirementsStep({
                 className="flex-1 rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-3 py-2 text-xs text-gray-900 dark:text-amber-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-market-400/40"
               />
               {form.screeningQuestions.length > 1 && (
-                <button type="button" onClick={() => removeScreeningQuestion(i)} className="text-red-400 hover:text-red-300 text-lg leading-none flex-shrink-0">✕</button>
+                <button
+                  type="button"
+                  onClick={() => removeScreeningQuestion(i)}
+                  className="text-red-400 hover:text-red-300 text-lg leading-none flex-shrink-0"
+                  aria-label={`Remove screening question ${i + 1}`}
+                >
+                  ✕
+                </button>
               )}
             </div>
           ))}

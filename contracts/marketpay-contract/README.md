@@ -12,11 +12,13 @@ This Soroban smart contract manages trustless escrow between clients and freelan
 | `release_escrow(job_id, client)` | Client | Release funds to freelancer |
 | `refund_escrow(job_id, client)` | Client | Refund before work starts |
 | `timeout_refund(job_id, client)` | Client | Refund after the timestamp-based timeout expires |
-| `raise_dispute(job_id, caller)` | Client/Freelancer | Mark escrow as disputed |
-| `nominate_arbitrators(job_id, admin, arbitrators)` | Admin | Pick 3 arbitrators for a disputed job |
-| `arbitrator_vote(job_id, arbitrator, client_percent)` | Arbitrator | Cast a dispute vote |
-| `finalize_dispute(job_id)` | Anyone | Split funds using the median vote |
-| `emergency_admin_resolve(job_id, admin, recipient)` | Admin | Force a dispute resolution |
+| `raise_dispute(job_id, caller)` | Client/Freelancer | Mark escrow as disputed; configurable bond required (Issue #437) |
+| `resolve_dispute(job_id, arbitrator, winner, split_percentage)` | Arbitrator | Resolve a dispute with split-percentage payout (winner gets split%%, other gets (100-split)%%) |
+| `set_arbitrator(admin, arbitrator)` | Admin | Designate the single arbitrator address that can resolve disputes |
+| `get_arbitrator()` | Anyone | Read the current arbitrator address (or None if unset) |
+| `set_dispute_bond(admin, token, amount)` | Admin | Set the global dispute bond config (caller must lock bond before raising a dispute) |
+| `get_dispute_bond_config()` | Anyone | Read the global dispute bond config (token, amount) |
+| `get_dispute_bond(job_id)` | Anyone | Read the per-job locked bond record |
 | `get_escrow(job_id)` | Anyone | Read escrow record |
 | `get_milestone(job_id, index)` | Anyone | Read a single milestone by index |
 | `get_status(job_id)` | Anyone | Read escrow status |

@@ -1,0 +1,74 @@
+name: OWASP ZAP Authenticated Scan
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: '0 2 * * *' # Run daily at 2am
+
+jobs:
+  zap_scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: |
+          cd backend
+          npm ci
+          cd ../frontend
+          npm ci
+
+      - name: Start Backend Server
+        run: |
+          cd backend
+          npm run start &
+          # Wait for server to be ready
+          npx wait-on http://localhost:4000/api/health
+        env:
+          PORT: 4000
+          NODE_ENV: development
+          DB_HOST: localhost
+          DB_PORT: 5432
+          # Other necessary test env vars can go here or use a mock mode
+
+      - name: Generate ZAP Auth Token
+        id: zap-auth
+        run: |
+          cd .zap
+          npm install @stellar/stellar-sdk node-fetch
+          AUTH_TOKEN=$(node auth.js)
+          echo "AUTH_TOKEN=$AUTH_TOKEN" >> $GITHUB_ENV
+
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: 'http://localhost:4000/api'
+          rules_file_name: '.zap/zap-ignore.conf'
+          cmd_options: >-
+            -j
+            -config replacer.full_list(0).description=auth1
+            -config replacer.full_list(0).enabled=true
+            -config replacer.full_list(0).matchtype=REQ_HEADER
+            -config replacer.full_list(0).matchstr=Authorization
+            -config replacer.full_list(0).regex=false
+            -config replacer.full_list(0).replacement="Bearer ${{ env.AUTH_TOKEN }}"
+          fail_action: true
+
+      - name: Upload ZAP Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap_report.html
+          path: report_html.html
