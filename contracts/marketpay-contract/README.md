@@ -6,17 +6,19 @@ This Soroban smart contract manages trustless escrow between clients and freelan
 
 | Function | Who calls it | Description |
 |----------|-------------|-------------|
-| `initialize(admin)` | Deployer | One-time setup, sets version to 1, stores admin list |
+| `initialize(admin, treasury_address)` | Deployer | One-time setup, sets version to 1, stores admin list, treasury, platform fee |
 | `create_escrow(job_id, client, freelancer, token, amount)` | Client | Lock funds in contract |
-| `start_work(job_id, client)` | Client | Mark work as started |
+| `start_work(job_id, freelancer)` | Freelancer | Mark work as started |
 | `release_escrow(job_id, client)` | Client | Release funds to freelancer |
 | `refund_escrow(job_id, client)` | Client | Refund before work starts |
 | `timeout_refund(job_id, client)` | Client | Refund after the timestamp-based timeout expires |
-| `raise_dispute(job_id, caller)` | Client/Freelancer | Mark escrow as disputed |
-| `nominate_arbitrators(job_id, admin, arbitrators)` | Admin | Pick 3 arbitrators for a disputed job |
-| `arbitrator_vote(job_id, arbitrator, client_percent)` | Arbitrator | Cast a dispute vote |
-| `finalize_dispute(job_id)` | Anyone | Split funds using the median vote |
-| `emergency_admin_resolve(job_id, admin, recipient)` | Admin | Force a dispute resolution |
+| `raise_dispute(job_id, caller)` | Client/Freelancer | Mark escrow as disputed; configurable bond required (Issue #437) |
+| `resolve_dispute(job_id, arbitrator, winner, split_percentage)` | Arbitrator | Resolve a dispute with split-percentage payout (winner gets split%%, other gets (100-split)%%) |
+| `set_arbitrator(admin, arbitrator)` | Admin | Designate the single arbitrator address that can resolve disputes |
+| `get_arbitrator()` | Anyone | Read the current arbitrator address (or None if unset) |
+| `set_dispute_bond(admin, token, amount)` | Admin | Set the global dispute bond config (caller must lock bond before raising a dispute) |
+| `get_dispute_bond_config()` | Anyone | Read the global dispute bond config (token, amount) |
+| `get_dispute_bond(job_id)` | Anyone | Read the per-job locked bond record |
 | `get_escrow(job_id)` | Anyone | Read escrow record |
 | `get_milestone(job_id, index)` | Anyone | Read a single milestone by index |
 | `get_status(job_id)` | Anyone | Read escrow status |
@@ -38,7 +40,7 @@ This Soroban smart contract manages trustless escrow between clients and freelan
 
 ```bash
 # Standard build
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 
 # Optimized build (cargo release + wasm-opt -Oz post-processing)
 # Requires wasm-opt — install with one of:
@@ -66,7 +68,7 @@ cargo test
 After running `make build-optimized` the target binary is:
 
 ```
-target/wasm32-unknown-unknown/release/marketpay_contract.optimized.wasm
+target/wasm32v1-none/release/marketpay_contract.optimized.wasm
 ```
 
 Use this file (not the plain `.wasm`) when deploying or installing on-chain.
@@ -91,13 +93,13 @@ the active WASM and the on-chain record are in sync after an upgrade.
 1. **Build the new WASM**
    ```bash
    make build-optimized
-   # Produces: target/wasm32-unknown-unknown/release/marketpay_contract.optimized.wasm
+   # Produces: target/wasm32v1-none/release/marketpay_contract.optimized.wasm
    ```
 
 2. **Install the new WASM on-chain** (uploads bytes, returns a hash)
    ```bash
    stellar contract install \
-     --wasm target/wasm32-unknown-unknown/release/marketpay_contract.optimized.wasm \
+     --wasm target/wasm32v1-none/release/marketpay_contract.optimized.wasm \
      --source <admin-key> --network testnet
    # → prints NEW_WASM_HASH
    ```

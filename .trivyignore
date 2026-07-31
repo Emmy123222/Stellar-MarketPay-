@@ -1,0 +1,8 @@
+# .trivyignore
+# This file contains CVEs that are ignored during the CI Trivy scan.
+# Format: one CVE ID per line.
+# Please include a comment above the ignored CVE explaining why it is considered a false-positive or acceptable risk.
+
+# Example:
+# # Ignored because it only affects devDependencies and is mitigated in our runtime
+# CVE-2021-3807

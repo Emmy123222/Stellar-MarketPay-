@@ -1,5 +1,10 @@
 /**
  * src/routes/escrow.js
+ *
+ * @swagger
+ * tags:
+ *   name: Escrow
+ *   description: Escrow management (release, refund, milestones, recurring)
  */
 "use strict";
 
@@ -12,6 +17,7 @@ const router = express.Router();
 const pool = require("../db/pool");
 const { getJob, updateJobStatus } = require("../services/jobService");
 const { logContractInteraction } = require("../services/contractAuditService");
+const { insertAuditLog } = require("../services/auditLogService");
 const {
   notifyEscrowEvent,
   EVENT_TYPES,
@@ -58,12 +64,13 @@ router.post("/:jobId/release", async (req, res, next) => {
       throw e;
     }
 
-    // Fetch escrow amount for referral bonus calculation.
+    // Fetch escrow amount and status for referral bonus and audit log.
     // DB status is updated asynchronously by the indexer when it processes the on-chain event.
     const { rows: escrowRows } = await pool.query(
-      `SELECT amount_xlm FROM escrows WHERE job_id = $1`,
+      `SELECT amount_xlm, status FROM escrows WHERE job_id = $1`,
       [jobId],
     );
+    const escrowStatus = escrowRows.length ? escrowRows[0].status : null;
 
     if (!escrowRows.length) {
       const e = new Error("No escrow record found for this job");
@@ -90,6 +97,20 @@ router.post("/:jobId/release", async (req, res, next) => {
       contractTxHash || null,
     );
     await updateJobStatus(jobId, "completed");
+
+    // Audit log the escrow release event
+    try {
+      await insertAuditLog({
+        actorAddress: clientAddress,
+        action: "escrow_release",
+        entityType: "escrow",
+        entityId: jobId,
+        oldValue: { jobStatus: job.status, escrowStatus },
+        newValue: { jobStatus: "completed", escrowStatus: "released" },
+      });
+    } catch {
+      // Non-fatal
+    }
 
     res.json({
       success: true,
@@ -131,11 +152,17 @@ router.post(
         throw e;
       }
 
+      const txInfo = await verifyOnChainTransaction(contractTxHash);
+      const txHashInner = contractTxHash || `offchain-${Date.now()}`;
+
       await logContractInteraction({
         functionName: "partial_release",
         callerAddress: clientAddress,
         jobId,
-        txHash: contractTxHash || `offchain-${Date.now()}`,
+        txHash: txHashInner,
+        ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+        feeCharged: txInfo ? txInfo.feeCharged : undefined,
+        eventData: txInfo ? txInfo.eventData : undefined,
       });
 
       // Notify users about escrow release
@@ -269,11 +296,17 @@ router.post("/:jobId/refund", async (req, res, next) => {
 
     // DB status is updated asynchronously by the indexer when it processes the on-chain event.
 
+    const txInfo = await verifyOnChainTransaction(contractTxHash);
+    const txHashInner = contractTxHash || `offchain-${Date.now()}`;
+
     await logContractInteraction({
       functionName: "refund_escrow",
       callerAddress: clientAddress,
       jobId,
-      txHash: contractTxHash || `offchain-${Date.now()}`,
+      txHash: txHashInner,
+      ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+      feeCharged: txInfo ? txInfo.feeCharged : undefined,
+      eventData: txInfo ? txInfo.eventData : undefined,
     });
 
     // Notify users about refund

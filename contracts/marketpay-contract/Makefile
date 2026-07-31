@@ -1,4 +1,4 @@
-WASM_TARGET = wasm32-unknown-unknown
+WASM_TARGET = wasm32v1-none
 WASM_OUT    = target/$(WASM_TARGET)/release/marketpay_contract.wasm
 WASM_OPT    = $(WASM_OUT:.wasm=.optimized.wasm)
 
