@@ -15,6 +15,9 @@ const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
 const { sendEmail, smtpTransport } = require("./utils/email");
+const jwt = require("jsonwebtoken");
+const { JWT_SECRET } = require("./middleware/auth");
+const promClient = require("prom-client");
 const metrics = require("./metrics");
 const metricsAuth = require("./middleware/metricsAuth");
 const swaggerUi = require('swagger-ui-express');
@@ -22,12 +25,13 @@ const swaggerSpecs = require('./config/swagger');
 const { requestLoggerMiddleware, xRequestIdMiddleware, logError, createServiceLogger } = require('./utils/logger');
 const { sanitizeMiddleware } = require('./middleware/sanitize');
 const { idempotencyMiddleware, cleanupExpiredIdempotencyKeys } = require('./middleware/idempotency');
-const { getRateLimitScale } = require("./middleware/rateLimiter");
+const { getRateLimitScale, rateLimitLogger } = require("./middleware/rateLimiter");
 const { requireChoice } = require("./config/env");
 const { createCorsOptions } = require("./config/cors");
 const { doubleCsrfProtection } = require("./middleware/csrf");
 const { structuredErrorHandler } = require("./utils/errors");
 const { jsonDepthLimitMiddleware } = require("./middleware/jsonbValidator");
+const { createRequestSizeLimitMiddleware } = require("./middleware/requestSizeLimit");
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -66,12 +70,13 @@ const { migrate, getCurrentMigrationVersion, getExpectedMigrationVersion, valida
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
-const { startSavedSearchAlertChecker } = require("./services/savedSearchAlertService");
+const { startWsEventCleanup } = require("./services/wsEventCleanupService");
 
 const serviceLogger = createServiceLogger('server');
 const app  = express();
 app.set("trust proxy", 1);
 const PORT = process.env.PORT || 4000;
+const REQUEST_BODY_LIMIT = "100kb";
 const server = http.createServer(app);
 const WS_OPEN = 1;
 const STELLAR_NETWORK = requireChoice("STELLAR_NETWORK", ["testnet", "mainnet"], {
@@ -144,7 +149,9 @@ setInterval(checkPoolHealth, 1000).unref();
 
 const realtimeClients = new Set();
 const userClients = new Map(); // userAddress -> Set<WebSocket>
+const userLastSeen = new Map(); // userAddress -> Date (last disconnect time)
 const scopeSessionClients = new Map();
+const MAX_WS_CONNECTIONS_PER_USER = 5;
 
 /**
  * Publish the current WebSocket connection counts to
@@ -171,12 +178,11 @@ function broadcastRealtime(event, payload) {
 }
 
 function broadcastToUser(userAddress, event, payload) {
+  const sockets = userClients.get(userAddress);
+  if (!sockets) return;
   const message = JSON.stringify({ event, payload });
-  const clients = userClients.get(userAddress);
-  if (clients) {
-    for (const ws of clients) {
-      if (ws.readyState === WS_OPEN) ws.send(message);
-    }
+  for (const ws of sockets) {
+    if (ws.readyState === WS_OPEN) ws.send(message);
   }
 }
 
@@ -304,7 +310,9 @@ app.use(compressionMiddleware());
 
 // Body parser MUST run BEFORE requestLoggerMiddleware so the bracketing
 // "Request started" log line can capture the request body (sanitized).
-app.use(express.json({ limit: "20kb" }));
+app.use(createRequestSizeLimitMiddleware(REQUEST_BODY_LIMIT));
+app.use(express.json({ limit: REQUEST_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: REQUEST_BODY_LIMIT }));
 app.use(sanitizeMiddleware({ strict: false }));
 app.use(idempotencyMiddleware());
 
@@ -381,6 +389,21 @@ app.use(rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => getClientIp(req),
+  handler: (req, res) => {
+    rateLimitLogger.warn({
+      endpoint: "global",
+      ip: getClientIp(req),
+      method: req.method,
+      path: req.path,
+      userId: req.user?.publicKey,
+      retryAfter: 900,
+      requestId: req.requestId,
+    }, "Rate limit exceeded");
+    res.set("Retry-After", "900");
+    return res.status(429).json({
+      message: "Too many requests — please wait before trying again",
+    });
+  },
 }));
 
 // ─── GET /metrics — Prometheus text exposition (internal auth required) ───────
@@ -473,11 +496,84 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
+    const token = url.searchParams.get("token");
+    let userAddress = null;
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        userAddress = decoded.publicKey;
+      } catch (err) {
+        serviceLogger.warn({ error: err.message }, 'Invalid JWT token for WebSocket connection');
+        ws.close(1008, "Invalid token");
+        return;
+      }
+    }
+
+    // Enforce per-user connection cap (Issue #879): reject with 1008 if the
+    // user already has MAX_WS_CONNECTIONS_PER_USER active connections.
+    if (userAddress) {
+      const userConnections = userClients.get(userAddress) || new Set();
+      if (userConnections.size >= MAX_WS_CONNECTIONS_PER_USER) {
+        serviceLogger.warn({
+          userAddress,
+          connectionCount: userConnections.size,
+          maxAllowed: MAX_WS_CONNECTIONS_PER_USER
+        }, 'WebSocket connection rejected: too many active connections for user');
+        ws.close(1008, "Too many connections");
+        return;
+      }
+
+      if (!userClients.has(userAddress)) {
+        userClients.set(userAddress, new Set());
+      }
+      userClients.get(userAddress).add(ws);
+    }
+
     realtimeClients.add(ws);
     refreshWsMetrics();
+
     sendJson(ws, "connected", { channel: "realtime" });
+
+    // Replay notifications missed while the user was disconnected
+    if (userAddress) {
+      try {
+        const lastSeen = userLastSeen.get(userAddress) || new Date(0);
+        const { rows: recent } = await pool.query(
+          `SELECT * FROM notifications WHERE user_address = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
+          [userAddress, 20],
+        );
+        const missed = recent
+          .filter((n) => new Date(n.created_at) > lastSeen)
+          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at) || a.id - b.id);
+        for (const row of missed) {
+          sendJson(ws, "notification:created", {
+            id: row.id,
+            userAddress: row.user_address,
+            type: row.type,
+            title: row.title,
+            body: row.body,
+            read: row.read,
+            jobId: row.job_id,
+            linkPath: row.link_path || (row.job_id ? `/jobs/${row.job_id}` : "/notifications"),
+            createdAt: row.created_at,
+          });
+        }
+      } catch { /* non-fatal */ }
+    }
+
     ws.on("close", () => {
       realtimeClients.delete(ws);
+      if (userAddress) {
+        const connections = userClients.get(userAddress);
+        if (connections) {
+          connections.delete(ws);
+          if (connections.size === 0) {
+            userClients.delete(userAddress);
+          }
+        }
+        userLastSeen.set(userAddress, new Date());
+      }
       refreshWsMetrics();
     });
     return;
@@ -923,6 +1019,7 @@ app._ws = {
   wsServer,
   realtimeClients,
   userClients,
+  userLastSeen,
   scopeSessionClients,
   broadcastRealtime,
   broadcastToUser,

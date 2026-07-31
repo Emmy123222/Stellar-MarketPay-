@@ -6,9 +6,13 @@
  *
  * Weekly-refresh semantics: we cache the merged result for 1 hour (3600s)
  * so that repeated calls are snappy while the data stays reasonably fresh.
+ *
+ * @swagger
+ * tags:
+ *   name: Contributors
+ *   description: GitHub contributor fetching
  */
 "use strict";
-
 const express = require("express");
 const router = express.Router();
 const axios = require("axios");
@@ -183,7 +187,16 @@ function computeLeaderboard(githubContributors, platformProfiles) {
     }));
 }
 
-// GET /api/contributors — top 50 sorted by contribution score
+/**
+ * @swagger
+ * /api/contributors:
+ *   get:
+ *     summary: Get top GitHub contributors (cached 24h)
+ *     tags: [Contributors]
+ *     responses:
+ *       200:
+ *         description: Contributor list
+ */
 router.get("/", contributorRateLimiter, async (req, res, next) => {
   try {
     // 1. Check main cache (1 hour TTL)
@@ -210,6 +223,16 @@ router.get("/", contributorRateLimiter, async (req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/contributors/refresh:
+ *   post:
+ *     summary: Refresh contributor cache
+ *     tags: [Contributors]
+ *     responses:
+ *       200:
+ *         description: Cache refreshed
+ */
 // POST /api/contributors/refresh — busts all caches (admin-triggered)
 router.post("/refresh", async (req, res, next) => {
   try {

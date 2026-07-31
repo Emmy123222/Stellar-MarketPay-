@@ -445,7 +445,7 @@ router.post("/", jobCreationRateLimiter, verifyJWT, validateJsonb({ milestones: 
     }
 
     const job = await createJob({ ...req.body, clientAddress: signedAddress });
-    await cache.invalidateJobListCache();
+    await cache.delPattern("jobs:list:*");
     res.status(201).json({ success: true, data: job });
   } catch (e) {
     next(e);

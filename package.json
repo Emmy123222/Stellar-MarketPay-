@@ -8,6 +8,10 @@
     "prepare": "husky",
     "lint-staged": "lint-staged"
   },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "pg": "^8.22.0"
+  },
   "devDependencies": {
     "eslint": "^8.57.0",
     "husky": "^9.1.6",
@@ -15,15 +19,9 @@
     "prettier": "^3.3.3"
   },
   "lint-staged": {
-    "*.{js,ts}": [
-      "eslint --fix"
-    ],
-    "**/*.{js,jsx,ts,tsx,json,md,yml,yaml,css,scss,html}": [
-      "prettier --write"
-    ],
-    "*.rs": [
-      "bash scripts/cargo-fmt-check.sh"
-    ]
+    "*.{js,ts}": ["eslint --fix"],
+    "**/*.{js,jsx,ts,tsx,json,md,yml,yaml,css,scss,html}": ["prettier --write"],
+    "*.rs": ["bash scripts/cargo-fmt-check.sh"]
   },
   "engines": {
     "node": ">=18.0.0"

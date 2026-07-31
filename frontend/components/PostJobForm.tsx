@@ -11,11 +11,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft, updateDraft } from "@/lib/api";
+import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft, updateDraft, fetchSkillSuggestions } from "@/lib/api";
 import { performSEP0010Auth } from "@/lib/wallet";
 import { createEscrowOnChain } from "@/lib/stellar";
 import { usePriceContext } from "@/contexts/PriceContext";
 import type { JobFormData, Milestone, FormStep, SubmitStep } from "@/components/PostJobFormtypes";
+import type { Job } from "@/utils/types";
 import BasicInfoStep from "@/components/post-job-steps/BasicInfoStep";
 import BudgetEscrowStep from "@/components/post-job-steps/BudgetEscrowStep";
 import RequirementsStep from "@/components/post-job-steps/RequirementsStep";
@@ -201,6 +202,66 @@ export default function PostJobForm({
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Duplicate job detection (Issue #151) ──────────────────────────────────
+  const [duplicateWarning, setDuplicateWarning] = useState<Pick<Job, "title" | "id"> | null>(null);
+  const [dismissedDuplicate, setDismissedDuplicate] = useState(false);
+
+  /**
+   * Check if two titles are over 80% similar using a substring / word-overlap approach.
+   */
+  function isTitleSimilar(a: string, b: string): boolean {
+    const s1 = a.toLowerCase().trim();
+    const s2 = b.toLowerCase().trim();
+    if (!s1 || !s2) return false;
+
+    // Direct substring check with length ratio >= 80%
+    if (s1.includes(s2)) return s2.length / s1.length >= 0.8;
+    if (s2.includes(s1)) return s1.length / s2.length >= 0.8;
+
+    // Word-level overlap check (ignore short words like "a", "an", "the")
+    const words1 = s1.split(/\s+/).filter((w) => w.length > 2);
+    const words2 = s2.split(/\s+/).filter((w) => w.length > 2);
+    if (!words1.length || !words2.length) return false;
+
+    const common = words1.filter((w) => words2.includes(w));
+    const maxLen = Math.max(words1.length, words2.length);
+    return common.length / maxLen >= 0.8;
+  }
+
+  /**
+   * Called when the title field loses focus.
+   * Fetches the client's existing open jobs and checks for duplicates.
+   */
+  async function handleTitleBlur() {
+    const title = form.title.trim();
+    if (!title || title.length < 5) {
+      setDuplicateWarning(null);
+      return;
+    }
+
+    try {
+      const myJobs = await fetchMyJobs(publicKey);
+      const openJobs = myJobs.filter((j) => j.status === "open" && j.id !== jobId);
+
+      for (const existing of openJobs) {
+        if (isTitleSimilar(title, existing.title)) {
+          setDuplicateWarning({ title: existing.title, id: existing.id });
+          setDismissedDuplicate(false);
+          return;
+        }
+      }
+
+      setDuplicateWarning(null);
+    } catch {
+      // Silently fail — duplicate detection is a nice-to-have
+      setDuplicateWarning(null);
+    }
+  }
+
+  function handleDismissDuplicate() {
+    setDismissedDuplicate(true);
+  }
+
   const isMockMode = process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
   const budgetValue = parseFloat(form.budget) || 0;
   const milestoneSum = milestoneTotal(form.milestones);
@@ -251,12 +312,9 @@ export default function PostJobForm({
     if (lastPart.length < 1) { setSuggestions([]); setShowSuggestions(false); return; }
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/skills?q=${encodeURIComponent(lastPart)}`);
-        if (res.ok) {
-          const data = await res.json();
-          setSuggestions(data);
-          setShowSuggestions(data.length > 0);
-        }
+        const data = await fetchSkillSuggestions(lastPart);
+        setSuggestions(data);
+        setShowSuggestions(data.length > 0);
       } catch { /* ignore */ }
     }, 300);
     return () => clearTimeout(timer);
@@ -567,6 +625,9 @@ export default function PostJobForm({
               touched={touched}
               errors={step1Errors}
               onChange={handleChange}
+              onTitleBlur={handleTitleBlur}
+              duplicateWarning={!dismissedDuplicate ? duplicateWarning : null}
+              onDismissDuplicate={handleDismissDuplicate}
             />
           </AnimatedStep>
 

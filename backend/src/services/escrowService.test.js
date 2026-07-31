@@ -20,6 +20,7 @@ jest.mock("./notificationService", () => ({
   EVENT_TYPES: {
     ESCROW_RELEASED: "escrow_released",
     REFUND_ISSUED: "refund_issued",
+    DISPUTE_OPENED: "dispute_opened",
   },
 }));
 
@@ -27,8 +28,14 @@ jest.mock("./referralService", () => ({
   processReferralPayout: jest.fn(),
 }));
 
+jest.mock("./stellarServiceKey", () => ({
+  signWithServiceKey: jest.fn(async (_ip, fn) => fn({})),
+  getServicePublicKey: jest.fn(() => "GSERVICEPUBLICKEY0000000000000000000000000000000000000000"),
+}));
+
 const { getJob } = require("./jobService");
 const { processReferralPayout } = require("./referralService");
+const { notifyEscrowEvent } = require("./notificationService");
 const {
   releaseFunds,
   refundClient,
@@ -96,7 +103,7 @@ describe("escrowService", () => {
 
       await expect(
         releaseFunds(JOB_ID, OTHER_ADDRESS, TX_HASH),
-      ).rejects.toThrow("Only the job client can release escrow");
+      ).rejects.toMatchObject({ message: "Only the job client can release escrow", status: 403 });
     });
 
     it("rejects double-release of same escrow", async () => {
@@ -115,7 +122,7 @@ describe("escrowService", () => {
 
       await expect(
         releaseFunds(JOB_ID, CLIENT_ADDRESS, TX_HASH),
-      ).rejects.toThrow("Job is not in progress");
+      ).rejects.toMatchObject({ message: "Job is not in progress", status: 400 });
     });
   });
 
@@ -203,6 +210,9 @@ describe("escrowService", () => {
 
       expect(result.success).toBe(true);
       expect(result.dispute.status).toBe("open");
+      expect(notifyEscrowEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: "dispute_opened", jobId: JOB_ID }),
+      );
     });
 
     it("rejects dispute raised by non-participant", async () => {

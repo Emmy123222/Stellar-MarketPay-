@@ -1,6 +1,11 @@
 /**
  * src/routes/turrets.js
  * Stellar Turrets routes for serverless contract execution
+ *
+ * @swagger
+ * tags:
+ *   name: Turrets
+ *   description: Stellar Turrets for serverless contract execution
  */
 "use strict";
 const express = require("express");
@@ -52,8 +57,27 @@ router.post("/sign", turretRateLimiter, async (req, res, next) => {
 });
 
 /**
- * POST /api/turrets/submit
- * Submit transaction via Turret (with fallback)
+ * @swagger
+ * /api/turrets/submit:
+ *   post:
+ *     summary: Submit transaction via Turret
+ *     tags: [Turrets]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - transactionXDR
+ *             properties:
+ *               transactionXDR:
+ *                 type: string
+ *               useTurret:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Transaction submitted
  */
 router.post("/submit", turretRateLimiter, async (req, res, next) => {
   try {
@@ -76,8 +100,14 @@ router.post("/submit", turretRateLimiter, async (req, res, next) => {
 });
 
 /**
- * GET /api/turrets/status
- * Get Turret service status
+ * @swagger
+ * /api/turrets/status:
+ *   get:
+ *     summary: Get Turret service status
+ *     tags: [Turrets]
+ *     responses:
+ *       200:
+ *         description: Turret status
  */
 router.get("/status", async (req, res, next) => {
   try {
@@ -92,8 +122,25 @@ router.get("/status", async (req, res, next) => {
 });
 
 /**
- * POST /api/turrets/estimate
- * Estimate transaction fees via Turret
+ * @swagger
+ * /api/turrets/estimate:
+ *   post:
+ *     summary: Estimate transaction fees via Turret
+ *     tags: [Turrets]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - transactionXDR
+ *             properties:
+ *               transactionXDR:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Fee estimation
  */
 router.post("/estimate", turretRateLimiter, async (req, res, next) => {
   try {
@@ -114,8 +161,14 @@ router.post("/estimate", turretRateLimiter, async (req, res, next) => {
 });
 
 /**
- * GET /api/turrets/config
- * Get Turret configuration
+ * @swagger
+ * /api/turrets/config:
+ *   get:
+ *     summary: Get Turret configuration
+ *     tags: [Turrets]
+ *     responses:
+ *       200:
+ *         description: Turret config
  */
 router.get("/config", (req, res) => {
   const TURRET_URL = process.env.TURRET_URL;

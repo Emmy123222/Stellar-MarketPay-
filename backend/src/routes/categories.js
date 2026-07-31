@@ -1,9 +1,38 @@
-"use strict";
-
 /**
- * GET /api/categories
- * Returns the full category tree (parents with nested children array).
+ * @swagger
+ * tags:
+ *   name: Categories
+ *   description: Job category tree
+ *
+ * /api/categories:
+ *   get:
+ *     summary: Get the full category tree
+ *     tags: [Categories]
+ *     responses:
+ *       200:
+ *         description: Category tree with nested children
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       slug:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                       children:
+ *                         type: array
  */
+"use strict";
 
 const express = require("express");
 const router = express.Router();

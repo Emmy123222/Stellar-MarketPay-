@@ -351,6 +351,19 @@ async function markDisputed(jobId, raisedBy) {
     [jobId, raisedBy],
   );
 
+  await notifyEscrowEvent({
+    eventType: EVENT_TYPES.DISPUTE_OPENED,
+    jobId,
+    clientAddress: job.clientAddress,
+    freelancerAddress: job.freelancerAddress,
+    data: {
+      jobTitle: job.title,
+      jobId,
+      amount: job.budget,
+      currency: job.currency,
+    },
+  });
+
   return { success: true, dispute: result.rows[0] };
 }
 
@@ -546,6 +559,21 @@ async function disputeMilestone(jobId, milestoneIndex, raisedBy) {
     [jobId, raisedBy],
   );
 
+  await notifyEscrowEvent({
+    eventType: EVENT_TYPES.DISPUTE_OPENED,
+    jobId,
+    clientAddress: job.clientAddress,
+    freelancerAddress: job.freelancerAddress,
+    data: {
+      jobTitle: job.title,
+      jobId,
+      milestoneIndex: index,
+      milestoneDescription: milestone.description,
+      amount: milestone.amount,
+      currency: job.currency,
+    },
+  });
+
   return { success: true, dispute: result.rows[0], milestone: milestones[index], milestones };
 }
 
@@ -687,4 +715,5 @@ module.exports = {
 
   verifyFreelancerAccount,
   ESCROW_TIMEOUT_DAYS,
+  normalizeMilestones,
 };

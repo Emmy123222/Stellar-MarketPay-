@@ -6,9 +6,9 @@ This Soroban smart contract manages trustless escrow between clients and freelan
 
 | Function | Who calls it | Description |
 |----------|-------------|-------------|
-| `initialize(admin)` | Deployer | One-time setup, sets version to 1, stores admin list |
+| `initialize(admin, treasury_address)` | Deployer | One-time setup, sets version to 1, stores admin list, treasury, platform fee |
 | `create_escrow(job_id, client, freelancer, token, amount)` | Client | Lock funds in contract |
-| `start_work(job_id, client)` | Client | Mark work as started |
+| `start_work(job_id, freelancer)` | Freelancer | Mark work as started |
 | `release_escrow(job_id, client)` | Client | Release funds to freelancer |
 | `refund_escrow(job_id, client)` | Client | Refund before work starts |
 | `timeout_refund(job_id, client)` | Client | Refund after the timestamp-based timeout expires |
@@ -40,7 +40,7 @@ This Soroban smart contract manages trustless escrow between clients and freelan
 
 ```bash
 # Standard build
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 
 # Optimized build (cargo release + wasm-opt -Oz post-processing)
 # Requires wasm-opt — install with one of:
@@ -68,7 +68,7 @@ cargo test
 After running `make build-optimized` the target binary is:
 
 ```
-target/wasm32-unknown-unknown/release/marketpay_contract.optimized.wasm
+target/wasm32v1-none/release/marketpay_contract.optimized.wasm
 ```
 
 Use this file (not the plain `.wasm`) when deploying or installing on-chain.
@@ -93,13 +93,13 @@ the active WASM and the on-chain record are in sync after an upgrade.
 1. **Build the new WASM**
    ```bash
    make build-optimized
-   # Produces: target/wasm32-unknown-unknown/release/marketpay_contract.optimized.wasm
+   # Produces: target/wasm32v1-none/release/marketpay_contract.optimized.wasm
    ```
 
 2. **Install the new WASM on-chain** (uploads bytes, returns a hash)
    ```bash
    stellar contract install \
-     --wasm target/wasm32-unknown-unknown/release/marketpay_contract.optimized.wasm \
+     --wasm target/wasm32v1-none/release/marketpay_contract.optimized.wasm \
      --source <admin-key> --network testnet
    # → prints NEW_WASM_HASH
    ```
