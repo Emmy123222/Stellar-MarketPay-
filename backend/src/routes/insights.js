@@ -1,3 +1,9 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Insights
+ *   description: Platform analytics and insights
+ */
 "use strict";
 
 const express = require("express");
@@ -8,11 +14,32 @@ const insightsService = require("../services/insightsService");
 const insightsRateLimiter = createRateLimiter(30, 1);
 
 /**
- * GET /api/insights
- * Platform-wide analytics summary.
- * Returns: total jobs, total XLM transacted, active freelancers,
- * avg time-to-hire, plus breakdowns by category, currency, and month.
- * Cached for 1 hour.
+ * @swagger
+ * /api/insights:
+ *   get:
+ *     summary: Get platform-wide analytics summary
+ *     tags: [Insights]
+ *     responses:
+ *       200:
+ *         description: Analytics summary (cached 1 hour)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalJobs:
+ *                       type: integer
+ *                     totalXlmTransacted:
+ *                       type: number
+ *                     activeFreelancers:
+ *                       type: integer
+ *                     avgTimeToHire:
+ *                       type: number
  */
 router.get("/", insightsRateLimiter, async (_req, res, next) => {
   try {
@@ -23,6 +50,23 @@ router.get("/", insightsRateLimiter, async (_req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/insights/categories:
+ *   get:
+ *     summary: Get category insights
+ *     tags: [Insights]
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *           maximum: 50
+ *     responses:
+ *       200:
+ *         description: Category insights with client mix
+ */
 router.get("/categories", insightsRateLimiter, async (req, res, next) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
@@ -43,6 +87,23 @@ router.get("/categories", insightsRateLimiter, async (req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/insights/skills:
+ *   get:
+ *     summary: Get skill demand insights
+ *     tags: [Insights]
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *           maximum: 50
+ *     responses:
+ *       200:
+ *         description: Skill insights
+ */
 router.get("/skills", insightsRateLimiter, async (req, res, next) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
@@ -53,6 +114,23 @@ router.get("/skills", insightsRateLimiter, async (req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/insights/competitive:
+ *   get:
+ *     summary: Get competitive job listings
+ *     tags: [Insights]
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *           maximum: 50
+ *     responses:
+ *       200:
+ *         description: Competitive job listings
+ */
 router.get("/competitive", insightsRateLimiter, async (req, res, next) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
@@ -63,6 +141,23 @@ router.get("/competitive", insightsRateLimiter, async (req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/insights/trends/pay:
+ *   get:
+ *     summary: Get pay trends over time
+ *     tags: [Insights]
+ *     parameters:
+ *       - in: query
+ *         name: days
+ *         schema:
+ *           type: integer
+ *           default: 30
+ *           maximum: 90
+ *     responses:
+ *       200:
+ *         description: Pay trend data
+ */
 router.get("/trends/pay", insightsRateLimiter, async (req, res, next) => {
   try {
     const days = Math.min(parseInt(req.query.days, 10) || 30, 90);

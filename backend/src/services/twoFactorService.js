@@ -1,8 +1,10 @@
 /**
  * TOTP 2FA for admin accounts (speakeasy + encrypted storage)
+ * Backup codes are stored as SHA-256 hashes (one-way), never reversible.
  */
 "use strict";
 
+const crypto = require("crypto");
 const speakeasy = require("speakeasy");
 const pool = require("../db/pool");
 const { encrypt, decrypt } = require("../utils/encryption");
@@ -16,6 +18,15 @@ function generateSecret(adminId) {
     base32: secret.base32,
     otpauth_url: secret.otpauth_url,
   };
+}
+
+/** Generate 8 random backup codes and return [plaintext[], hashed[]] */
+function generateBackupCodes() {
+  const plain = Array.from({ length: 8 }, () =>
+    crypto.randomBytes(5).toString("hex").toUpperCase()
+  );
+  const hashed = plain.map((c) => crypto.createHash("sha256").update(c).digest("hex"));
+  return { plain, hashed };
 }
 
 async function ensureAdminProfile(adminId) {
@@ -36,15 +47,13 @@ async function getDecryptedSecret(adminId) {
   return decrypt(rows[0].totp_secret);
 }
 
-async function enable2FA(adminId, plainSecret, backupCodes) {
-  const encryptedSecret = encrypt(plainSecret);
-  const encryptedBackupCodes = encrypt(JSON.stringify(backupCodes));
+async function enable2FA(adminId, plainSecret, hashedBackupCodes) {
   await pool.query(
     `UPDATE admin_profiles
      SET totp_secret = $1, totp_enabled = true, backup_codes = $2,
          totp_attempts = 0, totp_locked_until = NULL, updated_at = NOW()
      WHERE id = $3`,
-    [encryptedSecret, encryptedBackupCodes, adminId]
+    [encrypt(plainSecret), encrypt(JSON.stringify(hashedBackupCodes)), adminId]
   );
 }
 
@@ -96,14 +105,15 @@ async function verifyBackupCode(adminId, code) {
   const admin = rows[0];
   if (!admin?.backup_codes) return { success: false, error: "No backup codes found" };
 
-  const codes = JSON.parse(decrypt(admin.backup_codes));
-  const index = codes.indexOf(code);
+  const hashed = JSON.parse(decrypt(admin.backup_codes));
+  const inputHash = crypto.createHash("sha256").update(String(code).toUpperCase()).digest("hex");
+  const index = hashed.indexOf(inputHash);
   if (index === -1) return { success: false, error: "Invalid backup code" };
 
-  codes.splice(index, 1);
+  hashed.splice(index, 1);
   await pool.query(
     "UPDATE admin_profiles SET backup_codes = $1 WHERE id = $2",
-    [encrypt(JSON.stringify(codes)), adminId]
+    [encrypt(JSON.stringify(hashed)), adminId]
   );
   return { success: true };
 }
@@ -128,6 +138,7 @@ async function get2FAStatus(adminId) {
 
 module.exports = {
   generateSecret,
+  generateBackupCodes,
   ensureAdminProfile,
   getDecryptedSecret,
   enable2FA,

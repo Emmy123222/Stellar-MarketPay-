@@ -12,6 +12,7 @@ jest.mock("./jobService", () => ({
 
 jest.mock("./contractAuditService", () => ({
   logContractInteraction: jest.fn(),
+  verifyOnChainTransaction: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock("./notificationService", () => ({

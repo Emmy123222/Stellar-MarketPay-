@@ -2,8 +2,10 @@
  * src/routes/certificates.js
  * Skill certificate endpoints.
  *
- * GET /api/certificates/:id         — get a certificate by ID
- * GET /api/certificates/user/:publicKey — get all certificates for a user
+ * @swagger
+ * tags:
+ *   name: Certificates
+ *   description: Skill certificates
  */
 "use strict";
 
@@ -11,7 +13,24 @@ const express = require("express");
 const router  = express.Router();
 const pool    = require("../db/pool");
 
-// ─── GET /api/certificates/:id ──────────────────────────────────────────────
+/**
+ * @swagger
+ * /api/certificates/{id}:
+ *   get:
+ *     summary: Get a certificate by ID
+ *     tags: [Certificates]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Certificate details
+ *       404:
+ *         description: Certificate not found
+ */
 router.get("/:id", async (req, res, next) => {
   try {
     const { rows } = await pool.query(
@@ -58,7 +77,22 @@ router.get("/:id", async (req, res, next) => {
   }
 });
 
-// ─── GET /api/certificates/user/:publicKey ──────────────────────────────────
+/**
+ * @swagger
+ * /api/certificates/user/{publicKey}:
+ *   get:
+ *     summary: Get all certificates for a user
+ *     tags: [Certificates]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of certificates
+ */
 router.get("/user/:publicKey", async (req, res, next) => {
   try {
     const { rows } = await pool.query(
