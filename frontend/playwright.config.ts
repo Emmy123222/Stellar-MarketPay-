@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  snapshotDir: "./e2e/snapshots",
+  snapshotDir: "./test-results/snapshots",
   snapshotPathTemplate: "{snapshotDir}/{arg}{ext}",
   timeout: 60_000,
   expect: {
