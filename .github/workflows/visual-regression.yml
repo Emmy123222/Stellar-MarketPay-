@@ -27,6 +27,12 @@ jobs:
       - name: Run visual regression tests (light mode)
         run: npx playwright test tests/e2e/visual-regression.spec.ts --project=chromium
         continue-on-error: true
+        env:
+          NEXT_PUBLIC_STELLAR_NETWORK: testnet
+          NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+          NEXT_PUBLIC_USE_CONTRACT_MOCK: "true"
+          NEXT_PUBLIC_CONTRACT_ID: CMOCKCONTRACTID
 
       - name: Run visual regression tests (dark mode)
         run: npx playwright test tests/e2e/visual-regression.spec.ts --project=chromium-dark

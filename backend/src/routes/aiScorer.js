@@ -1,3 +1,9 @@
+/**
+ * @swagger
+ * tags:
+ *   name: AI Scorer
+ *   description: AI-powered job description scoring
+ */
 const express = require("express");
 const router = express.Router();
 const axios = require("axios");
@@ -5,7 +11,29 @@ const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const scoringRateLimiter = createRateLimiter(20, 1); // 20 requests per minute
 
-// Score job description using Claude API
+/**
+ * @swagger
+ * /api/ai-scorer/score-job-description:
+ *   post:
+ *     summary: Score a job description using AI
+ *     tags: [AI Scorer]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - description
+ *             properties:
+ *               description:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Quality score and improvement suggestions
+ *       500:
+ *         description: AI API not configured
+ */
 router.post("/score-job-description", scoringRateLimiter, async (req, res) => {
   try {
     if (!process.env.CLAUDE_API_KEY) {

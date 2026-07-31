@@ -40,6 +40,7 @@ enum EscrowStatus {
     Released,    // Client approved; funds sent to freelancer
     Refunded,    // Client cancelled before start; funds returned
     Disputed,    // A participant raised a dispute
+    Frozen,      // Admin-frozen — no operations allowed until unfrozen
 }
 ```
 
@@ -47,28 +48,38 @@ enum EscrowStatus {
 
 ### `Escrow`
 
-| Field              | Type               | Description                                           |
-|--------------------|--------------------|-------------------------------------------------------|
-| `job_id`           | `String`           | Backend job UUID                                      |
-| `client`           | `Address`          | Stellar address that locked the funds                 |
-| `freelancer`       | `Address`          | Stellar address that will receive payment             |
-| `token`            | `Address`          | SAC address for XLM or USDC payment token             |
-| `amount`           | `i128`             | Total payment in smallest token units (stroops for XLM)|
-| `status`           | `EscrowStatus`     | Current lifecycle state                               |
-| `created_at`       | `u32`              | Ledger sequence number at creation                    |
-| `timeout_ledger`   | `u32`              | Ledger sequence after which `timeout_refund()` opens  |
-| `milestones`       | `Vec<Milestone>`   | Optional list of milestone sub-payments               |
-| `referrer`         | `Option<Address>`  | Referrer receives 2% of released amount               |
-| `deliverable_hash` | `Option<BytesN<32>>`| Expected SHA-256 hash of deliverable (oracle path)  |
+| Field              | Type                 | Description                                           |
+|--------------------|----------------------|-------------------------------------------------------|
+| `job_id`           | `String`             | Backend job UUID                                      |
+| `client`           | `Address`            | Stellar address that locked the funds                 |
+| `freelancer`       | `Address`            | Stellar address that will receive payment             |
+| `token`            | `Address`            | SAC address for XLM or USDC payment token             |
+| `amount`           | `i128`               | Total payment in smallest token units (stroops for XLM)|
+| `status`           | `EscrowStatus`       | Current lifecycle state                               |
+| `created_at`       | `u32`                | Ledger sequence number at creation                    |
+| `timeout_ledger`   | `u32`                | Ledger sequence after which `timeout_refund()` opens  |
+| `milestones`       | `Vec<Milestone>`     | Milestone list for partial releases (empty if none)   |
+| `referrer`         | `Option<Address>`    | Referrer receives 2% of released amount               |
+| `deliverable_hash` | `Option<BytesN<32>>` | Expected SHA-256 hash of deliverable (oracle path)    |
 
 ---
 
 ### `Milestone`
 
-| Field          | Type   | Description                           |
-|----------------|--------|---------------------------------------|
-| `amount`       | `i128` | Amount in stroops for this step       |
-| `is_completed` | `bool` | Whether this milestone has been paid  |
+| Field          | Type      | Description                                  |
+|----------------|-----------|----------------------------------------------|
+| `id`           | `u32`     | Zero-based milestone identifier              |
+| `description`  | `String`  | Human-readable milestone name                |
+| `percentage`   | `u32`     | Share of total escrow (0–100); all must sum to 100 |
+| `released`     | `bool`    | Whether this milestone has been paid out     |
+| `rejected`     | `bool`    | Whether this milestone was rejected & refunded|
+
+### `MilestoneInput`
+
+| Field          | Type     | Description                                     |
+|----------------|----------|-------------------------------------------------|
+| `description`  | `String` | Human-readable milestone name                   |
+| `percentage`   | `u32`    | Share of total escrow (0–100); all must sum to 100 |
 
 ---
 
@@ -79,7 +90,7 @@ enum EscrowStatus {
 | `freelancer`      | `Address`           | Yes      | Recipient of released funds               |
 | `token`           | `Address`           | Yes      | Payment token SAC address                 |
 | `amount`          | `i128`              | Yes      | Total escrow amount (stroops)             |
-| `milestones`      | `Option<Vec<i128>>` | No       | Per-milestone amounts; must sum to total  |
+| `milestones`      | `Option<Vec<MilestoneInput>>` | No | Per-milestone descriptions & percentages; must sum to 100 |
 | `timeout_ledgers` | `Option<u32>`       | No       | Ledger timeout (default: 120,960 ≈ 7 days)|
 | `referrer`        | `Option<Address>`   | No       | Referral bonus recipient (not client/freelancer) |
 
@@ -214,6 +225,17 @@ enum EscrowStatus {
 | `HasVoted(address, proposal_id)`  | `bool`                   | Prevents double-voting                    |
 | `CompletedJobs(address)`          | `u32`                    | Completed job count per address           |
 | `DefaultTimeoutSeconds`           | `u32`                    | Global default escrow timeout in seconds  |
+| `TreasuryAddress`                 | `Address`                | Address receiving platform fees           |
+| `PlatformFeeBps`                  | `u32`                    | Platform fee in basis points (default 100)|
+| `Admins`                          | `Vec<Address>`           | Multi-sig admin list                      |
+| `Frozen`                          | `bool`                   | Global freeze flag                        |
+| `UnfreezeThreshold`               | `u32`                    | Required M-of-N admin signatures to unfreeze |
+| `MaxReferrerBonusXlm`          | `i128`                   | Admin-set cap on referrer bonus payouts   |
+| `ExtensionRequest(job_id)`     | `ExtensionRequest`       | Pending timeout extension request         |
+| `DisputeBondConfig`            | `DisputeBondConfig`      | Global dispute bond configuration         |
+| `DisputeBond(job_id)`          | `DisputeBond`            | Per-job locked dispute bond record        |
+| `FreelancerDeliverableHash(job_id)` | `BytesN<32>`          | Freelancer-submitted deliverable SHA-256  |
+| `EvidenceCids(job_id)`         | `Vec<Bytes>`             | Dispute-evidence IPFS CID audit trail     |
 | `Arbitrator(address)`             | `bool`                   | Whether address is a registered arbitrator|
 | `ArbitratorPool`                  | `Vec<Address>`           | All registered arbitrators                |
 | `ArbitrationCase(case_id)`        | `ArbitrationCase`        | Arbitration case by ID                    |
@@ -231,11 +253,12 @@ Events are emitted as `env.events().publish((topic_symbol, subtopic), data)`.
 |-------------|------------------------------|---------------------------------------------------------|-------------------------------------|
 | `escrow_cr` | `(escrow_cr, job_id)`        | `(client, freelancer, amount)`                          | `create_escrow`                     |
 | `work_strt` | `(work_strt, job_id)`        | `(client, freelancer)`                                  | `start_work`                        |
-| `escrow_rl` | `(escrow_rl, job_id)`        | `(client, freelancer, freelancer_amount, referral_amount)` | `release_escrow`, `release_with_conversion` |
+| `escrow_rl` | `(escrow_rl, job_id)`        | `(client, freelancer, freelancer_amount, referral_amount, fee_amount)` | `release_escrow`, `release_with_conversion` |
 | `ref_bon`   | `(ref_bon, referrer)`        | `(job_id, bonus_amount)`                                | `release_escrow` with referrer      |
 | `escrow_rf` | `(escrow_rf, job_id)`        | `(client, freelancer, amount)`                          | `refund_escrow`, `timeout_refund`   |
 | `escrow_ds` | `(escrow_ds, job_id)`        | `(client, freelancer, caller)`                          | `raise_dispute`                     |
-| `ms_rel`    | `(ms_rel, job_id)`           | `(client, freelancer, milestone_index, amount)`         | `partial_release`                   |
+| `milestone_released` | `(milestone_released, job_id)` | `(client, freelancer, milestone_id, amount)`     | `release_milestone`                   |
+| `milestone_rejected` | `(milestone_rejected, job_id)` | `(client, freelancer, milestone_index, refund)`  | `reject_milestone`                   |
 | `boosted`   | `(boosted, client)`          | `(job_id, expiry_ledger, amount)`                       | `boost_job`                         |
 | `budgtcmt`  | `(budgtcmt, client)`         | `job_id`                                                | `commit_budget`                     |
 | `budgrvld`  | `(budgrvld, client)`         | `budget_amount`                                         | `reveal_budget`                     |
@@ -262,10 +285,10 @@ Events are emitted as `env.events().publish((topic_symbol, subtopic), data)`.
 ### `initialize`
 
 ```rust
-pub fn initialize(env: Env, admin: Address)
+pub fn initialize(env: Env, admin: Address, treasury_address: Address)
 ```
 
-Must be called **once** immediately after deployment. Stores the admin address, sets the escrow counter to 0, sets the global timeout to 7 days (604,800 seconds), and sets `Version` to 1.
+Must be called **once** immediately after deployment. Stores the admin address and treasury address, sets the platform fee to 100 bps (1 %), escrow counter to 0, default timeout to 7 days (604,800 seconds), freeze threshold to 2, admin list to `[admin]`, and `Version` to 1.
 
 **Auth required:** None (open — call immediately to claim admin).
 **Panics:** `"Already initialized"` if called again.
@@ -277,7 +300,7 @@ Must be called **once** immediately after deployment. Stores the admin address, 
 ### State Machine
 
 ```
-              create_escrow()
+              create_escrow() / create_escrow_with_milestones()
                     │
                     ▼
                ┌─────────┐
@@ -294,10 +317,12 @@ Must be called **once** immediately after deployment. Stores the admin address, 
          │   raise_dispute()
          │         ▼
          │    ┌──────────┐
-         │    │ Disputed │ ← partial_release() still works here
+         │    │ Disputed │ ← release_milestone() / reject_milestone() still work here
          │    └──────────┘
          │         │
-    release_escrow() / partial_release() (all milestones done)
+    release_escrow()
+    — or —
+    release_milestone() on last remaining milestone
          ▼
     ┌──────────┐
     │ Released │  (terminal)
@@ -346,13 +371,13 @@ Same as `create_escrow` but stores a SHA-256 expected deliverable hash. Calling 
 ### `start_work`
 
 ```rust
-pub fn start_work(env: Env, job_id: String, client: Address)
+pub fn start_work(env: Env, job_id: String, freelancer: Address)
 ```
 
 Transitions `Locked` → `InProgress`. Emits `work_strt`.
 
-**Auth required:** `client`
-**Panics:** `"Only the client can start work"`, `"Escrow is not in Locked state"`
+**Auth required:** `freelancer`
+**Panics:** `"Only the freelancer can start work"`, `"Escrow is not in Locked state"`
 
 ---
 
@@ -362,14 +387,19 @@ Transitions `Locked` → `InProgress`. Emits `work_strt`.
 pub fn release_escrow(env: Env, job_id: String, client: Address)
 ```
 
-Releases all remaining funds to the freelancer. Transitions to `Released`. Increments `CompletedJobs` for both parties. Emits `escrow_rl` and optionally `ref_bon`.
+Releases all remaining (unreleased) funds to the freelancer. For milestone escrows, only unreleased milestone amounts are paid out — not the full escrow total. Marks all milestones as completed. Transitions to `Released`. Increments `CompletedJobs` for both parties. Emits `escrow_rl` and optionally `ref_bon`.
+
+If a `deliverable_hash` was set during creation, the freelancer must have submitted a matching hash before release.
 
 **Auth required:** `client`
 **Precondition:** Status must be `InProgress` or `Locked`.
 
+**Platform fee:** A configurable percentage (default 100 bps = 1 %) is deducted and sent to the treasury address before the remaining funds are distributed.
+
 **Referral split (when `referrer` is set):**
-- Referrer: `amount × 200 / 10_000` (2%)
-- Freelancer: `amount − referral_amount` (98%)
+- Platform fee: `amount × fee_bps / 10_000`
+- Referrer: `(amount − fee) × 200 / 10_000` (2%)
+- Freelancer: `(amount − fee) − referral_amount`
 
 ---
 
@@ -417,17 +447,59 @@ Client claims a refund if the freelancer never started work before the timeout e
 
 ---
 
-### `partial_release`
+### `create_escrow_with_milestones`
 
 ```rust
-pub fn partial_release(env: Env, job_id: String, milestone_index: u32, client: Address)
+pub fn create_escrow_with_milestones(env: Env, job_id: String, client: Address, params: CreateEscrowParams)
 ```
 
-Releases a single milestone's funds to the freelancer. If this is the final incomplete milestone, the escrow transitions to `Released` and `CompletedJobs` is incremented for both parties. Works even when the escrow is `Disputed`. Emits `ms_rel`.
+Convenience wrapper around `create_escrow` for percentage-based milestones. Milestone percentages must sum to exactly 100. Maximum 5 milestones allowed. Each milestone receives its percentage share of the total escrow amount.
+
+**Auth required:** `client`
+**Panics:** same as `create_escrow` plus `"Milestone percentage must be positive"`, `"Milestone percentages must sum to 100"`
+
+---
+
+### `release_milestone`
+
+```rust
+pub fn release_milestone(env: Env, job_id: String, milestone_id: u32, client: Address)
+```
+
+Releases a single milestone's funds to the freelancer. The milestone is identified by its `id` field (assigned at creation). Transfers the milestone's percentage share of the total escrow (minus platform fee) to the freelancer. If this is the final unresolved milestone (all are now released or rejected), the escrow transitions to `Released` and `CompletedJobs` is incremented for both parties. The platform fee is applied to each milestone release independently.
+
+Works even when the escrow is `Disputed` — clients can still release completed milestone work while a dispute is in progress. Emits `milestone_released`.
 
 **Auth required:** `client`
 **Precondition:** Status must be `InProgress`, `Locked`, or `Disputed`.
-**Panics:** `"Invalid milestone index"`, `"Milestone already completed"`
+**Panics:** `"Only the client can release a milestone"`, `"Cannot release milestone in current status"`, `"Invalid milestone id"`, `"Milestone already released"`, `"Milestone already rejected"`
+
+---
+
+### `reject_milestone`
+
+```rust
+pub fn reject_milestone(env: Env, job_id: String, milestone_index: u32, client: Address)
+```
+
+Client rejects a single milestone and its percentage share of the escrow is refunded back to the client. Remaining milestones stay locked in the contract. If all milestones become resolved, the escrow transitions to `Released`. Emits `milestone_rejected`.
+
+**Auth required:** `client`
+**Precondition:** Status must be `InProgress`, `Locked`, or `Disputed`.
+**Panics:** `"Only the client can reject a milestone"`, `"Cannot reject milestone in current status"`, `"Invalid milestone id"`, `"Milestone already released"`, `"Milestone already rejected"`
+
+---
+
+### `get_milestone`
+
+```rust
+pub fn get_milestone(env: Env, job_id: String, index: u32) -> Milestone
+```
+
+Returns a single `Milestone` by its array index (0-based position in the milestones list).
+
+**Auth required:** None
+**Panics:** `"Escrow not found"`, `"Milestone index out of bounds"`
 
 ---
 
@@ -1020,23 +1092,34 @@ All errors are Soroban contract panics that revert the transaction with no state
 | `"Amount must be positive"` | `create_escrow` | `amount ≤ 0` |
 | `"Referrer cannot be the client or freelancer"` | `create_escrow` | Invalid referrer address |
 | `"Maximum 5 milestones allowed"` | `create_escrow` | More than 5 milestones |
-| `"Milestone amount must be positive"` | `create_escrow` | Non-positive milestone amount |
 | `"Milestone amounts must sum to total escrow amount"` | `create_escrow` | Milestone totals mismatch |
+| `"Milestone percentage must be positive"` | `create_escrow` | Milestone percentage ≤ 0 |
+| `"Milestone percentages must sum to 100"` | `create_escrow` | Milestone percentages don't sum to 100 |
 | `"Escrow already exists for this job"` | `create_escrow` | Duplicate `job_id` |
 | `"Escrow not found"` | multiple | No escrow for the given `job_id` |
-| `"Only the client can start work"` | `start_work` | Wrong auth address |
+| `"Only the freelancer can start work"` | `start_work` | Wrong auth address |
 | `"Escrow is not in Locked state"` | `start_work`, `timeout_refund` | Wrong status |
-| `"Only the client can release escrow"` | `release_escrow` | Wrong auth address |
-| `"Cannot release escrow in current status"` | `release_*` | Not `InProgress` or `Locked` |
+| `"Only the client can release escrow"` | `release_escrow`, `release_with_conversion` | Wrong auth address |
+| `"Cannot release escrow in current status"` | `release_escrow`, `release_with_conversion` | Not `InProgress` or `Locked` |
 | `"Only the client can request a refund"` | `refund_escrow` | Wrong auth address |
 | `"Can only refund before work has started"` | `refund_escrow` | Not in `Locked` state |
+| `"Only the client can request a timeout refund"` | `timeout_refund` | Wrong auth address |
 | `"Timeout period has not expired yet"` | `timeout_refund` | Called before timeout |
-| `"Only the client can release a milestone"` | `partial_release` | Wrong auth address |
-| `"Cannot release milestone in current status"` | `partial_release` | Wrong status |
-| `"Invalid milestone index"` | `partial_release` | Index out of bounds |
-| `"Milestone already completed"` | `partial_release` | Duplicate release |
+| `"Only the client can release a milestone"` | `release_milestone` | Wrong auth address |
+| `"Cannot release milestone in current status"` | `release_milestone` | Wrong status |
+| `"Invalid milestone id"` | `release_milestone`, `reject_milestone` | Milestone id not found |
+| `"Milestone already released"` | `release_milestone`, `reject_milestone` | Duplicate release |
+| `"Milestone already rejected"` | `release_milestone`, `reject_milestone` | Already rejected |
+| `"Only the client can reject a milestone"` | `reject_milestone` | Wrong auth address |
+| `"Cannot reject milestone in current status"` | `reject_milestone` | Wrong status |
+| `"Milestone index out of bounds"` | `get_milestone` | Index ≥ milestone count |
+| `"Milestone percentages must sum to 100"` | `create_escrow` | Percentages don't sum to 100 |
+| `"Milestone percentage must be positive"` | `create_escrow` | Zero or negative percentage |
 | `"Only participants can raise a dispute"` | `raise_dispute` | Not client or freelancer |
-| `"Cannot dispute a resolved escrow"` | `raise_dispute` | Already `Released` or `Refunded` |
+| `"Cannot dispute a resolved, frozen, or already-disputed escrow"` | `raise_dispute` | Already `Released`, `Refunded`, `Frozen`, or `Disputed` |
+| `"Caller must have a non-zero dispute bond"` | `raise_dispute` | Bond not configured or zero |
+| `"Only admin can resolve a dispute"` | `resolve_dispute` | Wrong auth |
+| `"Escrow is not in Disputed state"` | `resolve_dispute` | Wrong status |
 | `"Score must be between 1 and 5"` | `submit_*_rating` | Invalid score |
 | `"Ratings are allowed only after escrow release"` | `submit_*_rating` | Not `Released` |
 | `"Client rating already submitted for this job"` | `submit_client_rating` | Duplicate rating |
@@ -1075,6 +1158,18 @@ All errors are Soroban contract panics that revert the transaction with no state
 | `"Minimum boost is 5 XLM"` | `boost_job` | Payment below minimum |
 | `"Boost amount must be positive"` | `boost_job` | `amount ≤ 0` |
 | `"IPFS CID cannot be empty"` | `publish_message` | Empty CID string |
+| `"Contract is frozen"` | all mutating functions | Global freeze is active |
+| `"Arithmetic overflow"` | multiple | Internal overflow in amount calculations |
+| `"Arithmetic underflow"` | `approve_extension` | New timeout ≤ current timeout |
+| `"Only admin can set the referrer bonus cap"` | `set_max_referrer_bonus_xlm` | Wrong auth |
+| `"Only admin can update the dispute bond"` | `set_dispute_bond` | Wrong auth |
+| `"Bond amount must be positive"` | `set_dispute_bond` | `amount ≤ 0` |
+| `"Only admin can set treasury address"` | `set_treasury_address` | Wrong auth |
+| `"Only admin can set platform fee"` | `set_platform_fee_bps` | Wrong auth |
+| `"Platform fee cannot exceed 10% (1000 bps)"` | `set_platform_fee_bps` | Fee > 1000 |
+| `"Treasury not set"` | `release_escrow`, `release_milestone` | Treasury not configured |
+| `"Freelancer deliverable hash does not match or not submitted"` | `release_escrow` | Hash mismatch |
+| `"Referrer bonus cap must be non-negative"` | `set_max_referrer_bonus_xlm` | Negative cap |
 
 ---
 
