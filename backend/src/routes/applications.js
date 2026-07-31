@@ -6,8 +6,8 @@ const express = require("express");
 const router  = express.Router();
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
-const applicationRateLimiter = createRateLimiter(5, 1); // 100 requests per 15 minutes
-const generalApplicationRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for listing/getting applications
+const applicationRateLimiter = createRateLimiter(5, 1, { name: "applications-write" }); // 5 POST requests per minute
+const generalApplicationRateLimiter = createRateLimiter(100, 1, { name: "applications-read" }); // 100 read requests per minute
 
 const {
   submitApplication, getApplicationsForJob,

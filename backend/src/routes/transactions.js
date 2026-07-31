@@ -1,3 +1,11 @@
+/**
+ * src/routes/transactions.js
+ *
+ * @swagger
+ * tags:
+ *   name: Transactions
+ *   description: Transaction history export
+ */
 "use strict";
 
 /**
@@ -153,14 +161,47 @@ function createCsvTransform(accountAddress, filter) {
   });
 }
 
-// ── Route ─────────────────────────────────────────────────────────────────────
-
 /**
- * GET /api/transactions/export?format=csv&account=G...&filter=all
- *
- * Requires a valid JWT — the authenticated user may only export their own
- * account's transactions.
+ * @swagger
+ * /api/transactions/export:
+ *   get:
+ *     summary: Export transaction history as CSV
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: format
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [csv]
+ *         description: Export format (only csv supported)
+ *       - in: query
+ *         name: account
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Stellar public key
+ *       - in: query
+ *         name: filter
+ *         schema:
+ *           type: string
+ *           enum: [all, sent, received, escrow]
+ *           default: all
+ *     responses:
+ *       200:
+ *         description: CSV file download (streamed)
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *       400:
+ *         description: Invalid parameters
+ *       403:
+ *         description: Can only export own transactions
  */
+// GET /api/transactions/export — Stream CSV export of transaction history
 router.get("/export", exportRateLimiter, verifyJWT, async (req, res, next) => {
   const { format = "csv", account, filter = "all" } = req.query;
 
