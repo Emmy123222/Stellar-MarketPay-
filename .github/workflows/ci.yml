@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20 # or your project's version
+          cache: "npm"
+
+  backend:
+    name: Backend (Node.js)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: marketpay_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    needs: secrets-scan
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+        continue-on-error: true
+      - run: npm test
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/marketpay_test
+          JWT_SECRET: ci-test-jwt-secret-with-sufficient-length
+          DATABASE_ENCRYPTION_KEY: ci-test-encryption-key-32chars!!
+      - name: Mutation testing
+        run: npm run test:mutation
+        continue-on-error: true
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/marketpay_test
+          JWT_SECRET: ci-test-jwt-secret-with-sufficient-length
+          STRYKER_DASHBOARD_API_KEY: ${{ secrets.STRYKER_DASHBOARD_API_KEY }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+      - run: npm run lint
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+          retention-days: 7
+
+  contracts:
+    name: Soroban Contract (Rust)
+    runs-on: ubuntu-latest
+    needs: secrets-scan
+    defaults:
+      run:
+        working-directory: contracts/marketpay-contract
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - run: cargo check --target wasm32v1-none
+      - run: cargo clippy -- -D warnings
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit --ignore RUSTSEC-2020-0071
+      - run: cargo test
+      - run: cargo build --target wasm32v1-none --release

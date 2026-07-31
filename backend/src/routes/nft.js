@@ -1,9 +1,50 @@
+/**
+ * @swagger
+ * tags:
+ *   name: NFT
+ *   description: NFT minting for job completion certificates
+ */
 const express = require("express");
 const router = express.Router();
 const { Keypair } = require("stellar-sdk");
 
-// NFT minting service for job completion certificates
-// POST /api/nft/mint-completion-certificate
+/**
+ * @swagger
+ * /api/nft/mint-completion-certificate:
+ *   post:
+ *     summary: Mint a job completion NFT certificate
+ *     tags: [NFT]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - jobId
+ *               - jobTitle
+ *               - clientAddress
+ *               - freelancerAddress
+ *               - paymentAmount
+ *             properties:
+ *               jobId:
+ *                 type: string
+ *               jobTitle:
+ *                 type: string
+ *               clientAddress:
+ *                 type: string
+ *               freelancerAddress:
+ *                 type: string
+ *               paymentAmount:
+ *                 type: number
+ *               currency:
+ *                 type: string
+ *               completionDate:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: NFT minting queued
+ */
 router.post("/mint-completion-certificate", async (req, res, next) => {
   try {
     const { jobId, jobTitle, clientAddress, freelancerAddress, completionDate, paymentAmount, currency } = req.body;
@@ -61,7 +102,22 @@ router.post("/mint-completion-certificate", async (req, res, next) => {
   }
 });
 
-// Get NFT details by job ID
+/**
+ * @swagger
+ * /api/nft/job/{jobId}:
+ *   get:
+ *     summary: Get NFT certificate by job ID
+ *     tags: [NFT]
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: NFT details
+ */
 router.get("/job/:jobId", async (req, res, next) => {
   try {
     const { jobId } = req.params;
@@ -72,7 +128,22 @@ router.get("/job/:jobId", async (req, res, next) => {
   }
 });
 
-// Get NFTs owned by a freelancer
+/**
+ * @swagger
+ * /api/nft/freelancer/{publicKey}:
+ *   get:
+ *     summary: Get NFTs owned by a freelancer
+ *     tags: [NFT]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: NFT list
+ */
 router.get("/freelancer/:publicKey", async (req, res, next) => {
   try {
     const { publicKey } = req.params;

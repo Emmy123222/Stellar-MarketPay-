@@ -8,9 +8,10 @@
  * - Export data as CSV
  */
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/router";
 import {
-  BarChart,
-  Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -22,6 +23,7 @@ import {
 } from "recharts";
 import { fetchFreelancerEarnings, type EarningsData, type EarningPayment } from "@/lib/api";
 import { formatXLM } from "@/utils/format";
+import StateMessage from "@/components/StateMessage";
 
 const PIE_COLORS = [
   "#f59e0b", "#3b82f6", "#10b981", "#f43f5e",
@@ -105,6 +107,7 @@ function exportCSV(payments: EarningPayment[]) {
 }
 
 export default function EarningsChart({ publicKey }: Props) {
+  const router = useRouter();
   const [data, setData] = useState<EarningsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +134,19 @@ export default function EarningsChart({ publicKey }: Props) {
       <div className="card text-center py-16">
         <p className="text-amber-700 text-sm">{error || "No earnings data available."}</p>
       </div>
+    );
+  }
+
+  if (data.payments.length === 0) {
+    return (
+      <StateMessage
+        type="empty"
+        illustration="no-earnings"
+        title="No earnings yet"
+        description="Complete your first job to start tracking earnings here"
+        ctaLabel="Browse Jobs"
+        onCta={() => router.push('/jobs')}
+      />
     );
   }
 
@@ -197,21 +213,22 @@ export default function EarningsChart({ publicKey }: Props) {
         {monthlyData.every((m) => m.total === 0) ? (
           <p className="text-sm text-amber-800 text-center py-8">No payments in the last 12 months.</p>
         ) : (
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={monthlyData} margin={{ top: 4, right: 4, bottom: 4, left: 0 }}>
-              <XAxis dataKey="month" tick={{ fill: "#a8956a", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: "#a8956a", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}`} />
-              <Tooltip
-                contentStyle={{ background: "#1a1610", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 8, color: "#fef3c7", fontSize: 12 }}
-                formatter={(value) => [
-                  `${Number(value).toFixed(2)} XLM`,
-                  viewMode === "cumulative" ? "Cumulative" : "Earned",
-                ]}
-                cursor={{ fill: "rgba(245,158,11,0.06)" }}
-              />
-              <Bar dataKey="total" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <div role="img" aria-label="Line chart showing freelancer revenue over time" className="w-full h-[220px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={monthlyData} margin={{ top: 4, right: 4, bottom: 4, left: 0 }}>
+                <XAxis dataKey="month" tick={{ fill: "#a8956a", fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: "#a8956a", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}`} />
+                <Tooltip
+                  contentStyle={{ background: "#1a1610", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 8, color: "#fef3c7", fontSize: 12 }}
+                  formatter={(value) => [
+                    `${Number(value).toFixed(2)} XLM`,
+                    viewMode === "cumulative" ? "Cumulative" : "Earned",
+                  ]}
+                />
+                <Line type="monotone" dataKey="total" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4, fill: "#f59e0b" }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         )}
       </div>
 
