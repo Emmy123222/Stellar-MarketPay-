@@ -5,9 +5,12 @@ const {
   loadMigrationPairs,
   ensureMigrationsTable,
   rollbackLastMigration,
+  getExpectedMigrationVersion,
 } = require("./migrate");
 
-describe("Database Migrations (V1–V23)", () => {
+const LATEST_VERSION = getExpectedMigrationVersion();
+
+describe(`Database Migrations (V1–V${LATEST_VERSION})`, () => {
   let hasPostgres = false;
 
   beforeAll(async () => {
@@ -31,9 +34,9 @@ describe("Database Migrations (V1–V23)", () => {
   it("loads all migration pairs correctly", () => {
     const migrations = loadMigrationPairs();
     expect(migrations.length).toBeGreaterThan(0);
-    // Ensure V1 to V23 are present
+    // Ensure V1 onward are present
     expect(migrations[0].version).toBe(1);
-    expect(migrations[migrations.length - 1].version).toBe(23);
+    expect(migrations[migrations.length - 1].version).toBe(getExpectedMigrationVersion());
   });
 
   it("applies migrations sequentially and validates schema, foreign keys, and unique indexes after each", async () => {
@@ -104,7 +107,7 @@ describe("Database Migrations (V1–V23)", () => {
     }
   });
 
-  it("verifies rollback scripts (V23 → V22 → ... → V1) execute cleanly if down migrations added", async () => {
+  it("verifies rollback scripts execute cleanly for all migrations", async () => {
     if (!hasPostgres) {
       console.log("Skipping live rollback test due to no Postgres instance.");
       return;
