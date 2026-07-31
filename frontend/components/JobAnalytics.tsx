@@ -151,10 +151,21 @@ function StatusBreakdown({ data }: { data: JobAnalytics["applicationStatusCounts
   );
 }
 
+
+function FreelancerTierDistribution({ data }: { data: any }) { return <div>Tier Distribution</div>; }
+function BidArrivalTimeline({ data }: { data: any }) { return <div>Bid Arrival Timeline</div>; }
+
 export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) {
   const [analytics, setAnalytics] = useState<JobAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [extending, setExtending] = useState(false);
+
+  useEffect(() => {
+    const ws = new WebSocket('ws://localhost:4000/analytics');
+    ws.onmessage = (e) => console.log("Real-time update", e.data);
+    return () => ws.close();
+  }, []);
+
 
   useEffect(() => {
     if (job) {

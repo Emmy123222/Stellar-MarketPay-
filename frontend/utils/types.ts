@@ -87,6 +87,7 @@ export interface Job {
   disputedAt?: string | null;
   disputeReason?: string | null;
   disputeDescription?: string | null;
+  isInvited?: boolean; // True if the current viewer has been invited to this job
 }
 
 export interface ClientReputation {
@@ -190,6 +191,17 @@ export interface PriceAlertPreference {
   email?: string | null;
   last_min_alert_at?: string | null;
   last_max_alert_at?: string | null;
+}
+
+export interface PriceAlert {
+  id: string;
+  userAddress: string;
+  condition: "above" | "below";
+  threshold: number;
+  oneTime: boolean;
+  triggered: boolean;
+  triggeredAt: string | null;
+  createdAt: string;
 }
 
 export interface ClientSpendingFreelancer {
@@ -401,5 +413,13 @@ export interface AuditLogEntry {
   resource: string;
   timestamp: string;
   changesDiff?: Record<string, any>;
+}
+
+// ─── Passkeys (WebAuthn) ────────────────────────────────────────────────────
+
+export interface PasskeyCredential {
+  id: string;
+  credential_name: string;
+  created_at: string;
 }
 

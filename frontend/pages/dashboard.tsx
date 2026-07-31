@@ -3,10 +3,11 @@
  * User dashboard — shows posted jobs, applications, and wallet balance.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
-import { fetchMyJobs, fetchMyApplications, fetchApplications } from "@/lib/api";
+import { fetchMyJobs, fetchMyApplications, fetchApplications, fetchMyInvitations, declineInvitation } from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
 import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV } from "@/utils/format";
 import type { Job, Application, ClientSpendingAnalytics, JobInvitation } from "@/utils/types";
@@ -24,6 +25,7 @@ import EarningsChart from "@/components/EarningsChart";
 import PostedJobsTab from "@/components/dashboard-tabs/PostedJobsTab";
 import AppliedJobsTab from "@/components/dashboard-tabs/AppliedJobsTab";
 import InvitationsTab from "@/components/dashboard-tabs/InvitationsTab";
+import ProposalComparison from "@/components/ProposalComparison";
 import { usePriceContext } from "@/contexts/PriceContext";
 import ProfileCompletenessWidget from "@/components/ProfileCompletenessWidget";
 import { useOnboarding } from "@/hooks/useOnboarding";
@@ -60,7 +62,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "invitations" | "analytics" | "earnings" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals";
+type Tab = "posted" | "applied" | "proposals" | "invitations" | "analytics" | "earnings" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 async function fetchBalances(
@@ -111,6 +113,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [canViewSpending, setCanViewSpending] = useState(true);
   const [myJobs, setMyJobs] = useState<Job[]>([]);
   const [myApplications, setMyApplications] = useState<Application[]>([]);
+  const [jobApplications, setJobApplications] = useState<Map<string, Application[]>>(new Map());
+  const [myInvitations, setMyInvitations] = useState<JobInvitation[]>([]);
   const [balance, setBalance]           = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance]   = useState<string | null>(null);
   const [notificationCount, setNotificationCount] = useState(0);
@@ -125,6 +129,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [extendModalJob, setExtendModalJob] = useState<Job | null>(null);
+  const [confirmDeleteTemplate, setConfirmDeleteTemplate] = useState<string | null>(null);
+  const [confirmDeleteSearch, setConfirmDeleteSearch] = useState<string | null>(null);
 
   const handleJobExtended = useCallback((updated: Job) => {
     setMyJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
@@ -189,9 +195,10 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const loadDashboardData = useCallback(async () => {
     if (!publicKey) return null;
 
-    const [jobs, apps, bal, usdc] = await Promise.all([
+    const [jobs, apps, invitations, bal, usdc] = await Promise.all([
       fetchMyJobs(publicKey),
       fetchMyApplications(publicKey),
+      fetchMyInvitations().catch(() => []),
       getXLMBalance(publicKey),
       getUSDCBalance(publicKey),
     ]);
@@ -209,13 +216,15 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
     setMyJobs(jobs);
     setMyApplications(apps);
+    setJobApplications(jobApplications);
+    setMyInvitations(invitations);
     setBalance(bal);
     setUsdcBalance(usdc);
     latestJobsRef.current = jobs;
     latestApplicationsRef.current = apps;
     latestJobApplicationsRef.current = jobApplications;
 
-    return { jobs, apps, jobApplications };
+    return { jobs, apps, jobApplications, invitations };
   }, [publicKey]);
 
   const pushNotification = useCallback(
@@ -574,9 +583,15 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
       {/* Tabs */}
       {(() => {
+        const totalProposalCount = (() => {
+          let count = 0;
+          jobApplications.forEach((apps) => { count += apps.length; });
+          return count;
+        })();
         const tabIds: Tab[] = [
           "posted",
           "applied",
+          "proposals",
           "invitations",
           "analytics",
           "earnings",
@@ -591,6 +606,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         const tabLabel = (t: Tab): string =>
           t === "posted" ? `Jobs Posted (${myJobs.length})` :
           t === "applied" ? `Applications (${myApplications.length})` :
+          t === "proposals" ? `Proposals (${totalProposalCount})` :
           t === "invitations" ? `Invitations${myInvitations.length > 0 ? ` (${myInvitations.length})` : ""}` :
           t === "analytics" ? "Job Analytics" :
           t === "earnings" ? "Earnings" :
@@ -668,6 +684,12 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           />
         ) : tab === "applied" ? (
           <AppliedJobsTab myApplications={myApplications} />
+        ) : tab === "proposals" ? (
+          <ProposalComparison
+            myJobs={myJobs}
+            jobApplications={jobApplications}
+            publicKey={publicKey}
+          />
         ) : tab === "analytics" ? (
           selectedJob ? (
             <JobAnalytics
@@ -699,6 +721,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         ) : tab === "send" ? (
           <SendPaymentForm fromPublicKey={publicKey} />
         ) : tab === "templates" ? (
+          <>
           <div className="space-y-4">
             <div className="card space-y-3">
               <input
@@ -772,12 +795,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                       </button>
                       <button
                         className="btn-secondary text-xs px-3 py-1.5"
-                        onClick={async () => {
-                          await deleteProposalTemplate(template.id);
-                          setTemplates((current) =>
-                            current.filter((item) => item.id !== template.id),
-                          );
-                        }}
+                        onClick={() => setConfirmDeleteTemplate(template.id)}
                       >
                         Delete
                       </button>
@@ -789,6 +807,24 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                 </div>
               )))}
           </div>
+
+          <ConfirmDialog
+            open={confirmDeleteTemplate !== null}
+            title="Delete Proposal Template"
+            description="This will permanently remove this template. You cannot undo this action."
+            actionDetails={confirmDeleteTemplate ? `Template ID: ${confirmDeleteTemplate}` : undefined}
+            onConfirm={async () => {
+              if (!confirmDeleteTemplate) return;
+              await deleteProposalTemplate(confirmDeleteTemplate);
+              setTemplates((current) =>
+                current.filter((item) => item.id !== confirmDeleteTemplate),
+              );
+              setConfirmDeleteTemplate(null);
+              toast.success("Template deleted");
+            }}
+            onCancel={() => setConfirmDeleteTemplate(null)}
+          />
+          </>
         ) : tab === "invitations" ? (
           <InvitationsTab
             myInvitations={myInvitations}
@@ -882,7 +918,8 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
             </div>
           )
         ) : tab === "saved_searches" ? (
-          savedSearchesLoading ? (
+          <>
+          {savedSearchesLoading ? (
             <div className="space-y-3">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="card animate-pulse h-20" />
@@ -944,15 +981,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                       In-app
                     </button>
                     <button
-                      onClick={async () => {
-                        try {
-                          await deleteSavedSearch(s.id);
-                          setSavedSearches((prev) => prev.filter((x) => x.id !== s.id));
-                          success("Saved search removed");
-                        } catch {
-                          // ignore
-                        }
-                      }}
+                      onClick={() => setConfirmDeleteSearch(s.id)}
                       className="text-xs px-3 py-2 rounded-lg border border-red-500/20 text-red-400 hover:bg-red-500/10 min-h-[44px] transition-colors"
                     >
                       Remove
@@ -961,7 +990,26 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                 </div>
               ))}
             </div>
-          )
+          )}
+
+          <ConfirmDialog
+            open={confirmDeleteSearch !== null}
+            title="Remove Saved Search"
+            description="This will remove this saved search filter. You will no longer receive notifications for it."
+            onConfirm={async () => {
+              if (!confirmDeleteSearch) return;
+              try {
+                await deleteSavedSearch(confirmDeleteSearch);
+                setSavedSearches((prev) => prev.filter((x) => x.id !== confirmDeleteSearch));
+                setConfirmDeleteSearch(null);
+                toast.success("Saved search removed");
+              } catch {
+                // ignore
+              }
+            }}
+            onCancel={() => setConfirmDeleteSearch(null)}
+          />
+          </>
         ) : tab === "referrals" ? (
           <ReferralDashboard publicKey={publicKey} />
         ) : (
