@@ -4,6 +4,7 @@
  * Non-admin wallets are immediately redirected to /jobs.
  */
 import { useEffect, useState, useCallback } from "react";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import {
@@ -136,6 +137,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
 
   const [cancelModal, setCancelModal] = useState<{ jobId: string; title: string } | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const [freezeModal, setFreezeModal] = useState<{ address: string } | null>(null);
   const [freezeReason, setFreezeReason] = useState("");
@@ -837,7 +839,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
             <div className="flex gap-3">
               <button
                 id="confirm-cancel-job"
-                onClick={handleCancelJob}
+                onClick={() => setShowCancelConfirm(true)}
                 disabled={!cancelReason.trim()}
                 className="text-sm flex-1 py-2.5 px-4 rounded-xl bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-all disabled:opacity-50"
               >
@@ -853,6 +855,19 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={showCancelConfirm}
+        title="Confirm Job Cancellation"
+        description="This will immediately cancel the job and notify all applicants. This action cannot be undone."
+        actionDetails={cancelModal ? `Job: "${cancelModal.title}"` : undefined}
+        requireTypedConfirm
+        onConfirm={async () => {
+          await handleCancelJob();
+          setShowCancelConfirm(false);
+        }}
+        onCancel={() => setShowCancelConfirm(false)}
+      />
 
       {/* ── Freeze Wallet Modal ────────────────────────────────────────────────── */}
       {freezeModal !== null && (

@@ -386,6 +386,78 @@ exports[`async component snapshots AdminAnalytics populated: AdminAnalytics popu
       </div>
     </div>
   </section>
+  <section>
+    <h3
+      class="font-semibold text-amber-100 mb-4"
+    >
+      Audit Log
+    </h3>
+    <div
+      class="bg-market-800 p-4 rounded-lg"
+    >
+      <div
+        class="flex gap-3 mb-4"
+      >
+        <input
+          class="bg-market-700 border border-market-600 rounded px-3 py-1 text-sm text-amber-100 placeholder-amber-800"
+          placeholder="Filter by action..."
+          type="text"
+          value=""
+        />
+        <input
+          class="bg-market-700 border border-market-600 rounded px-3 py-1 text-sm text-amber-100 placeholder-amber-800"
+          placeholder="Filter by resource type..."
+          type="text"
+          value=""
+        />
+      </div>
+      <div
+        class="overflow-x-auto"
+      >
+        <table
+          class="w-full text-sm"
+        >
+          <thead>
+            <tr
+              class="border-b border-market-600"
+            >
+              <th
+                class="text-left py-2 text-amber-100"
+              >
+                Admin Address
+              </th>
+              <th
+                class="text-left py-2 text-amber-100"
+              >
+                Action
+              </th>
+              <th
+                class="text-left py-2 text-amber-100"
+              >
+                Resource
+              </th>
+              <th
+                class="text-left py-2 text-amber-100"
+              >
+                Timestamp
+              </th>
+              <th
+                class="text-left py-2 text-amber-100"
+              >
+                Changes
+              </th>
+            </tr>
+          </thead>
+          <tbody />
+        </table>
+        <p
+          class="text-center py-4 text-amber-800"
+        >
+          No audit logs found.
+        </p>
+      </div>
+    </div>
+  </section>
 </div>
 `;
 
@@ -2079,11 +2151,15 @@ exports[`async component snapshots XlmPriceWidget error: XlmPriceWidget error 1`
   <div
     class="flex items-center justify-between"
   >
-    <h3
-      class="font-display text-lg font-semibold text-amber-100"
+    <div
+      class="flex items-center gap-2"
     >
-      XLM / USD
-    </h3>
+      <h3
+        class="font-display text-lg font-semibold text-amber-100"
+      >
+        XLM / USD
+      </h3>
+    </div>
     <button
       class="btn-secondary text-xs py-1 px-2"
       type="button"
@@ -2110,11 +2186,15 @@ exports[`async component snapshots XlmPriceWidget loading: XlmPriceWidget loadin
   <div
     class="flex items-center justify-between"
   >
-    <h3
-      class="font-display text-lg font-semibold text-amber-100"
+    <div
+      class="flex items-center gap-2"
     >
-      XLM / USD
-    </h3>
+      <h3
+        class="font-display text-lg font-semibold text-amber-100"
+      >
+        XLM / USD
+      </h3>
+    </div>
     <button
       class="btn-secondary text-xs py-1 px-2"
       type="button"
@@ -2139,11 +2219,15 @@ exports[`async component snapshots XlmPriceWidget populated: XlmPriceWidget popu
   <div
     class="flex items-center justify-between"
   >
-    <h3
-      class="font-display text-lg font-semibold text-amber-100"
+    <div
+      class="flex items-center gap-2"
     >
-      XLM / USD
-    </h3>
+      <h3
+        class="font-display text-lg font-semibold text-amber-100"
+      >
+        XLM / USD
+      </h3>
+    </div>
     <button
       class="btn-secondary text-xs py-1 px-2"
       type="button"

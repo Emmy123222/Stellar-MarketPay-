@@ -8,6 +8,7 @@
  * - Export data as CSV
  */
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/router";
 import {
   LineChart,
   Line,
@@ -22,6 +23,7 @@ import {
 } from "recharts";
 import { fetchFreelancerEarnings, type EarningsData, type EarningPayment } from "@/lib/api";
 import { formatXLM } from "@/utils/format";
+import StateMessage from "@/components/StateMessage";
 
 const PIE_COLORS = [
   "#f59e0b", "#3b82f6", "#10b981", "#f43f5e",
@@ -105,6 +107,7 @@ function exportCSV(payments: EarningPayment[]) {
 }
 
 export default function EarningsChart({ publicKey }: Props) {
+  const router = useRouter();
   const [data, setData] = useState<EarningsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +134,19 @@ export default function EarningsChart({ publicKey }: Props) {
       <div className="card text-center py-16">
         <p className="text-amber-700 text-sm">{error || "No earnings data available."}</p>
       </div>
+    );
+  }
+
+  if (data.payments.length === 0) {
+    return (
+      <StateMessage
+        type="empty"
+        illustration="no-earnings"
+        title="No earnings yet"
+        description="Complete your first job to start tracking earnings here"
+        ctaLabel="Browse Jobs"
+        onCta={() => router.push('/jobs')}
+      />
     );
   }
 

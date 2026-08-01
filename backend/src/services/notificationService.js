@@ -9,6 +9,7 @@ const axios = require("axios");
 const { createServiceLogger } = require("../utils/logger");
 const { emailQueue } = require("../utils/queue");
 const pushSubscriptionService = require("./pushSubscriptionService");
+const { deliverEscrowWebhooks } = require("./webhookService");
 
 const MAX_RETRIES = 5;
 
@@ -697,6 +698,17 @@ async function notifyEscrowEvent({ eventType, jobId, clientAddress, freelancerAd
     });
   }
 
+  await deliverEscrowWebhooks({
+    eventType,
+    userAddresses: recipients,
+    payload: {
+      event: eventType,
+      jobId,
+      timestamp: new Date().toISOString(),
+      data,
+    },
+  });
+
   console.log(`[notifications] Queued ${eventType} notifications for job ${jobId}`);
 }
 
@@ -713,6 +725,9 @@ module.exports = {
   generateEmailContent,
   getNextRetryTime,
   sendPushNotificationForEvent,
+  generateInAppContent,
+  sendEmail,
+  sendWebhook,
   EVENT_TYPES,
   setBroadcastToUser,
 };
