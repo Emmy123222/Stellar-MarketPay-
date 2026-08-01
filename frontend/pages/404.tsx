@@ -17,16 +17,12 @@ export default function Custom404() {
                 </p>
 
                 <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-                    <Link href="/">
-                        <button className="btn-primary text-base px-8 py-3.5">
-                            Go Home
-                        </button>
+                    <Link href="/" className="btn-primary text-base px-8 py-3.5 inline-flex justify-center">
+                        Go Home
                     </Link>
 
-                    <Link href="/jobs">
-                        <button className="btn-secondary text-base px-8 py-3.5">
-                            Browse Jobs
-                        </button>
+                    <Link href="/jobs" className="btn-secondary text-base px-8 py-3.5 inline-flex justify-center">
+                        Browse Jobs
                     </Link>
                 </div>
             </div>

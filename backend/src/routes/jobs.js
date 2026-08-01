@@ -28,26 +28,14 @@ const {
 
 const { logContractInteraction } = require("../services/contractAuditService");
 const { getClientReputation } = require("../services/profileService");
-const cache = require("../services/cacheService");
+const cache = require("../utils/cache");
 const jobDraftService = require("../services/jobDraftService");
 const recommendationService = require("../services/recommendationService");
+const invoiceService = require("../services/invoiceService");
 const { validateJsonb } = require("../middleware/jsonbValidator");
 const milestonesSchema = require("../schemas/milestones.schema");
-const {
-  validate,
-  createJobSchema,
-  boostJobSchema,
-  extendJobSchema,
-  jobReferralSchema,
-  reportJobSchema,
-  disputeJobSchema,
-  bulkCancelJobSchema,
-  bulkExtendJobSchema,
-  bulkBoostJobSchema,
-  inviteJobSchema,
-  updateEscrowSchema,
-} = require("../validators/jobValidator");
-
+const { Horizon } = require("@stellar/stellar-sdk");
+const horizonClient = require("../utils/horizonClient");
 const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per minute
 const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per minute
 const reportJobRateLimiter = createRateLimiter(20, 1);
@@ -273,6 +261,13 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       viewerAddress,
       includeExpired,
       includeDeleted,
+      min_budget,
+      max_budget,
+      skills,
+      min_client_rating,
+      duration,
+      posted_since,
+      max_applications,
     });
 
     const jobsWithRep = await enrichJobsWithClientReputation(result.jobs);
@@ -328,6 +323,30 @@ router.get("/:id", generalJobRateLimiter, async (req, res, next) => {
   try {
     const includeDeleted = req.query.include_deleted === "true" && isAdmin(req);
     res.json({ success: true, data: await getJob(req.params.id, { includeDeleted }) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/jobs/:id/invoice — generate a PDF invoice for a completed job
+router.get("/:id/invoice", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const job = await getJob(req.params.id, { includeDeleted: false });
+    
+    // Authorization: only client or freelancer can download the invoice
+    if (job.clientAddress !== req.user.publicKey && job.freelancerAddress !== req.user.publicKey && !isAdmin(req)) {
+      return res.status(403).json({ success: false, error: "Only the client or freelancer can download the invoice" });
+    }
+
+    // Must be completed (optional depending on strictness, but typical for invoices)
+    if (job.status !== "completed") {
+      return res.status(400).json({ success: false, error: "Invoice is only available for completed jobs" });
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", \`attachment; filename=invoice-\${job.id}.pdf\`);
+
+    await invoiceService.generateInvoicePdf(job, res);
   } catch (e) {
     next(e);
   }
@@ -421,8 +440,28 @@ router.post("/", jobCreationRateLimiter, verifyJWT, validateJsonb({ milestones: 
       return res.status(401).json({ error: "Unauthorized: clientAddress does not match signed wallet address" });
     }
 
-    const job = await createJob({ ...validatedBody, clientAddress: signedAddress });
+    const job = await createJob({ ...req.body, clientAddress: signedAddress });
+    await cache.delPattern("jobs:list:*");
     res.status(201).json({ success: true, data: job });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// PATCH /api/jobs/:id — update job status or details
+router.patch("/:id", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    let job;
+    if (status) {
+      const { updateJobStatus } = jobService.default || jobService;
+      job = await updateJobStatus(req.params.id, status);
+    } else {
+      const { getJob } = jobService.default || jobService;
+      job = await getJob(req.params.id);
+    }
+    await cache.invalidateJobListCache();
+    res.json({ success: true, data: job });
   } catch (e) {
     next(e);
   }
@@ -508,6 +547,7 @@ router.patch(
         jobId: req.params.id,
         txHash: escrowContractId,
       });
+      await cache.invalidateJobListCache();
       res.json({ success: true, data: job });
     } catch (e) {
       next(e);
@@ -515,17 +555,53 @@ router.patch(
   },
 );
 
-// PATCH /api/jobs/:id/boost — boost a job listing for 7 days
-router.patch("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
+// POST /api/jobs/:id/boost — boost a job listing for 7 days
+router.post("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
   try {
-    const { txHash, amountXlm } = validate(boostJobSchema, req.body);
+    const { txHash, amountXlm } = req.body;
+    if (!txHash || typeof txHash !== "string") {
+      return res.status(400).json({ error: "Transaction hash is required" });
+    }
+
+    const amount = parseFloat(amountXlm) || 0;
+    if (amount < 5) {
+      return res.status(400).json({ success: false, error: "Minimum boost amount is 5 XLM" });
+    }
+
+    // Verify on-chain via Horizon
+    const server = new Horizon.Server(process.env.HORIZON_URL || "https://horizon-testnet.stellar.org");
+    
+    const verifyTx = async () => {
+      const tx = await server.transactions().transaction(txHash).call();
+      if (!tx.successful) {
+        throw new Error("Transaction was not successful on-chain");
+      }
+      const { records: ops } = await tx.operations();
+      const paymentOp = ops.find(
+        (op) =>
+          op.type === "payment" &&
+          op.asset_type === "native" &&
+          op.from === req.user.publicKey &&
+          parseFloat(op.amount) >= amount
+      );
+      if (!paymentOp) {
+        throw new Error("Valid payment operation not found in transaction");
+      }
+      return paymentOp;
+    };
+
+    try {
+      await horizonClient.callWithLimit(verifyTx, "verifyBoostPayment");
+    } catch (err) {
+      return res.status(400).json({ success: false, error: err.message || "Failed to verify transaction" });
+    }
 
     // Determine boost duration from payment amount
     // 5 XLM = 7 days, 15 XLM = 30 days
-    const amount = parseFloat(amountXlm) || 0;
     const boostDays = amount >= 15 ? 30 : 7;
 
     const job = await boostJob(req.params.id, txHash, boostDays);
+    await cache.invalidateJobListCache();
     res.json({ success: true, data: job });
   } catch (e) { next(e); }
 });
@@ -551,7 +627,11 @@ router.patch(
     try {
       const { days } = validate(extendJobSchema, req.body);
       const daysNum = parseInt(days, 10) || 30;
+      if (!validDays.includes(daysNum)) {
+        return res.status(400).json({ error: "Extension days must be 7, 14, or 30" });
+      }
       const job = await extendJobExpiry(req.params.id, daysNum, req.user.publicKey);
+      await cache.invalidateJobListCache();
       res.json({ success: true, data: job });
     } catch (e) {
       next(e);
@@ -562,7 +642,9 @@ router.patch(
 // POST /api/jobs/:id/referral — track a referral click
 router.post("/:id/referral", generalJobRateLimiter, async (req, res, next) => {
   try {
-    validate(jobReferralSchema, req.body);
+    const { referrer } = req.body;
+    if (!referrer)
+      return res.status(400).json({ error: "Referrer address is required" });
     await incrementShareCount(req.params.id);
     res.json({ success: true });
   } catch (e) {
@@ -592,11 +674,14 @@ router.post("/:id/report", reportJobRateLimiter, (req, res, next) => {
     const jobId = req.params.id;
     const normalizedReporterAddress = normalizeAddress(reporterAddress);
 
+    if (!normalizedReporterAddress)
+      return res.status(400).json({ error: "Reporter address is required" });
+    if (!isValidReportCategory(category))
+      return res.status(400).json({ error: "Valid report category is required" });
+
     const duplicateKey = `${jobId}:${normalizedReporterAddress}`;
     if (jobReports.has(duplicateKey))
-      return res
-        .status(409)
-        .json({ success: false, error: "You have already reported this job" });
+      return res.status(409).json({ error: "You have already reported this job" });
 
     const report = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -629,7 +714,10 @@ router.post(
   createDisputeRateLimiter,
   async (req, res, next) => {
     try {
-      const { reason, description } = validate(disputeJobSchema, req.body);
+      const { reason, description } = req.body;
+      if (!reason || !description) {
+        return res.status(400).json({ error: "Reason and description are required" });
+      }
       const job = await raiseDispute(req.params.id, {
         reason,
         description,
@@ -652,9 +740,7 @@ router.post(
       // Basic admin check - in a real app this would be more robust
       const adminKey = process.env.ADMIN_PUBLIC_KEY;
       if (adminKey && req.user.publicKey !== adminKey) {
-        return res
-          .status(403)
-          .json({ success: false, error: "Only admins can resolve disputes" });
+        return res.status(403).json({ error: "Only admins can resolve disputes" });
       }
 
       const job = await resolveDispute(req.params.id);
@@ -795,7 +881,7 @@ router.get("/drafts/:id", verifyJWT, async (req, res, next) => {
       req.user.publicKey,
     );
     if (!draft)
-      return res.status(404).json({ success: false, error: "Draft not found" });
+      return res.status(404).json({ error: "Draft not found" });
     res.json({ success: true, data: draft });
   } catch (e) {
     next(e);
@@ -884,7 +970,10 @@ router.post(
   jobCreationRateLimiter,
   async (req, res, next) => {
     try {
-      const { jobIds } = validate(bulkCancelJobSchema, req.body);
+      const { jobIds } = req.body;
+      if (!Array.isArray(jobIds) || jobIds.length === 0) {
+        return res.status(400).json({ error: "jobIds must be a non-empty array" });
+      }
       const { bulkCancelJobs } = require("../services/jobService");
       const results = await bulkCancelJobs(jobIds, req.user.publicKey);
       const succeeded = results.filter((r) => r.success).length;
@@ -906,7 +995,10 @@ router.post(
   jobCreationRateLimiter,
   async (req, res, next) => {
     try {
-      const { jobIds, days } = validate(bulkExtendJobSchema, req.body);
+      const { jobIds, days } = req.body;
+      if (!Array.isArray(jobIds) || jobIds.length === 0) {
+        return res.status(400).json({ error: "jobIds must be a non-empty array" });
+      }
       const { bulkExtendJobs } = require("../services/jobService");
       const results = await bulkExtendJobs(
         jobIds,
@@ -932,7 +1024,13 @@ router.post(
   jobCreationRateLimiter,
   async (req, res, next) => {
     try {
-      const { jobIds, txHash } = validate(bulkBoostJobSchema, req.body);
+      const { jobIds, txHash } = req.body;
+      if (!Array.isArray(jobIds) || jobIds.length === 0) {
+        return res.status(400).json({ error: "jobIds must be a non-empty array" });
+      }
+      if (!txHash) {
+        return res.status(400).json({ error: "txHash is required for bulk boost" });
+      }
       const { bulkBoostJobs } = require("../services/jobService");
       const results = await bulkBoostJobs(jobIds, req.user.publicKey, txHash);
       const succeeded = results.filter((r) => r.success).length;

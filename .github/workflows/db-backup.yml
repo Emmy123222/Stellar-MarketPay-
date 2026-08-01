@@ -1,0 +1,77 @@
+# .github/workflows/db-backup.yml
+#
+# Stellar MarketPay — Scheduled PostgreSQL backup to S3/R2.
+#
+# Runs daily at 03:00 UTC.  Can also be triggered manually via workflow_dispatch.
+# Uses the same scripts/backup-db.sh invoked from a cron container in prod,
+# but this workflow provides an additional cloud-hosted scheduled execution
+# that does NOT require a container runtime.
+
+name: Database Backup
+
+on:
+  schedule:
+    - cron: '0 3 * * *'         # every day at 03:00 UTC
+  workflow_dispatch:             # allow manual trigger
+
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_ENDPOINT_URL: ${{ secrets.AWS_ENDPOINT_URL }}
+  AWS_REGION: ${{ secrets.AWS_REGION || 'auto' }}
+  S3_BUCKET: ${{ secrets.S3_BUCKET }}
+  S3_PREFIX: db-backups
+  PGHOST: ${{ secrets.PGHOST }}
+  PGPORT: ${{ secrets.PGPORT || '5432' }}
+  PGDATABASE: ${{ secrets.PGDATABASE }}
+  PGUSER: ${{ secrets.PGUSER }}
+  PGPASSWORD: ${{ secrets.PGPASSWORD }}
+  BACKUP_RETENTION_DAYS: 30
+
+jobs:
+  backup:
+    name: Create and upload database backup
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pgdump-only
+          POSTGRES_DB: dummy
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install tools (pg_dump, aws CLI)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+          curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
+          unzip -q /tmp/awscliv2.zip -d /tmp
+          sudo /tmp/aws/install --update
+          aws --version
+          pg_dump --version
+
+      - name: Run backup
+        run: |
+          chmod +x scripts/backup-db.sh
+          ./scripts/backup-db.sh
+
+      - name: Send failure notification
+        if: failure()
+        uses: slackapi/slack-github-action@v2.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":alert: Database backup FAILED for Stellar MarketPay\nRepo: ${{ github.repository }}\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+        continue-on-error: true
