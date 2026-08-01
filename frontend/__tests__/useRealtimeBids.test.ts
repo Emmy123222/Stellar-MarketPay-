@@ -78,7 +78,7 @@ class MockWebSocket {
     // fire synchronously from calling close(). Deferring via a microtask
     // reproduces the exact race this hook's fix is guarding against: a
     // remount can run (and reassign wsRef.current) before this fires.
-    queueMicrotask(() => this.onclose?.());
+    queueMicrotask(() => this.onclose?.({ code: 1000 } as CloseEvent));
   }
 }
 
@@ -186,6 +186,8 @@ describe("useRealtimeBids (#856)", () => {
     expect(MockWebSocket.instances.length).toBe(2);
 
     jest.useRealTimers();
+  });
+
   // ── #757: Subscription logic tests ─────────────────────────────────────────
 
   describe("#757 — real-time bid subscription", () => {
@@ -369,7 +371,9 @@ describe("useRealtimeBids (#856)", () => {
       });
       // Let the microtask for onclose resolve
       await act(async () => {
-        await Promise.resolve();
+        // onclose is deferred via queueMicrotask, which modern fake timers
+        // schedule as a timer — advance 0 ms to flush it.
+        jest.advanceTimersByTime(0);
       });
       expect(result.current.wsStatus).toBe("closed");
 
@@ -388,7 +392,9 @@ describe("useRealtimeBids (#856)", () => {
         ws2.close();
       });
       await act(async () => {
-        await Promise.resolve();
+        // onclose is deferred via queueMicrotask, which modern fake timers
+        // schedule as a timer — advance 0 ms to flush it.
+        jest.advanceTimersByTime(0);
       });
       act(() => {
         jest.advanceTimersByTime(2_000);
@@ -403,7 +409,9 @@ describe("useRealtimeBids (#856)", () => {
         ws3.close();
       });
       await act(async () => {
-        await Promise.resolve();
+        // onclose is deferred via queueMicrotask, which modern fake timers
+        // schedule as a timer — advance 0 ms to flush it.
+        jest.advanceTimersByTime(0);
       });
       act(() => {
         jest.advanceTimersByTime(4_000);
@@ -429,14 +437,14 @@ describe("useRealtimeBids (#856)", () => {
 
       // Close and reconnect once (attempt 0 -> delay 1_000)
       act(() => { ws1.close(); });
-      await act(async () => { await Promise.resolve(); });
+      await act(async () => { jest.advanceTimersByTime(0); });
       act(() => { jest.advanceTimersByTime(1_000); });
       const ws2 = MockWebSocket.instances[1];
       act(() => ws2.simulateOpen());
 
       // Close again — now at attempt 1 -> delay should be 2_000
       act(() => { ws2.close(); });
-      await act(async () => { await Promise.resolve(); });
+      await act(async () => { jest.advanceTimersByTime(0); });
       act(() => { jest.advanceTimersByTime(2_000); });
 
       // But ws2 connected successfully, so back-off was reset to 0,

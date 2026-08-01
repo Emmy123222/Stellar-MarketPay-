@@ -2,29 +2,6 @@
  * src/routes/invitations.js
  * Issue #342 — Job invitation endpoints for freelancers.
  *
- * GET  /api/invitations              — list pending invitations for the authed freelancer
- * PATCH /api/invitations/:id/decline — decline an invitation
- * POST  /api/invitations/:id/accept  — accept (auto-creates application)
- */
-"use strict";
-
-const express = require("express");
-const router = express.Router();
-const { verifyJWT } = require("../middleware/auth");
-const { createRateLimiter } = require("../middleware/rateLimiter");
-const {
-  getInvitationsForFreelancer,
-  declineInvitation,
-} = require("../services/jobInvitationService");
-const { submitApplication } = require("../services/applicationService");
-
-const readLimiter  = createRateLimiter(60, 1);
-const writeLimiter = createRateLimiter(20, 1);
-
-/**
- * src/routes/invitations.js
- * Issue #342 — Job invitation endpoints for freelancers.
- *
  * @swagger
  * tags:
  *   name: Invitations

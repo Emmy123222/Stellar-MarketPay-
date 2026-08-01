@@ -31,8 +31,6 @@ const { createCorsOptions } = require("./config/cors");
 const { doubleCsrfProtection } = require("./middleware/csrf");
 const { structuredErrorHandler } = require("./utils/errors");
 const { jsonDepthLimitMiddleware } = require("./middleware/jsonbValidator");
-const jwt = require("jsonwebtoken");
-const JWT_SECRET = require("./middleware/auth").requireJwtSecret();
 const { createRequestSizeLimitMiddleware } = require("./middleware/requestSizeLimit");
 
 const jobRoutes       = require("./routes/jobs");
@@ -186,16 +184,6 @@ function broadcastToUser(userAddress, event, payload) {
   const message = JSON.stringify({ event, payload });
   for (const ws of sockets) {
     if (ws.readyState === WS_OPEN) ws.send(message);
-  }
-}
-
-function broadcastToUser(userAddress, event, payload) {
-  const message = JSON.stringify({ event, payload });
-  const sockets = userClients.get(userAddress);
-  if (sockets) {
-    for (const ws of sockets) {
-      if (ws.readyState === WS_OPEN) ws.send(message);
-    }
   }
 }
 
@@ -532,29 +520,26 @@ wsServer.on("connection", async (ws, request) => {
 
   if (url.pathname === "/ws/realtime") {
     const token = getWsToken(request);
+    let userAddress = null;
     if (token) {
       try {
-        ws.user = jwt.verify(token, JWT_SECRET);
+        const decoded = jwt.verify(token, JWT_SECRET);
+        ws.user = decoded;
+        userAddress = decoded.publicKey;
       } catch {
         ws.close(4001, "Unauthorized: Invalid or expired token");
         return;
       }
     }
-    if (ws.user) {
-      const userAddress = ws.user.publicKey;
-      if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
-      userClients.get(userAddress).add(ws);
-    const token = url.searchParams.get("token") || "";
-    let userAddress = null;
-    if (token) {
-      try {
-        const jwt = require("jsonwebtoken");
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        userAddress = decoded.publicKey;
-      } catch { /* token is optional, e.g. anonymous tab */ }
+    if (userAddress) {
+      const active = userClients.get(userAddress);
+      if (active && active.size >= MAX_WS_CONNECTIONS_PER_USER) {
+        ws.close(1008, "Too many connections");
+        return;
+      }
     }
     realtimeClients.add(ws);
-    wsConnectionsActive.set(realtimeClients.size);
+    setWebsocketConnections("realtime", realtimeClients.size);
     if (userAddress) {
       if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
       userClients.get(userAddress).add(ws);
@@ -590,22 +575,15 @@ wsServer.on("connection", async (ws, request) => {
 
     ws.on("close", () => {
       realtimeClients.delete(ws);
-      if (ws.user) {
-        const userAddress = ws.user.publicKey;
-        const clients = userClients.get(userAddress);
-        if (clients) {
-          clients.delete(ws);
-          if (clients.size === 0) userClients.delete(userAddress);
-        }
-      }
-      wsConnectionsActive.set(realtimeClients.size);
       if (userAddress) {
+        userLastSeen.set(userAddress, new Date());
         const sockets = userClients.get(userAddress);
         if (sockets) {
           sockets.delete(ws);
           if (!sockets.size) userClients.delete(userAddress);
         }
       }
+      setWebsocketConnections("realtime", realtimeClients.size);
     });
     return;
   }
