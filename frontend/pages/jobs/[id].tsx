@@ -18,6 +18,8 @@ import {
   releaseEscrow,
   raiseDispute,
   inviteFreelancer,
+  mintCompletionCertificate,
+  fetchNftCertificateByJob,
 } from "@/lib/api";
 import {
   formatXLM,
@@ -31,6 +33,7 @@ import {
 import {
   accountUrl,
   buildReleaseEscrowTransaction,
+  buildMintCertificateTx,
   submitSignedSorobanTransaction,
   buildPartialReleaseTransaction,
 } from "@/lib/stellar";
@@ -178,6 +181,9 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const [actionError, setActionError] = useState<string | null>(null);
   const [releasingEscrow, setReleasingEscrow] = useState(false);
   const [releaseSuccess, setReleaseSuccess] = useState(false);
+  const [mintingCertificate, setMintingCertificate] = useState(false);
+  const [certificateMinted, setCertificateMinted] = useState(false);
+  const [certificateError, setCertificateError] = useState<string | null>(null);
   const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [prefillData, setPrefillData] = useState<any>(null);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
@@ -284,10 +290,56 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
       const refreshedJob = await fetchJob(job.id);
       setJob(refreshedJob);
       setReleaseSuccess(true);
+
+      // AC: After escrow release, mint a proof-of-work NFT certificate for
+      // the freelancer. The client signs the mint transaction with their
+      // wallet (the contract requires client auth), then the backend records
+      // it so it can be rendered and shared via URL.
+      await handleMintCertificate();
     } catch (error: unknown) {
       setActionError(error instanceof Error ? error.message : "Could not complete escrow release.");
     } finally {
       setReleasingEscrow(false);
+    }
+  };
+
+  /**
+   * Build + sign + submit the on-chain `mint_certificate` Soroban call and
+   * record the certificate in the backend. Safe to call standalone (retry)
+   * or chained after a successful escrow release.
+   */
+  const handleMintCertificate = async () => {
+    if (!publicKey || !job) return;
+    if (!job.escrowContractId) {
+      setCertificateError("This job has no escrow contract ID, so a certificate cannot be minted.");
+      return;
+    }
+
+    setMintingCertificate(true);
+    setCertificateError(null);
+
+    try {
+      const prepared = await buildMintCertificateTx(job.escrowContractId, job.id, job.title, publicKey);
+      const { signedXDR, error: signError } = await signTransactionWithWallet(prepared.toXDR());
+
+      if (signError || !signedXDR) {
+        setCertificateError(signError || "Signing was cancelled.");
+        return;
+      }
+
+      const { hash } = await submitSignedSorobanTransaction(signedXDR);
+      await mintCompletionCertificate({
+        jobId: job.id,
+        clientAddress: publicKey,
+        contractTxHash: hash,
+      });
+      setCertificateMinted(true);
+    } catch (error: unknown) {
+      setCertificateError(
+        error instanceof Error ? error.message : "Could not mint the completion certificate.",
+      );
+    } finally {
+      setMintingCertificate(false);
     }
   };
 
@@ -329,6 +381,24 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
       setRaisingDispute(false);
     }
   };
+
+  // On load, if the job is already completed, check whether a certificate was
+  // previously minted so returning visitors see the shareable link instead of
+  // a (client-only) mint button.
+  useEffect(() => {
+    if (!jobId || !job || job.status !== "completed") return;
+    let cancelled = false;
+    fetchNftCertificateByJob(jobId)
+      .then(() => {
+        if (!cancelled) setCertificateMinted(true);
+      })
+      .catch(() => {
+        // No certificate yet (404) or backend unavailable — treat as unminted.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId, job?.status]);
 
   const handleInviteFreelancer = async () => {
     if (!publicKey || !job) return;
@@ -750,6 +820,60 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
 
         {actionError && (
           <p className="mt-3 mb-6 text-red-400 text-sm">{actionError}</p>
+        )}
+
+        {/* ── Proof-of-work certificate (after completion) ── */}
+        {job.status === "completed" && publicKey && (
+          <div className="card mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl" aria-hidden="true">🏅</span>
+                <div>
+                  <h2 className="font-display text-lg sm:text-xl font-bold text-amber-100">
+                    Proof-of-Work Certificate
+                  </h2>
+                  <p className="text-xs text-amber-800 mt-0.5">
+                    Minted as an on-chain Soroban NFT to the freelancer when the escrow was released.
+                  </p>
+                </div>
+              </div>
+
+              {certificateMinted ? (
+                <Link
+                  href={`/certificates/job/${job.id}`}
+                  className="btn-primary text-sm whitespace-nowrap text-center"
+                >
+                  View Certificate ↗
+                </Link>
+              ) : isClient ? (
+                <button
+                  onClick={handleMintCertificate}
+                  disabled={mintingCertificate}
+                  className="btn-primary text-sm whitespace-nowrap"
+                >
+                  {mintingCertificate ? "Minting certificate…" : "Mint Certificate"}
+                </button>
+              ) : (
+                <p className="text-xs text-amber-800 text-right">
+                  The client mints the certificate when they release the escrow.
+                </p>
+              )}
+            </div>
+
+            {mintingCertificate && (
+              <p className="mt-3 text-market-400 text-sm flex items-center gap-2">
+                <Spinner /> Sign the mint transaction in your wallet to award the certificate…
+              </p>
+            )}
+            {certificateError && (
+              <p className="mt-3 text-red-400 text-sm">{certificateError}</p>
+            )}
+            {certificateMinted && (
+              <p className="mt-3 text-emerald-400 text-sm">
+                Certificate minted successfully — share it with anyone via its public URL.
+              </p>
+            )}
+          </div>
         )}
 
         {/* ── Rating form (after completion) ── */}

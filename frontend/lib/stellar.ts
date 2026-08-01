@@ -588,6 +588,52 @@ export async function submitSignedSorobanTransaction(
   return { hash };
 }
 
+// ---------------------------------------------------------------------------
+// Mint proof-of-work certificate (used by jobs/[id].tsx after escrow release)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `mint_certificate(job_id, title, client)` Soroban transaction.
+ * Called by the client's wallet right after the escrow release so the
+ * freelancer receives an on-chain proof-of-work certificate. Mirrors
+ * `buildReleaseEscrowTransaction` (simulate → assemble → return the prepared
+ * transaction for the wallet to sign).
+ */
+export async function buildMintCertificateTx(
+  contractId: string,
+  jobId: string,
+  title: string,
+  clientPublicKey: string,
+) {
+  if (USE_CONTRACT_MOCK) {
+    return { toXDR: () => "mock-prepared-xdr" };
+  }
+  const server = sorobanServer;
+  const account = await server.getAccount(clientPublicKey);
+  const contract = new Contract(contractId);
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call(
+        "mint_certificate",
+        nativeToScVal(jobId, { type: "string" }),
+        nativeToScVal(title, { type: "string" }),
+        Address.fromString(clientPublicKey).toScVal(),
+      ),
+    )
+    .setTimeout(300)
+    .build();
+
+  const sim = await sorobanServer.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(sim)) {
+    throw new Error(`Simulation failed: ${sim.error}`);
+  }
+  return SorobanRpc.assembleTransaction(tx, sim).build();
+}
+
 async function simulateContractView(
   contractId: string,
   method: string,
