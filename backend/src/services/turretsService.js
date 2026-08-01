@@ -6,11 +6,87 @@
 
 const axios = require("axios");
 const { Server } = require("@stellar/stellar-sdk");
+const crypto = require("crypto");
 
 // Configuration
 const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 const TURRET_URL = process.env.TURRET_URL || "https://tss.stellar.org";
 const TURRET_API_KEY = process.env.TURRET_API_KEY;
+const ESCROW_SECRET_KEY = process.env.ESCROW_SECRET_KEY || process.env.TURRET_SIGNING_KEY;
+const ALLOWED_ESCROW_PREFIX = process.env.ALLOWED_ESCROW_PREFIX || "GC";
+
+/**
+ * Verify that an escrow ID is authorized for signing.
+ * Only escrow accounts with the configured prefix are allowed.
+ */
+function isAuthorizedEscrow(escrowId) {
+  if (!escrowId || typeof escrowId !== "string") return false;
+  return escrowId.startsWith(ALLOWED_ESCROW_PREFIX);
+}
+
+/**
+ * Sign a transaction XDR using the turret signing key.
+ * Only authorized escrow transactions are accepted.
+ *
+ * @param {string} transactionXDR - Unsigned transaction XDR
+ * @param {string} escrowId - The escrow account ID for authorization
+ * @returns {Promise<Object>} - Signed transaction result
+ */
+async function signTransaction(transactionXDR, escrowId) {
+  if (!transactionXDR) {
+    const e = new Error("Transaction XDR is required");
+    e.status = 400;
+    throw e;
+  }
+
+  if (!escrowId || !isAuthorizedEscrow(escrowId)) {
+    const e = new Error("Unauthorized escrow ID");
+    e.status = 403;
+    throw e;
+  }
+
+  if (!ESCROW_SECRET_KEY) {
+    const e = new Error("Turret signing key not configured");
+    e.status = 500;
+    throw e;
+  }
+
+  try {
+    const sourceKeypair = crypto.createSecretKey(Buffer.from(ESCROW_SECRET_KEY, "hex"));
+    const { Transaction } = require("@stellar/stellar-sdk");
+
+    let transaction;
+    try {
+      transaction = Transaction.fromXDR(transactionXDR, {
+        networkPassphrase: process.env.STELLAR_NETWORK_PASSPHRASE || "Test SDF Network ; September 2015",
+      });
+    } catch {
+      transaction = Transaction.fromXDR(transactionXDR, {
+        networkPassphrase: process.env.STELLAR_NETWORK_PASSPHRASE || "Public Global Stellar Network ; September 2015",
+      });
+    }
+
+    transaction.sign(sourceKeypair);
+    const signedXDR = transaction.toXDR();
+
+    return {
+      success: true,
+      signedXDR,
+      escrowId,
+      turretUsed: true,
+      message: "Transaction signed by turret for authorized escrow",
+    };
+  } catch (error) {
+    console.error("Turret signing error:", error.message);
+
+    if (error.status === 403) throw error;
+    if (error.status === 400) throw error;
+
+    const e = new Error(`Turret signing failed: ${error.message}`);
+    e.status = 500;
+    throw e;
+  }
+}
 
 /**
  * Submit transaction through Stellar Turret
@@ -241,6 +317,7 @@ function shouldUseTurret(options = {}) {
 module.exports = {
   submitViaTurret,
   submitTransaction,
+  signTransaction,
   getTurretStatus,
   estimateTurretFee,
   shouldUseTurret

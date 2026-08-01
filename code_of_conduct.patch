@@ -1,0 +1,17 @@
+diff --git a/CODE_OF_CONDUCT.md b/CODE_OF_CONDUCT.md
+new file mode 100644
+--- /dev/null
++++ b/CODE_OF_CONDUCT.md
+@@
++[Contributor Covenant v2.1 content above]
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@
++## Code of Conduct
++
++This project follows the guidelines outlined in our
++[Code of Conduct](CODE_OF_CONDUCT.md).
++
++By participating in this project, you agree to uphold these standards and help
++maintain a welcoming environment for everyone.

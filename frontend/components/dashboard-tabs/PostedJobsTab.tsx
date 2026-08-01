@@ -35,9 +35,10 @@ export default function PostedJobsTab({
     return (
       <StateMessage
         type="empty"
+        illustration="no-jobs"
         title="You haven't posted any jobs yet"
         description="Post your first job and find a great freelancer"
-        ctaLabel="Post a Job"
+        ctaLabel="Post Your First Job"
         onCta={() => router.push('/post-job')}
       />
     );

@@ -128,7 +128,7 @@ export function usePushNotifications() {
         throw new Error("Failed to save subscription on backend");
       }
 
-      setState((prev) => ({ ...prev, isSubscribed: true });
+      setState((prev) => ({ ...prev, isSubscribed: true }));
       success("Push notifications enabled");
       return true;
     } catch (err) {
