@@ -11,7 +11,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Application } from "@/utils/types";
 import { refreshAccessToken } from "@/lib/api";
 
-const WS_RECONNECT_DELAY = 3_000;
+/** Initial reconnect delay (ms). Doubles each attempt up to 30 s. */
+const WS_INITIAL_RECONNECT_DELAY = 1_000;
+/** Maximum reconnect delay (ms). */
+const WS_MAX_RECONNECT_DELAY = 30_000;
 const POLL_INTERVAL = 30_000;
 const WITHDRAW_FADE_MS = 400;
 
@@ -22,6 +25,8 @@ interface UseRealtimeBidsOptions {
   initialApplications: Application[];
   /** Fetches the latest list from the API — used for fallback polling */
   fetchApplications: () => Promise<Application[]>;
+  /** Called whenever a new bid arrives via WebSocket. */
+  onNewBid?: (application: Application) => void;
 }
 
 interface UseRealtimeBidsResult {
@@ -46,6 +51,7 @@ export function useRealtimeBids({
   jobId,
   initialApplications,
   fetchApplications,
+  onNewBid,
 }: UseRealtimeBidsOptions): UseRealtimeBidsResult {
   const [applications, setApplications] = useState<Application[]>(initialApplications);
   const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
@@ -55,9 +61,11 @@ export function useRealtimeBids({
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = useRef(0);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tabVisibleRef = useRef(!document.hidden);
   const newestCardRef = useRef<HTMLDivElement | null>(null);
+  const initialSyncedRef = useRef(false);
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -103,6 +111,14 @@ export function useRealtimeBids({
     }, WITHDRAW_FADE_MS);
   }, []);
 
+  // ── Sync initialApplications when they arrive async (e.g., page data fetch) ─
+  useEffect(() => {
+    if (initialApplications.length > 0 && !initialSyncedRef.current) {
+      setApplications(initialApplications);
+      initialSyncedRef.current = true;
+    }
+  }, [initialApplications]);
+
   // ── WebSocket ──────────────────────────────────────────────────────────────
 
   const connect = useCallback(() => {
@@ -128,6 +144,7 @@ export function useRealtimeBids({
     ws.onopen = () => {
       if (!isCurrent()) return;
       setWsStatus("open");
+      reconnectAttemptRef.current = 0; // reset back-off on successful connection
       clearPoll(); // WebSocket is up — stop polling
     };
 
@@ -148,6 +165,8 @@ export function useRealtimeBids({
           if (!tabVisibleRef.current) {
             setNewProposalsCount((n) => n + 1);
           }
+          // Fire the onNewBid callback so consumers can show toasts, etc.
+          onNewBid?.(incoming);
         } else if (payload.type === "application:withdrawn") {
           fadeRemove(payload.applicationId);
         } else if (payload.type === "application:accepted") {
@@ -179,17 +198,27 @@ export function useRealtimeBids({
             // Polling fallback is already active so the UI stays alive.
           }
         }
+      startPoll(); // start polling until we reconnect
+      // Exponential back-off: double each attempt, cap at 30 s
+      const attempt = reconnectAttemptRef.current;
+      const delay = Math.min(
+        WS_INITIAL_RECONNECT_DELAY * Math.pow(2, attempt),
+        WS_MAX_RECONNECT_DELAY,
+      );
+      reconnectAttemptRef.current = attempt + 1;
+      reconnectTimerRef.current = setTimeout(() => {
         connect();
-      }, WS_RECONNECT_DELAY);
+      }, delay);
     };
 
     ws.onerror = () => {
       if (!isCurrent()) return;
       ws.close(); // triggers onclose → reconnect + poll
     };
-  }, [jobId, clearPoll, startPoll, highlight, fadeRemove]);
+  }, [jobId, clearPoll, startPoll, highlight, fadeRemove, onNewBid]);
 
   useEffect(() => {
+    reconnectAttemptRef.current = 0; // reset back-off on mount
     connect();
 
     const onVisibility = () => {
