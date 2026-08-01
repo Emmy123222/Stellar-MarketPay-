@@ -1,0 +1,67 @@
+1
+00:00:00,000 --> 00:00:05,000
+Welcome to Stellar MarketPay — a decentralized freelance marketplace built on Stellar.
+
+2
+00:00:05,000 --> 00:00:12,000
+Clients post jobs. Freelancers apply. Payments are secured in Soroban smart contract escrow.
+
+3
+00:00:12,000 --> 00:00:18,000
+Let's walk through the full happy path — from posting a job to releasing payment.
+
+4
+00:00:18,000 --> 00:00:25,000
+First, connect your Freighter wallet. We're using Stellar Testnet so everything is free to try.
+
+5
+00:00:25,000 --> 00:00:35,000
+Head to the dashboard and click "Post a Job." You'll go through a 4-step form.
+
+6
+00:00:35,000 --> 00:00:50,000
+Step 1: Enter the job title, a detailed description, and pick a category.
+
+7
+00:00:50,000 --> 00:01:05,000
+Step 2: Set your budget in XLM. This amount will be locked in a Soroban escrow contract.
+
+8
+00:01:05,000 --> 00:01:20,000
+Step 3: Add required skills and a deadline. Step 4: Review everything and publish. Approve the transaction in Freighter — your XLM is now locked on-chain.
+
+9
+00:01:20,000 --> 00:01:35,000
+Now let's switch to the freelancer's perspective. Using a second wallet, browse the Jobs page.
+
+10
+00:01:35,000 --> 00:01:50,000
+Find the job that was just posted. You can see the budget, required skills, and full description.
+
+11
+00:01:50,000 --> 00:02:00,000
+Click "Apply for this Job." Write a compelling proposal and set your bid amount.
+
+12
+00:02:00,000 --> 00:02:15,000
+Submit your application. The client will be notified and can review your proposal alongside others.
+
+13
+00:02:15,000 --> 00:02:25,000
+Back as the client, refresh the job page. The new application appears in the Applications list.
+
+14
+00:02:25,000 --> 00:02:35,000
+Review the proposal and click "Accept Proposal." The job status changes to "In Progress" and work begins.
+
+15
+00:02:35,000 --> 00:02:45,000
+Once the work is complete, the client clicks "Release Escrow" to pay the freelancer.
+
+16
+00:02:45,000 --> 00:02:55,000
+One click, one transaction — funds move instantly from the Soroban smart contract to the freelancer's wallet. No middlemen, no delays.
+
+17
+00:02:55,000 --> 00:03:00,000
+Stellar MarketPay is open source. Try it yourself at the link below. Star us on GitHub!

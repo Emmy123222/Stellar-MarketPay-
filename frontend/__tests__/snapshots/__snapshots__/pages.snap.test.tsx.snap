@@ -1,0 +1,1972 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connected, data pending): Dashboard — wallet connected, initial load 1`] = `
+<div
+  class="max-w-6xl mx-auto px-4 sm:px-6 py-10 animate-fade-in"
+>
+  <div
+    class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8"
+  >
+    <div>
+      <div
+        class="flex items-center gap-3 mb-1"
+      >
+        <h1
+          class="font-display text-3xl font-bold text-amber-100"
+        >
+          Dashboard
+        </h1>
+      </div>
+      <div
+        class="flex items-center gap-2"
+      >
+        <span
+          class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"
+        />
+        <span
+          class="address-tag"
+        >
+          GAAAAA...AAAWHF
+        </span>
+        <button
+          class="p-1.5 rounded-md transition-all flex items-center justify-center h-7 min-w-[28px] text-amber-600 hover:text-amber-300 hover:bg-amber-400/10 border border-transparent"
+          title="Copy public key"
+        >
+          <svg
+            fill="none"
+            height="14"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="14"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <rect
+              height="13"
+              rx="2"
+              ry="2"
+              width="13"
+              x="9"
+              y="9"
+            />
+            <path
+              d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+            />
+          </svg>
+        </button>
+      </div>
+      <a
+        href="/post-job"
+      >
+        + Post a Job
+      </a>
+    </div>
+    <div
+      class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8"
+    >
+      <div
+        class="lg:col-span-2 space-y-4"
+      >
+        <div
+          class="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18"
+        >
+          <p
+            class="label mb-2"
+          >
+            XLM Balance
+          </p>
+          <div
+            class="h-10 w-48 bg-market-500/8 rounded-xl animate-pulse"
+          />
+          <div
+            class="mt-3 flex flex-wrap gap-2"
+          >
+            <button
+              class="btn-primary text-xs py-1.5 px-3"
+            >
+              Buy XLM
+            </button>
+            <button
+              class="btn-secondary text-xs py-1.5 px-3"
+            >
+              Withdraw to Bank
+            </button>
+          </div>
+        </div>
+      </div>
+      <div
+        class="lg:col-span-1"
+      >
+        <div
+          data-testid="xlm-price-widget-stub"
+        />
+      </div>
+    </div>
+    <div
+      class="mb-6"
+    >
+      <div
+        data-testid="profile-completeness-widget-stub"
+      />
+    </div>
+    <div
+      class="hidden sm:flex border-b border-market-500/10 mb-6 overflow-x-auto"
+    >
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-market-400 text-market-300"
+      >
+        Jobs Posted (0)
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
+        Applications (0)
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
+        Invitations
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
+        Job Analytics
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
+        Earnings
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
+        Spending
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
+        Send
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
+        Edit Profile
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
+        Templates
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
+        Price Alerts
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
+        Withdrawals (0)
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
+        Saved Searches
+      </button>
+    </div>
+    <div
+      class="sm:hidden mb-6"
+    >
+      <label
+        class="sr-only"
+        for="dashboard-tab-select"
+      >
+        Dashboard section
+      </label>
+      <select
+        class="w-full px-4 py-3 rounded-xl bg-ink-900/60 border border-market-500/20 text-sm font-medium text-amber-100"
+        id="dashboard-tab-select"
+      >
+        <option
+          value="posted"
+        >
+          Jobs Posted (0)
+        </option>
+        <option
+          value="applied"
+        >
+          Applications (0)
+        </option>
+        <option
+          value="invitations"
+        >
+          Invitations
+        </option>
+        <option
+          value="analytics"
+        >
+          Job Analytics
+        </option>
+        <option
+          value="earnings"
+        >
+          Earnings
+        </option>
+        <option
+          value="spending"
+        >
+          Spending
+        </option>
+        <option
+          value="send"
+        >
+          Send
+        </option>
+        <option
+          value="edit_profile"
+        >
+          Edit Profile
+        </option>
+        <option
+          value="templates"
+        >
+          Templates
+        </option>
+        <option
+          value="price_alerts"
+        >
+          Price Alerts
+        </option>
+        <option
+          value="withdrawals"
+        >
+          Withdrawals (0)
+        </option>
+        <option
+          value="saved_searches"
+        >
+          Saved Searches
+        </option>
+      </select>
+    </div>
+    <div
+      class="space-y-6 animate-pulse"
+    >
+      <div
+        class="grid grid-cols-1 sm:grid-cols-3 gap-4"
+      >
+        <div
+          class="card h-24"
+        />
+        <div
+          class="card h-24"
+        />
+        <div
+          class="card h-24"
+        />
+      </div>
+      <div
+        class="card space-y-4"
+      >
+        <div
+          class="h-6 w-32 bg-market-500/10 rounded"
+        />
+        <div
+          class="space-y-3"
+        >
+          <div
+            class="h-16 bg-market-500/8 rounded"
+          />
+          <div
+            class="h-16 bg-market-500/8 rounded"
+          />
+          <div
+            class="h-16 bg-market-500/8 rounded"
+          />
+        </div>
+      </div>
+    </div>
+  </div>
+  <div
+    data-testid="bulk-job-action-bar-stub"
+  />
+</div>
+`;
+
+exports[`pages/dashboard.tsx snapshots renders wallet-disconnected state: Dashboard — wallet disconnected 1`] = `
+<div
+  class="max-w-6xl mx-auto px-4 sm:px-6 py-16"
+>
+  <div
+    class="text-center mb-10"
+  >
+    <h1
+      class="font-display text-3xl font-bold text-amber-100 mb-3"
+    >
+      Dashboard
+    </h1>
+    <p
+      class="text-amber-800"
+    >
+      Connect your wallet to view your jobs and applications
+    </p>
+  </div>
+  <div
+    data-testid="wallet-connect-stub"
+  />
+</div>
+`;
+
+exports[`pages/index.tsx snapshots renders authenticated (wallet connected): Home — authenticated 1`] = `
+<div
+  class="relative overflow-hidden"
+>
+  <div
+    class="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[500px] bg-market-500/4 rounded-full blur-3xl pointer-events-none"
+  />
+  <div
+    class="max-w-6xl mx-auto px-4 sm:px-6"
+  >
+    <div
+      class="text-center pt-20 pb-16 animate-fade-in"
+    >
+      <div
+        class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-market-500/20 bg-market-500/6 text-market-400/90 text-xs font-medium mb-8 font-body"
+      >
+        <span
+          class="w-1.5 h-1.5 rounded-full bg-market-400 animate-pulse"
+        />
+        Open Source · Built on Stellar · Powered by Soroban
+      </div>
+      <h1
+        class="font-display text-5xl sm:text-6xl md:text-7xl font-bold text-amber-100 leading-tight mb-6"
+      >
+        Freelance without
+         
+        <span
+          class="text-gradient-gold"
+        >
+          middlemen
+        </span>
+      </h1>
+      <p
+        class="text-amber-700 text-lg sm:text-xl max-w-2xl mx-auto mb-10 leading-relaxed font-body"
+      >
+        Stellar MarketPay connects clients and freelancers globally. Payments are secured in Soroban smart contract escrow — released the moment work is approved.
+      </p>
+      <div
+        class="flex flex-col sm:flex-row items-center justify-center gap-4"
+      >
+        <a
+          href="/jobs"
+        >
+          Browse Jobs →
+        </a>
+        <a
+          href="/post-job"
+        >
+          Post a Job
+        </a>
+      </div>
+    </div>
+    <div
+      class="grid grid-cols-3 gap-px bg-market-500/8 rounded-2xl overflow-hidden border border-market-500/12 mb-20"
+    >
+      <div
+        class="bg-ink-900 text-center py-8 px-4"
+      >
+        <div
+          class="font-display text-4xl font-bold text-gradient-gold mb-1 font-mono"
+        >
+          0%
+        </div>
+        <div
+          class="text-amber-800 text-sm font-body"
+        >
+          Platform fee
+        </div>
+      </div>
+      <div
+        class="bg-ink-900 text-center py-8 px-4"
+      >
+        <div
+          class="font-display text-4xl font-bold text-gradient-gold mb-1 font-mono"
+        >
+          0s
+        </div>
+        <div
+          class="text-amber-800 text-sm font-body"
+        >
+          Payment speed
+        </div>
+      </div>
+      <div
+        class="bg-ink-900 text-center py-8 px-4"
+      >
+        <div
+          class="font-display text-4xl font-bold text-gradient-gold mb-1 font-mono"
+        >
+          ~$
+          0
+        </div>
+        <div
+          class="text-amber-800 text-sm font-body"
+        >
+          Transaction cost
+        </div>
+      </div>
+    </div>
+    <div
+      class="mb-20"
+    >
+      <div
+        class="text-center mb-12"
+      >
+        <h2
+          class="font-display text-3xl sm:text-4xl font-bold text-amber-100 mb-3"
+        >
+          How it works
+        </h2>
+        <p
+          class="text-amber-800 max-w-xl mx-auto font-body"
+        >
+          Four steps from job post to payment. No banks. No waiting. No trust required.
+        </p>
+      </div>
+      <div
+        class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4"
+      >
+        <div
+          class="card group hover:border-market-500/25 transition-all"
+        >
+          <div
+            class="flex items-center gap-3 mb-3"
+          >
+            <span
+              class="text-2xl"
+            >
+              📋
+            </span>
+            <span
+              class="text-xs font-mono text-market-500/60 font-medium"
+            >
+              Step 
+              1
+            </span>
+          </div>
+          <h3
+            class="font-display font-semibold text-amber-200 mb-2 text-base"
+          >
+            Client posts a job
+          </h3>
+          <p
+            class="text-amber-800/80 text-sm leading-relaxed font-body"
+          >
+            Describe the work, set an XLM budget, and post. Budget is locked in Soroban escrow instantly.
+          </p>
+        </div>
+        <div
+          class="card group hover:border-market-500/25 transition-all"
+        >
+          <div
+            class="flex items-center gap-3 mb-3"
+          >
+            <span
+              class="text-2xl"
+            >
+              🙋
+            </span>
+            <span
+              class="text-xs font-mono text-market-500/60 font-medium"
+            >
+              Step 
+              2
+            </span>
+          </div>
+          <h3
+            class="font-display font-semibold text-amber-200 mb-2 text-base"
+          >
+            Freelancers apply
+          </h3>
+          <p
+            class="text-amber-800/80 text-sm leading-relaxed font-body"
+          >
+            Skilled contributors submit proposals and bid amounts. Client reviews and picks the best fit.
+          </p>
+        </div>
+        <div
+          class="card group hover:border-market-500/25 transition-all"
+        >
+          <div
+            class="flex items-center gap-3 mb-3"
+          >
+            <span
+              class="text-2xl"
+            >
+              🔒
+            </span>
+            <span
+              class="text-xs font-mono text-market-500/60 font-medium"
+            >
+              Step 
+              3
+            </span>
+          </div>
+          <h3
+            class="font-display font-semibold text-amber-200 mb-2 text-base"
+          >
+            Work begins in escrow
+          </h3>
+          <p
+            class="text-amber-800/80 text-sm leading-relaxed font-body"
+          >
+            Funds sit safely in a smart contract. Freelancer starts work knowing payment is guaranteed.
+          </p>
+        </div>
+        <div
+          class="card group hover:border-market-500/25 transition-all"
+        >
+          <div
+            class="flex items-center gap-3 mb-3"
+          >
+            <span
+              class="text-2xl"
+            >
+              ✅
+            </span>
+            <span
+              class="text-xs font-mono text-market-500/60 font-medium"
+            >
+              Step 
+              4
+            </span>
+          </div>
+          <h3
+            class="font-display font-semibold text-amber-200 mb-2 text-base"
+          >
+            Client approves & pays
+          </h3>
+          <p
+            class="text-amber-800/80 text-sm leading-relaxed font-body"
+          >
+            Once work is approved, one click releases the escrowed XLM directly to the freelancer.
+          </p>
+        </div>
+      </div>
+    </div>
+    <div
+      class="mb-20"
+    >
+      <div
+        class="text-center mb-8"
+      >
+        <h2
+          class="font-display text-3xl font-bold text-amber-100 mb-3"
+        >
+          Browse by Category
+        </h2>
+      </div>
+      <div
+        class="flex flex-wrap justify-center gap-3"
+      >
+        <a
+          href="/jobs?category=Smart%20Contracts"
+        >
+          Smart Contracts
+        </a>
+        <a
+          href="/jobs?category=Frontend%20Dev"
+        >
+          Frontend Dev
+        </a>
+        <a
+          href="/jobs?category=Backend%20Dev"
+        >
+          Backend Dev
+        </a>
+        <a
+          href="/jobs?category=UI%2FUX%20Design"
+        >
+          UI/UX Design
+        </a>
+        <a
+          href="/jobs?category=Technical%20Writing"
+        >
+          Technical Writing
+        </a>
+        <a
+          href="/jobs?category=Security%20Audit"
+        >
+          Security Audit
+        </a>
+        <a
+          href="/jobs?category=DevOps"
+        >
+          DevOps
+        </a>
+        <a
+          href="/jobs?category=Data%20Analysis"
+        >
+          Data Analysis
+        </a>
+      </div>
+    </div>
+    <div
+      class="mb-20"
+    >
+      <div
+        class="flex items-center justify-between mb-8"
+      >
+        <div>
+          <h2
+            class="font-display text-3xl font-bold text-amber-100 mb-1"
+          >
+            Recently Completed
+          </h2>
+          <p
+            class="text-amber-800 text-sm font-body"
+          >
+            Real work, real payments — settled on Stellar.
+          </p>
+        </div>
+        <a
+          href="/jobs?status=completed"
+        >
+          View all completed work →
+        </a>
+      </div>
+      <div
+        class="grid sm:grid-cols-3 gap-4"
+      >
+        <a
+          href="/jobs/job-snap-1"
+        >
+          <div
+            class="card group hover:border-market-500/25 transition-all h-full flex flex-col"
+          >
+            <div
+              class="flex items-center gap-2 mb-2"
+            >
+              <span
+                aria-hidden="true"
+                class="text-xl"
+              >
+                📜
+              </span>
+              <span
+                class="text-xs text-amber-800 font-body truncate"
+              >
+                Smart Contracts
+              </span>
+              <span
+                class="ml-auto flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full"
+              >
+                ✓ Done
+              </span>
+            </div>
+            <h3
+              class="font-display font-semibold text-amber-200 text-sm leading-snug group-hover:text-market-300 transition-colors line-clamp-2 mb-3 flex-1"
+            >
+              Build a Soroban escrow contract for marketplace payouts
+            </h3>
+            <div
+              class="pt-2 border-t border-[rgba(251,191,36,0.07)]"
+            >
+              <p
+                class="text-xs text-amber-800 mb-0.5"
+              >
+                Budget
+              </p>
+              <p
+                class="font-mono font-semibold text-market-400 text-sm"
+              >
+                500 XLM
+              </p>
+            </div>
+          </div>
+        </a>
+      </div>
+    </div>
+    <div
+      class="card mb-20 bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18"
+    >
+      <div
+        class="max-w-3xl mx-auto text-center"
+      >
+        <h2
+          class="font-display text-3xl font-bold text-amber-100 mb-4"
+        >
+          Why Stellar?
+        </h2>
+        <p
+          class="text-amber-700 leading-relaxed mb-6 font-body"
+        >
+          Traditional freelance platforms take 10–20% of every payment and hold funds for weeks. Stellar transactions settle in seconds for a fraction of a cent — and Soroban smart contracts enforce payment release automatically, so neither party needs to trust the other.
+        </p>
+        <div
+          class="grid sm:grid-cols-3 gap-4 text-sm"
+        >
+          <div
+            class="bg-ink-900/60 rounded-xl p-4 border border-market-500/10"
+          >
+            <p
+              class="text-market-400 font-mono font-semibold text-base"
+            >
+              3–5 seconds
+            </p>
+            <p
+              class="text-amber-800 text-xs mt-1 font-body"
+            >
+              Settlement time
+            </p>
+          </div>
+          <div
+            class="bg-ink-900/60 rounded-xl p-4 border border-market-500/10"
+          >
+            <p
+              class="text-market-400 font-mono font-semibold text-base"
+            >
+              0.00001 XLM
+            </p>
+            <p
+              class="text-amber-800 text-xs mt-1 font-body"
+            >
+              Transaction fee
+            </p>
+          </div>
+          <div
+            class="bg-ink-900/60 rounded-xl p-4 border border-market-500/10"
+          >
+            <p
+              class="text-market-400 font-mono font-semibold text-base"
+            >
+              Soroban contract
+            </p>
+            <p
+              class="text-amber-800 text-xs mt-1 font-body"
+            >
+              Escrow enforcement
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div
+      class="text-center pb-12 border-t border-market-500/8 pt-8"
+    >
+      <p
+        class="text-amber-900 text-sm font-body"
+      >
+        Open source · MIT License ·
+         
+        <a
+          class="hover:text-market-400 transition-colors"
+          href="https://github.com/your-org/stellar-marketpay"
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          Contribute on GitHub →
+        </a>
+      </p>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`pages/index.tsx snapshots renders unauthenticated landing page (no wallet): Home — unauthenticated, no completed jobs 1`] = `
+<div
+  class="relative overflow-hidden"
+>
+  <div
+    class="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[500px] bg-market-500/4 rounded-full blur-3xl pointer-events-none"
+  />
+  <div
+    class="max-w-6xl mx-auto px-4 sm:px-6"
+  >
+    <div
+      class="text-center pt-20 pb-16 animate-fade-in"
+    >
+      <div
+        class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-market-500/20 bg-market-500/6 text-market-400/90 text-xs font-medium mb-8 font-body"
+      >
+        <span
+          class="w-1.5 h-1.5 rounded-full bg-market-400 animate-pulse"
+        />
+        Open Source · Built on Stellar · Powered by Soroban
+      </div>
+      <h1
+        class="font-display text-5xl sm:text-6xl md:text-7xl font-bold text-amber-100 leading-tight mb-6"
+      >
+        Freelance without
+         
+        <span
+          class="text-gradient-gold"
+        >
+          middlemen
+        </span>
+      </h1>
+      <p
+        class="text-amber-700 text-lg sm:text-xl max-w-2xl mx-auto mb-10 leading-relaxed font-body"
+      >
+        Stellar MarketPay connects clients and freelancers globally. Payments are secured in Soroban smart contract escrow — released the moment work is approved.
+      </p>
+      <div
+        class="flex flex-col sm:flex-row items-center justify-center gap-4"
+      >
+        <button
+          class="btn-primary text-base px-8 py-3.5"
+        >
+          Get Started Free
+        </button>
+        <a
+          href="/jobs"
+        >
+          Browse Jobs
+        </a>
+      </div>
+    </div>
+    <div
+      class="grid grid-cols-3 gap-px bg-market-500/8 rounded-2xl overflow-hidden border border-market-500/12 mb-20"
+    >
+      <div
+        class="bg-ink-900 text-center py-8 px-4"
+      >
+        <div
+          class="font-display text-4xl font-bold text-gradient-gold mb-1 font-mono"
+        >
+          0%
+        </div>
+        <div
+          class="text-amber-800 text-sm font-body"
+        >
+          Platform fee
+        </div>
+      </div>
+      <div
+        class="bg-ink-900 text-center py-8 px-4"
+      >
+        <div
+          class="font-display text-4xl font-bold text-gradient-gold mb-1 font-mono"
+        >
+          0s
+        </div>
+        <div
+          class="text-amber-800 text-sm font-body"
+        >
+          Payment speed
+        </div>
+      </div>
+      <div
+        class="bg-ink-900 text-center py-8 px-4"
+      >
+        <div
+          class="font-display text-4xl font-bold text-gradient-gold mb-1 font-mono"
+        >
+          ~$
+          0
+        </div>
+        <div
+          class="text-amber-800 text-sm font-body"
+        >
+          Transaction cost
+        </div>
+      </div>
+    </div>
+    <div
+      class="mb-20"
+    >
+      <div
+        class="text-center mb-12"
+      >
+        <h2
+          class="font-display text-3xl sm:text-4xl font-bold text-amber-100 mb-3"
+        >
+          How it works
+        </h2>
+        <p
+          class="text-amber-800 max-w-xl mx-auto font-body"
+        >
+          Four steps from job post to payment. No banks. No waiting. No trust required.
+        </p>
+      </div>
+      <div
+        class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4"
+      >
+        <div
+          class="card group hover:border-market-500/25 transition-all"
+        >
+          <div
+            class="flex items-center gap-3 mb-3"
+          >
+            <span
+              class="text-2xl"
+            >
+              📋
+            </span>
+            <span
+              class="text-xs font-mono text-market-500/60 font-medium"
+            >
+              Step 
+              1
+            </span>
+          </div>
+          <h3
+            class="font-display font-semibold text-amber-200 mb-2 text-base"
+          >
+            Client posts a job
+          </h3>
+          <p
+            class="text-amber-800/80 text-sm leading-relaxed font-body"
+          >
+            Describe the work, set an XLM budget, and post. Budget is locked in Soroban escrow instantly.
+          </p>
+        </div>
+        <div
+          class="card group hover:border-market-500/25 transition-all"
+        >
+          <div
+            class="flex items-center gap-3 mb-3"
+          >
+            <span
+              class="text-2xl"
+            >
+              🙋
+            </span>
+            <span
+              class="text-xs font-mono text-market-500/60 font-medium"
+            >
+              Step 
+              2
+            </span>
+          </div>
+          <h3
+            class="font-display font-semibold text-amber-200 mb-2 text-base"
+          >
+            Freelancers apply
+          </h3>
+          <p
+            class="text-amber-800/80 text-sm leading-relaxed font-body"
+          >
+            Skilled contributors submit proposals and bid amounts. Client reviews and picks the best fit.
+          </p>
+        </div>
+        <div
+          class="card group hover:border-market-500/25 transition-all"
+        >
+          <div
+            class="flex items-center gap-3 mb-3"
+          >
+            <span
+              class="text-2xl"
+            >
+              🔒
+            </span>
+            <span
+              class="text-xs font-mono text-market-500/60 font-medium"
+            >
+              Step 
+              3
+            </span>
+          </div>
+          <h3
+            class="font-display font-semibold text-amber-200 mb-2 text-base"
+          >
+            Work begins in escrow
+          </h3>
+          <p
+            class="text-amber-800/80 text-sm leading-relaxed font-body"
+          >
+            Funds sit safely in a smart contract. Freelancer starts work knowing payment is guaranteed.
+          </p>
+        </div>
+        <div
+          class="card group hover:border-market-500/25 transition-all"
+        >
+          <div
+            class="flex items-center gap-3 mb-3"
+          >
+            <span
+              class="text-2xl"
+            >
+              ✅
+            </span>
+            <span
+              class="text-xs font-mono text-market-500/60 font-medium"
+            >
+              Step 
+              4
+            </span>
+          </div>
+          <h3
+            class="font-display font-semibold text-amber-200 mb-2 text-base"
+          >
+            Client approves & pays
+          </h3>
+          <p
+            class="text-amber-800/80 text-sm leading-relaxed font-body"
+          >
+            Once work is approved, one click releases the escrowed XLM directly to the freelancer.
+          </p>
+        </div>
+      </div>
+    </div>
+    <div
+      class="mb-20"
+    >
+      <div
+        class="text-center mb-8"
+      >
+        <h2
+          class="font-display text-3xl font-bold text-amber-100 mb-3"
+        >
+          Browse by Category
+        </h2>
+      </div>
+      <div
+        class="flex flex-wrap justify-center gap-3"
+      >
+        <a
+          href="/jobs?category=Smart%20Contracts"
+        >
+          Smart Contracts
+        </a>
+        <a
+          href="/jobs?category=Frontend%20Dev"
+        >
+          Frontend Dev
+        </a>
+        <a
+          href="/jobs?category=Backend%20Dev"
+        >
+          Backend Dev
+        </a>
+        <a
+          href="/jobs?category=UI%2FUX%20Design"
+        >
+          UI/UX Design
+        </a>
+        <a
+          href="/jobs?category=Technical%20Writing"
+        >
+          Technical Writing
+        </a>
+        <a
+          href="/jobs?category=Security%20Audit"
+        >
+          Security Audit
+        </a>
+        <a
+          href="/jobs?category=DevOps"
+        >
+          DevOps
+        </a>
+        <a
+          href="/jobs?category=Data%20Analysis"
+        >
+          Data Analysis
+        </a>
+      </div>
+    </div>
+    <div
+      class="mb-20"
+    >
+      <div
+        class="flex items-center justify-between mb-8"
+      >
+        <div>
+          <h2
+            class="font-display text-3xl font-bold text-amber-100 mb-1"
+          >
+            Recently Completed
+          </h2>
+          <p
+            class="text-amber-800 text-sm font-body"
+          >
+            Real work, real payments — settled on Stellar.
+          </p>
+        </div>
+        <a
+          href="/jobs?status=completed"
+        >
+          View all completed work →
+        </a>
+      </div>
+      <div
+        class="card text-center py-12"
+      >
+        <p
+          class="text-3xl mb-3"
+        >
+          🏁
+        </p>
+        <p
+          class="text-amber-700 font-body text-sm"
+        >
+          No completed jobs yet — be the first to finish one.
+        </p>
+      </div>
+    </div>
+    <div
+      class="card mb-20 bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18"
+    >
+      <div
+        class="max-w-3xl mx-auto text-center"
+      >
+        <h2
+          class="font-display text-3xl font-bold text-amber-100 mb-4"
+        >
+          Why Stellar?
+        </h2>
+        <p
+          class="text-amber-700 leading-relaxed mb-6 font-body"
+        >
+          Traditional freelance platforms take 10–20% of every payment and hold funds for weeks. Stellar transactions settle in seconds for a fraction of a cent — and Soroban smart contracts enforce payment release automatically, so neither party needs to trust the other.
+        </p>
+        <div
+          class="grid sm:grid-cols-3 gap-4 text-sm"
+        >
+          <div
+            class="bg-ink-900/60 rounded-xl p-4 border border-market-500/10"
+          >
+            <p
+              class="text-market-400 font-mono font-semibold text-base"
+            >
+              3–5 seconds
+            </p>
+            <p
+              class="text-amber-800 text-xs mt-1 font-body"
+            >
+              Settlement time
+            </p>
+          </div>
+          <div
+            class="bg-ink-900/60 rounded-xl p-4 border border-market-500/10"
+          >
+            <p
+              class="text-market-400 font-mono font-semibold text-base"
+            >
+              0.00001 XLM
+            </p>
+            <p
+              class="text-amber-800 text-xs mt-1 font-body"
+            >
+              Transaction fee
+            </p>
+          </div>
+          <div
+            class="bg-ink-900/60 rounded-xl p-4 border border-market-500/10"
+          >
+            <p
+              class="text-market-400 font-mono font-semibold text-base"
+            >
+              Soroban contract
+            </p>
+            <p
+              class="text-amber-800 text-xs mt-1 font-body"
+            >
+              Escrow enforcement
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div
+      class="text-center pb-12 border-t border-market-500/8 pt-8"
+    >
+      <p
+        class="text-amber-900 text-sm font-body"
+      >
+        Open source · MIT License ·
+         
+        <a
+          class="hover:text-market-400 transition-colors"
+          href="https://github.com/your-org/stellar-marketpay"
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          Contribute on GitHub →
+        </a>
+      </p>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`pages/index.tsx snapshots renders unauthenticated with completed jobs list: Home — unauthenticated, with completed job 1`] = `
+<div
+  class="relative overflow-hidden"
+>
+  <div
+    class="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[500px] bg-market-500/4 rounded-full blur-3xl pointer-events-none"
+  />
+  <div
+    class="max-w-6xl mx-auto px-4 sm:px-6"
+  >
+    <div
+      class="text-center pt-20 pb-16 animate-fade-in"
+    >
+      <div
+        class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-market-500/20 bg-market-500/6 text-market-400/90 text-xs font-medium mb-8 font-body"
+      >
+        <span
+          class="w-1.5 h-1.5 rounded-full bg-market-400 animate-pulse"
+        />
+        Open Source · Built on Stellar · Powered by Soroban
+      </div>
+      <h1
+        class="font-display text-5xl sm:text-6xl md:text-7xl font-bold text-amber-100 leading-tight mb-6"
+      >
+        Freelance without
+         
+        <span
+          class="text-gradient-gold"
+        >
+          middlemen
+        </span>
+      </h1>
+      <p
+        class="text-amber-700 text-lg sm:text-xl max-w-2xl mx-auto mb-10 leading-relaxed font-body"
+      >
+        Stellar MarketPay connects clients and freelancers globally. Payments are secured in Soroban smart contract escrow — released the moment work is approved.
+      </p>
+      <div
+        class="flex flex-col sm:flex-row items-center justify-center gap-4"
+      >
+        <button
+          class="btn-primary text-base px-8 py-3.5"
+        >
+          Get Started Free
+        </button>
+        <a
+          href="/jobs"
+        >
+          Browse Jobs
+        </a>
+      </div>
+    </div>
+    <div
+      class="grid grid-cols-3 gap-px bg-market-500/8 rounded-2xl overflow-hidden border border-market-500/12 mb-20"
+    >
+      <div
+        class="bg-ink-900 text-center py-8 px-4"
+      >
+        <div
+          class="font-display text-4xl font-bold text-gradient-gold mb-1 font-mono"
+        >
+          0%
+        </div>
+        <div
+          class="text-amber-800 text-sm font-body"
+        >
+          Platform fee
+        </div>
+      </div>
+      <div
+        class="bg-ink-900 text-center py-8 px-4"
+      >
+        <div
+          class="font-display text-4xl font-bold text-gradient-gold mb-1 font-mono"
+        >
+          0s
+        </div>
+        <div
+          class="text-amber-800 text-sm font-body"
+        >
+          Payment speed
+        </div>
+      </div>
+      <div
+        class="bg-ink-900 text-center py-8 px-4"
+      >
+        <div
+          class="font-display text-4xl font-bold text-gradient-gold mb-1 font-mono"
+        >
+          ~$
+          0
+        </div>
+        <div
+          class="text-amber-800 text-sm font-body"
+        >
+          Transaction cost
+        </div>
+      </div>
+    </div>
+    <div
+      class="mb-20"
+    >
+      <div
+        class="text-center mb-12"
+      >
+        <h2
+          class="font-display text-3xl sm:text-4xl font-bold text-amber-100 mb-3"
+        >
+          How it works
+        </h2>
+        <p
+          class="text-amber-800 max-w-xl mx-auto font-body"
+        >
+          Four steps from job post to payment. No banks. No waiting. No trust required.
+        </p>
+      </div>
+      <div
+        class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4"
+      >
+        <div
+          class="card group hover:border-market-500/25 transition-all"
+        >
+          <div
+            class="flex items-center gap-3 mb-3"
+          >
+            <span
+              class="text-2xl"
+            >
+              📋
+            </span>
+            <span
+              class="text-xs font-mono text-market-500/60 font-medium"
+            >
+              Step 
+              1
+            </span>
+          </div>
+          <h3
+            class="font-display font-semibold text-amber-200 mb-2 text-base"
+          >
+            Client posts a job
+          </h3>
+          <p
+            class="text-amber-800/80 text-sm leading-relaxed font-body"
+          >
+            Describe the work, set an XLM budget, and post. Budget is locked in Soroban escrow instantly.
+          </p>
+        </div>
+        <div
+          class="card group hover:border-market-500/25 transition-all"
+        >
+          <div
+            class="flex items-center gap-3 mb-3"
+          >
+            <span
+              class="text-2xl"
+            >
+              🙋
+            </span>
+            <span
+              class="text-xs font-mono text-market-500/60 font-medium"
+            >
+              Step 
+              2
+            </span>
+          </div>
+          <h3
+            class="font-display font-semibold text-amber-200 mb-2 text-base"
+          >
+            Freelancers apply
+          </h3>
+          <p
+            class="text-amber-800/80 text-sm leading-relaxed font-body"
+          >
+            Skilled contributors submit proposals and bid amounts. Client reviews and picks the best fit.
+          </p>
+        </div>
+        <div
+          class="card group hover:border-market-500/25 transition-all"
+        >
+          <div
+            class="flex items-center gap-3 mb-3"
+          >
+            <span
+              class="text-2xl"
+            >
+              🔒
+            </span>
+            <span
+              class="text-xs font-mono text-market-500/60 font-medium"
+            >
+              Step 
+              3
+            </span>
+          </div>
+          <h3
+            class="font-display font-semibold text-amber-200 mb-2 text-base"
+          >
+            Work begins in escrow
+          </h3>
+          <p
+            class="text-amber-800/80 text-sm leading-relaxed font-body"
+          >
+            Funds sit safely in a smart contract. Freelancer starts work knowing payment is guaranteed.
+          </p>
+        </div>
+        <div
+          class="card group hover:border-market-500/25 transition-all"
+        >
+          <div
+            class="flex items-center gap-3 mb-3"
+          >
+            <span
+              class="text-2xl"
+            >
+              ✅
+            </span>
+            <span
+              class="text-xs font-mono text-market-500/60 font-medium"
+            >
+              Step 
+              4
+            </span>
+          </div>
+          <h3
+            class="font-display font-semibold text-amber-200 mb-2 text-base"
+          >
+            Client approves & pays
+          </h3>
+          <p
+            class="text-amber-800/80 text-sm leading-relaxed font-body"
+          >
+            Once work is approved, one click releases the escrowed XLM directly to the freelancer.
+          </p>
+        </div>
+      </div>
+    </div>
+    <div
+      class="mb-20"
+    >
+      <div
+        class="text-center mb-8"
+      >
+        <h2
+          class="font-display text-3xl font-bold text-amber-100 mb-3"
+        >
+          Browse by Category
+        </h2>
+      </div>
+      <div
+        class="flex flex-wrap justify-center gap-3"
+      >
+        <a
+          href="/jobs?category=Smart%20Contracts"
+        >
+          Smart Contracts
+        </a>
+        <a
+          href="/jobs?category=Frontend%20Dev"
+        >
+          Frontend Dev
+        </a>
+        <a
+          href="/jobs?category=Backend%20Dev"
+        >
+          Backend Dev
+        </a>
+        <a
+          href="/jobs?category=UI%2FUX%20Design"
+        >
+          UI/UX Design
+        </a>
+        <a
+          href="/jobs?category=Technical%20Writing"
+        >
+          Technical Writing
+        </a>
+        <a
+          href="/jobs?category=Security%20Audit"
+        >
+          Security Audit
+        </a>
+        <a
+          href="/jobs?category=DevOps"
+        >
+          DevOps
+        </a>
+        <a
+          href="/jobs?category=Data%20Analysis"
+        >
+          Data Analysis
+        </a>
+      </div>
+    </div>
+    <div
+      class="mb-20"
+    >
+      <div
+        class="flex items-center justify-between mb-8"
+      >
+        <div>
+          <h2
+            class="font-display text-3xl font-bold text-amber-100 mb-1"
+          >
+            Recently Completed
+          </h2>
+          <p
+            class="text-amber-800 text-sm font-body"
+          >
+            Real work, real payments — settled on Stellar.
+          </p>
+        </div>
+        <a
+          href="/jobs?status=completed"
+        >
+          View all completed work →
+        </a>
+      </div>
+      <div
+        class="grid sm:grid-cols-3 gap-4"
+      >
+        <a
+          href="/jobs/job-snap-1"
+        >
+          <div
+            class="card group hover:border-market-500/25 transition-all h-full flex flex-col"
+          >
+            <div
+              class="flex items-center gap-2 mb-2"
+            >
+              <span
+                aria-hidden="true"
+                class="text-xl"
+              >
+                📜
+              </span>
+              <span
+                class="text-xs text-amber-800 font-body truncate"
+              >
+                Smart Contracts
+              </span>
+              <span
+                class="ml-auto flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full"
+              >
+                ✓ Done
+              </span>
+            </div>
+            <h3
+              class="font-display font-semibold text-amber-200 text-sm leading-snug group-hover:text-market-300 transition-colors line-clamp-2 mb-3 flex-1"
+            >
+              Build a Soroban escrow contract for marketplace payouts
+            </h3>
+            <div
+              class="pt-2 border-t border-[rgba(251,191,36,0.07)]"
+            >
+              <p
+                class="text-xs text-amber-800 mb-0.5"
+              >
+                Budget
+              </p>
+              <p
+                class="font-mono font-semibold text-market-400 text-sm"
+              >
+                500 XLM
+              </p>
+            </div>
+          </div>
+        </a>
+      </div>
+    </div>
+    <div
+      class="card mb-20 bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18"
+    >
+      <div
+        class="max-w-3xl mx-auto text-center"
+      >
+        <h2
+          class="font-display text-3xl font-bold text-amber-100 mb-4"
+        >
+          Why Stellar?
+        </h2>
+        <p
+          class="text-amber-700 leading-relaxed mb-6 font-body"
+        >
+          Traditional freelance platforms take 10–20% of every payment and hold funds for weeks. Stellar transactions settle in seconds for a fraction of a cent — and Soroban smart contracts enforce payment release automatically, so neither party needs to trust the other.
+        </p>
+        <div
+          class="grid sm:grid-cols-3 gap-4 text-sm"
+        >
+          <div
+            class="bg-ink-900/60 rounded-xl p-4 border border-market-500/10"
+          >
+            <p
+              class="text-market-400 font-mono font-semibold text-base"
+            >
+              3–5 seconds
+            </p>
+            <p
+              class="text-amber-800 text-xs mt-1 font-body"
+            >
+              Settlement time
+            </p>
+          </div>
+          <div
+            class="bg-ink-900/60 rounded-xl p-4 border border-market-500/10"
+          >
+            <p
+              class="text-market-400 font-mono font-semibold text-base"
+            >
+              0.00001 XLM
+            </p>
+            <p
+              class="text-amber-800 text-xs mt-1 font-body"
+            >
+              Transaction fee
+            </p>
+          </div>
+          <div
+            class="bg-ink-900/60 rounded-xl p-4 border border-market-500/10"
+          >
+            <p
+              class="text-market-400 font-mono font-semibold text-base"
+            >
+              Soroban contract
+            </p>
+            <p
+              class="text-amber-800 text-xs mt-1 font-body"
+            >
+              Escrow enforcement
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div
+      class="text-center pb-12 border-t border-market-500/8 pt-8"
+    >
+      <p
+        class="text-amber-900 text-sm font-body"
+      >
+        Open source · MIT License ·
+         
+        <a
+          class="hover:text-market-400 transition-colors"
+          href="https://github.com/your-org/stellar-marketpay"
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          Contribute on GitHub →
+        </a>
+      </p>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`pages/notifications.tsx snapshots renders connect-wallet prompt when no publicKey: Notifications — unauthenticated 1`] = `
+<section
+  class="max-w-4xl mx-auto px-4 sm:px-6 py-10"
+>
+  <div
+    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6"
+  >
+    <div>
+      <h1
+        class="font-display text-3xl font-bold text-amber-100"
+      >
+        Notifications
+      </h1>
+      <p
+        class="text-sm text-amber-700 mt-1"
+      >
+        Connect your wallet to view notifications.
+      </p>
+    </div>
+  </div>
+  <div
+    class="border border-amber-900/30 rounded-lg p-6 bg-ink-800/50"
+  >
+    <p
+      class="text-amber-200 mb-4"
+    >
+      Notifications are tied to your wallet account.
+    </p>
+    <button
+      class="btn-primary"
+      type="button"
+    >
+      Connect wallet
+    </button>
+  </div>
+</section>
+`;
+
+exports[`pages/notifications.tsx snapshots renders empty state (authenticated, no notifications): Notifications — empty list 1`] = `
+<section
+  class="max-w-4xl mx-auto px-4 sm:px-6 py-10"
+>
+  <div
+    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6"
+  >
+    <div>
+      <h1
+        class="font-display text-3xl font-bold text-amber-100"
+      >
+        Notifications
+      </h1>
+      <p
+        class="text-sm text-amber-700 mt-1"
+      >
+        0 unread notifications
+      </p>
+    </div>
+    <button
+      class="btn-secondary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+      disabled=""
+      type="button"
+    >
+      Mark all read
+    </button>
+  </div>
+  <div
+    class="border border-amber-900/30 rounded-lg p-6 bg-ink-800/50 text-amber-700"
+  >
+    Loading notifications...
+  </div>
+</section>
+`;
+
+exports[`pages/notifications.tsx snapshots renders load-more button when nextCursor is present: Notifications — with load-more button 1`] = `
+<section
+  class="max-w-4xl mx-auto px-4 sm:px-6 py-10"
+>
+  <div
+    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6"
+  >
+    <div>
+      <h1
+        class="font-display text-3xl font-bold text-amber-100"
+      >
+        Notifications
+      </h1>
+      <p
+        class="text-sm text-amber-700 mt-1"
+      >
+        1 unread notification
+      </p>
+    </div>
+    <button
+      class="btn-secondary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+      type="button"
+    >
+      Mark all read
+    </button>
+  </div>
+  <div
+    class="border border-amber-900/30 rounded-lg bg-ink-800/50 overflow-hidden"
+  >
+    <button
+      class="w-full px-5 py-4 text-left border-b border-amber-900/20 last:border-b-0 hover:bg-market-500/8 transition-colors bg-market-500/10"
+      type="button"
+    >
+      <span
+        class="flex gap-3"
+      >
+        <span
+          class="mt-2 h-2.5 w-2.5 rounded-full bg-market-400 flex-shrink-0"
+        />
+        <span
+          class="min-w-0"
+        >
+          <span
+            class="block text-base font-semibold text-amber-100"
+          >
+            New application received
+          </span>
+          <span
+            class="block text-sm text-amber-600 mt-1"
+          >
+            A freelancer has applied to your Smart Contracts job.
+          </span>
+          <span
+            class="block text-xs text-amber-800 mt-2"
+          >
+            1 day ago
+          </span>
+        </span>
+      </span>
+    </button>
+  </div>
+  <div
+    class="mt-6 flex justify-center"
+  >
+    <button
+      class="btn-secondary text-sm"
+      type="button"
+    >
+      Load more
+    </button>
+  </div>
+</section>
+`;
+
+exports[`pages/notifications.tsx snapshots renders loading state (wallet connected, data fetching): Notifications — loading 1`] = `
+<section
+  class="max-w-4xl mx-auto px-4 sm:px-6 py-10"
+>
+  <div
+    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6"
+  >
+    <div>
+      <h1
+        class="font-display text-3xl font-bold text-amber-100"
+      >
+        Notifications
+      </h1>
+      <p
+        class="text-sm text-amber-700 mt-1"
+      >
+        0 unread notifications
+      </p>
+    </div>
+    <button
+      class="btn-secondary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+      disabled=""
+      type="button"
+    >
+      Mark all read
+    </button>
+  </div>
+  <div
+    class="border border-amber-900/30 rounded-lg p-6 bg-ink-800/50 text-amber-700"
+  >
+    Loading notifications...
+  </div>
+</section>
+`;
+
+exports[`pages/notifications.tsx snapshots renders populated notification list (mix of read and unread): Notifications — populated list 1`] = `
+<section
+  class="max-w-4xl mx-auto px-4 sm:px-6 py-10"
+>
+  <div
+    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6"
+  >
+    <div>
+      <h1
+        class="font-display text-3xl font-bold text-amber-100"
+      >
+        Notifications
+      </h1>
+      <p
+        class="text-sm text-amber-700 mt-1"
+      >
+        1 unread notification
+      </p>
+    </div>
+    <button
+      class="btn-secondary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+      type="button"
+    >
+      Mark all read
+    </button>
+  </div>
+  <div
+    class="border border-amber-900/30 rounded-lg bg-ink-800/50 overflow-hidden"
+  >
+    <button
+      class="w-full px-5 py-4 text-left border-b border-amber-900/20 last:border-b-0 hover:bg-market-500/8 transition-colors bg-market-500/10"
+      type="button"
+    >
+      <span
+        class="flex gap-3"
+      >
+        <span
+          class="mt-2 h-2.5 w-2.5 rounded-full bg-market-400 flex-shrink-0"
+        />
+        <span
+          class="min-w-0"
+        >
+          <span
+            class="block text-base font-semibold text-amber-100"
+          >
+            New application received
+          </span>
+          <span
+            class="block text-sm text-amber-600 mt-1"
+          >
+            A freelancer has applied to your Smart Contracts job.
+          </span>
+          <span
+            class="block text-xs text-amber-800 mt-2"
+          >
+            1 day ago
+          </span>
+        </span>
+      </span>
+    </button>
+    <button
+      class="w-full px-5 py-4 text-left border-b border-amber-900/20 last:border-b-0 hover:bg-market-500/8 transition-colors"
+      type="button"
+    >
+      <span
+        class="flex gap-3"
+      >
+        <span
+          class="min-w-0"
+        >
+          <span
+            class="block text-base font-semibold text-amber-100"
+          >
+            Application accepted
+          </span>
+          <span
+            class="block text-sm text-amber-600 mt-1"
+          >
+            Your application was accepted.
+          </span>
+          <span
+            class="block text-xs text-amber-800 mt-2"
+          >
+            1 day ago
+          </span>
+        </span>
+      </span>
+    </button>
+  </div>
+</section>
+`;
+
+exports[`pages/post-job.tsx snapshots renders job-form pre-filled with category query param: PostJob — wallet connected, category pre-filled 1`] = `
+<div
+  class="max-w-6xl mx-auto px-4 sm:px-6 py-10"
+>
+  <div
+    data-public-key="GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+    data-testid="post-job-form-stub"
+  />
+</div>
+`;
+
+exports[`pages/post-job.tsx snapshots renders job-form when wallet is connected (no pre-fill): PostJob — wallet connected, empty form 1`] = `
+<div
+  class="max-w-6xl mx-auto px-4 sm:px-6 py-10"
+>
+  <div
+    data-public-key="GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+    data-testid="post-job-form-stub"
+  />
+</div>
+`;
+
+exports[`pages/post-job.tsx snapshots renders wallet-disconnected prompt: PostJob — wallet disconnected 1`] = `
+<div
+  class="max-w-6xl mx-auto px-4 sm:px-6 py-10"
+>
+  <div>
+    <div
+      class="text-center mb-10"
+    >
+      <h1
+        class="font-display text-3xl font-bold text-amber-100 mb-3"
+      >
+        Post a Job
+      </h1>
+      <p
+        class="text-amber-800"
+      >
+        Connect your wallet to post a job and lock the budget in escrow
+      </p>
+    </div>
+    <div
+      data-testid="wallet-connect-stub"
+    />
+  </div>
+</div>
+`;

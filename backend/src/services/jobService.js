@@ -6,9 +6,14 @@
 "use strict";
 
 const { readPool, writePool } = require("../db/pool");
+const {
+  findJobById,
+  listJobs: queryListJobs,
+} = require("../db/queries/jobs");
 const pool = writePool; // default alias — write-safe; read-only paths use readPool
 const { refreshFreelancerTier } = require("./profileService");
 const { createJobNotification, EVENT_TYPES } = require("./notificationService");
+const { insertAuditLog } = require("./auditLogService");
 const {
   buildJobTfIdfVector,
   updateVocabularyAndIdf,
@@ -210,6 +215,7 @@ function rowToJob(row) {
     categoryId: row.category_id_resolved || row.category_id || null,
     skills: row.skills,
     status: row.status,
+    visibility: row.visibility || "public",
     clientAddress: row.client_address,
     freelancerAddress: row.freelancer_address,
     escrowContractId: row.escrow_contract_id,
@@ -442,17 +448,13 @@ function tokenize(text) {
  * @throws {Error} If the job is not found.
  */
 async function getJob(id, { includeDeleted = false } = {}) {
-  const deletedFilter = includeDeleted ? "" : "AND deleted_at IS NULL";
-  const { rows } = await pool.query(
-    `SELECT * FROM jobs WHERE id = $1 ${deletedFilter}`,
-    [id]
-  );
-  if (!rows.length) {
+  const row = await findJobById(pool, { id, includeDeleted });
+  if (!row) {
     const e = new Error("Job not found");
     e.status = 404;
     throw e;
   }
-  return rowToJob(rows[0]);
+  return rowToJob(row);
 }
 
 /**
@@ -659,24 +661,13 @@ async function listJobs({
     );
   }
 
-  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-
-  params.push(limit);
-
-  const { rows } = await readPool.query(
-    `SELECT ${selectColumns}, COALESCE(agg.skills, '{}') AS skills
-     FROM jobs
-     LEFT JOIN LATERAL (
-       SELECT array_agg(s.display_name ORDER BY s.display_name) AS skills
-       FROM   job_skills js
-       JOIN   skills s ON s.id = js.skill_id
-       WHERE  js.job_id = jobs.id
-     ) agg ON true
-     ${where}
-     ORDER BY ${orderClause}
-     LIMIT $${params.length}`,
+  const rows = await queryListJobs(readPool, {
+    selectColumns,
+    conditions,
     params,
-  );
+    orderClause,
+    limit,
+  });
 
   const jobs = rows.map(rowToJob);
   let nextCursor = null;
@@ -722,6 +713,13 @@ async function updateJobStatus(id, status) {
     throw e;
   }
 
+  // Fetch old value before updating (for audit log)
+  const { rows: oldRows } = await pool.query(
+    "SELECT * FROM jobs WHERE id = $1",
+    [id],
+  );
+  const oldJob = oldRows.length ? rowToJob(oldRows[0]) : null;
+
   const { rows } = await pool.query(
     "UPDATE jobs SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
     [status, id],
@@ -736,6 +734,20 @@ async function updateJobStatus(id, status) {
   const job = rowToJob(rows[0]);
   if (status === "completed" && job.freelancerAddress) {
     await refreshFreelancerTier(job.freelancerAddress);
+  }
+
+  // Append-only audit log for this state change
+  try {
+    await insertAuditLog({
+      actorAddress: oldJob?.clientAddress || "system",
+      action: "job_status_change",
+      entityType: "job",
+      entityId: id,
+      oldValue: oldJob ? { status: oldJob.status } : null,
+      newValue: { status: job.status },
+    });
+  } catch {
+    // Non-fatal: audit logging must never block the primary operation
   }
 
   return job;
@@ -902,6 +914,13 @@ async function incrementShareCount(jobId) {
 }
 
 async function raiseDispute(jobId, { reason, description, raisedBy }) {
+  // Fetch old value before updating (for audit log)
+  const { rows: oldRows } = await pool.query(
+    "SELECT * FROM jobs WHERE id = $1",
+    [jobId],
+  );
+  const oldJob = oldRows.length ? rowToJob(oldRows[0]) : null;
+
   const { rows } = await pool.query(
     `UPDATE jobs 
      SET status = 'disputed', 
@@ -922,6 +941,21 @@ async function raiseDispute(jobId, { reason, description, raisedBy }) {
   }
 
   const job = rowToJob(rows[0]);
+
+  // Append-only audit log for dispute filing
+  try {
+    await insertAuditLog({
+      actorAddress: raisedBy,
+      action: "job_dispute_raised",
+      entityType: "job",
+      entityId: jobId,
+      oldValue: oldJob ? { status: oldJob.status, disputeReason: null } : null,
+      newValue: { status: job.status, disputeReason: reason, disputedBy: raisedBy },
+    });
+  } catch {
+    // Non-fatal
+  }
+
   const recipients = new Set(
     [job.clientAddress, job.freelancerAddress].filter(Boolean),
   );
@@ -941,6 +975,13 @@ async function raiseDispute(jobId, { reason, description, raisedBy }) {
 }
 
 async function resolveDispute(jobId) {
+  // Fetch old value before updating (for audit log)
+  const { rows: oldRows } = await pool.query(
+    "SELECT * FROM jobs WHERE id = $1",
+    [jobId],
+  );
+  const oldJob = oldRows.length ? rowToJob(oldRows[0]) : null;
+
   const { rows } = await pool.query(
     `UPDATE jobs 
      SET status = 'in_progress', 
@@ -960,7 +1001,23 @@ async function resolveDispute(jobId) {
     throw e;
   }
 
-  return rowToJob(rows[0]);
+  const job = rowToJob(rows[0]);
+
+  // Append-only audit log for dispute resolution
+  try {
+    await insertAuditLog({
+      actorAddress: oldJob?.disputedBy || "system",
+      action: "job_dispute_resolved",
+      entityType: "job",
+      entityId: jobId,
+      oldValue: oldJob ? { status: oldJob.status } : null,
+      newValue: { status: job.status },
+    });
+  } catch {
+    // Non-fatal
+  }
+
+  return job;
 }
 
 async function getCategoryAnalytics() {
