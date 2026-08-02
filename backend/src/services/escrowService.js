@@ -151,6 +151,9 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
     throw e;
   }
 
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
   const { rows: escrowRows } = await pool.query(
     "SELECT amount_xlm FROM escrows WHERE job_id = $1",
     [jobId],
@@ -159,14 +162,17 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
   await pool.query(
     `INSERT INTO escrow_releases (job_id, released_by, tx_hash, released_at)
      VALUES ($1, $2, $3, NOW())`,
-    [jobId, clientAddress, contractTxHash || `offchain-${Date.now()}`],
+    [jobId, clientAddress, txHash],
   );
 
   await logContractInteraction({
     functionName: "release_escrow",
     callerAddress: clientAddress,
     jobId,
-    txHash: contractTxHash || `offchain-${Date.now()}`,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
   });
 
   // Record timeline event with on-chain tx hash (Issue #876)
@@ -227,11 +233,17 @@ async function refundClient(jobId, clientAddress, contractTxHash) {
     throw e;
   }
 
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
   await logContractInteraction({
     functionName: "refund_escrow",
     callerAddress: clientAddress,
     jobId,
-    txHash: contractTxHash || `offchain-${Date.now()}`,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
   });
 
   await notifyEscrowEvent({
@@ -296,11 +308,17 @@ async function timeoutRefund(jobId, clientAddress, contractTxHash, req = null) {
     throw err;
   }
 
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
   await logContractInteraction({
     functionName: "timeout_refund",
-    callerAddress: getServicePublicKey(), // Use service key as caller
+    callerAddress: getServicePublicKey(),
     jobId,
-    txHash: contractTxHash || `offchain-${Date.now()}`,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
   });
 
   return {
@@ -337,6 +355,19 @@ async function markDisputed(jobId, raisedBy) {
     [jobId, raisedBy],
   );
 
+  await notifyEscrowEvent({
+    eventType: EVENT_TYPES.DISPUTE_OPENED,
+    jobId,
+    clientAddress: job.clientAddress,
+    freelancerAddress: job.freelancerAddress,
+    data: {
+      jobTitle: job.title,
+      jobId,
+      amount: job.budget,
+      currency: job.currency,
+    },
+  });
+
   return { success: true, dispute: result.rows[0] };
 }
 
@@ -369,6 +400,9 @@ async function releaseMilestone(jobId, milestoneIndex, clientAddress, contractTx
     throw e;
   }
 
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
   milestones[index] = {
     ...milestone,
     status: "released",
@@ -380,7 +414,10 @@ async function releaseMilestone(jobId, milestoneIndex, clientAddress, contractTx
     functionName: "release_milestone",
     callerAddress: clientAddress,
     jobId,
-    txHash: contractTxHash || `offchain-${Date.now()}`,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
   });
 
   await notifyEscrowEvent({
@@ -446,6 +483,9 @@ async function rejectMilestone(jobId, milestoneIndex, clientAddress, contractTxH
     throw e;
   }
 
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
   milestones[index] = {
     ...milestone,
     status: "rejected",
@@ -457,7 +497,10 @@ async function rejectMilestone(jobId, milestoneIndex, clientAddress, contractTxH
     functionName: "reject_milestone",
     callerAddress: clientAddress,
     jobId,
-    txHash: contractTxHash || `offchain-${Date.now()}`,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
   });
 
   await notifyEscrowEvent({
@@ -519,6 +562,21 @@ async function disputeMilestone(jobId, milestoneIndex, raisedBy) {
      RETURNING *`,
     [jobId, raisedBy],
   );
+
+  await notifyEscrowEvent({
+    eventType: EVENT_TYPES.DISPUTE_OPENED,
+    jobId,
+    clientAddress: job.clientAddress,
+    freelancerAddress: job.freelancerAddress,
+    data: {
+      jobTitle: job.title,
+      jobId,
+      milestoneIndex: index,
+      milestoneDescription: milestone.description,
+      amount: milestone.amount,
+      currency: job.currency,
+    },
+  });
 
   return { success: true, dispute: result.rows[0], milestone: milestones[index], milestones };
 }
@@ -661,4 +719,5 @@ module.exports = {
 
   verifyFreelancerAccount,
   ESCROW_TIMEOUT_DAYS,
+  normalizeMilestones,
 };

@@ -6,6 +6,7 @@ import { useTranslation } from "@/lib/i18n";
 import { POPULAR_SKILLS } from "@/utils/format";
 import clsx from "clsx";
 import { useState } from "react";
+import { createSavedSearch, fetchSavedSearches, type SavedSearch } from "@/lib/api";
 
 export interface JobFilterQuery {
   minBudget?: string;
@@ -83,6 +84,11 @@ export default function JobFiltersPanel({
   const { t } = useTranslation("common");
   const [open, setOpen] = useState(!collapsible);
   const [skillInput, setSkillInput] = useState(query.skills || "");
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [notifyInApp, setNotifyInApp] = useState(true);
+  const [notifyEmail, setNotifyEmail] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const selectedSkills = (query.skills || "")
     .split(",")
@@ -96,6 +102,39 @@ export default function JobFiltersPanel({
     const next = [...set].join(",");
     onQueryChange({ skills: next || undefined }, next ? undefined : ["skills"]);
   };
+
+  const handleSaveSearch = async () => {
+    setIsSaving(true);
+    setSaveError(null);
+    
+    try {
+      // Check if user has reached the limit
+      const existingSearches = await fetchSavedSearches();
+      if (existingSearches.length >= 10) {
+        setSaveError("You can save up to 10 searches. Please delete one first.");
+        setIsSaving(false);
+        return;
+      }
+
+      await createSavedSearch({
+        query_params: query,
+        notify_in_app: notifyInApp,
+        notify_email: notifyEmail,
+      });
+      
+      setShowSaveModal(false);
+      setNotifyInApp(true);
+      setNotifyEmail(false);
+    } catch (error) {
+      setSaveError("Failed to save search. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const hasActiveFilters = Object.values(query).some(
+    (value) => value !== undefined && value !== ""
+  );
 
   const panel = (
     <div className={clsx("space-y-5", className)}>
@@ -257,6 +296,16 @@ export default function JobFiltersPanel({
         </button>
       </div>
 
+      {hasActiveFilters && (
+        <button
+          type="button"
+          onClick={() => setShowSaveModal(true)}
+          className="btn-primary text-sm w-full"
+        >
+          Save Search
+        </button>
+      )}
+
       <button
         type="button"
         onClick={() => {
@@ -282,22 +331,139 @@ export default function JobFiltersPanel({
   );
 
   if (!collapsible) {
-    return panel;
+    return (
+      <>
+        {panel}
+        {showSaveModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-market-900 border border-amber-900/30 rounded-lg p-6 max-w-md w-full mx-4">
+              <h3 className="text-lg font-semibold text-amber-100 mb-4">Save Search</h3>
+              
+              <div className="space-y-3 mb-4">
+                <label className="flex items-center gap-2 text-sm text-amber-100">
+                  <input
+                    type="checkbox"
+                    checked={notifyInApp}
+                    onChange={(e) => setNotifyInApp(e.target.checked)}
+                    className="rounded border-amber-900/30 bg-market-800"
+                  />
+                  Notify me in-app when new jobs match
+                </label>
+                
+                <label className="flex items-center gap-2 text-sm text-amber-100">
+                  <input
+                    type="checkbox"
+                    checked={notifyEmail}
+                    onChange={(e) => setNotifyEmail(e.target.checked)}
+                    className="rounded border-amber-900/30 bg-market-800"
+                  />
+                  Send me email notifications
+                </label>
+              </div>
+
+              {saveError && (
+                <p className="text-red-400 text-sm mb-4">{saveError}</p>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSaveModal(false);
+                    setSaveError(null);
+                  }}
+                  className="flex-1 btn-secondary text-sm"
+                  disabled={isSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSearch}
+                  className="flex-1 btn-primary text-sm"
+                  disabled={isSaving}
+                >
+                  {isSaving ? "Saving..." : "Save Search"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
   }
 
   return (
-    <div className="lg:hidden mb-4">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="btn-secondary text-sm w-full flex justify-between items-center"
-        aria-expanded={open}
-      >
-        <span>{t("jobs.filters")}</span>
-        <span>{open ? t("jobs.hideFilters") : t("jobs.showFilters")}</span>
-      </button>
-      {open && <div className="mt-4 card p-4">{panel}</div>}
-    </div>
+    <>
+      <div className="lg:hidden mb-4">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="btn-secondary text-sm w-full flex justify-between items-center"
+          aria-expanded={open}
+        >
+          <span>{t("jobs.filters")}</span>
+          <span>{open ? t("jobs.hideFilters") : t("jobs.showFilters")}</span>
+        </button>
+        {open && <div className="mt-4 card p-4">{panel}</div>}
+      </div>
+
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-market-900 border border-amber-900/30 rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-amber-100 mb-4">Save Search</h3>
+            
+            <div className="space-y-3 mb-4">
+              <label className="flex items-center gap-2 text-sm text-amber-100">
+                <input
+                  type="checkbox"
+                  checked={notifyInApp}
+                  onChange={(e) => setNotifyInApp(e.target.checked)}
+                  className="rounded border-amber-900/30 bg-market-800"
+                />
+                Notify me in-app when new jobs match
+              </label>
+              
+              <label className="flex items-center gap-2 text-sm text-amber-100">
+                <input
+                  type="checkbox"
+                  checked={notifyEmail}
+                  onChange={(e) => setNotifyEmail(e.target.checked)}
+                  className="rounded border-amber-900/30 bg-market-800"
+                />
+                Send me email notifications
+              </label>
+            </div>
+
+            {saveError && (
+              <p className="text-red-400 text-sm mb-4">{saveError}</p>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSaveModal(false);
+                  setSaveError(null);
+                }}
+                className="flex-1 btn-secondary text-sm"
+                disabled={isSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSearch}
+                className="flex-1 btn-primary text-sm"
+                disabled={isSaving}
+              >
+                {isSaving ? "Saving..." : "Save Search"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

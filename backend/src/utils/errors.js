@@ -2,7 +2,7 @@
  * src/utils/errors.js
  * Centralized error codes and factory helper for structured API error responses.
  *
- * Response shape: { error: { code, message, details? } }
+ * Response shape: { error: string, code?: string, details?: object }
  */
 "use strict";
 
@@ -105,19 +105,12 @@ function structuredErrorHandler(err, req, res, next) {
                              : ErrorCodes.INTERNAL_SERVER_ERROR);
 
   const body = {
-    error: {
-      code,
-      message: err.message || "Internal server error",
-    },
+    error: err.message || "Internal server error",
+    code,
   };
 
   if (err.details !== undefined) {
-    body.error.details = err.details;
-  }
-
-  // Don't leak stack traces in production
-  if (process.env.NODE_ENV !== "production" && err.stack) {
-    body.error._stack = err.stack;
+    body.details = err.details;
   }
 
   res.status(status).json(body);
