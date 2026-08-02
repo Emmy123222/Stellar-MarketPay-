@@ -1,23 +1,35 @@
 import {
-  Horizon, Networks, Asset, Operation, TransactionBuilder, Transaction,
-  Contract, nativeToScVal, Address, BASE_FEE, Memo,
+  Horizon,
+  Networks,
+  Asset,
+  Operation,
+  TransactionBuilder,
+  Transaction,
+  Contract,
+  nativeToScVal,
+  Address,
+  BASE_FEE,
+  Memo,
 } from "@stellar/stellar-sdk";
 import { SorobanRpc } from "@stellar/stellar-sdk";
 import { fetchGasEstimateSafe, tierToTransactionFee } from "./sorobanFees";
 
-const NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as "testnet" | "mainnet";
-const HORIZON_URL = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
+const NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as
+  | "testnet"
+  | "mainnet";
+const HORIZON_URL =
+  process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
 const SOROBAN_RPC_URL =
   process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ||
   (NETWORK === "mainnet"
     ? "https://soroban-mainnet.stellar.org"
     : "https://soroban-testnet.stellar.org");
-const USE_CONTRACT_MOCK =
-  process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
+const USE_CONTRACT_MOCK = process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
 const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "";
 const NETWORK_NAME = NETWORK;
 
-export const NETWORK_PASSPHRASE = NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
+export const NETWORK_PASSPHRASE =
+  NETWORK === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;
 export const server = new Horizon.Server(HORIZON_URL, {
   allowHttp: SOROBAN_RPC_URL.startsWith("http://"),
 });
@@ -37,6 +49,7 @@ export interface EscrowParams {
   jobId: string;
   budget?: number;
   budgetXlm?: number;
+  currency?: string;
 }
 
 export interface EscrowResult {
@@ -85,15 +98,21 @@ async function getFreighter() {
 
 export type StreamedTransaction = { id: string };
 
-export async function connectWallet(): Promise<{ publicKey: string; network: "mainnet" | "testnet" }> {
+export async function connectWallet(): Promise<{
+  publicKey: string;
+  network: "mainnet" | "testnet";
+}> {
   if (typeof window === "undefined") {
     throw new Error("connectWallet is only available in the browser.");
   }
-  const { isConnected, getPublicKey, getNetworkDetails } = await import("@stellar/freighter-api");
+  const { isConnected, getPublicKey, getNetworkDetails } =
+    await import("@stellar/freighter-api");
 
   const connected = await isConnected();
   if (!connected) {
-    throw new Error("Freighter wallet not found. Please install the Freighter extension.");
+    throw new Error(
+      "Freighter wallet not found. Please install the Freighter extension.",
+    );
   }
 
   const publicKey = await getPublicKey();
@@ -104,7 +123,10 @@ export async function connectWallet(): Promise<{ publicKey: string; network: "ma
   let network: "mainnet" | "testnet" = "testnet";
   try {
     const details = await getNetworkDetails();
-    if ((details as { networkPassphrase?: string })?.networkPassphrase === "Public Global Stellar Network ; September 2015") {
+    if (
+      (details as { networkPassphrase?: string })?.networkPassphrase ===
+      "Public Global Stellar Network ; September 2015"
+    ) {
       network = "mainnet";
     }
   } catch {
@@ -116,7 +138,7 @@ export async function connectWallet(): Promise<{ publicKey: string; network: "ma
 
 export function streamAccountTransactions(
   publicKey: string,
-  onTransaction: (transaction: StreamedTransaction) => void
+  onTransaction: (transaction: StreamedTransaction) => void,
 ): () => void {
   const closeStream = server
     .transactions()
@@ -203,9 +225,12 @@ export async function signAndSubmitEscrowTx(
     networkPassphrase: NETWORK_PASSPHRASE,
   });
   const signedTransaction =
-    typeof signResult === "object" && signResult !== null && "signedTransaction" in signResult
-      ? (signResult as unknown as { signedTransaction: string }).signedTransaction
-      : signResult as unknown as string;
+    typeof signResult === "object" &&
+    signResult !== null &&
+    "signedTransaction" in signResult
+      ? (signResult as unknown as { signedTransaction: string })
+          .signedTransaction
+      : (signResult as unknown as string);
 
   const server = new SorobanRpc.Server(SOROBAN_RPC_URL, {
     allowHttp: false,
@@ -275,7 +300,6 @@ export async function createEscrowOnChain(
 
 export { getUsdcContractId, USDC_CONTRACT_BY_NETWORK } from "./config/tokens";
 
-
 // ---------------------------------------------------------------------------
 // On-chain Message Notarization
 // ---------------------------------------------------------------------------
@@ -329,16 +353,17 @@ export async function buildPublishMessageTx(
   return assembledTx.toXDR();
 }
 
-async function signAndSubmitToSoroban(
-  preparedXdr: string,
-): Promise<string> {
+async function signAndSubmitToSoroban(preparedXdr: string): Promise<string> {
   const { signTransaction } = await getFreighter();
 
   const signResult = await signTransaction(preparedXdr, {
     network: "TESTNET",
     networkPassphrase: NETWORK_PASSPHRASE,
   });
-  const signedTransaction = typeof signResult === "string" ? signResult : (signResult as any).signedTransaction;
+  const signedTransaction =
+    typeof signResult === "string"
+      ? signResult
+      : (signResult as any).signedTransaction;
 
   const sendResponse = await sorobanServer.sendTransaction(
     (() => {
@@ -390,12 +415,12 @@ export async function publishMessageOnChain(
 export async function getXLMBalance(publicKey: string): Promise<string> {
   try {
     const res = await fetch(
-      `${HORIZON_URL}/accounts/${encodeURIComponent(publicKey)}`
+      `${HORIZON_URL}/accounts/${encodeURIComponent(publicKey)}`,
     );
     if (!res.ok) return "0";
     const data = await res.json();
     const native = (data.balances ?? []).find(
-      (b: { asset_type: string; balance: string }) => b.asset_type === "native"
+      (b: { asset_type: string; balance: string }) => b.asset_type === "native",
     );
     return native?.balance ?? "0";
   } catch {
@@ -414,60 +439,53 @@ export async function buildBoostJobTx({
   amountXlm: number;
   treasuryAddress: string;
 }): Promise<string> {
-  const [account, gasEstimate] = await Promise.all([
-    sorobanServer.getAccount(clientPublicKey),
-    fetchGasEstimateSafe(),
-  ]);
-
-  const inclusionFee = tierToTransactionFee(gasEstimate.fast);
-  const amountStroops = BigInt(Math.round(amountXlm * 10_000_000));
-
-  const contract = new Contract(CONTRACT_ID);
-  const callArgs = [
-    nativeToScVal(jobId, { type: "string" }),
-    Address.fromString(clientPublicKey).toScVal(),
-    Address.fromString(treasuryAddress).toScVal(),
-    nativeToScVal(amountStroops, { type: "i128" }),
-  ];
+  const account = await server.loadAccount(clientPublicKey);
 
   const tx = new TransactionBuilder(account, {
-    fee: inclusionFee,
+    fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
-    .addOperation(contract.call("boost_job", ...callArgs))
+    .addOperation(
+      Operation.payment({
+        destination: treasuryAddress,
+        asset: Asset.native(),
+        amount: amountXlm.toString(),
+      })
+    )
+    .addMemo(Memo.text(jobId.slice(0, 28)))
     .setTimeout(300)
     .build();
 
-  const simResponse = await sorobanServer.simulateTransaction(tx);
-  if (SorobanRpc.Api.isSimulationError(simResponse)) {
-    throw new Error(`Soroban simulation failed: ${simResponse.error}`);
-  }
-
-  return SorobanRpc.assembleTransaction(tx, simResponse).build().toXDR();
+  return tx.toXDR();
 }
 
 // ---------------------------------------------------------------------------
 // Build + sign + submit helpers for generic Soroban transactions
 // ---------------------------------------------------------------------------
 
-export async function signAndSubmitSorobanTx(xdrString: string): Promise<string> {
+export async function signAndSubmitSorobanTx(
+  xdrString: string,
+): Promise<string> {
   const { signTransaction } = await getFreighter();
 
   const signResult = await signTransaction(xdrString, {
     network: "TESTNET",
     networkPassphrase: NETWORK_PASSPHRASE,
   });
-  const signedTransaction = typeof signResult === "string" ? signResult : (signResult as any).signedTransaction;
+  const signedTransaction =
+    typeof signResult === "string"
+      ? signResult
+      : (signResult as any).signedTransaction;
 
   const server = sorobanServer;
   const { Transaction } = await import("@stellar/stellar-sdk");
   const sendResponse = await server.sendTransaction(
-    new Transaction(signedTransaction, NETWORK_PASSPHRASE)
+    new Transaction(signedTransaction, NETWORK_PASSPHRASE),
   );
 
   if (sendResponse.status === "ERROR") {
     throw new Error(
-      `Transaction submission failed: ${sendResponse.errorResult?.toXDR("base64") ?? "unknown"}`
+      `Transaction submission failed: ${sendResponse.errorResult?.toXDR("base64") ?? "unknown"}`,
     );
   }
 
@@ -480,13 +498,15 @@ export async function signAndSubmitSorobanTx(xdrString: string): Promise<string>
     }
     if (info.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
       throw new Error(
-        "The on-chain transaction failed. Open the explorer link to see details, or verify the escrow state matches this job."
+        "The on-chain transaction failed. Open the explorer link to see details, or verify the escrow state matches this job.",
       );
     }
     await new Promise((r) => setTimeout(r, 1000));
   }
 
-  throw new Error(`Transaction timed out after ${maxAttempts} attempts. Hash: ${hash}`);
+  throw new Error(
+    `Transaction timed out after ${maxAttempts} attempts. Hash: ${hash}`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -496,7 +516,7 @@ export async function signAndSubmitSorobanTx(xdrString: string): Promise<string>
 export async function buildReleaseEscrowTransaction(
   contractId: string,
   jobId: string,
-  clientPublicKey: string
+  clientPublicKey: string,
 ) {
   if (USE_CONTRACT_MOCK) {
     return { toXDR: () => "mock-prepared-xdr" };
@@ -513,8 +533,8 @@ export async function buildReleaseEscrowTransaction(
       contract.call(
         "release_escrow",
         nativeToScVal(jobId, { type: "string" }),
-        Address.fromString(clientPublicKey).toScVal()
-      )
+        Address.fromString(clientPublicKey).toScVal(),
+      ),
     )
     .setTimeout(300)
     .build();
@@ -530,7 +550,7 @@ export async function buildPartialReleaseTransaction(
   contractId: string,
   jobId: string,
   clientPublicKey: string,
-  milestoneIndex: number
+  milestoneIndex: number,
 ) {
   const server = sorobanServer;
   const account = await server.getAccount(clientPublicKey);
@@ -545,8 +565,8 @@ export async function buildPartialReleaseTransaction(
         "partial_release",
         nativeToScVal(jobId, { type: "string" }),
         nativeToScVal(milestoneIndex, { type: "u32" }),
-        Address.fromString(clientPublicKey).toScVal()
-      )
+        Address.fromString(clientPublicKey).toScVal(),
+      ),
     )
     .setTimeout(300)
     .build();
@@ -559,13 +579,59 @@ export async function buildPartialReleaseTransaction(
 }
 
 export async function submitSignedSorobanTransaction(
-  signedXDR: string
+  signedXDR: string,
 ): Promise<{ hash: string }> {
   if (USE_CONTRACT_MOCK) {
     return { hash: "mock-release-hash" };
   }
   const hash = await signAndSubmitSorobanTx(signedXDR);
   return { hash };
+}
+
+// ---------------------------------------------------------------------------
+// Mint proof-of-work certificate (used by jobs/[id].tsx after escrow release)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `mint_certificate(job_id, title, client)` Soroban transaction.
+ * Called by the client's wallet right after the escrow release so the
+ * freelancer receives an on-chain proof-of-work certificate. Mirrors
+ * `buildReleaseEscrowTransaction` (simulate → assemble → return the prepared
+ * transaction for the wallet to sign).
+ */
+export async function buildMintCertificateTx(
+  contractId: string,
+  jobId: string,
+  title: string,
+  clientPublicKey: string,
+) {
+  if (USE_CONTRACT_MOCK) {
+    return { toXDR: () => "mock-prepared-xdr" };
+  }
+  const server = sorobanServer;
+  const account = await server.getAccount(clientPublicKey);
+  const contract = new Contract(contractId);
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call(
+        "mint_certificate",
+        nativeToScVal(jobId, { type: "string" }),
+        nativeToScVal(title, { type: "string" }),
+        Address.fromString(clientPublicKey).toScVal(),
+      ),
+    )
+    .setTimeout(300)
+    .build();
+
+  const sim = await sorobanServer.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(sim)) {
+    throw new Error(`Simulation failed: ${sim.error}`);
+  }
+  return SorobanRpc.assembleTransaction(tx, sim).build();
 }
 
 async function simulateContractView(
@@ -578,15 +644,19 @@ async function simulateContractView(
   try {
     const contract = new Contract(contractId);
     const latestLedger = await sorobanServer.getLatestLedger();
-    const sourceAccount = await sorobanServer.getAccount(contractId).catch(() => null);
+    const sourceAccount = await sorobanServer
+      .getAccount(contractId)
+      .catch(() => null);
     const sourcePublicKey = sourceAccount
       ? contractId
       : "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
-    const account = sourceAccount || new (await import("@stellar/stellar-sdk")).Account(
-      sourcePublicKey,
-      latestLedger.sequence.toString(),
-    );
+    const account =
+      sourceAccount ||
+      new (await import("@stellar/stellar-sdk")).Account(
+        sourcePublicKey,
+        latestLedger.sequence.toString(),
+      );
 
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
@@ -630,12 +700,13 @@ export async function isContractFrozen(contractId: string) {
 
 export async function subscribeToContractEvents(
   contractId: string,
-  onEvent: (event: unknown) => void
+  onEvent: (event: unknown) => void,
 ) {
   return () => {};
 }
 
-export const XLM_SAC_ADDRESS = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+export const XLM_SAC_ADDRESS =
+  "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 export const USDC_SAC_ADDRESS = getUsdcContractId();
 
 export function accountUrl(publicKey: string): string {
@@ -658,7 +729,9 @@ export function isValidStellarAddress(address: string): boolean {
  * On failure, throws an error with a user-friendly message including
  * "Fund your wallet with at least 1 XLM to activate your account".
  */
-export async function verifyFreelancerAccount(freelancerAddress: string): Promise<boolean> {
+export async function verifyFreelancerAccount(
+  freelancerAddress: string,
+): Promise<boolean> {
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "";
   const res = await fetch(`${backendUrl}/api/escrow/verify-freelancer`, {
     method: "POST",
@@ -681,14 +754,51 @@ export async function verifyFreelancerAccount(freelancerAddress: string): Promis
 }
 
 export function explorerUrl(txHash: string): string {
-  const explorer = NETWORK_NAME === "mainnet"
-    ? "https://stellar.expert/explorer/public"
-    : "https://stellar.expert/explorer/testnet";
+  const explorer =
+    NETWORK_NAME === "mainnet"
+      ? "https://stellar.expert/explorer/public"
+      : "https://stellar.expert/explorer/testnet";
   return `${explorer}/tx/${txHash}`;
 }
 
+export interface DestinationAccountCheckResult {
+  exists: boolean;
+  minBalanceXlm?: string;
+  xlmBalance?: string;
+}
+
+export async function checkDestinationAccount(
+  publicKey: string,
+): Promise<DestinationAccountCheckResult> {
+  try {
+    const res = await fetch(
+      `${HORIZON_URL}/accounts/${encodeURIComponent(publicKey)}`,
+    );
+    if (!res.ok) {
+      if (res.status === 404) {
+        return { exists: false };
+      }
+      throw new Error(`Horizon responded with status ${res.status}`);
+    }
+    const data = await res.json();
+    const native = (data.balances ?? []).find(
+      (b: { asset_type: string; balance: string }) => b.asset_type === "native",
+    );
+    return {
+      exists: true,
+      xlmBalance: native?.balance,
+      minBalanceXlm:
+        typeof data.minimum_balance === "number"
+          ? (data.minimum_balance / 10_000_000).toFixed(7)
+          : undefined,
+    };
+  } catch {
+    return { exists: false };
+  }
+}
+
 export async function signTransactionWithWallet(
-  xdrString: string
+  xdrString: string,
 ): Promise<{ signedXDR: string | null; error: string | null }> {
   try {
     const { signTransaction } = await getFreighter();
@@ -696,10 +806,16 @@ export async function signTransactionWithWallet(
       network: "TESTNET",
       networkPassphrase: NETWORK_PASSPHRASE,
     });
-    const signedTransaction = typeof signResult === "string" ? signResult : (signResult as any).signedTransaction;
+    const signedTransaction =
+      typeof signResult === "string"
+        ? signResult
+        : (signResult as any).signedTransaction;
     return { signedXDR: signedTransaction, error: null };
   } catch (e) {
-    return { signedXDR: null, error: e instanceof Error ? e.message : "Signing failed" };
+    return {
+      signedXDR: null,
+      error: e instanceof Error ? e.message : "Signing failed",
+    };
   }
 }
 
@@ -717,28 +833,80 @@ export async function buildPaymentTransaction(params: BuildPaymentParams) {
   const tx = new TransactionBuilder(account, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      asset && asset !== "XLM"
-        ? Operation.payment({ destination: toPublicKey, asset: new Asset(asset, CONTRACT_ID), amount })
-        : Operation.payment({ destination: toPublicKey, asset: Asset.native(), amount })
-    );
+  }).addOperation(
+    asset && asset !== "XLM"
+      ? Operation.payment({
+          destination: toPublicKey,
+          asset: USDC,
+          amount,
+        })
+      : Operation.payment({
+          destination: toPublicKey,
+          asset: Asset.native(),
+          amount,
+        }),
+  );
   if (memo) {
     tx.addMemo(Memo.text(memo));
   }
   return tx.setTimeout(300).build();
 }
 
-export async function submitTransaction(signedXDR: string) {
+export interface SubmitPaymentResult {
+  hash: string;
+  successful: boolean;
+  ledger?: number;
+  resultXdr?: string;
+}
+
+export async function submitTransaction(
+  signedXDR: string,
+): Promise<SubmitPaymentResult> {
   const { Transaction } = await import("@stellar/stellar-sdk");
   const tx = new Transaction(signedXDR, NETWORK_PASSPHRASE);
-  return sorobanServer.sendTransaction(tx);
+
+  const sendRes = await server.submitTransaction(tx, {
+    skipMemoRequiredCheck: true,
+  });
+
+  if (!sendRes.successful) {
+    const resultCodes =
+      (sendRes as any).extras?.result_codes?.transaction ??
+      (sendRes as any).extras?.result_codes?.operations?.[0] ??
+      "op_underfunded";
+
+    let message = "Payment transaction failed.";
+    if (resultCodes === "tx_too_few_signers" || resultCodes === "op_bad_auth") {
+      message =
+        "Transaction was not signed correctly. Please try signing again.";
+    } else if (
+      resultCodes === "op_underfunded" ||
+      resultCodes === "tx_insufficient_balance"
+    ) {
+      message =
+        "Insufficient XLM balance. Remember to leave at least 1 XLM for the minimum balance requirement.";
+    } else if (resultCodes === "op_no_destination") {
+      message =
+        "Destination account does not exist. The recipient must first activate their account by funding it with at least 1 XLM.";
+    } else if (resultCodes === "op_src_not_found") {
+      message = "Source account not found.";
+    }
+    throw new Error(message);
+  }
+
+  const hash = sendRes.hash ?? tx.hash().toString("hex");
+  return {
+    hash,
+    successful: true,
+    ledger: sendRes.ledger,
+    resultXdr: sendRes.result_xdr,
+  };
 }
 
 export async function fetchMarketPayTransactions(
   publicKey: string,
   limit?: number,
-  cursor?: string
+  cursor?: string,
 ): Promise<FetchTransactionsResponse> {
   const url = `${HORIZON_URL}/accounts/${publicKey}/transactions${cursor ? `?cursor=${cursor}` : ""}${limit ? `${cursor ? "&" : "?"}limit=${limit}` : ""}`;
   const res = await fetch(url);
