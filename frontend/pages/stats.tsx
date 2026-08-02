@@ -29,7 +29,22 @@ interface Category {
   avg_budget: number;
 }
 
+interface Contributor {
+  public_key: string | null;
+  name: string;
+  avatar_url: string | null;
+  profile_url: string | null;
+  score: number;
+  jobs_completed: number;
+  xlm_transacted: number;
+  github_prs: number;
+  badge: "Gold" | "Silver" | "Bronze";
+  rank: number;
+}
+
 export default function StatsPage() {
+  const [contributors, setContributors] = useState<Contributor[]>([]);
+  const [contributorsLoading, setContributorsLoading] = useState(true);
   const [stats, setStats] = useState<Stats | null>(null);
   const [jobTrends, setJobTrends] = useState<Trend[]>([]);
   const [escrowTrends, setEscrowTrends] = useState<Trend[]>([]);
@@ -61,6 +76,21 @@ export default function StatsPage() {
     // Refresh stats every 5 minutes (stats do not need to be real-time).
     const interval = setInterval(loadStats, 5 * 60 * 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Fetch contributors separately
+  useEffect(() => {
+    const loadContributors = async () => {
+      try {
+        const res = await axios.get("/api/contributors");
+        setContributors(res.data.data || []);
+      } catch (error) {
+        console.error("Failed to load contributors:", error);
+      } finally {
+        setContributorsLoading(false);
+      }
+    };
+    loadContributors();
   }, []);
 
   if (loading) {
@@ -185,6 +215,131 @@ export default function StatsPage() {
                 </table>
               </div>
             )}
+          </div>
+
+          {/* ── Contributor Leaderboard (Issue #844) ── */}
+          <div className="bg-white dark:bg-ink-800 rounded-lg shadow dark:shadow-none dark:border dark:border-market-500/10 p-6 mt-8">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-amber-100">
+                🏆 Contributor Leaderboard
+              </h2>
+              <span className="text-xs text-gray-500 dark:text-amber-700 bg-gray-100 dark:bg-ink-700 px-3 py-1 rounded-full">
+                Updated hourly
+              </span>
+            </div>
+            <p className="text-gray-600 dark:text-amber-700 mb-6 text-sm">
+              Top contributors ranked by contribution score — a blend of jobs completed, XLM transacted, and GitHub PRs.
+            </p>
+
+            {contributorsLoading ? (
+              <div className="text-center py-8">
+                <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-amber-500"></div>
+                <p className="mt-3 text-sm text-gray-500 dark:text-amber-700">Loading leaderboard…</p>
+              </div>
+            ) : contributors.length === 0 ? (
+              <div className="text-center py-8 text-gray-500 dark:text-amber-700">
+                No contributors yet. Be the first!
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {contributors.map((c) => (
+                  <div
+                    key={c.public_key || c.name}
+                    className="flex items-center gap-4 p-3 rounded-lg transition-colors hover:bg-gray-50 dark:hover:bg-ink-700 group"
+                  >
+                    {/* Rank + Badge */}
+                    <div className="flex-shrink-0 w-10 text-center">
+                      {c.badge === "Gold" && (
+                        <span className="text-xl" title="Gold">🥇</span>
+                      )}
+                      {c.badge === "Silver" && (
+                        <span className="text-xl" title="Silver">🥈</span>
+                      )}
+                      {c.badge === "Bronze" && (
+                        <span className="text-xl" title="Bronze">🥉</span>
+                      )}
+                      <div className="text-xs text-gray-400 dark:text-amber-700 font-mono mt-0.5">
+                        #{c.rank}
+                      </div>
+                    </div>
+
+                    {/* Avatar */}
+                    <div className="flex-shrink-0">
+                      {c.avatar_url ? (
+                        <img
+                          src={c.avatar_url}
+                          alt={c.name}
+                          className="w-10 h-10 rounded-full ring-2 ring-gray-200 dark:ring-market-500/20 object-cover"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white font-bold text-sm ring-2 ring-gray-200 dark:ring-market-500/20">
+                          {c.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Name + Score */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-gray-900 dark:text-amber-100 truncate">
+                          {c.name}
+                        </span>
+                        <span
+                          className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                            c.badge === "Gold"
+                              ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300"
+                              : c.badge === "Silver"
+                              ? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                              : "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
+                          }`}
+                        >
+                          {c.badge}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-amber-700">
+                        <span>Score: <strong className="text-gray-900 dark:text-amber-100">{c.score.toLocaleString()}</strong></span>
+                        {c.jobs_completed > 0 && <span>• {c.jobs_completed} jobs</span>}
+                        {c.xlm_transacted > 0 && <span>• {c.xlm_transacted.toFixed(0)} XLM</span>}
+                        {c.github_prs > 0 && <span>• {c.github_prs} PRs</span>}
+                      </div>
+                    </div>
+
+                    {/* Score bar */}
+                    <div className="hidden sm:block w-24">
+                      <div className="h-1.5 bg-gray-200 dark:bg-ink-700 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            c.badge === "Gold"
+                              ? "bg-gradient-to-r from-yellow-400 to-yellow-500"
+                              : c.badge === "Silver"
+                              ? "bg-gradient-to-r from-gray-300 to-gray-400"
+                              : "bg-gradient-to-r from-amber-500 to-amber-600"
+                          }`}
+                          style={{
+                            width: `${Math.min(
+                              (c.score / (contributors[0]?.score || 1)) * 100,
+                              100
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Score formula footnote */}
+            <details className="mt-6 text-xs text-gray-400 dark:text-amber-700">
+              <summary className="cursor-pointer hover:text-gray-600 dark:hover:text-amber-500">
+                How is the score calculated?
+              </summary>
+              <p className="mt-2 leading-relaxed">
+                <strong>Contribution Score</strong> = (jobs_completed × 10) + (XLM transacted / 100) + (GitHub PRs × 5).
+                Data refreshes from the database and GitHub API every hour.
+                🥇 Gold = rank 1–3, 🥈 Silver = rank 4–10, 🥉 Bronze = rank 11–50.
+              </p>
+            </details>
           </div>
         </div>
       </div>
