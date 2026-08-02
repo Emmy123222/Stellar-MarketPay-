@@ -181,9 +181,6 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const [actionError, setActionError] = useState<string | null>(null);
   const [releasingEscrow, setReleasingEscrow] = useState(false);
   const [releaseSuccess, setReleaseSuccess] = useState(false);
-  const [mintingCertificate, setMintingCertificate] = useState(false);
-  const [certificateMinted, setCertificateMinted] = useState(false);
-  const [certificateError, setCertificateError] = useState<string | null>(null);
   const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [prefillData, setPrefillData] = useState<any>(null);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
@@ -801,13 +798,13 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
             <ConfirmDialog
               open={showReleaseConfirm}
               title="Release Escrow"
-              description={`This will release ${job?.budget || "the"} escrowed funds to the freelancer. This on-chain action is irreversible.`}
-              actionDetails={job?.freelancerAddress ? `Freelancer: ${job.freelancerAddress.slice(0, 8)}...${job.freelancerAddress.slice(-4)}` : undefined}
+              description="This will release all escrowed funds to the freelancer. This is an irreversible on-chain action."
+              confirmLabel="Yes, Release Escrow"
+              variant="danger"
               requireTypedConfirm
-              onConfirm={async () => {
-                await handleReleaseEscrow();
-                setShowReleaseConfirm(false);
-              }}
+              typedConfirmText="CONFIRM"
+              actionDetails={`Job: ${job?.title || ""} · Amount: ${job?.budget || ""} ${job?.currency || ""}`}
+              onConfirm={handleReleaseEscrow}
               onCancel={() => setShowReleaseConfirm(false)}
               loading={releasingEscrow}
             />
