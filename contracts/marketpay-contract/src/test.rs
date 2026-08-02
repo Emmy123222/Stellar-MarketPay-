@@ -204,3 +204,113 @@ fn test_refund_escrow_timeout_not_elapsed_error() {
     // Timeout refund should panic because the timeout hasn't elapsed
     contract.timeout_refund(&job_id, &client);
 }
+
+// ─── Job completion certificates (proof-of-work NFTs) ───────────────────────
+
+#[test]
+fn test_mint_certificate_happy_path() {
+    let env = Env::default();
+    let (contract, _admin, client, freelancer, token_id) = setup(&env);
+
+    let job_id = String::from_str(&env, "job1");
+    let title = String::from_str(&env, "Build a dApp");
+    let params = CreateEscrowParams {
+        freelancer: freelancer.clone(),
+        token: token_id.clone(),
+        amount: 1000,
+        milestones: None,
+        timeout_ledgers: None,
+        referrer: None,
+    };
+
+    contract.create_escrow(&job_id, &client, &params);
+    contract.start_work(&job_id, &freelancer);
+    contract.release_escrow(&job_id, &client);
+
+    contract.mint_certificate(&job_id, &title, &client);
+
+    let cert = contract.get_certificate(&job_id);
+    assert_eq!(cert.job_id, job_id);
+    assert_eq!(cert.title, title);
+    assert_eq!(cert.client, client);
+    assert_eq!(cert.freelancer, freelancer);
+    assert_eq!(cert.amount, 1000);
+
+    let freelancer_certs = contract.get_freelancer_certificates(&freelancer);
+    assert_eq!(freelancer_certs.len(), 1);
+    assert_eq!(freelancer_certs.get(0).unwrap(), job_id);
+}
+
+#[test]
+#[should_panic(expected = "Escrow must be released to mint certificate")]
+fn test_mint_certificate_before_release_panics() {
+    let env = Env::default();
+    let (contract, _admin, client, freelancer, token_id) = setup(&env);
+
+    let job_id = String::from_str(&env, "job1");
+    let title = String::from_str(&env, "Build a dApp");
+    let params = CreateEscrowParams {
+        freelancer: freelancer.clone(),
+        token: token_id.clone(),
+        amount: 1000,
+        milestones: None,
+        timeout_ledgers: None,
+        referrer: None,
+    };
+
+    contract.create_escrow(&job_id, &client, &params);
+    contract.start_work(&job_id, &freelancer);
+    // Escrow is InProgress — minting must panic until released
+    contract.mint_certificate(&job_id, &title, &client);
+}
+
+#[test]
+#[should_panic(expected = "Only the escrow client can mint the certificate")]
+fn test_mint_certificate_non_client_panics() {
+    let env = Env::default();
+    let (contract, _admin, client, freelancer, token_id) = setup(&env);
+
+    let job_id = String::from_str(&env, "job1");
+    let title = String::from_str(&env, "Build a dApp");
+    let params = CreateEscrowParams {
+        freelancer: freelancer.clone(),
+        token: token_id.clone(),
+        amount: 1000,
+        milestones: None,
+        timeout_ledgers: None,
+        referrer: None,
+    };
+
+    contract.create_escrow(&job_id, &client, &params);
+    contract.start_work(&job_id, &freelancer);
+    contract.release_escrow(&job_id, &client);
+
+    // A third party (not the escrow client) must not be able to mint.
+    let stranger = Address::generate(&env);
+    contract.mint_certificate(&job_id, &title, &stranger);
+}
+
+#[test]
+#[should_panic(expected = "Certificate already minted")]
+fn test_mint_certificate_double_mint_panics() {
+    let env = Env::default();
+    let (contract, _admin, client, freelancer, token_id) = setup(&env);
+
+    let job_id = String::from_str(&env, "job1");
+    let title = String::from_str(&env, "Build a dApp");
+    let params = CreateEscrowParams {
+        freelancer: freelancer.clone(),
+        token: token_id.clone(),
+        amount: 1000,
+        milestones: None,
+        timeout_ledgers: None,
+        referrer: None,
+    };
+
+    contract.create_escrow(&job_id, &client, &params);
+    contract.start_work(&job_id, &freelancer);
+    contract.release_escrow(&job_id, &client);
+
+    contract.mint_certificate(&job_id, &title, &client);
+    contract.mint_certificate(&job_id, &title, &client);
+}

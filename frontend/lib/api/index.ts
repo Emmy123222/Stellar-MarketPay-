@@ -30,6 +30,7 @@ export * from "./notifications";
 export * from "./disputes";
 export * from "./developer";
 export * from "./certificates";
+export * from "./nft";
 export * from "./referrals";
 export * from "./savedSearches";
 export * from "./invitations";
