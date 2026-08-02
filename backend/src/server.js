@@ -67,7 +67,8 @@ const priceAlertRoutes     = require("./routes/priceAlerts");
 const nftRoutes            = require("./routes/nft");
 
 const pool            = require("./db/pool");
-const { migrate, getCurrentMigrationVersion, getExpectedMigrationVersion, validateMigrationVersion } = require("./db/migrate");
+const { connectWithRetry } = require("./db/pool");
+const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
@@ -668,6 +669,7 @@ wsServer.on("connection", async (ws, request) => {
 
 async function bootstrap() {
   try {
+  await connectWithRetry();
   await migrate();
 
   // Validate that the database is at the expected migration version
