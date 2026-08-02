@@ -1,5 +1,6 @@
 import TimeTracker from "@/components/TimeTracker";
 import FeeEstimationModal from "@/components/FeeEstimationModal";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
@@ -9,6 +10,7 @@ import ApplicationForm from "@/components/ApplicationForm";
 import WalletConnect from "@/components/WalletConnect";
 import RatingForm from "@/components/RatingForm";
 import ShareJobModal from "@/components/ShareJobModal";
+import { usePriceContext } from "@/contexts/PriceContext";
 import {
   fetchJob,
   fetchApplications,
@@ -16,6 +18,8 @@ import {
   releaseEscrow,
   raiseDispute,
   inviteFreelancer,
+  mintCompletionCertificate,
+  fetchNftCertificateByJob,
 } from "@/lib/api";
 import {
   formatXLM,
@@ -24,10 +28,12 @@ import {
   shortenAddress,
   statusLabel,
   statusClass,
+  formatUSDEquivalent,
 } from "@/utils/format";
 import {
   accountUrl,
   buildReleaseEscrowTransaction,
+  buildMintCertificateTx,
   submitSignedSorobanTransaction,
   buildPartialReleaseTransaction,
 } from "@/lib/stellar";
@@ -161,6 +167,7 @@ function Spinner() {
 }
 
 export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: JobDetailProps) {
+  const { xlmPriceUsd } = usePriceContext();
   const router = useRouter();
   const jobId = typeof router.query.id === "string" ? router.query.id : null;
 
@@ -174,6 +181,10 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const [actionError, setActionError] = useState<string | null>(null);
   const [releasingEscrow, setReleasingEscrow] = useState(false);
   const [releaseSuccess, setReleaseSuccess] = useState(false);
+  const [mintingCertificate, setMintingCertificate] = useState(false);
+  const [certificateMinted, setCertificateMinted] = useState(false);
+  const [certificateError, setCertificateError] = useState<string | null>(null);
+  const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [prefillData, setPrefillData] = useState<any>(null);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
@@ -197,6 +208,25 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
   const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
   const hasApplied = optimisticallyApplied || applications.some((a) => a.freelancerAddress === publicKey);
+
+  // ── fetchApplications wrapper for useRealtimeBids ────────────────────────
+  const fetchAppsForJob = useCallback(async (): Promise<Application[]> => {
+    if (!jobId) return [];
+    try {
+      return await fetchApplications(jobId);
+    } catch {
+      return [];
+    }
+  }, [jobId]);
+
+  // ── Real-time bids via useRealtimeBids ───────────────────────────────────
+  const {
+    applications: realtimeApplications,
+  } = useRealtimeBids({
+    jobId: jobId ?? "",
+    initialApplications: applications,
+    fetchApplications: fetchAppsForJob,
+  });
 
   useEffect(() => {
     if (!jobId || !router.isReady) return;
@@ -260,10 +290,56 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
       const refreshedJob = await fetchJob(job.id);
       setJob(refreshedJob);
       setReleaseSuccess(true);
+
+      // AC: After escrow release, mint a proof-of-work NFT certificate for
+      // the freelancer. The client signs the mint transaction with their
+      // wallet (the contract requires client auth), then the backend records
+      // it so it can be rendered and shared via URL.
+      await handleMintCertificate();
     } catch (error: unknown) {
       setActionError(error instanceof Error ? error.message : "Could not complete escrow release.");
     } finally {
       setReleasingEscrow(false);
+    }
+  };
+
+  /**
+   * Build + sign + submit the on-chain `mint_certificate` Soroban call and
+   * record the certificate in the backend. Safe to call standalone (retry)
+   * or chained after a successful escrow release.
+   */
+  const handleMintCertificate = async () => {
+    if (!publicKey || !job) return;
+    if (!job.escrowContractId) {
+      setCertificateError("This job has no escrow contract ID, so a certificate cannot be minted.");
+      return;
+    }
+
+    setMintingCertificate(true);
+    setCertificateError(null);
+
+    try {
+      const prepared = await buildMintCertificateTx(job.escrowContractId, job.id, job.title, publicKey);
+      const { signedXDR, error: signError } = await signTransactionWithWallet(prepared.toXDR());
+
+      if (signError || !signedXDR) {
+        setCertificateError(signError || "Signing was cancelled.");
+        return;
+      }
+
+      const { hash } = await submitSignedSorobanTransaction(signedXDR);
+      await mintCompletionCertificate({
+        jobId: job.id,
+        clientAddress: publicKey,
+        contractTxHash: hash,
+      });
+      setCertificateMinted(true);
+    } catch (error: unknown) {
+      setCertificateError(
+        error instanceof Error ? error.message : "Could not mint the completion certificate.",
+      );
+    } finally {
+      setMintingCertificate(false);
     }
   };
 
@@ -306,6 +382,24 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
     }
   };
 
+  // On load, if the job is already completed, check whether a certificate was
+  // previously minted so returning visitors see the shareable link instead of
+  // a (client-only) mint button.
+  useEffect(() => {
+    if (!jobId || !job || job.status !== "completed") return;
+    let cancelled = false;
+    fetchNftCertificateByJob(jobId)
+      .then(() => {
+        if (!cancelled) setCertificateMinted(true);
+      })
+      .catch(() => {
+        // No certificate yet (404) or backend unavailable — treat as unminted.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId, job?.status]);
+
   const handleInviteFreelancer = async () => {
     if (!publicKey || !job) return;
     if (!inviteFreelancerAddress || !/^G[A-Z0-9]{55}$/.test(inviteFreelancerAddress)) {
@@ -327,7 +421,10 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
     }
   };
 
-  const handleConfirmTimeoutRefundFee = () => {
+  const handleConfirmTimeoutRefundFee = (_details: { maxFeeMultiplier: number; maxFeeStroops: bigint }) => {
+    console.debug(
+      `[FeeEstimationModal] User confirmed with maxFeeMultiplier=${_details.maxFeeMultiplier}, maxFeeStroops=${_details.maxFeeStroops.toString()}`
+    );
     setPendingTimeoutRefund(null);
   };
 
@@ -518,13 +615,18 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
                 <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex flex-wrap gap-3 text-xs sm:text-sm text-amber-700">
                     <span>Posted {timeAgo(job.createdAt)}</span>
-                    <span>{applications.length} application{applications.length === 1 ? "" : "s"}</span>
+                    <span>{realtimeApplications.length} application{realtimeApplications.length === 1 ? "" : "s"}</span>
                     {job.deadline && <span>Deadline: {formatDate(job.deadline)}</span>}
                   </div>
 
                   <div className="sm:text-right">
                     <p className="text-xs text-amber-800 mb-1">Budget</p>
                     <p className="font-mono font-bold text-xl sm:text-2xl text-market-400">{formatXLM(job.budget)} {job.currency}</p>
+                    {xlmPriceUsd !== null && (
+                      <p className="text-xs text-amber-700 mt-1">
+                        {formatUSDEquivalent(job.budget, xlmPriceUsd)}
+                      </p>
+                    )}
                     <a
                       href={accountUrl(job.clientAddress)}
                       target="_blank"
@@ -594,51 +696,16 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
           <TimeTracker jobId={job.id} isFreelancer={isFreelancer} isClient={isClient} />
         )}
 
-        {/* ── Applications list (client only) ── */}
-        {isClient && applications.length > 0 && (
+        {/* ── Applications list (client only, real-time via RealtimeBidComparison) ── */}
+        {isClient && (
           <div className="mb-6">
-            <h2 className="font-display text-xl font-bold text-amber-100 mb-4">
-              Applications ({applications.length})
-            </h2>
-
-            <div className="space-y-4">
-              {applications.map((application) => (
-                <div key={application.id} className="card">
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-3">
-                    <a
-                      href={accountUrl(application.freelancerAddress)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="address-tag hover:border-market-500/40 transition-colors break-all text-xs"
-                    >
-                      {shortenAddress(application.freelancerAddress)} ↗
-                    </a>
-
-                    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                      <span className="font-mono text-market-400 font-semibold text-xs sm:text-sm whitespace-nowrap">
-                        {formatXLM(application.bidAmount)}
-                      </span>
-                      <span className={`text-xs px-2.5 py-1 rounded-full border flex-shrink-0 ${badgeClass(application.status)}`}>
-                        {application.status}
-                      </span>
-                    </div>
-                  </div>
-
-                  <p className="text-amber-700/80 text-xs sm:text-sm leading-relaxed mb-4 break-words">
-                    {application.proposal}
-                  </p>
-
-                  {application.status === "pending" && job.status === "open" && (
-                    <button
-                      onClick={() => handleAcceptApplication(application.id)}
-                      className="btn-secondary text-xs sm:text-sm py-2 px-4 min-h-[44px] flex items-center w-full sm:w-auto"
-                    >
-                      Accept Proposal
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
+            <RealtimeBidComparison
+              jobId={job.id}
+              initialApplications={applications}
+              isClient={isClient}
+              fetchApplications={fetchAppsForJob}
+              onAcceptApplication={handleAcceptApplication}
+            />
           </div>
         )}
 
@@ -724,12 +791,26 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
             </h2>
 
             <button
-              onClick={handleReleaseEscrow}
+              onClick={() => setShowReleaseConfirm(true)}
               disabled={releasingEscrow}
               className="btn-primary w-full sm:w-auto"
             >
               {releasingEscrow ? "Releasing..." : "Release Escrow"}
             </button>
+
+            <ConfirmDialog
+              open={showReleaseConfirm}
+              title="Release Escrow"
+              description={`This will release ${job?.budget || "the"} escrowed funds to the freelancer. This on-chain action is irreversible.`}
+              actionDetails={job?.freelancerAddress ? `Freelancer: ${job.freelancerAddress.slice(0, 8)}...${job.freelancerAddress.slice(-4)}` : undefined}
+              requireTypedConfirm
+              onConfirm={async () => {
+                await handleReleaseEscrow();
+                setShowReleaseConfirm(false);
+              }}
+              onCancel={() => setShowReleaseConfirm(false)}
+              loading={releasingEscrow}
+            />
 
             {releaseSuccess && (
               <p className="mt-3 text-emerald-400 text-sm">Escrow released successfully.</p>
@@ -739,6 +820,60 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
 
         {actionError && (
           <p className="mt-3 mb-6 text-red-400 text-sm">{actionError}</p>
+        )}
+
+        {/* ── Proof-of-work certificate (after completion) ── */}
+        {job.status === "completed" && publicKey && (
+          <div className="card mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl" aria-hidden="true">🏅</span>
+                <div>
+                  <h2 className="font-display text-lg sm:text-xl font-bold text-amber-100">
+                    Proof-of-Work Certificate
+                  </h2>
+                  <p className="text-xs text-amber-800 mt-0.5">
+                    Minted as an on-chain Soroban NFT to the freelancer when the escrow was released.
+                  </p>
+                </div>
+              </div>
+
+              {certificateMinted ? (
+                <Link
+                  href={`/certificates/job/${job.id}`}
+                  className="btn-primary text-sm whitespace-nowrap text-center"
+                >
+                  View Certificate ↗
+                </Link>
+              ) : isClient ? (
+                <button
+                  onClick={handleMintCertificate}
+                  disabled={mintingCertificate}
+                  className="btn-primary text-sm whitespace-nowrap"
+                >
+                  {mintingCertificate ? "Minting certificate…" : "Mint Certificate"}
+                </button>
+              ) : (
+                <p className="text-xs text-amber-800 text-right">
+                  The client mints the certificate when they release the escrow.
+                </p>
+              )}
+            </div>
+
+            {mintingCertificate && (
+              <p className="mt-3 text-market-400 text-sm flex items-center gap-2">
+                <Spinner /> Sign the mint transaction in your wallet to award the certificate…
+              </p>
+            )}
+            {certificateError && (
+              <p className="mt-3 text-red-400 text-sm">{certificateError}</p>
+            )}
+            {certificateMinted && (
+              <p className="mt-3 text-emerald-400 text-sm">
+                Certificate minted successfully — share it with anyone via its public URL.
+              </p>
+            )}
+          </div>
         )}
 
         {/* ── Rating form (after completion) ── */}

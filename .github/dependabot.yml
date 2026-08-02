@@ -1,25 +1,57 @@
 version: 2
 updates:
-  - package-ecosystem: npm
-    directory: /frontend
+  - package-ecosystem: "npm"
+    directory: "/frontend"
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 0
+      interval: "weekly"
+    assignees:
+      - "Emmy123222"
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
-  - package-ecosystem: npm
-    directory: /backend
+  - package-ecosystem: "npm"
+    directory: "/backend"
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 0
+      interval: "weekly"
+    assignees:
+      - "Emmy123222"
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
-  - package-ecosystem: cargo
-    directory: /contracts/marketpay-contract
+  - package-ecosystem: "cargo"
+    directory: "/contracts/marketpay-contract"
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 0
+      interval: "weekly"
+    assignees:
+      - "Emmy123222"
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
-  - package-ecosystem: github-actions
-    directory: /
+  - package-ecosystem: "cargo"
+    directory: "/contracts/arbitrator-registry"
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 0
+      interval: "weekly"
+    assignees:
+      - "Emmy123222"
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

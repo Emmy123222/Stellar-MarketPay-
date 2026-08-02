@@ -1,11 +1,12 @@
 /**
  * components/JobStatusTimeline.tsx
- * Visual stepper showing job lifecycle progression.
+ * Visual stepper showing job lifecycle progression with on-chain event anchoring (Issue #876).
  */
 import { useState } from "react";
 import { formatDate } from "@/utils/format";
+import { explorerUrl } from "@/lib/stellar";
 import { rejectMilestone } from "@/lib/api";
-import type { Job, JobStatus, JobMilestone } from "@/utils/types";
+import type { Job, JobStatus, JobMilestone, TimelineEvent } from "@/utils/types";
 
 interface JobStatusTimelineProps {
   job: Job;
@@ -18,6 +19,8 @@ interface JobStatusTimelineProps {
   clientAddress?: string;
   /** Called after a milestone is successfully rejected, to refresh the job. */
   onMilestoneRejected?: () => void;
+  /** On-chain timeline events (Issue #876). When provided, steps with txHash show a "View on Stellar Expert" link. */
+  timeline?: TimelineEvent[];
 }
 
 type StepState = "complete" | "current" | "upcoming" | "branch";
@@ -27,9 +30,19 @@ interface TimelineStep {
   label: string;
   date?: string;
   state: StepState;
+  txHash?: string | null;
 }
 
-function buildSteps(job: Job): { steps: TimelineStep[]; branch?: TimelineStep } {
+/**
+ * Resolve a timeline event's tx_hash for a given step id.
+ */
+function findTxHash(timeline: TimelineEvent[] | undefined, eventType: string): string | null {
+  if (!timeline) return null;
+  const event = timeline.find((e) => e.eventType === eventType);
+  return event?.txHash || null;
+}
+
+function buildSteps(job: Job, timeline?: TimelineEvent[]): { steps: TimelineStep[]; branch?: TimelineStep } {
   const hiredDate =
     job.freelancerAddress && job.status !== "open" ? job.updatedAt : undefined;
   const doneDate = job.status === "completed" ? job.updatedAt : undefined;
@@ -37,6 +50,10 @@ function buildSteps(job: Job): { steps: TimelineStep[]; branch?: TimelineStep } 
     job.status === "cancelled" || job.status === "disputed"
       ? job.disputedAt || job.updatedAt
       : undefined;
+
+  // Look up on-chain tx hashes from timeline events
+  const escrowFundedTxHash = findTxHash(timeline, "escrow_funded");
+  const escrowReleasedTxHash = findTxHash(timeline, "escrow_released");
 
   const steps: TimelineStep[] = [
     {
@@ -53,18 +70,20 @@ function buildSteps(job: Job): { steps: TimelineStep[]; branch?: TimelineStep } 
     },
     {
       id: "in_progress",
-      label: "In Progress",
+      label: "Escrow Funded",
       date:
         job.status === "in_progress" || job.status === "disputed"
           ? job.updatedAt
           : hiredDate,
       state: "upcoming",
+      txHash: escrowFundedTxHash,
     },
     {
       id: "done",
-      label: "Done",
+      label: "Released",
       date: doneDate,
       state: "upcoming",
+      txHash: escrowReleasedTxHash,
     },
   ];
 
@@ -142,6 +161,24 @@ function Connector({ complete, vertical }: { complete: boolean; vertical?: boole
   }
   return (
     <div className={["flex-1 h-0.5 min-w-[1rem]", complete ? "bg-market-400" : "bg-market-500/15"].join(" ")} />
+  );
+}
+
+/** Render a "View on Stellar Expert" link for steps with a tx hash. */
+function StellarExpertLink({ txHash }: { txHash: string }) {
+  return (
+    <a
+      href={explorerUrl(txHash)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 text-[10px] text-market-400 hover:text-market-300 hover:underline transition-colors mt-0.5"
+      title={`View transaction ${txHash} on Stellar Expert`}
+    >
+      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+      </svg>
+      View on Stellar Expert ↗
+    </a>
   );
 }
 
@@ -224,8 +261,9 @@ export default function JobStatusTimeline({
   compact = false,
   clientAddress,
   onMilestoneRejected,
+  timeline,
 }: JobStatusTimelineProps) {
-  const { steps, branch } = buildSteps(job);
+  const { steps, branch } = buildSteps(job, timeline);
 
   if (compact) {
     const currentStep = branch || steps.find((s) => s.state === "current");
@@ -291,8 +329,8 @@ export default function JobStatusTimeline({
                   {formatDate(step.date)}
                 </span>
               )}
-              {step.id === "in_progress" && step.state === "current" && timeoutAt && (
-                <EscrowCountdown timeoutAt={timeoutAt} />
+              {step.txHash && (
+                <StellarExpertLink txHash={step.txHash} />
               )}
             </div>
             {i < steps.length - 1 && (
@@ -318,6 +356,7 @@ export default function JobStatusTimeline({
         )}
       </div>
 
+      {/* Mobile vertical layout */}
       <div className="sm:hidden space-y-0">
         {steps.map((step, i) => (
           <div key={step.id}>
@@ -337,8 +376,8 @@ export default function JobStatusTimeline({
                 {step.date && (
                   <p className="text-xs text-amber-800/60">{formatDate(step.date)}</p>
                 )}
-                {step.id === "in_progress" && step.state === "current" && timeoutAt && (
-                  <EscrowCountdown timeoutAt={timeoutAt} />
+                {step.txHash && (
+                  <StellarExpertLink txHash={step.txHash} />
                 )}
               </div>
             </div>

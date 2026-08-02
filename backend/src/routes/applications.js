@@ -6,8 +6,8 @@ const express = require("express");
 const router  = express.Router();
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
-const applicationRateLimiter = createRateLimiter(5, 1); // 100 requests per 15 minutes
-const generalApplicationRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for listing/getting applications
+const applicationRateLimiter = createRateLimiter(5, 1, { name: "applications-write" }); // 5 POST requests per minute
+const generalApplicationRateLimiter = createRateLimiter(100, 1, { name: "applications-read" }); // 100 read requests per minute
 
 const {
   submitApplication, getApplicationsForJob,
@@ -22,6 +22,14 @@ const { notifyEscrowEvent, EVENT_TYPES } = require("../services/notificationServ
 const { getJob } = require("../services/jobService");
 const { validateJsonb } = require("../middleware/jsonbValidator");
 const screeningAnswersSchema = require("../schemas/screeningAnswers.schema");
+const {
+  validate,
+  createApplicationSchema,
+  closeBiddingSchema,
+  revealBidSchema,
+  acceptApplicationSchema,
+  withdrawApplicationSchema,
+} = require("../validators/applicationValidator");
 
 /**
  * @swagger
@@ -151,7 +159,8 @@ router.get("/freelancer/:publicKey", generalApplicationRateLimiter, async (req, 
 // POST /api/applications — submit a proposal
 router.post("/", applicationRateLimiter, validateJsonb({ screeningAnswers: screeningAnswersSchema }), async (req, res, next) => {
   try {
-    const app = await submitApplication(req.body);
+    const body = validate(createApplicationSchema, req.body);
+    const app = await submitApplication(body);
     
     // Emit WebSocket event for real-time bid updates
     const broadcastRealtime = req.app.locals.broadcastRealtime;
@@ -181,7 +190,8 @@ router.post("/", applicationRateLimiter, validateJsonb({ screeningAnswers: scree
 // POST /api/applications/job/:jobId/close-bidding — client closes bidding round
 router.post("/job/:jobId/close-bidding", applicationRateLimiter, async (req, res, next) => {
   try {
-    const result = await closeBiddingForJob(req.params.jobId, req.body.clientAddress);
+    const { clientAddress } = validate(closeBiddingSchema, req.body);
+    const result = await closeBiddingForJob(req.params.jobId, clientAddress);
     res.json({ success: true, data: result });
   } catch (e) {
     next(e);
@@ -191,11 +201,12 @@ router.post("/job/:jobId/close-bidding", applicationRateLimiter, async (req, res
 // POST /api/applications/:id/reveal — freelancer reveals sealed bid
 router.post("/:id/reveal", applicationRateLimiter, async (req, res, next) => {
   try {
+    const { freelancerAddress, bidAmount, nonce } = validate(revealBidSchema, req.body);
     const app = await revealApplicationBid(
       req.params.id,
-      req.body.freelancerAddress,
-      req.body.bidAmount,
-      req.body.nonce,
+      freelancerAddress,
+      bidAmount,
+      nonce,
     );
     res.json({ success: true, data: app });
   } catch (e) {
@@ -206,12 +217,13 @@ router.post("/:id/reveal", applicationRateLimiter, async (req, res, next) => {
 // POST /api/applications/:id/accept — client accepts a proposal
 router.post("/:id/accept", applicationRateLimiter, async (req, res, next) => {
   try {
-    const app = await acceptApplication(req.params.id, req.body.clientAddress);
+    const { clientAddress, contractTxHash } = validate(acceptApplicationSchema, req.body);
+    const app = await acceptApplication(req.params.id, clientAddress);
     await logContractInteraction({
       functionName: "start_work",
-      callerAddress: req.body.clientAddress,
+      callerAddress: clientAddress,
       jobId: app.jobId,
-      txHash: req.body.contractTxHash || `offchain-${Date.now()}`,
+      txHash: contractTxHash || `offchain-${Date.now()}`,
     });
 
     // Notify freelancer about accepted application
@@ -242,7 +254,8 @@ router.post("/:id/accept", applicationRateLimiter, async (req, res, next) => {
 // DELETE /api/applications/:id — freelancer withdraws their application
 router.delete("/:id", applicationRateLimiter, async (req, res, next) => {
   try {
-    const app = await withdrawApplication(req.params.id, req.body.freelancerAddress);
+    const { freelancerAddress } = validate(withdrawApplicationSchema, req.body);
+    const app = await withdrawApplication(req.params.id, freelancerAddress);
 
     // Broadcast withdrawal so all connected clients remove the card
     req.app.locals.broadcastRealtime?.(`job:${app.jobId}:bids`, {
