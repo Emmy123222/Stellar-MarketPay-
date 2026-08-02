@@ -72,6 +72,7 @@ List endpoints support cursor-based pagination via the \`after\` query parameter
       { name: '2FA', description: 'Two-factor authentication (TOTP)' },
       { name: 'Audit', description: 'Audit log access' },
       { name: 'Scope', description: 'Collaborative scope session management' },
+      { name: 'NFT', description: 'Proof-of-work certificates minted as Soroban NFTs on job completion' },
       { name: 'Utility', description: 'Utility endpoints (rate limit, CSRF)' }
     ],
     components: {
