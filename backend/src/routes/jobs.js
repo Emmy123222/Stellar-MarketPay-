@@ -110,11 +110,6 @@ function isAdmin(req) {
   return adminAddresses.includes(req.user.publicKey) || req.user.role === "admin";
 }
 
-function isValidReportCategory(category) {
-  return ["fraud", "suspicious", "spam", "inappropriate", "other"].includes(
-    category,
-  );
-}
 
 async function enrichJobsWithClientReputation(jobs) {
   const scoreCache = new Map();
@@ -444,8 +439,9 @@ router.get("/:id/invoice", verifyJWT, generalJobRateLimiter, async (req, res, ne
 // POST /api/jobs — create a new job
 router.post("/", jobCreationRateLimiter, verifyJWT, validateJsonb({ milestones: milestonesSchema }), async (req, res, next) => {
   try {
+    const validatedBody = validate(createJobSchema, req.body);
     const signedAddress = req.user?.publicKey;
-    const payloadClientAddress = typeof req.body.clientAddress === "string" ? req.body.clientAddress.trim() : "";
+    const payloadClientAddress = typeof validatedBody.clientAddress === "string" ? validatedBody.clientAddress.trim() : "";
 
     if (!signedAddress || !payloadClientAddress) {
       return res.status(401).json({ error: "Unauthorized: clientAddress is required and must match the signed wallet address" });
@@ -495,11 +491,12 @@ router.post("/:id/view", generalJobRateLimiter, async (req, res, next) => {
 // POST /api/jobs/:id/invite — invite freelancer to invite-only job
 router.post("/:id/invite", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
   try {
+    const { freelancerAddress } = validate(inviteJobSchema, req.body);
     const { inviteFreelancerToJob } = require("../services/jobInvitationService");
     const invitation = await inviteFreelancerToJob({
       jobId: req.params.id,
       clientAddress: req.user.publicKey,
-      freelancerAddress: req.body.freelancerAddress,
+      freelancerAddress,
     });
 
     req.app.locals.broadcastRealtime?.("job:invited", {
@@ -553,8 +550,8 @@ router.patch(
   generalJobRateLimiter,
   async (req, res, next) => {
     try {
-      const { escrowContractId, txHash } = req.body;
-      const job = await updateJobEscrowId(req.params.id, escrowContractId, txHash || null);
+      const { escrowContractId } = validate(updateEscrowSchema, req.body);
+      const job = await updateJobEscrowId(req.params.id, escrowContractId);
       await logContractInteraction({
         functionName: "create_escrow",
         callerAddress: req.user.publicKey,
@@ -639,8 +636,7 @@ router.patch(
   generalJobRateLimiter,
   async (req, res, next) => {
     try {
-      const { days } = req.body;
-      const validDays = [7, 14, 30];
+      const { days } = validate(extendJobSchema, req.body);
       const daysNum = parseInt(days, 10) || 30;
       if (!validDays.includes(daysNum)) {
         return res.status(400).json({ error: "Extension days must be 7, 14, or 30" });
@@ -685,7 +681,7 @@ router.delete(
 // POST /api/jobs/:id/report — report a job
 router.post("/:id/report", reportJobRateLimiter, (req, res, next) => {
   try {
-    const { reporterAddress, category, description } = req.body;
+    const { reporterAddress, category, description } = validate(reportJobSchema, req.body);
     const jobId = req.params.id;
     const normalizedReporterAddress = normalizeAddress(reporterAddress);
 
