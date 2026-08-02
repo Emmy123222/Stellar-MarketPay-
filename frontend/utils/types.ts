@@ -380,6 +380,23 @@ export interface JobAnalytics {
   timeToHire?: number | null;
 }
 
+// ─── Job Timeline (Issue #876) ────────────────────────────────────────────────
+
+export type TimelineEventType =
+  | "job_posted"
+  | "bid_accepted"
+  | "escrow_funded"
+  | "work_completed"
+  | "escrow_released";
+
+export interface TimelineEvent {
+  id: string;
+  jobId: string;
+  eventType: TimelineEventType;
+  txHash: string | null;
+  createdAt: string;
+}
+
 // ─── Bulk Actions ────────────────────────────────────────────────────────────
 
 export interface BulkActionResponse {

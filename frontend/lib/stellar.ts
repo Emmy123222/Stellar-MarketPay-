@@ -13,6 +13,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { SorobanRpc } from "@stellar/stellar-sdk";
 import { fetchGasEstimateSafe, tierToTransactionFee } from "./sorobanFees";
+import { parseContractError } from "./contractErrors";
 
 const NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as
   | "testnet"
@@ -202,7 +203,7 @@ export async function buildCreateEscrowTx(
   const simResponse = await sorobanServer.simulateTransaction(tx);
 
   if (SorobanRpc.Api.isSimulationError(simResponse)) {
-    throw new Error(`Soroban simulation failed: ${simResponse.error}`);
+    throw new Error(`Soroban simulation failed: ${parseContractError(simResponse.error)}`);
   }
 
   const assembledTx = SorobanRpc.assembleTransaction(tx, simResponse).build();
@@ -346,7 +347,7 @@ export async function buildPublishMessageTx(
   const simResponse = await sorobanServer.simulateTransaction(tx);
 
   if (SorobanRpc.Api.isSimulationError(simResponse)) {
-    throw new Error(`Soroban simulation failed: ${simResponse.error}`);
+    throw new Error(`Soroban simulation failed: ${parseContractError(simResponse.error)}`);
   }
 
   const assembledTx = SorobanRpc.assembleTransaction(tx, simResponse).build();
@@ -456,7 +457,12 @@ export async function buildBoostJobTx({
     .setTimeout(300)
     .build();
 
-  return tx.toXDR();
+  const simResponse = await sorobanServer.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(simResponse)) {
+    throw new Error(`Soroban simulation failed: ${parseContractError(simResponse.error)}`);
+  }
+
+  return SorobanRpc.assembleTransaction(tx, simResponse).build().toXDR();
 }
 
 // ---------------------------------------------------------------------------
@@ -541,7 +547,7 @@ export async function buildReleaseEscrowTransaction(
 
   const sim = await sorobanServer.simulateTransaction(tx);
   if (SorobanRpc.Api.isSimulationError(sim)) {
-    throw new Error(`Simulation failed: ${sim.error}`);
+    throw new Error(`Simulation failed: ${parseContractError(sim.error)}`);
   }
   return SorobanRpc.assembleTransaction(tx, sim).build();
 }
@@ -586,6 +592,52 @@ export async function submitSignedSorobanTransaction(
   }
   const hash = await signAndSubmitSorobanTx(signedXDR);
   return { hash };
+}
+
+// ---------------------------------------------------------------------------
+// Mint proof-of-work certificate (used by jobs/[id].tsx after escrow release)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `mint_certificate(job_id, title, client)` Soroban transaction.
+ * Called by the client's wallet right after the escrow release so the
+ * freelancer receives an on-chain proof-of-work certificate. Mirrors
+ * `buildReleaseEscrowTransaction` (simulate → assemble → return the prepared
+ * transaction for the wallet to sign).
+ */
+export async function buildMintCertificateTx(
+  contractId: string,
+  jobId: string,
+  title: string,
+  clientPublicKey: string,
+) {
+  if (USE_CONTRACT_MOCK) {
+    return { toXDR: () => "mock-prepared-xdr" };
+  }
+  const server = sorobanServer;
+  const account = await server.getAccount(clientPublicKey);
+  const contract = new Contract(contractId);
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call(
+        "mint_certificate",
+        nativeToScVal(jobId, { type: "string" }),
+        nativeToScVal(title, { type: "string" }),
+        Address.fromString(clientPublicKey).toScVal(),
+      ),
+    )
+    .setTimeout(300)
+    .build();
+
+  const sim = await sorobanServer.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(sim)) {
+    throw new Error(`Simulation failed: ${sim.error}`);
+  }
+  return SorobanRpc.assembleTransaction(tx, sim).build();
 }
 
 async function simulateContractView(

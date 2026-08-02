@@ -583,36 +583,24 @@ CREATE TABLE IF NOT EXISTS ledger_timestamps (
 
 CREATE INDEX IF NOT EXISTS ledger_timestamps_timestamp_idx ON ledger_timestamps(timestamp);
 
--- -----------------------------------------
--- project_assessments (V22)
--- -----------------------------------------
-CREATE TABLE IF NOT EXISTS project_assessments (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_address TEXT NOT NULL REFERENCES profiles(public_key),
-  job_id UUID REFERENCES jobs(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  description TEXT,
-  time_limit_minutes INTEGER NOT NULL CHECK (time_limit_minutes > 0),
-  questions JSONB NOT NULL DEFAULT '[]'::jsonb,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- ─────────────────────────────────────────
+-- audit_log  (V22 — immutable state-change audit trail)
+-- Every state-changing operation (job status change, escrow release, dispute
+-- filing, etc.) is recorded here with before/after snapshots so that any
+-- change can be traced back to the actor.
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS audit_log (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_address   TEXT        NOT NULL,
+  action          TEXT        NOT NULL,
+  entity_type     TEXT        NOT NULL,
+  entity_id       TEXT        NOT NULL,
+  old_value       JSONB,
+  new_value       JSONB,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS project_assessments_client_idx ON project_assessments(client_address);
-CREATE INDEX IF NOT EXISTS project_assessments_job_idx ON project_assessments(job_id);
-
-CREATE TABLE IF NOT EXISTS project_assessment_submissions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  assessment_id UUID NOT NULL REFERENCES project_assessments(id) ON DELETE CASCADE,
-  freelancer_address TEXT NOT NULL REFERENCES profiles(public_key),
-  answers JSONB NOT NULL DEFAULT '{}'::jsonb,
-  score INTEGER,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('started', 'submitted', 'graded')),
-  started_at TIMESTAMPTZ,
-  submitted_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (assessment_id, freelancer_address)
-);
-
-CREATE INDEX IF NOT EXISTS project_assessment_submissions_freelancer_idx ON project_assessment_submissions(freelancer_address);
-CREATE INDEX IF NOT EXISTS project_assessment_submissions_assessment_idx ON project_assessment_submissions(assessment_id);
+CREATE INDEX IF NOT EXISTS audit_log_entity_idx     ON audit_log(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS audit_log_actor_idx      ON audit_log(actor_address);
+CREATE INDEX IF NOT EXISTS audit_log_action_idx     ON audit_log(action);
+CREATE INDEX IF NOT EXISTS audit_log_created_idx    ON audit_log(created_at DESC);

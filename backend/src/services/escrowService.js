@@ -1,11 +1,8 @@
 "use strict";
 
 const pool = require("../db/pool");
-const { getJob } = require("./jobService");
-const {
-  logContractInteraction,
-  verifyOnChainTransaction,
-} = require("./contractAuditService");
+const { getJob, recordTimelineEvent } = require("./jobService");
+const { logContractInteraction } = require("./contractAuditService");
 const {
   notifyEscrowEvent,
   EVENT_TYPES,
@@ -177,6 +174,13 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
     feeCharged: txInfo ? txInfo.feeCharged : undefined,
     eventData: txInfo ? txInfo.eventData : undefined,
   });
+
+  // Record timeline event with on-chain tx hash (Issue #876)
+  try {
+    await recordTimelineEvent(jobId, "escrow_released", contractTxHash || null);
+  } catch (err) {
+    console.error("[timeline] Failed to record escrow_released event:", err.message);
+  }
 
   await notifyEscrowEvent({
     eventType: EVENT_TYPES.ESCROW_RELEASED,
@@ -350,6 +354,19 @@ async function markDisputed(jobId, raisedBy) {
      RETURNING *`,
     [jobId, raisedBy],
   );
+
+  await notifyEscrowEvent({
+    eventType: EVENT_TYPES.DISPUTE_OPENED,
+    jobId,
+    clientAddress: job.clientAddress,
+    freelancerAddress: job.freelancerAddress,
+    data: {
+      jobTitle: job.title,
+      jobId,
+      amount: job.budget,
+      currency: job.currency,
+    },
+  });
 
   return { success: true, dispute: result.rows[0] };
 }
@@ -545,6 +562,21 @@ async function disputeMilestone(jobId, milestoneIndex, raisedBy) {
      RETURNING *`,
     [jobId, raisedBy],
   );
+
+  await notifyEscrowEvent({
+    eventType: EVENT_TYPES.DISPUTE_OPENED,
+    jobId,
+    clientAddress: job.clientAddress,
+    freelancerAddress: job.freelancerAddress,
+    data: {
+      jobTitle: job.title,
+      jobId,
+      milestoneIndex: index,
+      milestoneDescription: milestone.description,
+      amount: milestone.amount,
+      currency: job.currency,
+    },
+  });
 
   return { success: true, dispute: result.rows[0], milestone: milestones[index], milestones };
 }

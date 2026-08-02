@@ -154,11 +154,15 @@ enum EscrowStatus {
 
 ### `Certificate`
 
+Proof-of-work NFT minted to the freelancer once the escrow is released.
+
 | Field        | Type      | Description                             |
 |--------------|-----------|-----------------------------------------|
 | `job_id`     | `String`  | Associated job                          |
+| `title`      | `String`  | Job title (NFT metadata)                |
+| `client`     | `Address` | Client who released the escrow          |
 | `freelancer` | `Address` | Certificate recipient                   |
-| `amount`     | `i128`    | Escrow amount at time of minting        |
+| `amount`     | `i128`    | Escrow amount at time of minting (XLM)  |
 | `created_at` | `u32`     | Ledger sequence at mint time            |
 
 ---
@@ -863,13 +867,13 @@ Returns the current deliverable submission status.
 ### `mint_certificate`
 
 ```rust
-pub fn mint_certificate(env: Env, job_id: String, client: Address)
+pub fn mint_certificate(env: Env, job_id: String, title: String, client: Address)
 ```
 
-Mints an on-chain completion certificate for the freelancer. Only available once the escrow is released; one certificate per job. Emits `certmnt`.
+Mints an on-chain proof-of-work certificate (NFT) for the freelancer. Only available once the escrow is released; one certificate per job. `title` is stored on-chain as NFT metadata alongside the client address, freelancer address, escrow amount and mint ledger. Emits `certmnt`.
 
-**Auth required:** `client`
-**Panics:** `"Escrow must be released to mint certificate"`, `"Certificate already minted"`
+**Auth required:** `client` (must equal the escrow client)
+**Panics:** `"Only the escrow client can mint the certificate"`, `"Certificate title cannot be empty"`, `"Escrow must be released to mint certificate"`, `"Certificate already minted"`
 
 ---
 
@@ -1134,6 +1138,8 @@ All errors are Soroban contract panics that revert the transaction with no state
 | `"Reveal window has closed"` | `reveal_bid` | Ledger past `reveal_deadline_ledger` |
 | `"Bid already revealed"` | `reveal_bid` | Duplicate reveal |
 | `"Commitment verification failed"` | `reveal_bid` | Hash mismatch |
+| `"Only the escrow client can mint the certificate"` | `mint_certificate` | Caller ≠ escrow client |
+| `"Certificate title cannot be empty"` | `mint_certificate` | Empty `title` param |
 | `"Escrow must be released to mint certificate"` | `mint_certificate` | Not in `Released` state |
 | `"Certificate already minted"` | `mint_certificate` | Duplicate mint |
 | `"Only freelancer or oracle can submit deliverable"` | `submit_deliverable` | Wrong auth |
