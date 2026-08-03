@@ -189,16 +189,6 @@ function broadcastToUser(userAddress, event, payload) {
   }
 }
 
-function broadcastToUser(userAddress, event, payload) {
-  const message = JSON.stringify({ event, payload });
-  const sockets = userClients.get(userAddress);
-  if (sockets) {
-    for (const ws of sockets) {
-      if (ws.readyState === WS_OPEN) ws.send(message);
-    }
-  }
-}
-
 async function upsertScopeSession(sessionId, patch) {
   const content = typeof patch.content === "string" ? patch.content : "";
   const cursors = patch.cursors && typeof patch.cursors === "object" ? patch.cursors : {};
@@ -482,6 +472,28 @@ app.use((err, req, res, next) => {
   structuredErrorHandler(err, req, res, next);
 });
 
+function parseWsCookies(cookieHeader) {
+  return String(cookieHeader || "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((cookies, part) => {
+      const separatorIndex = part.indexOf("=");
+      if (separatorIndex === -1) return cookies;
+      const name = part.slice(0, separatorIndex);
+      const value = part.slice(separatorIndex + 1);
+      cookies[name] = decodeURIComponent(value);
+      return cookies;
+    }, {});
+}
+
+function getWsToken(request) {
+  const cookies = parseWsCookies(request.headers.cookie);
+  if (cookies.token) return cookies.token;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  return url.searchParams.get("token") || null;
+}
+
 const wsServer = new WebSocketServer({ noServer: true });
 
 function sendJson(ws, event, payload) {
@@ -510,17 +522,27 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
-    const token = url.searchParams.get("token") || "";
+    const token = getWsToken(request);
     let userAddress = null;
     if (token) {
       try {
-        const jwt = require("jsonwebtoken");
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.verify(token, JWT_SECRET);
+        ws.user = decoded;
         userAddress = decoded.publicKey;
-      } catch { /* token is optional, e.g. anonymous tab */ }
+      } catch {
+        ws.close(4001, "Unauthorized: Invalid or expired token");
+        return;
+      }
+    }
+    if (userAddress) {
+      const active = userClients.get(userAddress);
+      if (active && active.size >= MAX_WS_CONNECTIONS_PER_USER) {
+        ws.close(1008, "Too many connections");
+        return;
+      }
     }
     realtimeClients.add(ws);
-    wsConnectionsActive.set(realtimeClients.size);
+    setWebsocketConnections("realtime", realtimeClients.size);
     if (userAddress) {
       if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
       userClients.get(userAddress).add(ws);
@@ -556,14 +578,15 @@ wsServer.on("connection", async (ws, request) => {
 
     ws.on("close", () => {
       realtimeClients.delete(ws);
-      wsConnectionsActive.set(realtimeClients.size);
       if (userAddress) {
+        userLastSeen.set(userAddress, new Date());
         const sockets = userClients.get(userAddress);
         if (sockets) {
           sockets.delete(ws);
           if (!sockets.size) userClients.delete(userAddress);
         }
       }
+      setWebsocketConnections("realtime", realtimeClients.size);
     });
     return;
   }

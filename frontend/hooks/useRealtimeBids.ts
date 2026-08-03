@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Application } from "@/utils/types";
+import { refreshAccessToken } from "@/lib/api";
 
 /** Initial reconnect delay (ms). Doubles each attempt up to 30 s. */
 const WS_INITIAL_RECONNECT_DELAY = 1_000;
@@ -180,11 +181,14 @@ export function useRealtimeBids({
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (!isCurrent()) return;
       wsRef.current = null;
       setWsStatus("closed");
       startPoll(); // start polling until we reconnect
+
+      const isAuthError = event.code === 4001;
+
       // Exponential back-off: double each attempt, cap at 30 s
       const attempt = reconnectAttemptRef.current;
       const delay = Math.min(
@@ -192,7 +196,17 @@ export function useRealtimeBids({
         WS_MAX_RECONNECT_DELAY,
       );
       reconnectAttemptRef.current = attempt + 1;
-      reconnectTimerRef.current = setTimeout(() => {
+
+      reconnectTimerRef.current = setTimeout(async () => {
+        if (isAuthError) {
+          try {
+            // Refresh the expired token so the reconnect authenticates.
+            await refreshAccessToken();
+          } catch {
+            // Refresh failed — user likely needs to re-login.
+            // Polling fallback is already active so the UI stays alive.
+          }
+        }
         connect();
       }, delay);
     };

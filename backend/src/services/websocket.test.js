@@ -90,11 +90,7 @@ describe("WebSocket real-time notification delivery", () => {
 
   beforeAll(async () => {
     server = app._ws.server;
-    // bootstrap() already called server.listen() — just wait for readiness
-    await new Promise((resolve) => {
-      if (server.listening) return resolve();
-      server.once("listening", resolve);
-    });
+    await new Promise((resolve) => server.listen(0, resolve));
     port = server.address().port;
   }, 10_000);
 
