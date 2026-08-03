@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+require("dotenv").config();
 const pool = require("./pool");
 
 const migrationsDir = path.join(__dirname, "migrations");

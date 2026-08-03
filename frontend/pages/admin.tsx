@@ -857,10 +857,12 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
 
       <ConfirmDialog
         open={showCancelConfirm}
-        title="Confirm Job Cancellation"
-        description="This will immediately cancel the job and notify all applicants. This action cannot be undone."
-        actionDetails={cancelModal ? `Job: "${cancelModal.title}"` : undefined}
+        title="Cancel Job"
+        description={`Are you sure you want to cancel "${cancelModal?.title}"? This action cannot be undone.`}
+        confirmLabel="Yes, Cancel Job"
+        variant="danger"
         requireTypedConfirm
+        typedConfirmText="CONFIRM"
         onConfirm={async () => {
           await handleCancelJob();
           setShowCancelConfirm(false);
