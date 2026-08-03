@@ -3,6 +3,9 @@
 const rateLimit = require("express-rate-limit");
 const pool = require("../db/pool");
 const { getClientIp } = require("../utils/clientIp");
+const { createServiceLogger } = require("../utils/logger");
+
+const rateLimitLogger = createServiceLogger("rate-limiter");
 
 const MAX_OPEN_DISPUTES = 3;
 const MAX_DISPUTES_30_DAYS = 10;
@@ -37,9 +40,18 @@ function scaleMaxRequests(maxRequests) {
 }
 
 /**
- * Factory function to create reusable rate limiters
+ * Factory function to create reusable rate limiters with optional
+ * endpoint-specific logging.
+ *
+ * @param {number} maxRequests - Maximum requests per window (unscaled).
+ * @param {number} windowMinutes - Window duration in minutes.
+ * @param {object} [options] - Optional configuration.
+ * @param {string} [options.name] - Endpoint name for log context.
+ * @param {import("pino").BaseLogger} [options.logger] - Logger instance (defaults to built-in rate-limit logger).
+ * @returns {Function} Express middleware.
  */
-const createRateLimiter = (maxRequests, windowMinutes) => {
+const createRateLimiter = (maxRequests, windowMinutes, options = {}) => {
+  const { name = "global", logger = rateLimitLogger } = options;
   return rateLimit({
     windowMs: windowMinutes * 60 * 1000,
     max: scaleMaxRequests(maxRequests),
@@ -47,9 +59,19 @@ const createRateLimiter = (maxRequests, windowMinutes) => {
     legacyHeaders: true,
     keyGenerator: (req) => getClientIp(req),
     handler: (req, res) => {
-      res.set("Retry-After", Math.ceil(windowMinutes * 60));
+      const retryAfter = Math.ceil(windowMinutes * 60);
+      res.set("Retry-After", String(retryAfter));
+      logger.warn({
+        endpoint: name,
+        ip: getClientIp(req),
+        method: req.method,
+        path: req.path,
+        userId: req.user?.publicKey,
+        retryAfter,
+        requestId: req.requestId,
+      }, "Rate limit exceeded");
       return res.status(429).json({
-        message: "Too many requests — please wait before trying again",
+        error: "Too many requests — please wait before trying again",
       });
     },
   });
@@ -93,16 +115,16 @@ async function createDisputeRateLimiter(req, res, next) {
     if (openCount >= MAX_OPEN_DISPUTES) {
       res.set("Retry-After", "3600");
       return res.status(429).json({
-        success: false,
         error: `You already have ${openCount} open ${openCount === 1 ? "dispute" : "disputes"}. Maximum is ${MAX_OPEN_DISPUTES}. Resolve existing disputes before opening new ones.`,
+        code: "RATE_LIMITED",
       });
     }
 
     if (recentCount >= MAX_DISPUTES_30_DAYS) {
       res.set("Retry-After", "86400");
       return res.status(429).json({
-        success: false,
         error: `You have opened ${recentCount} ${recentCount === 1 ? "dispute" : "disputes"} in the last 30 days. Maximum is ${MAX_DISPUTES_30_DAYS}. Please wait before opening more.`,
+        code: "RATE_LIMITED",
       });
     }
 
@@ -113,4 +135,4 @@ async function createDisputeRateLimiter(req, res, next) {
   }
 }
 
-module.exports = { createRateLimiter, createDisputeRateLimiter, getRateLimitScale, scaleMaxRequests };
+module.exports = { createRateLimiter, createDisputeRateLimiter, getRateLimitScale, scaleMaxRequests, rateLimitLogger };

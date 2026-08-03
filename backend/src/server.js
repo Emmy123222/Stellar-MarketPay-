@@ -15,18 +15,23 @@ const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
 const { sendEmail, smtpTransport } = require("./utils/email");
+const jwt = require("jsonwebtoken");
+const { JWT_SECRET } = require("./middleware/auth");
 const promClient = require("prom-client");
+const metrics = require("./metrics");
+const metricsAuth = require("./middleware/metricsAuth");
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
 const { requestLoggerMiddleware, xRequestIdMiddleware, logError, createServiceLogger } = require('./utils/logger');
 const { sanitizeMiddleware } = require('./middleware/sanitize');
 const { idempotencyMiddleware, cleanupExpiredIdempotencyKeys } = require('./middleware/idempotency');
-const { getRateLimitScale } = require("./middleware/rateLimiter");
+const { getRateLimitScale, rateLimitLogger } = require("./middleware/rateLimiter");
 const { requireChoice } = require("./config/env");
 const { createCorsOptions } = require("./config/cors");
 const { doubleCsrfProtection } = require("./middleware/csrf");
 const { structuredErrorHandler } = require("./utils/errors");
 const { jsonDepthLimitMiddleware } = require("./middleware/jsonbValidator");
+const { createRequestSizeLimitMiddleware } = require("./middleware/requestSizeLimit");
 
 const jobRoutes       = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -47,107 +52,54 @@ const timeEntryRoutes = require("./routes/timeEntries");
 const notificationRoutes = require("./routes/notifications");
 const developerRoutes = require("./routes/developer");
 const publicRoutes    = require("./routes/public");
+const publicJobBoardRoutes = require("./routes/publicJobBoard");
 const referralRoutes  = require("./routes/referrals");
 const graphqlHandler  = require("./graphql");
 const eventsRoutes    = require("./routes/events");
 const invitationRoutes = require("./routes/invitations");
 const statsRoutes      = require("./routes/stats");
+const contributorRoutes  = require("./routes/contributors");
 const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
+const priceAlertRoutes     = require("./routes/priceAlerts");
+const nftRoutes            = require("./routes/nft");
 
 const pool            = require("./db/pool");
+const { connectWithRetry } = require("./db/pool");
 const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
 const { startSavedSearchAlertChecker } = require("./services/savedSearchAlertService");
+const { startWsEventCleanup } = require("./services/wsEventCleanupService");
 
 const serviceLogger = createServiceLogger('server');
 const app  = express();
 app.set("trust proxy", 1);
 const PORT = process.env.PORT || 4000;
+const REQUEST_BODY_LIMIT = "100kb";
 const server = http.createServer(app);
 const WS_OPEN = 1;
 const STELLAR_NETWORK = requireChoice("STELLAR_NETWORK", ["testnet", "mainnet"], {
   fallback: "testnet",
 });
 
-const metricsRegistry = new promClient.Registry();
-promClient.collectDefaultMetrics({
-  register: metricsRegistry,
-  prefix: "marketpay_",
-});
+// ─── Prometheus metrics ───────────────────────────────────────────────────────
+// The registry and every metric live in ./metrics so that low-level modules
+// (e.g. src/db/pool.js) can record into the same registry without importing
+// the server and creating a require cycle.
+const {
+  registry: metricsRegistry,
+  notificationQueuePending,
+  resolveRouteLabel,
+  observeHttpRequest,
+  setWebsocketConnections,
+  renderMetrics,
+} = metrics;
 
-const httpRequestsTotal = new promClient.Counter({
-  name: "marketpay_http_requests_total",
-  help: "Total HTTP requests handled by the API",
-  labelNames: ["method", "route", "status_code"],
-  registers: [metricsRegistry],
-});
-
-const httpRequestDurationSeconds = new promClient.Histogram({
-  name: "marketpay_http_request_duration_seconds",
-  help: "HTTP request duration in seconds",
-  labelNames: ["method", "route", "status_code"],
-  buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5],
-  registers: [metricsRegistry],
-});
-
-const dbConnectionGauge = new promClient.Gauge({
-  name: "marketpay_db_connections",
-  help: "Current PostgreSQL pool connection counts",
-  labelNames: ["state"],
-  registers: [metricsRegistry],
-});
-
-dbConnectionGauge.collect = function collectDbConnections() {
-  this.set({ state: "total" }, pool.totalCount);
-  this.set({ state: "idle" }, pool.idleCount);
-  this.set({ state: "waiting" }, pool.waitingCount);
-};
-
-const pgPoolTotal = new promClient.Gauge({
-  name: "pg_pool_total",
-  help: "Total PostgreSQL pool connections",
-  registers: [metricsRegistry],
-});
-
-const pgPoolIdle = new promClient.Gauge({
-  name: "pg_pool_idle",
-  help: "Idle PostgreSQL pool connections",
-  registers: [metricsRegistry],
-});
-
-const pgPoolWaiting = new promClient.Gauge({
-  name: "pg_pool_waiting",
-  help: "Waiting PostgreSQL pool requests",
-  registers: [metricsRegistry],
-});
-
-pgPoolTotal.collect = function collectPgPoolTotal() {
-  this.set(pool.totalCount);
-};
-pgPoolIdle.collect = function collectPgPoolIdle() {
-  this.set(pool.idleCount);
-};
-pgPoolWaiting.collect = function collectPgPoolWaiting() {
-  this.set(pool.waitingCount);
-};
-
-const wsConnectionsActive = new promClient.Gauge({
-  name: "ws_connections_active",
-  help: "Active WebSocket connections",
-  registers: [metricsRegistry],
-});
-
-const notificationQueuePending = new promClient.Gauge({
-  name: "notification_queue_pending",
-  help: "Pending notifications in the queue",
-  registers: [metricsRegistry],
-});
-
+// Pool connection gauges are attached in src/db/pool.js (where the pool lives).
 notificationQueuePending.collect = async function collectNotificationQueue() {
   try {
     const { rows } = await pool.query(
@@ -200,7 +152,24 @@ setInterval(checkPoolHealth, 1000).unref();
 
 const realtimeClients = new Set();
 const userClients = new Map(); // userAddress -> Set<WebSocket>
+const userLastSeen = new Map(); // userAddress -> Date (last disconnect time)
 const scopeSessionClients = new Map();
+const MAX_WS_CONNECTIONS_PER_USER = 5;
+
+/**
+ * Publish the current WebSocket connection counts to
+ * `active_websocket_connections` (labelled by channel).
+ *
+ * Called on every connect/disconnect so the gauge never drifts.
+ *
+ * @returns {void}
+ */
+function refreshWsMetrics() {
+  let scopeCount = 0;
+  for (const clients of scopeSessionClients.values()) scopeCount += clients.size;
+  setWebsocketConnections("realtime", realtimeClients.size);
+  setWebsocketConnections("scope", scopeCount);
+}
 
 function broadcastRealtime(event, payload) {
   const message = JSON.stringify({ event, payload });
@@ -208,34 +177,55 @@ function broadcastRealtime(event, payload) {
   for (const ws of realtimeClients) {
     if (ws.readyState === WS_OPEN) ws.send(message);
   }
-  wsConnectionsActive.set(realtimeClients.size);
+  refreshWsMetrics();
+}
+
+function broadcastToUser(userAddress, event, payload) {
+  const sockets = userClients.get(userAddress);
+  if (!sockets) return;
+  const message = JSON.stringify({ event, payload });
+  for (const ws of sockets) {
+    if (ws.readyState === WS_OPEN) ws.send(message);
+  }
+}
+
+function broadcastToUser(userAddress, event, payload) {
+  const message = JSON.stringify({ event, payload });
+  const sockets = userClients.get(userAddress);
+  if (sockets) {
+    for (const ws of sockets) {
+      if (ws.readyState === WS_OPEN) ws.send(message);
+    }
+  }
 }
 
 async function upsertScopeSession(sessionId, patch) {
   const content = typeof patch.content === "string" ? patch.content : "";
   const cursors = patch.cursors && typeof patch.cursors === "object" ? patch.cursors : {};
   const finalized = Boolean(patch.finalized);
+  const finalizedHash = patch.finalizedHash || null;
   const finalizedPayload = patch.finalizedPayload || null;
 
   const { rows } = await pool.query(
-    `INSERT INTO scope_sessions (session_id, content, cursors, finalized, finalized_payload, expires_at, created_at, updated_at)
-     VALUES ($1, $2, $3::jsonb, $4, $5::jsonb, NOW() + INTERVAL '24 hours', NOW(), NOW())
+    `INSERT INTO scope_sessions (session_id, content, cursors, finalized, finalized_hash, finalized_payload, expires_at, created_at, updated_at)
+     VALUES ($1, $2, $3::jsonb, $4, $5, $6::jsonb, NOW() + INTERVAL '24 hours', NOW(), NOW())
      ON CONFLICT (session_id) DO UPDATE SET
        content = EXCLUDED.content,
        cursors = EXCLUDED.cursors,
        finalized = EXCLUDED.finalized,
+       finalized_hash = EXCLUDED.finalized_hash,
        finalized_payload = EXCLUDED.finalized_payload,
        expires_at = NOW() + INTERVAL '24 hours',
        updated_at = NOW()
-     RETURNING session_id, content, cursors, finalized, finalized_payload, expires_at, updated_at`,
-    [sessionId, content, JSON.stringify(cursors), finalized, JSON.stringify(finalizedPayload)]
+     RETURNING session_id, content, cursors, finalized, finalized_hash, finalized_payload, expires_at, updated_at`,
+    [sessionId, content, JSON.stringify(cursors), finalized, finalizedHash, JSON.stringify(finalizedPayload)]
   );
   return rows[0];
 }
 
 async function loadScopeSession(sessionId) {
   const { rows } = await pool.query(
-    `SELECT session_id, content, cursors, finalized, finalized_payload, expires_at, updated_at
+    `SELECT session_id, content, cursors, finalized, finalized_hash, finalized_payload, expires_at, updated_at
      FROM scope_sessions
      WHERE session_id = $1 AND expires_at > NOW()`,
     [sessionId]
@@ -305,7 +295,21 @@ app.use(helmet({
   },
   noSniff: true,
   xssFilter: true,
+  frameguard: { action: "sameorigin" },
   referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  permissionsPolicy: {
+    features: {
+      camera: [],
+      microphone: [],
+      geolocation: [],
+      payment: [],
+      usb: [],
+      magnetometer: [],
+      gyroscope: [],
+      accelerometer: [],
+      "interest-cohort": [],
+    },
+  },
 }));
 
 // Correlation-id tracing middleware (Issue #453). Allocates the
@@ -319,7 +323,9 @@ app.use(compressionMiddleware());
 
 // Body parser MUST run BEFORE requestLoggerMiddleware so the bracketing
 // "Request started" log line can capture the request body (sanitized).
-app.use(express.json({ limit: "20kb" }));
+app.use(createRequestSizeLimitMiddleware(REQUEST_BODY_LIMIT));
+app.use(express.json({ limit: REQUEST_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: REQUEST_BODY_LIMIT }));
 app.use(sanitizeMiddleware({ strict: false }));
 app.use(idempotencyMiddleware());
 
@@ -338,28 +344,53 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
 app.use(cors(createCorsOptions()));
 app.use(doubleCsrfProtection);
 
+// ─── HTTP request instrumentation ─────────────────────────────────────────────
+// Records http_requests_total and http_request_duration_ms (plus the legacy
+// marketpay_* series) for every request except the scrape endpoint itself.
 app.use((req, res, next) => {
   if (req.path === "/metrics") {
     return next();
   }
 
-  const endTimer = httpRequestDurationSeconds.startTimer();
-  res.on("finish", () => {
-    const routeLabel = req.route?.path
-      ? `${req.baseUrl || ""}${req.route.path}`
-      : req.path;
-    const statusCode = String(res.statusCode);
+  const start = process.hrtime.bigint();
 
-    httpRequestsTotal.inc({
-      method: req.method,
-      route: routeLabel,
-      status_code: statusCode,
-    });
-    endTimer({
-      method: req.method,
-      route: routeLabel,
-      status_code: statusCode,
-    });
+  // Express restores `req.baseUrl` once the router unwinds, so by the time the
+  // "finish" event fires the mount path is gone. Snapshot the label while the
+  // handler is still on the stack (res.end runs inside the route).
+  let routeSnapshot = null;
+  const originalEnd = res.end;
+  res.end = function captureRoute(...args) {
+    if (routeSnapshot === null && req.route?.path) {
+      routeSnapshot =
+        `${req.baseUrl || ""}${req.route.path}`.replace(/\/$/, "") || "/";
+    }
+    return originalEnd.apply(this, args);
+  };
+
+  res.on("finish", () => {
+    // Prefer the matched route pattern ("/api/jobs/:id") over the raw path so
+    // path parameters never explode label cardinality.
+    // resolveRouteLabel prefers the matched Express pattern and falls back to
+    // a normalised URL (ids collapsed to ":id") for 404s and error responses,
+    // where Express has already discarded the route mount prefix.
+    const routeLabel = resolveRouteLabel(routeSnapshot, req.originalUrl || req.path);
+
+    const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
+
+    observeHttpRequest(
+      {
+        method: req.method,
+        route: routeLabel,
+        status_code: String(res.statusCode),
+      },
+      durationMs
+    );
+  });
+
+  res.on("close", () => {
+    // Restore the original end() if the response was aborted before finishing,
+    // so no wrapper leaks onto a pooled response object.
+    res.end = originalEnd;
   });
 
   next();
@@ -371,20 +402,31 @@ app.use(rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => getClientIp(req),
+  handler: (req, res) => {
+    rateLimitLogger.warn({
+      endpoint: "global",
+      ip: getClientIp(req),
+      method: req.method,
+      path: req.path,
+      userId: req.user?.publicKey,
+      retryAfter: 900,
+      requestId: req.requestId,
+    }, "Rate limit exceeded");
+    res.set("Retry-After", "900");
+    return res.status(429).json({
+      message: "Too many requests — please wait before trying again",
+    });
+  },
 }));
 
-app.get("/metrics", async (req, res, next) => {
+// ─── GET /metrics — Prometheus text exposition (internal auth required) ───────
+// Guarded by src/middleware/metricsAuth.js: a shared bearer token
+// (METRICS_TOKEN) or an internal/private source IP. Never publicly readable.
+app.get("/metrics", metricsAuth, async (req, res, next) => {
   try {
-    const metricsSecret = process.env.METRICS_SECRET;
-    if (metricsSecret) {
-      const authHeader = req.headers.authorization || "";
-      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      if (token !== metricsSecret) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-    }
     res.set("Content-Type", metricsRegistry.contentType);
-    res.end(await metricsRegistry.metrics());
+    res.set("Cache-Control", "no-store");
+    res.end(await renderMetrics());
   } catch (error) {
     next(error);
   }
@@ -410,16 +452,25 @@ app.use("/api/admin/2fa",     admin2faRoutes);
 app.use("/api/admin",         adminRoutes);
 app.use("/api/developer",     developerRoutes);
 app.use("/api/public",        publicRoutes);
+app.use("/api/v1/public",     publicJobBoardRoutes);
 app.use("/api/time-entries",  timeEntryRoutes);
 app.use("/api/referrals",     referralRoutes);
 app.use("/api/graphql",       graphqlHandler);
 app.use("/api/events",        eventsRoutes);
 app.use("/api/invitations",   invitationRoutes);
 app.use("/api/stats",         statsRoutes);
-app.use("/api/gas-estimate",   gasEstimatorRoutes);
+app.use("/api/contributors",    contributorRoutes);
+app.use("/api/gas-estimate",    gasEstimatorRoutes);
 app.use("/api/transactions",   transactionRoutes);
 app.use("/api/dao",            daoRoutes);
 app.use("/api/proposal-templates", proposalTemplateRoutes);
+app.use("/api/price-alerts",      priceAlertRoutes);
+app.use("/api/nft",               nftRoutes);
+
+// 404 handler — must come after all routes
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found", code: "NOT_FOUND" });
+});
 
 app.use((err, req, res, next) => {
   logError(req.logger || serviceLogger, err, {
@@ -459,12 +510,60 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
+    const token = url.searchParams.get("token") || "";
+    let userAddress = null;
+    if (token) {
+      try {
+        const jwt = require("jsonwebtoken");
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        userAddress = decoded.publicKey;
+      } catch { /* token is optional, e.g. anonymous tab */ }
+    }
     realtimeClients.add(ws);
     wsConnectionsActive.set(realtimeClients.size);
+    if (userAddress) {
+      if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
+      userClients.get(userAddress).add(ws);
+    }
     sendJson(ws, "connected", { channel: "realtime" });
+
+    // Replay notifications missed while the user was disconnected
+    if (userAddress) {
+      try {
+        const lastSeen = userLastSeen.get(userAddress) || new Date(0);
+        const { rows: recent } = await pool.query(
+          `SELECT * FROM notifications WHERE user_address = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
+          [userAddress, 20],
+        );
+        const missed = recent
+          .filter((n) => new Date(n.created_at) > lastSeen)
+          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at) || a.id - b.id);
+        for (const row of missed) {
+          sendJson(ws, "notification:created", {
+            id: row.id,
+            userAddress: row.user_address,
+            type: row.type,
+            title: row.title,
+            body: row.body,
+            read: row.read,
+            jobId: row.job_id,
+            linkPath: row.link_path || (row.job_id ? `/jobs/${row.job_id}` : "/notifications"),
+            createdAt: row.created_at,
+          });
+        }
+      } catch { /* non-fatal */ }
+    }
+
     ws.on("close", () => {
       realtimeClients.delete(ws);
       wsConnectionsActive.set(realtimeClients.size);
+      if (userAddress) {
+        const sockets = userClients.get(userAddress);
+        if (sockets) {
+          sockets.delete(ws);
+          if (!sockets.size) userClients.delete(userAddress);
+        }
+      }
     });
     return;
   }
@@ -479,6 +578,7 @@ wsServer.on("connection", async (ws, request) => {
 
     const clients = getScopeSessionSet(sessionId);
     clients.add(ws);
+    refreshWsMetrics();
 
     let session = await loadScopeSession(sessionId);
     if (!session) {
@@ -491,6 +591,7 @@ wsServer.on("connection", async (ws, request) => {
       content: session.content || "",
       cursors: session.cursors || {},
       finalized: session.finalized,
+      finalizedHash: session.finalized_hash || null,
       finalizedPayload: session.finalized_payload || null,
       expiresAt: session.expires_at,
     });
@@ -505,6 +606,7 @@ wsServer.on("connection", async (ws, request) => {
             content: typeof message.content === "string" ? message.content : session.content,
             cursors: nextCursors,
             finalized: false,
+            finalizedHash: session.finalized_hash || null,
             finalizedPayload: session.finalized_payload || null,
           });
           for (const client of clients) {
@@ -512,6 +614,7 @@ wsServer.on("connection", async (ws, request) => {
               sessionId,
               content: session.content,
               cursors: session.cursors || {},
+              finalizedHash: session.finalized_hash || null,
               updatedAt: session.updated_at,
             });
           }
@@ -519,16 +622,22 @@ wsServer.on("connection", async (ws, request) => {
         }
 
         if (message.type === "scope:finalize") {
+          const finalContent = typeof message.content === "string" ? message.content : (session.content || "");
+          const crypto = require("crypto");
+          const contentHash = crypto.createHash("sha256").update(finalContent).digest("hex");
+
           session = await upsertScopeSession(sessionId, {
-            content: typeof message.content === "string" ? message.content : session.content,
+            content: finalContent,
             cursors: session.cursors || {},
             finalized: true,
+            finalizedHash: contentHash,
             finalizedPayload: message.payload || null,
           });
           for (const client of clients) {
             sendJson(client, "scope:finalized", {
               sessionId,
               content: session.content,
+              finalizedHash: contentHash,
               payload: session.finalized_payload || null,
               updatedAt: session.updated_at,
             });
@@ -541,6 +650,7 @@ wsServer.on("connection", async (ws, request) => {
 
     ws.on("close", async () => {
       clients.delete(ws);
+      refreshWsMetrics();
       const freshSession = await loadScopeSession(sessionId);
       if (!freshSession) return;
       const nextCursors = { ...(freshSession.cursors || {}) };
@@ -549,6 +659,7 @@ wsServer.on("connection", async (ws, request) => {
         content: freshSession.content || "",
         cursors: nextCursors,
         finalized: freshSession.finalized,
+        finalizedHash: freshSession.finalized_hash || null,
         finalizedPayload: freshSession.finalized_payload || null,
       });
       if (!clients.size) scopeSessionClients.delete(sessionId);
@@ -558,7 +669,16 @@ wsServer.on("connection", async (ws, request) => {
 
 async function bootstrap() {
   try {
+  await connectWithRetry();
   await migrate();
+
+  // Validate that the database is at the expected migration version
+  const migrationVersion = await getCurrentMigrationVersion();
+  const expectedVersion = getExpectedMigrationVersion();
+  validateMigrationVersion(migrationVersion, expectedVersion, serviceLogger);
+
+  app.locals.migrationVersion = migrationVersion;
+
   await cleanupExpiredScopeSessions();
   await indexerService.start();
   priceAlertService.start();
@@ -879,8 +999,29 @@ function startRecurringEscrowTicker() {
   startTicker();
 }
 
-bootstrap();
+if (process.env.NODE_ENV !== 'test') {
+  bootstrap();
+}
+
+// Expose WebSocket internals for testing
+app._ws = {
+  server,
+  wsServer,
+  realtimeClients,
+  userClients,
+  userLastSeen,
+  scopeSessionClients,
+  broadcastRealtime,
+  broadcastToUser,
+};
 
 app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
+
+// Expose WebSocket internals for tests
+app._ws = wsServer;
+app._ws.server = server;
+app._ws.realtimeClients = realtimeClients;
+app._ws.userClients = userClients;
+app._ws.scopeSessionClients = scopeSessionClients;
 
 module.exports = app;

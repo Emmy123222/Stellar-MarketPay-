@@ -20,7 +20,8 @@
  *     "stellar":  { "status": "ok", "network": "testnet", "ledger": 12345678 }
  *                | { "status": "error", "message": "..." },
  *     "uptime_seconds": 3600,
- *     "version": "1.0.0"
+ *     "version": "1.0.0",
+ *     "migrationVersion": 21
  *   }
  */
 "use strict";
@@ -144,6 +145,11 @@ function checkIpfs() {
  *                     ledger: { type: number, example: 12345678 }
  *                 uptime_seconds: { type: number, example: 3600 }
  *                 version: { type: string, example: "1.0.0" }
+ *                 migrationVersion:
+ *                   type: integer
+ *                   nullable: true
+ *                   example: 21
+ *                   description: Current schema_migrations version from the database
  *       503:
  *         description: One or more dependencies are down
  */
@@ -166,6 +172,7 @@ router.get("/", healthRateLimiter, async (req, res) => {
     indexer: req.app.locals.indexerService
       ? req.app.locals.indexerService.getHealth()
       : null,
+    migrationVersion: req.app.locals.migrationVersion ?? null,
   };
 
   // Fire-and-forget: persist check results (failure is non-fatal)
