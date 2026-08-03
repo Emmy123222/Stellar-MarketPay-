@@ -480,12 +480,14 @@ CREATE TABLE IF NOT EXISTS time_entries (
   freelancer_address  TEXT        NOT NULL REFERENCES profiles(public_key),
   duration_minutes    INTEGER     NOT NULL CHECK (duration_minutes > 0 AND duration_minutes <= 1440),
   description         TEXT,
+  milestone_index     INTEGER,
   started_at          TIMESTAMPTZ,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS time_entries_job_id_idx         ON time_entries(job_id);
 CREATE INDEX IF NOT EXISTS time_entries_freelancer_idx     ON time_entries(freelancer_address);
+CREATE INDEX IF NOT EXISTS time_entries_milestone_idx      ON time_entries(job_id, milestone_index);
 
 -- ─────────────────────────────────────────
 -- time_invoices  (Issue #346 — billing)

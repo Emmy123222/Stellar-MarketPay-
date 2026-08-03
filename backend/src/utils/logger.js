@@ -28,7 +28,7 @@
 "use strict";
 
 const pino = require("pino");
-const { v4: uuidv4 } = require("uuid");
+const { randomUUID } = require("crypto");
 
 const {
   enterRequestContext,
@@ -69,7 +69,7 @@ const logger = pino({
  * @returns {string}
  */
 function generateRequestId() {
-  return uuidv4();
+  return randomUUID();
 }
 
 /**
