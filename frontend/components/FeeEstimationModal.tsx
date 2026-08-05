@@ -84,10 +84,6 @@ export default function FeeEstimationModal({
   const insufficient =
     balanceXlm !== null && feeXlm !== null && balanceXlm < feeXlm;
 
-  const handleConfirm = useCallback(() => {
-    onConfirm({ maxFeeMultiplier, maxFeeStroops });
-  }, [onConfirm, maxFeeMultiplier, maxFeeStroops]);
-
   return (
     <AccessibleModal
       titleId="fee-estimation-title"
