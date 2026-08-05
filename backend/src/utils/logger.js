@@ -128,6 +128,11 @@ function xRequestIdMiddleware(req, res, next) {
  * skip needing `req` entirely.
  */
 function requestLoggerMiddleware(req, res, next) {
+  // Skip access logging for health checks — they're noisy and uninteresting
+  if (req.path === "/api/health" || req.path.startsWith("/api/health/")) {
+    return next();
+  }
+
   // Assumption: `xRequestIdMiddleware` ran first and already entered the
   // ALS context. We just attach a pre-bound child logger to req for any
   // legacy code paths that still expect `req.logger`.

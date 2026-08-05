@@ -5,9 +5,11 @@
 import { useTranslation } from "@/lib/i18n";
 import { POPULAR_SKILLS } from "@/utils/format";
 import clsx from "clsx";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createSavedSearch, fetchSavedSearches, type SavedSearch } from "@/lib/api";
 
 export interface JobFilterQuery {
+  search?: string;
   minBudget?: string;
   maxBudget?: string;
   skills?: string;
@@ -29,6 +31,13 @@ export function buildActiveFilterChips(
   labels: Record<string, string>,
 ): { key: string; label: string; removeKeys: string[] }[] {
   const chips: { key: string; label: string; removeKeys: string[] }[] = [];
+  if (query.search && query.search.trim()) {
+    chips.push({
+      key: "search",
+      label: `${labels.search}: "${query.search.trim()}"`,
+      removeKeys: ["search"],
+    });
+  }
   if (query.minBudget || query.maxBudget) {
     chips.push({
       key: "budget",
@@ -83,6 +92,25 @@ export default function JobFiltersPanel({
   const { t } = useTranslation("common");
   const [open, setOpen] = useState(!collapsible);
   const [skillInput, setSkillInput] = useState(query.skills || "");
+  const [searchInput, setSearchInput] = useState(query.search || "");
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync search input when external query.search changes (e.g., URL navigation)
+  useEffect(() => {
+    setSearchInput(query.search || "");
+  }, [query.search]);
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, []);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [notifyInApp, setNotifyInApp] = useState(true);
+  const [notifyEmail, setNotifyEmail] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const selectedSkills = (query.skills || "")
     .split(",")
@@ -97,8 +125,97 @@ export default function JobFiltersPanel({
     onQueryChange({ skills: next || undefined }, next ? undefined : ["skills"]);
   };
 
+  const handleSaveSearch = async () => {
+    setIsSaving(true);
+    setSaveError(null);
+    
+    try {
+      // Check if user has reached the limit
+      const existingSearches = await fetchSavedSearches();
+      if (existingSearches.length >= 10) {
+        setSaveError("You can save up to 10 searches. Please delete one first.");
+        setIsSaving(false);
+        return;
+      }
+
+      await createSavedSearch({
+        query_params: query,
+        notify_in_app: notifyInApp,
+        notify_email: notifyEmail,
+      });
+      
+      setShowSaveModal(false);
+      setNotifyInApp(true);
+      setNotifyEmail(false);
+    } catch (error) {
+      setSaveError("Failed to save search. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setSearchInput(value);
+
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      onQueryChange(
+        { search: value.trim() || undefined },
+        value.trim() ? undefined : ["search"],
+      );
+    }, 300);
+  };
+
+  const handleClearSearch = () => {
+    setSearchInput("");
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    onQueryChange({}, ["search"]);
+  };
+
+  const hasActiveFilters = Object.values(query).some(
+    (value) => value !== undefined && value !== ""
+  );
+
   const panel = (
     <div className={clsx("space-y-5", className)}>
+      {/* Keyword Search */}
+      <div>
+        <p className="label mb-2">{t("jobs.search") || "Search"}</p>
+        <div className="relative">
+          <svg
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-800"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+          </svg>
+          <input
+            type="text"
+            value={searchInput}
+            onChange={handleSearchChange}
+            placeholder={t("jobs.searchPlaceholder")}
+            className="input-field pl-8 pr-8 text-xs"
+            aria-label={t("jobs.search") || "Search jobs"}
+          />
+          {searchInput && (
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-amber-800 hover:text-amber-300 transition-colors"
+              aria-label="Clear search"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+
       <div>
         <p className="label mb-2">{t("jobs.budgetRange")}</p>
         <div className="flex gap-2 items-center mb-2">
@@ -257,12 +374,23 @@ export default function JobFiltersPanel({
         </button>
       </div>
 
+      {hasActiveFilters && (
+        <button
+          type="button"
+          onClick={() => setShowSaveModal(true)}
+          className="btn-primary text-sm w-full"
+        >
+          Save Search
+        </button>
+      )}
+
       <button
         type="button"
         onClick={() => {
           onQueryChange(
             {},
             [
+              "search",
               "minBudget",
               "maxBudget",
               "skills",
@@ -273,6 +401,8 @@ export default function JobFiltersPanel({
             ],
           );
           setSkillInput("");
+          setSearchInput("");
+          if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
         }}
         className="text-xs text-market-400 hover:text-market-300 font-semibold w-full"
       >
@@ -282,22 +412,139 @@ export default function JobFiltersPanel({
   );
 
   if (!collapsible) {
-    return panel;
+    return (
+      <>
+        {panel}
+        {showSaveModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-market-900 border border-amber-900/30 rounded-lg p-6 max-w-md w-full mx-4">
+              <h3 className="text-lg font-semibold text-amber-100 mb-4">Save Search</h3>
+              
+              <div className="space-y-3 mb-4">
+                <label className="flex items-center gap-2 text-sm text-amber-100">
+                  <input
+                    type="checkbox"
+                    checked={notifyInApp}
+                    onChange={(e) => setNotifyInApp(e.target.checked)}
+                    className="rounded border-amber-900/30 bg-market-800"
+                  />
+                  Notify me in-app when new jobs match
+                </label>
+                
+                <label className="flex items-center gap-2 text-sm text-amber-100">
+                  <input
+                    type="checkbox"
+                    checked={notifyEmail}
+                    onChange={(e) => setNotifyEmail(e.target.checked)}
+                    className="rounded border-amber-900/30 bg-market-800"
+                  />
+                  Send me email notifications
+                </label>
+              </div>
+
+              {saveError && (
+                <p className="text-red-400 text-sm mb-4">{saveError}</p>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSaveModal(false);
+                    setSaveError(null);
+                  }}
+                  className="flex-1 btn-secondary text-sm"
+                  disabled={isSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSearch}
+                  className="flex-1 btn-primary text-sm"
+                  disabled={isSaving}
+                >
+                  {isSaving ? "Saving..." : "Save Search"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
   }
 
   return (
-    <div className="lg:hidden mb-4">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="btn-secondary text-sm w-full flex justify-between items-center"
-        aria-expanded={open}
-      >
-        <span>{t("jobs.filters")}</span>
-        <span>{open ? t("jobs.hideFilters") : t("jobs.showFilters")}</span>
-      </button>
-      {open && <div className="mt-4 card p-4">{panel}</div>}
-    </div>
+    <>
+      <div className="lg:hidden mb-4">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="btn-secondary text-sm w-full flex justify-between items-center"
+          aria-expanded={open}
+        >
+          <span>{t("jobs.filters")}</span>
+          <span>{open ? t("jobs.hideFilters") : t("jobs.showFilters")}</span>
+        </button>
+        {open && <div className="mt-4 card p-4">{panel}</div>}
+      </div>
+
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-market-900 border border-amber-900/30 rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-amber-100 mb-4">Save Search</h3>
+            
+            <div className="space-y-3 mb-4">
+              <label className="flex items-center gap-2 text-sm text-amber-100">
+                <input
+                  type="checkbox"
+                  checked={notifyInApp}
+                  onChange={(e) => setNotifyInApp(e.target.checked)}
+                  className="rounded border-amber-900/30 bg-market-800"
+                />
+                Notify me in-app when new jobs match
+              </label>
+              
+              <label className="flex items-center gap-2 text-sm text-amber-100">
+                <input
+                  type="checkbox"
+                  checked={notifyEmail}
+                  onChange={(e) => setNotifyEmail(e.target.checked)}
+                  className="rounded border-amber-900/30 bg-market-800"
+                />
+                Send me email notifications
+              </label>
+            </div>
+
+            {saveError && (
+              <p className="text-red-400 text-sm mb-4">{saveError}</p>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSaveModal(false);
+                  setSaveError(null);
+                }}
+                className="flex-1 btn-secondary text-sm"
+                disabled={isSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSearch}
+                className="flex-1 btn-primary text-sm"
+                disabled={isSaving}
+              >
+                {isSaving ? "Saving..." : "Save Search"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -310,6 +557,7 @@ export function ActiveFilterChips({
 }) {
   const { t } = useTranslation("common");
   const labels = {
+    search: t("jobs.search") || "Search",
     budget: t("jobs.budgetRange"),
     skills: t("jobs.skills"),
     rating: t("jobs.clientRating"),

@@ -6,9 +6,14 @@
 "use strict";
 
 const { readPool, writePool } = require("../db/pool");
+const {
+  findJobById,
+  listJobs: queryListJobs,
+} = require("../db/queries/jobs");
 const pool = writePool; // default alias — write-safe; read-only paths use readPool
 const { refreshFreelancerTier } = require("./profileService");
 const { createJobNotification, EVENT_TYPES } = require("./notificationService");
+const { insertAuditLog } = require("./auditLogService");
 const {
   buildJobTfIdfVector,
   updateVocabularyAndIdf,
@@ -210,6 +215,7 @@ function rowToJob(row) {
     categoryId: row.category_id_resolved || row.category_id || null,
     skills: row.skills,
     status: row.status,
+    visibility: row.visibility || "public",
     clientAddress: row.client_address,
     freelancerAddress: row.freelancer_address,
     escrowContractId: row.escrow_contract_id,
@@ -442,17 +448,13 @@ function tokenize(text) {
  * @throws {Error} If the job is not found.
  */
 async function getJob(id, { includeDeleted = false } = {}) {
-  const deletedFilter = includeDeleted ? "" : "AND deleted_at IS NULL";
-  const { rows } = await pool.query(
-    `SELECT * FROM jobs WHERE id = $1 ${deletedFilter}`,
-    [id]
-  );
-  if (!rows.length) {
+  const row = await findJobById(pool, { id, includeDeleted });
+  if (!row) {
     const e = new Error("Job not found");
     e.status = 404;
     throw e;
   }
-  return rowToJob(rows[0]);
+  return rowToJob(row);
 }
 
 /**
@@ -639,6 +641,12 @@ async function listJobs({
           WHERE ji.job_id = jobs.id AND ji.freelancer_address = $${viewerIdx}
         )))`,
     );
+    // Add is_invited field to select
+    selectColumns = `${selectColumns},
+      EXISTS (
+        SELECT 1 FROM job_invitations ji
+        WHERE ji.job_id = jobs.id AND ji.freelancer_address = $${viewerIdx}
+      ) AS is_invited`;
   } else {
     conditions.push("visibility = 'public'");
   }
@@ -653,24 +661,13 @@ async function listJobs({
     );
   }
 
-  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-
-  params.push(limit);
-
-  const { rows } = await readPool.query(
-    `SELECT ${selectColumns}, COALESCE(agg.skills, '{}') AS skills
-     FROM jobs
-     LEFT JOIN LATERAL (
-       SELECT array_agg(s.display_name ORDER BY s.display_name) AS skills
-       FROM   job_skills js
-       JOIN   skills s ON s.id = js.skill_id
-       WHERE  js.job_id = jobs.id
-     ) agg ON true
-     ${where}
-     ORDER BY ${orderClause}
-     LIMIT $${params.length}`,
+  const rows = await queryListJobs(readPool, {
+    selectColumns,
+    conditions,
     params,
-  );
+    orderClause,
+    limit,
+  });
 
   const jobs = rows.map(rowToJob);
   let nextCursor = null;
@@ -716,6 +713,13 @@ async function updateJobStatus(id, status) {
     throw e;
   }
 
+  // Fetch old value before updating (for audit log)
+  const { rows: oldRows } = await pool.query(
+    "SELECT * FROM jobs WHERE id = $1",
+    [id],
+  );
+  const oldJob = oldRows.length ? rowToJob(oldRows[0]) : null;
+
   const { rows } = await pool.query(
     "UPDATE jobs SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
     [status, id],
@@ -730,6 +734,20 @@ async function updateJobStatus(id, status) {
   const job = rowToJob(rows[0]);
   if (status === "completed" && job.freelancerAddress) {
     await refreshFreelancerTier(job.freelancerAddress);
+  }
+
+  // Append-only audit log for this state change
+  try {
+    await insertAuditLog({
+      actorAddress: oldJob?.clientAddress || "system",
+      action: "job_status_change",
+      entityType: "job",
+      entityId: id,
+      oldValue: oldJob ? { status: oldJob.status } : null,
+      newValue: { status: job.status },
+    });
+  } catch {
+    // Non-fatal: audit logging must never block the primary operation
   }
 
   return job;
@@ -896,6 +914,13 @@ async function incrementShareCount(jobId) {
 }
 
 async function raiseDispute(jobId, { reason, description, raisedBy }) {
+  // Fetch old value before updating (for audit log)
+  const { rows: oldRows } = await pool.query(
+    "SELECT * FROM jobs WHERE id = $1",
+    [jobId],
+  );
+  const oldJob = oldRows.length ? rowToJob(oldRows[0]) : null;
+
   const { rows } = await pool.query(
     `UPDATE jobs 
      SET status = 'disputed', 
@@ -916,6 +941,21 @@ async function raiseDispute(jobId, { reason, description, raisedBy }) {
   }
 
   const job = rowToJob(rows[0]);
+
+  // Append-only audit log for dispute filing
+  try {
+    await insertAuditLog({
+      actorAddress: raisedBy,
+      action: "job_dispute_raised",
+      entityType: "job",
+      entityId: jobId,
+      oldValue: oldJob ? { status: oldJob.status, disputeReason: null } : null,
+      newValue: { status: job.status, disputeReason: reason, disputedBy: raisedBy },
+    });
+  } catch {
+    // Non-fatal
+  }
+
   const recipients = new Set(
     [job.clientAddress, job.freelancerAddress].filter(Boolean),
   );
@@ -935,6 +975,13 @@ async function raiseDispute(jobId, { reason, description, raisedBy }) {
 }
 
 async function resolveDispute(jobId) {
+  // Fetch old value before updating (for audit log)
+  const { rows: oldRows } = await pool.query(
+    "SELECT * FROM jobs WHERE id = $1",
+    [jobId],
+  );
+  const oldJob = oldRows.length ? rowToJob(oldRows[0]) : null;
+
   const { rows } = await pool.query(
     `UPDATE jobs 
      SET status = 'in_progress', 
@@ -954,7 +1001,23 @@ async function resolveDispute(jobId) {
     throw e;
   }
 
-  return rowToJob(rows[0]);
+  const job = rowToJob(rows[0]);
+
+  // Append-only audit log for dispute resolution
+  try {
+    await insertAuditLog({
+      actorAddress: oldJob?.disputedBy || "system",
+      action: "job_dispute_resolved",
+      entityType: "job",
+      entityId: jobId,
+      oldValue: oldJob ? { status: oldJob.status } : null,
+      newValue: { status: job.status },
+    });
+  } catch {
+    // Non-fatal
+  }
+
+  return job;
 }
 
 async function getCategoryAnalytics() {
@@ -1338,6 +1401,130 @@ async function getSuggestions(query) {
   }
 }
 
+// ─── Job Timeline (Issue #876) ────────────────────────────────────────────
+
+/**
+ * Valid timeline event types.
+ */
+const TIMELINE_EVENT_TYPES = [
+  "job_posted",
+  "bid_accepted",
+  "escrow_funded",
+  "work_completed",
+  "escrow_released",
+];
+
+/**
+ * Record a timeline event for a job. If an event type already exists for this
+ * job, it is skipped (idempotent).
+ *
+ * @param {string} jobId     UUID of the job.
+ * @param {string} eventType One of the valid TIMELINE_EVENT_TYPES.
+ * @param {string|null} [txHash=null] On-chain transaction hash, if applicable.
+ * @returns {Promise<Object>} The inserted timeline row.
+ * @throws {Error} 400 — invalid eventType.
+ */
+async function recordTimelineEvent(jobId, eventType, txHash = null) {
+  if (!TIMELINE_EVENT_TYPES.includes(eventType)) {
+    const e = new Error(`Invalid timeline event type: ${eventType}`);
+    e.status = 400;
+    throw e;
+  }
+
+  // Idempotent: skip if this event type already exists for the job
+  const { rows: existing } = await pool.query(
+    "SELECT id FROM job_timeline WHERE job_id = $1 AND event_type = $2",
+    [jobId, eventType],
+  );
+  if (existing.length > 0) {
+    return existing[0];
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO job_timeline (job_id, event_type, tx_hash)
+     VALUES ($1, $2, $3)
+     RETURNING *`,
+    [jobId, eventType, txHash || null],
+  );
+  return rows[0];
+}
+
+/**
+ * Get all timeline events for a job, ordered by creation time ascending.
+ *
+ * @param {string} jobId UUID of the job.
+ * @returns {Promise<Object[]>} Array of timeline event rows (camel-cased).
+ */
+async function getJobTimeline(jobId) {
+  const { rows } = await pool.query(
+    `SELECT id, job_id, event_type, tx_hash, created_at
+     FROM job_timeline
+     WHERE job_id = $1
+     ORDER BY created_at ASC`,
+    [jobId],
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    jobId: row.job_id,
+    eventType: row.event_type,
+    txHash: row.tx_hash || null,
+    createdAt: row.created_at,
+  }));
+}
+
+// ─── Integrate timeline recording into existing lifecycle methods ───────
+
+// Wrap createJob to record 'job_posted' event
+const _createJob = createJob;
+createJob = async function (params) {
+  const job = await _createJob(params);
+  try {
+    await recordTimelineEvent(job.id, "job_posted");
+  } catch (err) {
+    console.error("[timeline] Failed to record job_posted event:", err.message);
+  }
+  return job;
+};
+
+// Wrap assignFreelancer to record 'bid_accepted' event
+const _assignFreelancer = assignFreelancer;
+assignFreelancer = async function (jobId, freelancerAddress) {
+  const job = await _assignFreelancer(jobId, freelancerAddress);
+  try {
+    await recordTimelineEvent(jobId, "bid_accepted");
+  } catch (err) {
+    console.error("[timeline] Failed to record bid_accepted event:", err.message);
+  }
+  return job;
+};
+
+// Wrap updateJobStatus to record 'work_completed' event
+const _updateJobStatus = updateJobStatus;
+updateJobStatus = async function (id, status) {
+  const job = await _updateJobStatus(id, status);
+  if (status === "completed") {
+    try {
+      await recordTimelineEvent(id, "work_completed");
+    } catch (err) {
+      console.error("[timeline] Failed to record work_completed event:", err.message);
+    }
+  }
+  return job;
+};
+
+// Extend updateJobEscrowId to accept optional txHash for recording escrow_funded event
+const _updateJobEscrowId = updateJobEscrowId;
+updateJobEscrowId = async function (jobId, escrowContractId, txHash = null) {
+  const job = await _updateJobEscrowId(jobId, escrowContractId);
+  try {
+    await recordTimelineEvent(jobId, "escrow_funded", txHash);
+  } catch (err) {
+    console.error("[timeline] Failed to record escrow_funded event:", err.message);
+  }
+  return job;
+};
+
 module.exports = {
   createJob,
   getJob,
@@ -1365,4 +1552,7 @@ module.exports = {
   getRecommendedJobs,
   getSuggestions,
   rowToJob,
+  recordTimelineEvent,
+  getJobTimeline,
+  TIMELINE_EVENT_TYPES,
 };

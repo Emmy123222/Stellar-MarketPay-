@@ -45,7 +45,7 @@ function shouldSkipCsrf(req) {
 
   // Operational endpoints — scraped by Prometheus / load balancers with
   // no browser context.
-  if (path === "/health" || path.startsWith("/health/")) return true;
+  if (path === "/api/health" || path.startsWith("/api/health/")) return true;
   if (path === "/metrics") return true;
   if (path.startsWith("/api/docs")) return true;
 

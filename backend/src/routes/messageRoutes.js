@@ -1,6 +1,11 @@
 /**
  * src/routes/messageRoutes.js
  * Private messaging endpoints for job participants.
+ *
+ * @swagger
+ * tags:
+ *   name: Messages
+ *   description: In-app messaging between users
  */
 
 "use strict";
@@ -23,9 +28,54 @@ const upload = multer({
   },
 });
 
-// ─── POST /api/messages/job/:jobId ───────────────────────────────────────────
-// Send a message in a job thread.
-// Requires authentication. User must be job participant.
+/**
+ * @swagger
+ * /api/messages/job/{jobId}:
+ *   post:
+ *     summary: Send a message in a job thread
+ *     tags: [Messages]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - content
+ *             properties:
+ *               content:
+ *                 type: string
+ *                 description: Message content (encrypted)
+ *               contractTxHash:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Message sent
+ *   get:
+ *     summary: Get messages for a job thread
+ *     tags: [Messages]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Message list (marks as read)
+ */
 router.post("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next) => {
   try {
     const { jobId } = req.params;
@@ -33,7 +83,7 @@ router.post("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next)
     const senderAddress = req.user.publicKey;
 
     if (!content || typeof content !== "string") {
-      return res.status(400).json({ success: false, error: "Message content is required" });
+      return res.status(400).json({ error: "Message content is required" });
     }
 
     const message = await messageService.createMessage({
@@ -49,10 +99,6 @@ router.post("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next)
   }
 });
 
-// ─── GET /api/messages/job/:jobId ────────────────────────────────────────────
-// Retrieve all messages for a job.
-// Requires authentication. User must be job participant.
-// Marks messages as read for the requesting user.
 router.get("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next) => {
   try {
     const { jobId } = req.params;
@@ -65,8 +111,18 @@ router.get("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next) 
   }
 });
 
-// ─── GET /api/messages/unread-count ─────────────────────────────────────────
-// Get total unread message count for the authenticated user.
+/**
+ * @swagger
+ * /api/messages/unread-count:
+ *   get:
+ *     summary: Get total unread message count
+ *     tags: [Messages]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Unread count
+ */
 router.get("/unread-count", verifyJWT, generalRateLimiter, async (req, res, next) => {
   try {
     const userAddress = req.user.publicKey;
@@ -77,16 +133,42 @@ router.get("/unread-count", verifyJWT, generalRateLimiter, async (req, res, next
   }
 });
 
-// ─── PATCH /api/messages/:messageId/tx-hash ──────────────────────────────────
-// Attach an on-chain Soroban transaction hash to a message record.
-// This is called after the frontend signs and submits the publish_message event.
+/**
+ * @swagger
+ * /api/messages/{messageId}/tx-hash:
+ *   patch:
+ *     summary: Attach on-chain tx hash to a message
+ *     tags: [Messages]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: messageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - txHash
+ *             properties:
+ *               txHash:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Tx hash attached
+ */
 router.patch("/:messageId/tx-hash", verifyJWT, generalRateLimiter, async (req, res, next) => {
   try {
     const { messageId } = req.params;
     const { txHash } = req.body;
 
     if (!txHash || typeof txHash !== "string") {
-      return res.status(400).json({ success: false, error: "txHash is required" });
+      return res.status(400).json({ error: "txHash is required" });
     }
 
     const message = await messageService.attachTxHash(messageId, txHash);
@@ -96,10 +178,41 @@ router.patch("/:messageId/tx-hash", verifyJWT, generalRateLimiter, async (req, r
   }
 });
 
-// POST /api/messages/job/:jobId/attachments — upload an encrypted file attachment
+/**
+ * @swagger
+ * /api/messages/job/{jobId}/attachments:
+ *   post:
+ *     summary: Upload an encrypted file attachment
+ *     tags: [Messages]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *               senderNaclPub:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Attachment uploaded to IPFS
+ */
 router.post("/job/:jobId/attachments", verifyJWT, generalRateLimiter, upload.single("file"), async (req, res, next) => {
   try {
-    if (!req.file) return res.status(400).json({ success: false, error: "File is required" });
+    if (!req.file) return res.status(400).json({ error: "File is required" });
     const { jobId } = req.params;
     const senderAddress = req.user.publicKey;
     const senderNaclPub = req.body.senderNaclPub || null;
