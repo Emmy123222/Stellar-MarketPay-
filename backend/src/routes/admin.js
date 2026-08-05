@@ -14,7 +14,7 @@ const router = express.Router();
 
 const pool = require("../db/pool");
 const { verifyJWT, requireAdminRole, requireAdmin2FA } = require("../middleware/auth");
-const { updateJobStatus } = require("../services/jobService");
+const { updateJobStatus, listJobs } = require("../services/jobService");
 const { logContractInteraction } = require("../services/contractAuditService");
 const { getApiKeyUsageStats } = require("../services/developerService");
 const { listAuditLogs } = require("../services/auditLogService");
@@ -629,6 +629,21 @@ router.get("/wallets/frozen", verifyJWT, requireAdminRole, requireAdmin2FA, asyn
     res.json({ success: true, data: rows });
   } catch (e) {
     res.json({ success: true, data: [] });
+  }
+});
+
+// ── GET /api/admin/jobs — list all jobs (optionally include soft-deleted) ─────
+router.get("/jobs", verifyJWT, requireAdminRole, async (req, res, next) => {
+  try {
+    const includeDeleted = req.query.include_deleted === "true";
+    const { jobs, nextCursor } = await listJobs({
+      status: "all",
+      includeDeleted,
+      limit: parseInt(req.query.limit, 10) || 50,
+    });
+    res.json({ success: true, data: jobs, nextCursor });
+  } catch (e) {
+    next(e);
   }
 });
 
