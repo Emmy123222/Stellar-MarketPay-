@@ -38,3 +38,4 @@ export * from "./dao";
 export * from "./health";
 export * from "./scope";
 export * from "./priceAlerts";
+export * from "./aiScorer";

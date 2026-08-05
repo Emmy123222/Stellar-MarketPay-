@@ -10,6 +10,7 @@ import { fetchRecentlyCompletedJobs } from "@/lib/api";
 import { formatXLM } from "@/utils/format";
 import type { Job } from "@/utils/types";
 import useCountUp from "@/hooks/useCountUp";
+import RecentlyViewedJobs from "@/components/RecentlyViewedJobs";
 
 // Category → emoji icon mapping for compact cards
 const CATEGORY_ICONS: Record<string, string> = {
@@ -197,6 +198,9 @@ export default function Home({ publicKey, onConnect, completedJobs }: HomeProps)
             </div>
           )}
         </div>
+
+        {/* ── Recently Viewed Jobs ──────────────────────────────────────── */}
+        <RecentlyViewedJobs />
 
         {/* ── Why Stellar ─────────────────────────────────────────────────── */}
         <div className="card mb-20 bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18">
