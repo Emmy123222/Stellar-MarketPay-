@@ -31,6 +31,8 @@ use soroban_sdk::{
     String, Symbol, Vec,
 };
 
+pub mod errors;
+
 // ─── Storage keys ─────────────────────────────────────────────────────────────
 
 /// Default timeout: 7 days in seconds.
@@ -183,10 +185,16 @@ pub struct ExtensionRequest {
 }
 
 /// Job completion certificate (Issue #102)
+///
+/// Acts as a proof-of-work NFT minted to the freelancer once the escrow is
+/// released. On-chain metadata captures the job title, client address,
+/// freelancer address, escrow amount and the ledger at mint time.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Certificate {
     pub job_id: String,
+    pub title: String,
+    pub client: Address,
     pub freelancer: Address,
     pub amount: i128,
     pub created_at: u32,
@@ -2835,7 +2843,11 @@ impl MarketPayContract {
     // ─── Issue #102: Job Completion Certificate ──────────────────────────────
 
     /// Mint a certificate when job is completed (upon escrow release).
-    pub fn mint_certificate(env: Env, job_id: String, client: Address) {
+    ///
+    /// The certificate is a proof-of-work NFT minted to the freelancer's
+    /// address. `title` is stored on-chain as part of the certificate
+    /// metadata so the certificate carries the job title (not just the id).
+    pub fn mint_certificate(env: Env, job_id: String, title: String, client: Address) {
         client.require_auth();
         Self::check_not_frozen(&env);
 
@@ -2845,6 +2857,12 @@ impl MarketPayContract {
             .get(&DataKey::Escrow(job_id.clone()))
             .expect("Escrow not found");
 
+        if client != escrow.client {
+            panic!("Only the escrow client can mint the certificate");
+        }
+        if title.is_empty() {
+            panic!("Certificate title cannot be empty");
+        }
         if escrow.status != EscrowStatus::Released {
             panic!("Escrow must be released to mint certificate");
         }
@@ -2858,6 +2876,8 @@ impl MarketPayContract {
 
         let cert = Certificate {
             job_id: job_id.clone(),
+            title: title.clone(),
+            client: escrow.client.clone(),
             freelancer: escrow.freelancer.clone(),
             amount: escrow.amount,
             created_at: env.ledger().sequence(),

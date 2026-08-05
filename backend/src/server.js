@@ -65,12 +65,15 @@ const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
 const priceAlertRoutes     = require("./routes/priceAlerts");
+const nftRoutes            = require("./routes/nft");
 
 const pool            = require("./db/pool");
-const { migrate, getCurrentMigrationVersion, getExpectedMigrationVersion, validateMigrationVersion } = require("./db/migrate");
+const { connectWithRetry } = require("./db/pool");
+const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
+const { startSavedSearchAlertChecker } = require("./services/savedSearchAlertService");
 const { startWsEventCleanup } = require("./services/wsEventCleanupService");
 
 const serviceLogger = createServiceLogger('server');
@@ -184,6 +187,16 @@ function broadcastToUser(userAddress, event, payload) {
   const message = JSON.stringify({ event, payload });
   for (const ws of sockets) {
     if (ws.readyState === WS_OPEN) ws.send(message);
+  }
+}
+
+function broadcastToUser(userAddress, event, payload) {
+  const message = JSON.stringify({ event, payload });
+  const sockets = userClients.get(userAddress);
+  if (sockets) {
+    for (const ws of sockets) {
+      if (ws.readyState === WS_OPEN) ws.send(message);
+    }
   }
 }
 
@@ -498,43 +511,21 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
-    const token = url.searchParams.get("token");
+    const token = url.searchParams.get("token") || "";
     let userAddress = null;
-
     if (token) {
       try {
-        const decoded = jwt.verify(token, JWT_SECRET);
+        const jwt = require("jsonwebtoken");
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         userAddress = decoded.publicKey;
-      } catch (err) {
-        serviceLogger.warn({ error: err.message }, 'Invalid JWT token for WebSocket connection');
-        ws.close(1008, "Invalid token");
-        return;
-      }
+      } catch { /* token is optional, e.g. anonymous tab */ }
     }
-
-    // Enforce per-user connection cap (Issue #879): reject with 1008 if the
-    // user already has MAX_WS_CONNECTIONS_PER_USER active connections.
+    realtimeClients.add(ws);
+    wsConnectionsActive.set(realtimeClients.size);
     if (userAddress) {
-      const userConnections = userClients.get(userAddress) || new Set();
-      if (userConnections.size >= MAX_WS_CONNECTIONS_PER_USER) {
-        serviceLogger.warn({
-          userAddress,
-          connectionCount: userConnections.size,
-          maxAllowed: MAX_WS_CONNECTIONS_PER_USER
-        }, 'WebSocket connection rejected: too many active connections for user');
-        ws.close(1008, "Too many connections");
-        return;
-      }
-
-      if (!userClients.has(userAddress)) {
-        userClients.set(userAddress, new Set());
-      }
+      if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
       userClients.get(userAddress).add(ws);
     }
-
-    realtimeClients.add(ws);
-    refreshWsMetrics();
-
     sendJson(ws, "connected", { channel: "realtime" });
 
     // Replay notifications missed while the user was disconnected
@@ -566,17 +557,14 @@ wsServer.on("connection", async (ws, request) => {
 
     ws.on("close", () => {
       realtimeClients.delete(ws);
+      wsConnectionsActive.set(realtimeClients.size);
       if (userAddress) {
-        const connections = userClients.get(userAddress);
-        if (connections) {
-          connections.delete(ws);
-          if (connections.size === 0) {
-            userClients.delete(userAddress);
-          }
+        const sockets = userClients.get(userAddress);
+        if (sockets) {
+          sockets.delete(ws);
+          if (!sockets.size) userClients.delete(userAddress);
         }
-        userLastSeen.set(userAddress, new Date());
       }
-      refreshWsMetrics();
     });
     return;
   }
@@ -682,6 +670,7 @@ wsServer.on("connection", async (ws, request) => {
 
 async function bootstrap() {
   try {
+  await connectWithRetry();
   await migrate();
 
   // Validate that the database is at the expected migration version
@@ -1028,5 +1017,12 @@ app._ws = {
 };
 
 app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
+
+// Expose WebSocket internals for tests
+app._ws = wsServer;
+app._ws.server = server;
+app._ws.realtimeClients = realtimeClients;
+app._ws.userClients = userClients;
+app._ws.scopeSessionClients = scopeSessionClients;
 
 module.exports = app;
