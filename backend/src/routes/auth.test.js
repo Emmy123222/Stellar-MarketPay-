@@ -9,13 +9,16 @@ beforeAll(() => {
 
 jest.mock("../db/pool", () => {
   const mockQuery = jest.fn().mockResolvedValue({ rows: [] });
-  return {
+  const mock = {
     query: mockQuery,
     connect: jest.fn().mockResolvedValue({
       query: mockQuery,
       release: jest.fn(),
     }),
   };
+  mock.readPool = { query: mockQuery };
+  mock.writePool = mock;
+  return mock;
 });
 
 jest.mock("../services/indexerService", () => {
@@ -306,9 +309,9 @@ describe("SEP-10 Authentication Flow", () => {
 
       const res = await request(app)
         .post("/api/disputes/job-123/evidence")
-        .set("Cookie", csrf.cookie)
-        .set("X-CSRF-Token", csrf.token)
-        .set("Authorization", `Bearer ${shortLived}`);
+        .set("Authorization", `Bearer ${shortLived}`)
+        .set("Cookie", "XSRF-TOKEN=test-csrf-token")
+        .set("X-XSRF-Token", "test-csrf-token");
 
       expect(res.status).toBe(401);
       expect(res.body.error).toContain("Invalid or expired token");
@@ -431,10 +434,11 @@ describe("SEP-10 Authentication Flow", () => {
 
       // Verify cookies are cleared
       const tokenCookie = logoutRes.headers["set-cookie"].find(c => c.startsWith("token="));
-      const csrfCookie = logoutRes.headers["set-cookie"].find(c => c.startsWith("csrf-token="));
-
-      expect(tokenCookie).toContain("Max-Age=0");
-      expect(csrfCookie).toContain("Max-Age=0");
+      const xsrfCookie = logoutRes.headers["set-cookie"].find(c => c.startsWith("XSRF-TOKEN="));
+      
+      // Browsers accept either Max-Age=0 or Expires=epoch to clear a cookie
+      expect(tokenCookie).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/);
+      expect(xsrfCookie).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/);
     });
   });
 });

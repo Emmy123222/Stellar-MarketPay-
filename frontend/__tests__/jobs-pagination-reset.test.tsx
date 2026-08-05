@@ -5,6 +5,7 @@
  * filter on the next "load more" fetch.
  */
 import { render, waitFor, act } from "@testing-library/react";
+import { axe } from "jest-axe";
 import React from "react";
 
 // ── Controllable router mock ──────────────────────────────────────────────────
@@ -177,5 +178,11 @@ describe("jobs pagination reset on filter change (#857)", () => {
     // used for a subsequent fetch at all, regardless of category.
     const usedStaleCursor = fetchJobsCalls.some((c) => c.cursor === "cursor-design-page2");
     expect(usedStaleCursor).toBe(false);
+  });
+
+  it("has no obvious axe violations", async () => {
+    const { container } = render(<JobsPage />);
+    await waitFor(() => expect(fetchJobsCalls.length).toBeGreaterThan(0));
+    expect(await axe(container)).toHaveNoViolations();
   });
 });

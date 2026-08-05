@@ -1,0 +1,53 @@
+name: Backend Tests & Coverage
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/test-backend.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/test-backend.yml'
+
+jobs:
+  test:
+    name: Backend Unit Tests + Coverage
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      # Safe defaults for CI — unit tests use mocks, not real DB/services
+      DATABASE_URL: postgresql://test:test@localhost:5432/marketpay_test
+      DATABASE_ENCRYPTION_KEY: test-encryption-key-16chars
+      JWT_SECRET: test-jwt-secret-with-enough-length-for-ci
+      CSRF_SECRET: test-csrf-secret-with-enough-length-for-ci
+      PORT: "0"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Run coverage only for the 3 priority services to enforce 80% threshold
+      - name: Run tests with coverage
+        run: npx jest src/services/jobService.test.js src/services/applicationService.test.js src/services/notificationService.test.js --coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage-report
+          path: backend/coverage/
+          retention-days: 14

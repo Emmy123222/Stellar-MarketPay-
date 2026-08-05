@@ -9,6 +9,105 @@ jest.mock("next/link", () => ({
   }) => <a href={href}>{children}</a>,
 }));
 
+// ─── Heavy dashboard / form component stubs ───────────────────────────────────
+// Prevents deep render trees from pulling in components that need their own
+// complex mocks.  Each stub renders a single, stable element with a data-testid
+// so snapshots remain meaningful without blowing up on sub-tree dependencies.
+
+jest.mock("@/components/WalletConnect", () => ({
+  __esModule: true,
+  default: () => <div data-testid="wallet-connect-stub" />,
+}));
+
+jest.mock("@/components/EditProfileForm", () => ({
+  __esModule: true,
+  default: () => <div data-testid="edit-profile-form-stub" />,
+}));
+
+jest.mock("@/components/SendPaymentForm", () => ({
+  __esModule: true,
+  default: () => <div data-testid="send-payment-form-stub" />,
+}));
+
+jest.mock("@/components/PostJobForm", () => ({
+  __esModule: true,
+  default: ({ publicKey }: { publicKey: string }) => (
+    <div data-testid="post-job-form-stub" data-public-key={publicKey} />
+  ),
+}));
+
+jest.mock("@/components/JobTimeline", () => ({
+  __esModule: true,
+  default: () => <div data-testid="job-timeline-stub" />,
+}));
+
+jest.mock("@/components/BulkJobActionBar", () => ({
+  __esModule: true,
+  default: () => <div data-testid="bulk-job-action-bar-stub" />,
+}));
+
+jest.mock("@/components/JobStatusTimeline", () => ({
+  __esModule: true,
+  default: () => <div data-testid="job-status-timeline-stub" />,
+}));
+
+jest.mock("@/components/ExtendJobModal", () => ({
+  __esModule: true,
+  default: () => <div data-testid="extend-job-modal-stub" />,
+}));
+
+jest.mock("@/components/ClientSpendingTab", () => ({
+  __esModule: true,
+  default: () => <div data-testid="client-spending-tab-stub" />,
+}));
+
+jest.mock("@/components/EarningsChart", () => ({
+  __esModule: true,
+  default: () => <div data-testid="earnings-chart-stub" />,
+}));
+
+jest.mock("@/components/dashboard-tabs/PostedJobsTab", () => ({
+  __esModule: true,
+  default: () => <div data-testid="posted-jobs-tab-stub" />,
+}));
+
+jest.mock("@/components/dashboard-tabs/AppliedJobsTab", () => ({
+  __esModule: true,
+  default: () => <div data-testid="applied-jobs-tab-stub" />,
+}));
+
+jest.mock("@/components/dashboard-tabs/InvitationsTab", () => ({
+  __esModule: true,
+  default: () => <div data-testid="invitations-tab-stub" />,
+}));
+
+jest.mock("@/components/ProfileCompletenessWidget", () => ({
+  __esModule: true,
+  default: () => <div data-testid="profile-completeness-widget-stub" />,
+}));
+
+jest.mock("@/components/XlmPriceWidget", () => ({
+  __esModule: true,
+  default: () => <div data-testid="xlm-price-widget-stub" />,
+}));
+
+jest.mock("@/components/StateMessage", () => ({
+  __esModule: true,
+  default: ({ title, message }: { title?: string; message?: string }) => (
+    <div data-testid="state-message-stub">{title || message}</div>
+  ),
+}));
+
+jest.mock("@/components/BuyXLMModal", () => ({
+  __esModule: true,
+  default: () => <div data-testid="buy-xlm-modal-stub" />,
+}));
+
+jest.mock("@/components/WithdrawToBankModal", () => ({
+  __esModule: true,
+  default: () => <div data-testid="withdraw-to-bank-modal-stub" />,
+}));
+
 jest.mock("@/hooks/useBookmarks", () => ({
   useBookmarks: () => ({
     isSaved: (jobId: string) => jobId === "job-bookmarked",
@@ -87,6 +186,7 @@ jest.mock("@/components/Toast", () => {
 });
 
 jest.mock("@/lib/api", () => ({
+  fetchCategories: jest.fn().mockResolvedValue([]),
   submitRating: jest.fn().mockResolvedValue({}),
   submitApplication: jest.fn().mockResolvedValue({}),
   fetchProposalTemplates: jest.fn().mockResolvedValue([]),
@@ -194,11 +294,29 @@ jest.mock("@/lib/api", () => ({
   checkAccountNeedsFunding: jest.fn().mockResolvedValue(true),
   setupAdmin2FA: jest.fn().mockResolvedValue({ qrCode: "otpauth://test", secret: "SECRET" }),
   verifyAdmin2FA: jest.fn().mockResolvedValue({ success: true }),
-  setJwtToken: jest.fn(),
   fetchPasskeyRegistrationOptions: jest.fn().mockResolvedValue({ challenge: "abc" }),
   fetchPasskeyCredentials: jest.fn().mockResolvedValue([]),
   verifyPasskeyRegistration: jest.fn().mockResolvedValue({}),
   deletePasskeyCredential: jest.fn().mockResolvedValue({}),
+  // ── Onboarding ────────────────────────────────────────────────────────────
+  syncOnboardingProgress: jest.fn().mockResolvedValue({}),
+  // ── Extra API calls used in dashboard ────────────────────────────────────
+  fetchClientSpendingAnalytics: jest.fn().mockResolvedValue({
+    hasCompletedJobs: false,
+    totalSpentXlm: "0",
+    jobsBreakdown: { posted: 0, completed: 0, cancelled: 0, inProgress: 0 },
+    averageBudgetXlm: "0",
+    averagePaidXlm: "0",
+    topFreelancers: [],
+  }),
+  fetchPriceAlertPreference: jest.fn().mockResolvedValue(null),
+  upsertPriceAlertPreference: jest.fn().mockResolvedValue({}),
+  fetchSavedSearches: jest.fn().mockResolvedValue([]),
+  updateSavedSearch: jest.fn().mockResolvedValue({}),
+  deleteSavedSearch: jest.fn().mockResolvedValue({}),
+  createProposalTemplate: jest.fn().mockResolvedValue({ id: "tpl-1", name: "", content: "" }),
+  updateProposalTemplate: jest.fn().mockResolvedValue({ id: "tpl-1", name: "", content: "" }),
+  deleteProposalTemplate: jest.fn().mockResolvedValue({}),
 }));
 
 jest.mock("@/lib/stellar", () => ({
@@ -207,6 +325,8 @@ jest.mock("@/lib/stellar", () => ({
   connectWallet: jest.fn().mockResolvedValue("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
   performSEP0010Auth: jest.fn().mockResolvedValue("jwt-token"),
   getXLMBalance: jest.fn().mockResolvedValue("1000"),
+  getUSDCBalance: jest.fn().mockResolvedValue("0"),
+  streamAccountTransactions: jest.fn().mockReturnValue(() => {}),
   publishMessageOnChain: jest.fn().mockResolvedValue("tx-hash"),
   accountUrl: jest.fn((key: string) => `https://stellar.expert/explorer/testnet/account/${key}`),
   isValidStellarAddress: jest.fn((address: string) => /^G[A-Z0-9]{55}$/.test(address)),
@@ -224,8 +344,16 @@ jest.mock("@/lib/wallet", () => ({
 }));
 
 jest.mock("@/lib/sorobanFees", () => ({
-  estimateSorobanFee: jest.fn().mockResolvedValue({ fee: "100", resourceFee: "50" }),
+  estimateSorobanFee: jest.fn().mockResolvedValue({
+    totalStroops: BigInt(2500000),
+    totalXlm: "0.2500000",
+    totalUsd: 0.0375,
+    resourceFeeStroops: BigInt(1500000),
+    inclusionFeeStroops: BigInt(1000000),
+  }),
   describeContractCall: jest.fn().mockReturnValue("create_escrow"),
+  stroopsToXlm: jest.fn().mockReturnValue("0.0100000"),
+  calculateMaxFee: jest.fn().mockReturnValue(BigInt(5000000)),
 }));
 
 jest.mock("@/lib/anchors", () => ({

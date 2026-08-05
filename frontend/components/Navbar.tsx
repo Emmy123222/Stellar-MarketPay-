@@ -4,13 +4,12 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { shortenAddress } from "@/utils/format";
 import clsx from "clsx";
 import { useTranslation } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import FaucetButton from "@/components/FaucetButton";
-import i18next from "@/lib/i18n";
 import { usePriceContext } from "@/contexts/PriceContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import NotificationBell from "@/components/NotificationBell";
 import { fetchJobs, searchFreelancers } from "@/lib/api";
 import type { Job, UserProfile } from "@/utils/types";
@@ -43,7 +42,7 @@ export default function Navbar({
   onDisconnect,
 }: NavbarProps) {
   const router = useRouter();
-  const { t, i18n } = useTranslation("common");
+  const { t } = useTranslation("common");
   const [hasNotification, setHasNotification] = useState(false);
   const [hasJobAlertBadge, setHasJobAlertBadge] = useState(false);
   const { currencyMode, setCurrencyMode, priceLoading } = usePriceContext();
@@ -235,11 +234,6 @@ export default function Navbar({
     setMobileMenuOpen(false);
   }, [router.pathname]);
 
-  const switchLanguage = (lang: string) => {
-    localStorage.setItem("preferredLocale", lang);
-    i18next.changeLanguage(lang);
-  };
-
   return (
     <nav className="sticky top-0 z-50 border-b border-[rgba(251,191,36,0.10)] bg-ink-900/85 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-4">
@@ -343,16 +337,7 @@ export default function Navbar({
 
         {/* Language Switcher - hidden on mobile, visible on tablet+ */}
         <div className="hidden sm:flex items-center">
-          <select
-            value={i18n.language}
-            onChange={(e) => switchLanguage(e.target.value)}
-            className="bg-market-900/40 border border-amber-900/30 rounded px-2 py-1 text-xs text-amber-100 cursor-pointer min-h-[44px]"
-          >
-            <option value="en">EN</option>
-            <option value="es">ES</option>
-            <option value="fr">FR</option>
-            <option value="pt">PT</option>
-          </select>
+          <LanguageSwitcher />
         </div>
         {/* Currency Toggle */}
         <div className="hidden md:flex items-center">
@@ -442,8 +427,8 @@ export default function Navbar({
           {publicKey ? (
             <>
               <NotificationBell publicKey={publicKey} />
-              <button
-                onClick={() => router.push("/dashboard/transactions")}
+              <WalletAddressDisplay
+                address={publicKey}
                 className="flex items-center gap-1 sm:gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity text-xs sm:text-sm px-2 py-2 sm:px-3 sm:py-2 min-h-[44px]"
                 title={t("wallet.balance") as string}
               >
@@ -484,7 +469,7 @@ export default function Navbar({
         {/* Mobile Menu Toggle */}
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="hidden w-10 h-10 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-market-500/10 transition-colors"
+          className="md:hidden w-10 h-10 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-market-500/10 transition-colors"
           aria-label="Toggle menu"
           aria-expanded={mobileMenuOpen}
         >
@@ -519,18 +504,38 @@ export default function Navbar({
               </Link>
             ))}
 
-            {/* Mobile Language Switcher */}
+            {/* Mobile language selector */}
             <div className="flex items-center px-3 py-2">
-              <select
-                value={i18n.language}
-                onChange={(e) => switchLanguage(e.target.value)}
-                className="bg-market-900/40 border border-amber-900/30 rounded px-2 py-2 text-xs text-amber-100 cursor-pointer w-full min-h-[44px]"
-                aria-label={t("language.switch") as string}
-              >
-                <option value="en">{t("language.english")}</option>
-                <option value="es">{t("language.spanish")}</option>
-              </select>
+              <LanguageSwitcher className="bg-market-900/40 border border-amber-900/30 rounded px-2 py-2 text-xs text-amber-100 cursor-pointer w-full min-h-[44px]" />
             </div>
+
+            {/* Mobile Dark Mode Toggle */}
+            {mounted && (
+              <button
+                onClick={() => {
+                  toggleTheme();
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors min-h-[44px]"
+              >
+                {theme === "dark" ? (
+                  <>
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+                      <circle cx="12" cy="12" r="4" />
+                      <path strokeLinecap="round" d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                    </svg>
+                    Light Mode
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                    </svg>
+                    Dark Mode
+                  </>
+                )}
+              </button>
+            )}
 
             {/* Mobile Disconnect Button */}
             {publicKey && (

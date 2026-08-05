@@ -1,5 +1,10 @@
 /**
  * src/routes/ratings.js
+ *
+ * @swagger
+ * tags:
+ *   name: Ratings
+ *   description: User rating and review system
  */
 "use strict";
 
@@ -9,6 +14,55 @@ const pool    = require("../db/pool");
 const { createRating, getRatingsForUser } = require("../services/ratingService");
 const { verifyJWT } = require("../middleware/auth");
 
+/**
+ * @swagger
+ * /api/ratings:
+ *   post:
+ *     summary: Submit a rating for a completed job
+ *     tags: [Ratings]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - jobId
+ *               - ratedAddress
+ *               - stars
+ *             properties:
+ *               jobId:
+ *                 type: string
+ *                 format: uuid
+ *               ratedAddress:
+ *                 type: string
+ *                 description: Stellar address of the user being rated
+ *               stars:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 5
+ *               review:
+ *                 type: string
+ *                 maxLength: 200
+ *     responses:
+ *       201:
+ *         description: Rating submitted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/Rating'
+ *       400:
+ *         description: Validation error
+ *       403:
+ *         description: Not a job participant or job not completed
+ */
 // POST /api/ratings — submit a rating (must be authenticated)
 router.post("/", verifyJWT, async (req, res, next) => {
   try {
@@ -56,6 +110,34 @@ router.post("/", verifyJWT, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * @swagger
+ * /api/ratings/{publicKey}:
+ *   get:
+ *     summary: List ratings for a user
+ *     tags: [Ratings]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Stellar public key of the user
+ *     responses:
+ *       200:
+ *         description: Ratings retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Rating'
+ */
 // GET /api/ratings/:publicKey — list all ratings for a user
 router.get("/:publicKey", async (req, res, next) => {
   try {
