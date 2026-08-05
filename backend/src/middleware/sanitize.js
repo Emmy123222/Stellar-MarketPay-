@@ -4,10 +4,8 @@
  */
 "use strict";
 
-const xss = require("xss");
+const sanitizeHtml = require("sanitize-html");
 const validator = require("validator");
-const { JSDOM } = require("jsdom");
-const DOMPurify = require("dompurify")(new JSDOM("").window);
 
 /**
  * SQL injection patterns to detect and block
@@ -19,18 +17,9 @@ const SQL_PATTERNS = [
 ];
 
 /**
- * XSS filter options - strip all HTML tags
- */
-const XSS_OPTIONS = {
-  whiteList: {}, // No tags allowed
-  stripIgnoreTag: true, // Remove all tags
-  stripIgnoreTagBody: ["script", "style"], // Remove script and style content
-};
-
-/**
  * Sanitize a single string value by:
  * 1. Decoding entities and normalizing Unicode exploits
- * 2. Stripping HTML tags and dangerous content via DOMPurify (server-side)
+ * 2. Stripping HTML tags and dangerous content via sanitize-html
  * 3. Checking for SQL injection patterns
  *
  * @param {string} value - The string to sanitize
@@ -43,11 +32,17 @@ function sanitizeString(value, options = {}) {
   if (typeof value !== "string") return value;
 
   let sanitized = validator.unescape(value).normalize("NFKC");
-
-  sanitized = DOMPurify.sanitize(sanitized, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
-  sanitized = xss(sanitized, XSS_OPTIONS);
+  sanitized = sanitizeHtml(sanitized, {
+    allowedTags: [],
+    allowedAttributes: {},
+    disallowedTagsMode: "discard",
+  });
   sanitized = validator.unescape(sanitized).normalize("NFKC");
-  sanitized = DOMPurify.sanitize(sanitized, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
+  sanitized = sanitizeHtml(sanitized, {
+    allowedTags: [],
+    allowedAttributes: {},
+    disallowedTagsMode: "discard",
+  });
 
   sanitized = sanitized.replace(/[<>]/g, "");
 
@@ -175,10 +170,7 @@ function sanitizeMiddleware(options = {}) {
       next();
     } catch (error) {
       console.error("[sanitize] Error during sanitization:", error);
-      res.status(400).json({
-        success: false,
-        error: "Invalid input data",
-      });
+      res.status(400).json({ error: "Invalid input data" });
     }
   };
 }

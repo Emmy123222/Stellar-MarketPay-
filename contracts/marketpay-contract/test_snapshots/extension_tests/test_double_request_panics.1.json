@@ -250,6 +250,22 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "Admins"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "DefaultTimeoutSeconds"
                           }
                         ]
@@ -418,6 +434,30 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "Frozen"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "PlatformFeeBps"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 100
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "TimeoutTimestamp"
                           },
                           {
@@ -427,6 +467,30 @@
                       },
                       "val": {
                         "u32": 604800
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TreasuryAddress"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "UnfreezeThreshold"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 2
                       }
                     },
                     {

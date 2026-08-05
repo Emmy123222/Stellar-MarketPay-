@@ -5,6 +5,7 @@ const {
   loadMigrationPairs,
   ensureMigrationsTable,
   rollbackLastMigration,
+  getExpectedMigrationVersion,
 } = require("./migrate");
 
 describe("Database Migrations (V1–V22)", () => {
@@ -103,7 +104,7 @@ describe("Database Migrations (V1–V22)", () => {
     }
   });
 
-  it("verifies rollback scripts (V11 → V10 → ... → V1) execute cleanly if down migrations added", async () => {
+  it("verifies rollback scripts execute cleanly for all migrations", async () => {
     if (!hasPostgres) {
       console.log("Skipping live rollback test due to no Postgres instance.");
       return;
@@ -124,7 +125,7 @@ describe("Database Migrations (V1–V22)", () => {
         expect(remaining.length).toBe(count);
       }
 
-      // After rolling back everything (V11 -> V1), public schema should have no core tables left
+      // After rolling back everything (V23 -> V1), public schema should have no core tables left
       const { rows: remainingTables } = await client.query(`
         SELECT table_name 
         FROM information_schema.tables 
