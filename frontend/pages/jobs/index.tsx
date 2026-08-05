@@ -137,6 +137,14 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+
+  // Sync search state from URL when JobFiltersPanel updates the search query param
+  useEffect(() => {
+    if (router.isReady) {
+      const urlSearch = (router.query.search as string) || "";
+      setSearch(urlSearch);
+    }
+  }, [router.query.search, router.isReady]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   // Mirrors `nextCursor` synchronously (state updates are async/batched, so a
   // value read from `nextCursor` inside a callback that resumes after an
@@ -283,6 +291,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
 
   const pageFromQuery = Math.max(1, Number(router.query.page) || 1);
   const filterQuery: JobFilterQuery = {
+    search: (router.query.search as string) || undefined,
     minBudget: minBudget || undefined,
     maxBudget: maxBudget || undefined,
     skills: (router.query.skills as string) || undefined,
