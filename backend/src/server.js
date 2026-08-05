@@ -190,16 +190,6 @@ function broadcastToUser(userAddress, event, payload) {
   }
 }
 
-function broadcastToUser(userAddress, event, payload) {
-  const message = JSON.stringify({ event, payload });
-  const sockets = userClients.get(userAddress);
-  if (sockets) {
-    for (const ws of sockets) {
-      if (ws.readyState === WS_OPEN) ws.send(message);
-    }
-  }
-}
-
 async function upsertScopeSession(sessionId, patch) {
   const content = typeof patch.content === "string" ? patch.content : "";
   const cursors = patch.cursors && typeof patch.cursors === "object" ? patch.cursors : {};
