@@ -1,5 +1,9 @@
 replicaCount: 1
 
+blueGreen:
+  activeColor: blue
+  rollbackColor: green
+
 frontend:
   image:
     repository: marketpay-frontend
@@ -20,6 +24,13 @@ backend:
   env:
     STELLAR_NETWORK: testnet
     HORIZON_URL: https://horizon-testnet.stellar.org
+  healthCheck:
+    path: /api/health
+    port: 4000
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
 
 redis:
   image:
