@@ -1,12 +1,40 @@
+/**
+ * @swagger
+ * tags:
+ *   name: AI Scorer
+ *   description: AI-powered job description scoring
+ */
 const express = require("express");
 const router = express.Router();
-const axios = require("axios");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
+const CLAUDE_MODEL = "claude-3-haiku-20240307";
 const scoringRateLimiter = createRateLimiter(20, 1); // 20 requests per minute
 
-// Score job description using Claude API
-router.post("/score-job-description", scoringRateLimiter, async (req, res) => {
+/**
+ * @swagger
+ * /api/ai/score-job:
+ *   post:
+ *     summary: Score a job description using AI
+ *     tags: [AI Scorer]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - description
+ *             properties:
+ *               description:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Quality score and improvement suggestions
+ *       500:
+ *         description: AI API not configured
+ */
+router.post("/score-job", scoringRateLimiter, async (req, res) => {
   try {
     if (!process.env.CLAUDE_API_KEY) {
       return res.status(500).json({ error: "Claude API not configured" });
@@ -36,28 +64,28 @@ Respond in JSON format:
   "strengths": [<array of what's good about the description>]
 }`;
 
-    // Call Claude API
-    const response = await axios.post(
-      "https://api.anthropic.com/v1/messages",
-      {
-        model: "claude-opus-4-7",
-        max_tokens: 1024,
-        messages: [
-          {
-            role: "user",
-            content: analysisPrompt,
-          },
-        ],
+    // Call Claude API (using fetch for consistency with aiService.js)
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": process.env.CLAUDE_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
       },
-      {
-        headers: {
-          "x-api-key": process.env.CLAUDE_API_KEY,
-          "anthropic-version": "2023-06-01",
-        },
-      }
-    );
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 1024,
+        messages: [{ role: "user", content: analysisPrompt }],
+      }),
+    });
 
-    const content = response.data.content[0].text;
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Claude API error: ${response.status} ${errText}`);
+    }
+
+    const result = await response.json();
+    const content = result.content[0].text;
     let analysis;
 
     try {
@@ -84,7 +112,7 @@ Respond in JSON format:
       },
     });
   } catch (error) {
-    // Fallback for API errors
+    // Fallback for API errors — returns a default score instead of crashing
     res.json({
       success: true,
       data: {

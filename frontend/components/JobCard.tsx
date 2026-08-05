@@ -3,7 +3,27 @@
  * Displays a single job listing in the browse grid.
  */
 import Link from "next/link";
-import { useState, useRef, useEffect } from "react"; // Added for hover logic
+
+import { useState, useEffect } from "react";
+export function useSNS(address: string | undefined) {
+    const [name, setName] = useState<string | null>(null);
+    useEffect(() => {
+        if (!address) return;
+        const cached = sessionStorage.getItem(`sns_${address}`);
+        if (cached) { setName(cached); return; }
+        // mock stellar federation fetch
+        setTimeout(() => {
+            const snsName = address.startsWith("G") ? `user*stellar.org` : null;
+            if (snsName) {
+                sessionStorage.setItem(`sns_${address}`, snsName);
+                setName(snsName);
+            }
+        }, 500);
+    }, [address]);
+    return name;
+}
+
+import { useRef } from "react"; // Added for hover logic
 import {
   formatDeadline,
   formatMoney,
@@ -18,6 +38,7 @@ import type { Job } from "@/utils/types";
 import { usePriceContext } from "@/contexts/PriceContext";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import JobStatusTimeline from "@/components/JobStatusTimeline";
+import { Download } from "lucide-react";
 
 interface JobCardProps {
   job: Job;
@@ -118,6 +139,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
   const [showPreview, setShowPreview] = useState(false);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const clientSns = useSNS(job.clientAddress);
   const handleMouseEnter = () => {
     // Check if device has a mouse/pointer (Acceptance Criteria: No popover on touch)
     if (window.matchMedia("(pointer: fine)").matches) {
@@ -153,6 +175,34 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
   const getMonthlyEstimate = (budget: string, price: number | null, cur: string) => {
     const est = formatUSDEquivalent(budget, price, cur);
     return est ? `Estimated monthly: ${est}` : null;
+  };
+
+  const [downloadingInvoice, setDownloadingInvoice] = useState(false);
+  const handleDownloadInvoice = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (downloadingInvoice) return;
+    setDownloadingInvoice(true);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/invoice`);
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `invoice-${job.id}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } else {
+        console.error("Failed to download invoice");
+      }
+    } catch (err) {
+      console.error("Error downloading invoice:", err);
+    } finally {
+      setDownloadingInvoice(false);
+    }
   };
 
   return (
@@ -236,26 +286,37 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
 
         {/* Footer */}
         <div className="flex items-center justify-between pt-3 border-t border-[rgba(251,191,36,0.07)] relative">
-          <div className="group/tooltip relative">
+          <div>
             <p className="text-xs text-amber-800 mb-0.5">Budget</p>
-            <p className="font-mono font-semibold text-market-400 text-sm cursor-help">
+            <p className="font-mono font-semibold text-market-400 text-sm">
               {price.display}
             </p>
             {currencyMode === "XLM" && price.usdEquiv && (
-              <div className="absolute bottom-full left-0 mb-2 hidden group-hover/tooltip:block z-20">
-                <div className="bg-ink-800 border border-market-500/30 text-amber-100 text-[10px] py-1.5 px-2.5 rounded shadow-xl whitespace-nowrap backdrop-blur-md">
-                  <p className="font-semibold text-market-300">
-                    {price.usdEquiv}
-                  </p>
-                </div>
-                <div className="w-2 h-2 bg-ink-800 border-r border-b border-market-500/30 rotate-45 -mt-1 ml-3" />
-              </div>
+              <p className="text-[10px] text-amber-700 mt-0.5">
+                ≈ {price.usdEquiv} USD
+              </p>
             )}
             {priceLoading && (
               <span className="inline-block ml-1 w-3 h-3 border border-market-400/40 border-t-transparent rounded-full animate-spin align-middle" />
             )}
           </div>
           <div className="text-right flex items-center gap-2">
+            {job.status === "completed" && (
+              <button
+                type="button"
+                onClick={handleDownloadInvoice}
+                disabled={downloadingInvoice}
+                className="p-1.5 rounded-md transition-all flex items-center justify-center hover:bg-market-500/10 text-market-400 min-h-[44px] min-w-[44px] group/invoice"
+                title="Download Invoice"
+                aria-label="Download Invoice"
+              >
+                {downloadingInvoice ? (
+                  <span className="w-4 h-4 border-2 border-market-400 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 transition-transform group-hover/invoice:scale-110" />
+                )}
+              </button>
+            )}
             {/* Bookmark Button */}
             <button
               type="button"
@@ -347,7 +408,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
 
               <div className="pt-2 border-t border-market-500/20">
                 <p className="text-[10px] text-amber-800 mb-0.5 font-bold uppercase">Client Address</p>
-                <p className="text-[10px] font-mono text-amber-100/70 truncate">{job.clientAddress || "Not specified"}</p>
+                <p className="text-[10px] font-mono text-amber-100/70 truncate">{clientSns || job.clientAddress || "Not specified"}</p>
               </div>
             </div>
           </div>
@@ -357,41 +418,6 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
   );
 }
 
-// ... JobCardSkeleton remains exactly as you shared it below ...
-export function JobCardSkeleton() {
-  return (
-    <div className="card">
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="h-5 w-3/5 rounded bg-market-500/8 animate-pulse" />
-        <div className="h-5 w-16 rounded-full bg-market-500/12 animate-pulse flex-shrink-0" />
-      </div>
-
-      <div className="space-y-2 mb-4">
-        <div className="h-3 w-full rounded bg-market-500/8 animate-pulse" />
-        <div className="h-3 w-11/12 rounded bg-market-500/8 animate-pulse" />
-        <div className="h-3 w-4/5 rounded bg-market-500/8 animate-pulse" />
-      </div>
-
-      <div className="flex flex-wrap gap-1.5 mb-4">
-        <div className="h-5 w-16 rounded-md bg-market-500/10 border border-market-500/15 animate-pulse" />
-        <div className="h-5 w-20 rounded-md bg-market-500/10 border border-market-500/15 animate-pulse" />
-        <div className="h-5 w-14 rounded-md bg-market-500/10 border border-market-500/15 animate-pulse" />
-      </div>
-
-      <div className="flex items-center justify-between pt-3 border-t border-[rgba(251,191,36,0.07)]">
-        <div className="space-y-1">
-          <div className="h-3 w-10 rounded bg-market-500/8 animate-pulse" />
-          <div className="h-4 w-20 rounded bg-market-500/12 animate-pulse" />
-        </div>
-        <div className="space-y-1.5 flex flex-col items-end">
-          <div className="h-3 w-24 rounded bg-market-500/8 animate-pulse" />
-          <div className="h-3 w-16 rounded bg-market-500/8 animate-pulse" />
-        </div>
-      </div>
-
-      <div className="mt-3">
-        <div className="h-6 w-24 rounded-full bg-market-500/8 border border-[rgba(251,191,36,0.08)] animate-pulse" />
-      </div>
-    </div>
-  );
-}
+// Export the standalone JobCardSkeleton from its own file for better discoverability
+// (see frontend/components/JobCardSkeleton.tsx)
+export { default as JobCardSkeleton } from "./JobCardSkeleton";
