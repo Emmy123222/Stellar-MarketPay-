@@ -4570,7 +4570,6 @@ mod extension_tests {
         client.approve_extension(&job_id, &freelancer);
     }
 }
-
 #[cfg(test)]
 mod usdc_tests {
     use super::*;
@@ -4638,4 +4637,5 @@ mod usdc_tests {
         assert!(final_freelancer_balance > 0);
         assert_eq!(token_client.balance(&contract.address), 0);
     }
+}
 }

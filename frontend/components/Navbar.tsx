@@ -80,36 +80,8 @@ export default function Navbar({
     }
   }, [publicKey]);
 
-  // Dark mode initialization — respect OS preference on first visit
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = localStorage.getItem("theme");
-      if (stored === "dark" || stored === "light") {
-        setDarkMode(stored === "dark");
-        document.documentElement.classList.toggle("dark", stored === "dark");
-      } else {
-        const prefersDark = window.matchMedia(
-          "(prefers-color-scheme: dark)",
-        ).matches;
-        setDarkMode(prefersDark);
-        document.documentElement.classList.toggle("dark", prefersDark);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const toggleDarkMode = () => {
-    const next = !darkMode;
-    setDarkMode(next);
-    document.documentElement.classList.toggle("dark", next);
-    try {
-      localStorage.setItem("theme", next ? "dark" : "light");
-    } catch {
-      // ignore
-    }
-  };
+  // Hydration-safe mount tracking for theme toggle
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     const handleActivity = () => {
@@ -455,12 +427,8 @@ export default function Navbar({
                 title={t("wallet.balance") as string}
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="hidden sm:inline">
-                  {shortenAddress(publicKey)}
-                </span>
-                <span className="sm:hidden text-[10px]">
-                  {shortenAddress(publicKey, 6)}
-                </span>
+                <span className="hidden sm:inline">{shortenAddress(publicKey)}</span>
+                <span className="sm:hidden text-[10px]">{shortenAddress(publicKey, 6)}</span>
                 {balanceLoading ? (
                   <span className="text-xs text-amber-800">{t("wallet.loading")}</span>
                 ) : balance && usdcBalance ? (
