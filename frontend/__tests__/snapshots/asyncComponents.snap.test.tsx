@@ -1,6 +1,7 @@
 import "../setup/snapshotMocks";
 
 import { act, render, waitFor } from "@testing-library/react";
+import { SWRConfig } from "swr";
 import {
   sampleJob,
   MOCK_PK,
@@ -263,11 +264,16 @@ describe("async component snapshots", () => {
     });
 
     it("error", async () => {
-      jest.spyOn(api, "fetchXlmPriceHistory").mockRejectedValueOnce(new Error("Failed"));
-      const { container } = render(<XlmPriceWidget />);
-      await waitFor(() => {
-        expect(container.textContent).toMatch(/failed|error|unavailable/i);
-      });
+      jest.spyOn(api, "fetchXlmPriceHistory").mockRejectedValue(new Error("Failed"));
+      const { container, findByText } = render(
+        // Fresh SWR cache per-render so cached data from "populated" test doesn't leak in
+        <SWRConfig value={{ provider: () => new Map() }}>
+          <XlmPriceWidget />
+        </SWRConfig>
+      );
+      // Wait for the error message to appear. This is more reliable than a generic text match.
+      // The text "Failed to load XLM price chart." is what the component renders on error.
+      await findByText(/Failed to load XLM price chart/i);
       expect(container.firstChild).toMatchSnapshot("XlmPriceWidget error");
     });
   });
