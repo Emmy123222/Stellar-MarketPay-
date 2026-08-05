@@ -58,6 +58,7 @@ const graphqlHandler  = require("./graphql");
 const eventsRoutes    = require("./routes/events");
 const invitationRoutes = require("./routes/invitations");
 const statsRoutes      = require("./routes/stats");
+const aiScorerRoutes    = require("./routes/aiScorer");
 const contributorRoutes  = require("./routes/contributors");
 const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
@@ -452,6 +453,7 @@ app.use("/api/transactions",   transactionRoutes);
 app.use("/api/dao",            daoRoutes);
 app.use("/api/proposal-templates", proposalTemplateRoutes);
 app.use("/api/price-alerts",      priceAlertRoutes);
+app.use("/api/ai",                aiScorerRoutes);
 
 // 404 handler — must come after all routes
 app.use((req, res) => {

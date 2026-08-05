@@ -17,6 +17,10 @@ jest.mock("../db/pool", () => {
   };
 });
 
+jest.mock("uuid", () => ({
+  v4: jest.fn(() => "test-uuid-0000-0000-0000-000000000000"),
+}));
+
 jest.mock("../services/indexerService", () => {
   return jest.fn().mockImplementation(() => ({
     start: jest.fn(),
