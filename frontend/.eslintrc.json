@@ -1,6 +1,6 @@
 {
-  "extends": "next/core-web-vitals",
-  "plugins": ["sri"],
+  "extends": ["next/core-web-vitals", "plugin:jsx-a11y/recommended"],
+  "plugins": ["sri", "jsx-a11y"],
   "rules": {
     "react-hooks/exhaustive-deps": "warn",
     "@next/next/no-img-element": "warn",

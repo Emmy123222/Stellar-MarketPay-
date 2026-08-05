@@ -1,10 +1,11 @@
 /**
  * components/FeeEstimationModal.tsx
- * Pre-flight confirmation for Soroban contract calls (Issue #222).
+ * Pre-flight confirmation for Soroban contract calls (Issue #222, enhanced per #845).
  *
  * Runs `simulateTransaction` to compute the actual fee, shows it in XLM
- * and USD, warns when the wallet's XLM balance is below the fee, and lets
- * the user cancel before signing.
+ * and USD, lets the user set a custom max fee via a slider (1× to 3× of
+ * the estimated fee), warns when the wallet's XLM balance is below the fee,
+ * and allows proceeding with a default fee when estimation fails.
  */
 import AccessibleModal from "@/components/AccessibleModal";
 import { useEffect, useState } from "react";
@@ -17,6 +18,8 @@ import {
 import { getXLMBalance } from "@/lib/stellar";
 import { usePriceContext } from "@/contexts/PriceContext";
 
+const DEFAULT_FEE_STROOPS = BigInt(100_000); // 0.01 XLM default fallback
+
 interface FeeEstimationModalProps {
   /** Pre-built (but not yet prepared) Soroban transaction. */
   transaction: Transaction;
@@ -26,8 +29,8 @@ interface FeeEstimationModalProps {
   payerPublicKey: string;
   /** Platform fee in basis points (e.g. 100 = 1%), shown for informational purposes. */
   platformFeeBps?: number;
-  /** User clicked "Confirm & Sign". */
-  onConfirm: () => void;
+  /** User clicked "Confirm & Sign". Passes the chosen max fee multiplier and computed max stroops. */
+  onConfirm: (details: { maxFeeMultiplier: number; maxFeeStroops: bigint }) => void;
   /** User cancelled or closed the modal. */
   onCancel: () => void;
 }
@@ -43,6 +46,7 @@ export default function FeeEstimationModal({
   const [estimate, setEstimate] = useState<FeeEstimate | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [maxFeeMultiplier, setMaxFeeMultiplier] = useState(1);
   const { xlmPriceUsd } = usePriceContext();
 
   useEffect(() => {
@@ -66,6 +70,14 @@ export default function FeeEstimationModal({
       cancelled = true;
     };
   }, [transaction, payerPublicKey, xlmPriceUsd]);
+
+  const safeEstimateStroops = estimate?.totalStroops ?? DEFAULT_FEE_STROOPS;
+  const maxFeeStroops = safeEstimateStroops * BigInt(Math.round(maxFeeMultiplier * 2)) / BigInt(2);
+  const maxFeeXlm = stroopsToXlm(maxFeeStroops);
+  const maxFeeUsd =
+    typeof xlmPriceUsd === "number" && xlmPriceUsd > 0
+      ? Number(maxFeeXlm) * xlmPriceUsd
+      : null;
 
   const balanceXlm = balance ? parseFloat(balance) : null;
   const feeXlm = estimate ? parseFloat(estimate.totalXlm) : null;

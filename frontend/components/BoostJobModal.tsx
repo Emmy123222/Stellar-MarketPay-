@@ -126,7 +126,7 @@ export default function BoostJobModal({
       setStep("done");
       onSuccess(boostedUntil.toISOString());
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "Boost failed");
+      setErrorMsg(getApiErrorMessage(e, e instanceof Error ? e.message : "Boost failed"));
       setStep("error");
     }
   };

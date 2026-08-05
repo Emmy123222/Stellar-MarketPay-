@@ -193,6 +193,17 @@ export interface PriceAlertPreference {
   last_max_alert_at?: string | null;
 }
 
+export interface PriceAlert {
+  id: string;
+  userAddress: string;
+  condition: "above" | "below";
+  threshold: number;
+  oneTime: boolean;
+  triggered: boolean;
+  triggeredAt: string | null;
+  createdAt: string;
+}
+
 export interface ClientSpendingFreelancer {
   freelancerAddress: string;
   jobsCount: number;
@@ -368,6 +379,23 @@ export interface JobAnalytics {
   timeToHire?: number | null;
 }
 
+// ─── Job Timeline (Issue #876) ────────────────────────────────────────────────
+
+export type TimelineEventType =
+  | "job_posted"
+  | "bid_accepted"
+  | "escrow_funded"
+  | "work_completed"
+  | "escrow_released";
+
+export interface TimelineEvent {
+  id: string;
+  jobId: string;
+  eventType: TimelineEventType;
+  txHash: string | null;
+  createdAt: string;
+}
+
 // ─── Bulk Actions ────────────────────────────────────────────────────────────
 
 export interface BulkActionResponse {
@@ -402,5 +430,13 @@ export interface AuditLogEntry {
   resource: string;
   timestamp: string;
   changesDiff?: Record<string, any>;
+}
+
+// ─── Passkeys (WebAuthn) ────────────────────────────────────────────────────
+
+export interface PasskeyCredential {
+  id: string;
+  credential_name: string;
+  created_at: string;
 }
 
