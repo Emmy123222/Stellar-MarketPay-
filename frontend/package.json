@@ -79,7 +79,7 @@
     "postcss": "^8",
     "storybook": "^8.6.18",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5",
+    "typescript": "^7",
     "vite": "^6.4.3"
   }
 }
