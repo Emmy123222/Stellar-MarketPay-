@@ -1,6 +1,11 @@
 /**
  * src/routes/admin.js
  * Admin-only moderation routes — protected by JWT role=admin check.
+ *
+ * @swagger
+ * tags:
+ *   name: Admin
+ *   description: Admin-only moderation and analytics
  */
 "use strict";
 
@@ -9,11 +14,12 @@ const router = express.Router();
 
 const pool = require("../db/pool");
 const { verifyJWT, requireAdminRole, requireAdmin2FA } = require("../middleware/auth");
-const { updateJobStatus } = require("../services/jobService");
+const { updateJobStatus, listJobs } = require("../services/jobService");
 const { logContractInteraction } = require("../services/contractAuditService");
 const { getApiKeyUsageStats } = require("../services/developerService");
+const { listAuditLogs } = require("../services/auditLogService");
 
-// Helper: log admin action
+// Helper: log admin action to both audit_logs and admin_audit_log
 async function logAdminAction({ action, adminAddress, targetId, targetType, details }) {
   try {
     await pool.query(
@@ -30,7 +36,231 @@ async function logAdminAction({ action, adminAddress, targetId, targetType, deta
   } catch {
     // Table may not exist yet — fail silently, action is still performed
   }
+
+  try {
+    await pool.query(
+      `INSERT INTO admin_audit_log (admin_address, action, target_type, target_id, details, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [adminAddress, action, targetType, targetId, JSON.stringify(details || {})]
+    );
+  } catch {
+    // admin_audit_log may not exist yet — fail silently
+  }
 }
+
+// ┌───────────────────────────────────────────────────────────────────────────┐
+// │                    USER MANAGEMENT ENDPOINTS                             │
+// └───────────────────────────────────────────────────────────────────────────┘
+
+// ── GET /api/admin/users — list users with filters ─────────────────────────
+router.get("/users", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
+  try {
+    const {
+      role,
+      flagged,
+      banned,
+      deleted,
+      search,
+      created_after,
+      created_before,
+      sort = "created_at",
+      order = "DESC",
+      limit = 50,
+      offset = 0,
+    } = req.query;
+
+    const conditions = [];
+    const params = [];
+    let paramIdx = 1;
+
+    if (role && ["client", "freelancer", "both", "admin"].includes(role)) {
+      conditions.push(`role = $${paramIdx++}`);
+      params.push(role);
+    }
+
+    if (flagged === "true") {
+      conditions.push(`flagged = true`);
+    } else if (flagged === "false") {
+      conditions.push(`flagged = false`);
+    }
+
+    if (banned === "true") {
+      conditions.push(`banned_at IS NOT NULL`);
+    } else if (banned === "false") {
+      conditions.push(`banned_at IS NULL`);
+    }
+
+    if (deleted === "true") {
+      conditions.push(`deleted_at IS NOT NULL`);
+    } else if (deleted === "false" || !deleted) {
+      // Default: exclude soft-deleted users unless explicitly requested
+      conditions.push(`deleted_at IS NULL`);
+    }
+
+    if (search) {
+      conditions.push(
+        `(public_key ILIKE $${paramIdx} OR display_name ILIKE $${paramIdx} OR bio ILIKE $${paramIdx})`
+      );
+      params.push(`%${search}%`);
+      paramIdx++;
+    }
+
+    if (created_after) {
+      conditions.push(`created_at >= $${paramIdx++}`);
+      params.push(created_after);
+    }
+
+    if (created_before) {
+      conditions.push(`created_at <= $${paramIdx++}`);
+      params.push(created_before);
+    }
+
+    // Build WHERE clause; no conditions means all rows
+    const whereClause = conditions.length ? conditions.join(" AND ") : "1=1";
+
+    // Validate sort column to prevent SQL injection
+    const allowedSortColumns = ["created_at", "public_key", "display_name", "role", "rating", "completed_jobs", "total_earned_xlm", "flagged", "banned_at"];
+    const sortCol = allowedSortColumns.includes(sort) ? sort : "created_at";
+    const sortOrder = order === "ASC" ? "ASC" : "DESC";
+
+    const countResult = await pool.query(
+      `SELECT COUNT(*)::int AS total FROM profiles WHERE ${whereClause}`,
+      params
+    );
+
+    const { rows } = await pool.query(
+      `SELECT public_key, display_name, bio, role, skills, completed_jobs,
+              total_earned_xlm, rating, reputation_points, flagged,
+              banned_at, banned_by, ban_reason, deleted_at, created_at, updated_at,
+              last_login_at
+       FROM profiles
+       WHERE ${whereClause}
+       ORDER BY ${sortCol} ${sortOrder}
+       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+      [...params, Number(limit), Number(offset)]
+    );
+
+    res.json({
+      success: true,
+      data: rows,
+      pagination: {
+        total: countResult.rows[0].total,
+        limit: Number(limit),
+        offset: Number(offset),
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── POST /api/admin/users/:address/ban — soft-ban a user ────────────────────
+router.post("/users/:address/ban", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
+  try {
+    const { address } = req.params;
+    const { reason } = req.body;
+
+    if (!/^G[A-Z0-9]{55}$/.test(address)) {
+      return res.status(400).json({ error: "Invalid Stellar address" });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE profiles
+       SET banned_at = NOW(), banned_by = $1, ban_reason = $2, updated_at = NOW()
+       WHERE public_key = $3 AND deleted_at IS NULL
+       RETURNING public_key, display_name, banned_at, ban_reason`,
+      [req.user.publicKey, reason || "Violation of platform terms", address]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    await logAdminAction({
+      action: "ban_user",
+      adminAddress: req.user.publicKey,
+      targetId: address,
+      targetType: "user",
+      details: { reason: reason || "Violation of platform terms", userName: rows[0].display_name },
+    });
+
+    res.json({ success: true, message: `User ${address} banned.`, data: rows[0] });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── POST /api/admin/users/:address/unban — unban a user ─────────────────────
+router.post("/users/:address/unban", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
+  try {
+    const { address } = req.params;
+
+    if (!/^G[A-Z0-9]{55}$/.test(address)) {
+      return res.status(400).json({ error: "Invalid Stellar address" });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE profiles
+       SET banned_at = NULL, banned_by = NULL, ban_reason = NULL, updated_at = NOW()
+       WHERE public_key = $1 AND deleted_at IS NULL
+       RETURNING public_key, display_name`,
+      [address]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    await logAdminAction({
+      action: "unban_user",
+      adminAddress: req.user.publicKey,
+      targetId: address,
+      targetType: "user",
+      details: { userName: rows[0].display_name },
+    });
+
+    res.json({ success: true, message: `User ${address} unbanned.`, data: rows[0] });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ── POST /api/admin/jobs/:id/remove — admin soft-delete a job ──────────────
+router.post("/jobs/:id/remove", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const { rows } = await pool.query(
+      `UPDATE jobs
+       SET removed_at = NOW(), removed_by = $1, remove_reason = $2,
+           deleted_at = NOW(), status = 'cancelled', updated_at = NOW()
+       WHERE id = $3 AND deleted_at IS NULL
+       RETURNING id, title, status, removed_at`,
+      [req.user.publicKey, reason || "Admin removal", id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: "Job not found or already removed" });
+    }
+
+    await logAdminAction({
+      action: "remove_job",
+      adminAddress: req.user.publicKey,
+      targetId: id,
+      targetType: "job",
+      details: { reason: reason || "Admin removal", jobTitle: rows[0].title },
+    });
+
+    res.json({ success: true, message: `Job ${id} removed.`, data: rows[0] });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ┌───────────────────────────────────────────────────────────────────────────┐
+// │                    EXISTING ENDPOINTS (unchanged)                        │
+// └───────────────────────────────────────────────────────────────────────────┘
 
 // ── GET /api/admin/metrics — platform analytics dashboard ─────────────────────
 router.get("/metrics", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
@@ -242,6 +472,37 @@ router.get("/logs", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, re
   }
 });
 
+// ── GET /api/admin/audit-log — dedicated admin audit log (new table) ─────────
+router.get("/audit-log", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res) => {
+  try {
+    const { limit = 100, offset = 0 } = req.query;
+
+    const countResult = await pool.query(
+      "SELECT COUNT(*)::int AS total FROM admin_audit_log"
+    );
+
+    const { rows } = await pool.query(
+      `SELECT id, admin_address, action, target_type, target_id, details, created_at
+       FROM admin_audit_log
+       ORDER BY created_at DESC
+       LIMIT $1 OFFSET $2`,
+      [Number(limit), Number(offset)]
+    );
+
+    res.json({
+      success: true,
+      data: rows,
+      pagination: {
+        total: countResult.rows[0].total,
+        limit: Number(limit),
+        offset: Number(offset),
+      },
+    });
+  } catch (e) {
+    res.json({ success: true, data: [], pagination: { total: 0, limit: 100, offset: 0 } });
+  }
+});
+
 // ── PATCH /api/admin/disputes/:jobId/resolve — mark dispute resolved ───────────
 router.patch("/disputes/:jobId/resolve", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
@@ -371,8 +632,23 @@ router.get("/wallets/frozen", verifyJWT, requireAdminRole, requireAdmin2FA, asyn
   }
 });
 
+// ── GET /api/admin/jobs — list all jobs (optionally include soft-deleted) ─────
+router.get("/jobs", verifyJWT, requireAdminRole, async (req, res, next) => {
+  try {
+    const includeDeleted = req.query.include_deleted === "true";
+    const { jobs, nextCursor } = await listJobs({
+      status: "all",
+      includeDeleted,
+      limit: parseInt(req.query.limit, 10) || 50,
+    });
+    res.json({ success: true, data: jobs, nextCursor });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // ── GET /api/admin/jobs/expired — list expired jobs ───────────────────────────
-router.get("/jobs/expired", verifyJWT, requireAdminRole, async (req, res, next) => {
+router.get("/jobs/expired", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, title, client_address, budget, currency, status, expires_at, created_at
@@ -417,6 +693,26 @@ router.post("/jobs/:jobId/reactivate", verifyJWT, requireAdminRole, requireAdmin
 
     res.json({ success: true, data: rows[0] });
   } catch (e) {
+    next(e);
+  }
+});
+
+// ── GET /api/admin/audit-log — structured state-change audit log (V22) ───────
+router.get("/audit-log", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
+  try {
+    const { limit, after, entity_type, entity_id, action } = req.query;
+    const result = await listAuditLogs({
+      limit: parseInt(limit, 10) || 50,
+      after,
+      entityType: entity_type,
+      entityId: entity_id,
+      action,
+    });
+    res.json({ success: true, data: result.rows, nextCursor: result.nextCursor });
+  } catch (e) {
+    if (e.status === 400) {
+      return res.status(400).json({ error: e.message });
+    }
     next(e);
   }
 });
@@ -562,13 +858,13 @@ router.get("/metrics/time-series", verifyJWT, requireAdminRole, requireAdmin2FA,
 });
 
 // ── GET /api/admin/reports/latest — download the most recent weekly PDF ───────
-router.get("/reports/latest", verifyJWT, requireAdminRole, async (req, res, next) => {
+router.get("/reports/latest", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { downloadLatestFromS3 } = require("../services/adminReportService");
     const pdfBuffer = await downloadLatestFromS3();
 
     if (!pdfBuffer) {
-      return res.status(404).json({ success: false, error: "No report has been generated yet" });
+      return res.status(404).json({ error: "No report has been generated yet" });
     }
 
     const date = new Date().toISOString().split("T")[0];

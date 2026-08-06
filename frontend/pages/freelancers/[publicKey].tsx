@@ -16,10 +16,12 @@ import {
   fetchSkillEndorsements,
   endorseSkill,
   fetchSkillBadges,
- 
   fetchResponseTime,
   fetchUserCertificates,
+  fetchRatings,
+  fetchFreelancerEarnings,
   type CertificateData,
+  type EarningPayment,
 } from "@/lib/api";
 import StateMessage from "@/components/StateMessage";
 import {
@@ -34,6 +36,7 @@ import type {
   AvailabilityStatus,
   PortfolioItem,
   ProfileStats,
+  Rating,
   ResponseTime,
   SkillBadge,
   SkillEndorsement,
@@ -85,6 +88,8 @@ export default function PublicFreelancerProfilePage({
   const [certificates, setCertificates] = useState<CertificateData[]>([]);
   const [stats, setStats] = useState<{ totalApplications: number; acceptedApplications: number } | null>(null);
   const [responseTime, setResponseTime] = useState<{ averageDays: number | null } | null>(null);
+  const [ratings, setRatings] = useState<Rating[]>([]);
+  const [completedJobs, setCompletedJobs] = useState<EarningPayment[]>([]);
 
   const isOwner = publicKey && rawKey === publicKey;
 
@@ -200,6 +205,14 @@ export default function PublicFreelancerProfilePage({
       .then((data) => { if (!cancelled) setResponseTime(data); })
       .catch(() => {});
 
+    // Fetch ratings and completed job history (non-blocking)
+    fetchRatings(rawKey)
+      .then((data) => { if (!cancelled) setRatings(data); })
+      .catch(() => {});
+    fetchFreelancerEarnings(rawKey)
+      .then((data) => { if (!cancelled) setCompletedJobs(data.payments.slice(0, 5)); })
+      .catch(() => {});
+
     return () => {
       cancelled = true;
     };
@@ -216,6 +229,7 @@ export default function PublicFreelancerProfilePage({
         <meta property="og:title" content={titleBase} />
         <meta property="og:description" content={metaDescription} />
         <meta property="og:type" content="profile" />
+        <meta property="og:image" content={`https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(rawKey)}`} />
         <meta name="twitter:card" content="summary" />
         <meta name="twitter:title" content={titleBase} />
         <meta name="twitter:description" content={metaDescription} />
@@ -414,6 +428,9 @@ export default function PublicFreelancerProfilePage({
                   <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
                     {state.profile.rating?.toFixed(2) ?? "New"}
                   </p>
+                  {state.profile.ratingCount != null && state.profile.ratingCount > 0 && (
+                    <p className="text-xs text-amber-800 mt-1">{state.profile.ratingCount} review{state.profile.ratingCount !== 1 ? "s" : ""}</p>
+                  )}
                 </div>
               )}
               <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
@@ -625,6 +642,77 @@ export default function PublicFreelancerProfilePage({
                 <p className="text-amber-900/80 text-sm italic">
                   No portfolio items yet.
                 </p>
+              )}
+            </div>
+
+            {/* Completed job history */}
+            {completedJobs.length > 0 && (
+              <div className="mt-6 sm:mt-8">
+                <h2 className="label mb-3">Recent completed jobs</h2>
+                <ul className="space-y-3">
+                  {completedJobs.map((payment) => (
+                    <li
+                      key={payment.id}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-market-500/10 bg-ink-900/50 px-4 py-3"
+                    >
+                      <div className="min-w-0">
+                        <Link
+                          href={`/jobs/${payment.jobId}`}
+                          className="text-sm font-medium text-amber-100 hover:text-market-400 transition-colors truncate block"
+                        >
+                          {payment.jobTitle || shortenAddress(payment.jobId)}
+                        </Link>
+                        <p className="text-xs text-amber-800 mt-0.5">
+                          {payment.releasedAt
+                            ? new Date(payment.releasedAt).toLocaleDateString()
+                            : "—"}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-sm font-semibold text-market-400">
+                        {formatXLM(payment.amountXlm)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Ratings & reviews */}
+            <div className="mt-6 sm:mt-8">
+              <h2 className="label mb-3">
+                Reviews
+                {ratings.length > 0 && (
+                  <span className="ml-2 text-xs font-normal text-amber-800 normal-case tracking-normal">
+                    {ratings.length} total
+                  </span>
+                )}
+              </h2>
+              {ratings.length > 0 ? (
+                <ul className="space-y-4">
+                  {ratings.map((r) => (
+                    <li
+                      key={r.id}
+                      className="rounded-xl border border-market-500/10 bg-ink-900/50 p-4"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="text-market-400 font-semibold text-sm" aria-label={`${r.stars} stars`}>
+                          {"★".repeat(r.stars)}{"☆".repeat(5 - r.stars)}
+                        </span>
+                        <span className="text-xs text-amber-800">
+                          {new Date(r.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      {r.review ? (
+                        <p className="text-sm text-amber-700/90 leading-relaxed">{r.review}</p>
+                      ) : null}
+                      <p className="text-xs text-amber-900/70 font-mono mt-2">
+                        {shortenAddress(r.raterAddress)}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-amber-900/80 text-sm italic">No reviews yet.</p>
               )}
             </div>
           </article>

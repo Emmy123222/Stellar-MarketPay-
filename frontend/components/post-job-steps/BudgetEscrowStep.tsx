@@ -61,8 +61,12 @@ export default function BudgetEscrowStep({
         </div>
       </div>
 
-      {xlmPriceUsd && form.currency === "XLM" && budgetValue > 0 && (
-        <p className="text-xs text-amber-700">≈ ${(budgetValue * xlmPriceUsd).toFixed(2)} USD at current rate</p>
+      {budgetValue > 0 && (
+        form.currency === "USDC" ? (
+          <p className="text-xs text-amber-700">≈ ${budgetValue.toFixed(2)} USD</p>
+        ) : (
+          xlmPriceUsd && <p className="text-xs text-amber-700">≈ ${(budgetValue * xlmPriceUsd).toFixed(2)} USD at current rate</p>
+        )
       )}
 
       <div>
@@ -87,7 +91,14 @@ export default function BudgetEscrowStep({
                 className="w-24 rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-3 py-2 text-xs text-gray-900 dark:text-amber-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-market-400/40"
               />
               {form.milestones.length > 1 && (
-                <button type="button" onClick={() => removeMilestone(i)} className="text-red-400 hover:text-red-300 text-lg leading-none mt-1.5 flex-shrink-0">✕</button>
+                <button
+                  type="button"
+                  onClick={() => removeMilestone(i)}
+                  className="text-red-400 hover:text-red-300 text-lg leading-none mt-1.5 flex-shrink-0"
+                  aria-label={`Remove milestone ${i + 1}`}
+                >
+                  ✕
+                </button>
               )}
             </div>
           ))}

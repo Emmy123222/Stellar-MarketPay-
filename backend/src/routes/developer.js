@@ -1,3 +1,9 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Developer
+ *   description: API key management for developers
+ */
 "use strict";
 
 const express = require("express");
@@ -20,9 +26,34 @@ function requireDeveloperWallet(req, res, next) {
 
 router.use(verifyJWT, requireDeveloperWallet);
 
-// Issue #452: per-endpoint sliding window. Read at 30/min, write at 10/min,
-// rotate at 5/min — authenticated developer portal endpoints, not the
-// external API key surface.
+/**
+ * @swagger
+ * /api/developer/keys:
+ *   get:
+ *     summary: List API keys
+ *     tags: [Developer]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: API keys listed
+ *   post:
+ *     summary: Create a new API key
+ *     tags: [Developer]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               label:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: API key created (full key shown once)
+ */
 router.get("/keys", apiKeyRateLimiter("dev_keys_list"), async (req, res, next) => {
   try {
     const keys = await listApiKeys(req.user.publicKey);
@@ -55,6 +86,26 @@ router.post("/keys", apiKeyRateLimiter("dev_keys_create"), async (req, res, next
   }
 });
 
+/**
+ * @swagger
+ * /api/developer/keys/{id}:
+ *   delete:
+ *     summary: Revoke an API key
+ *     tags: [Developer]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: API key revoked
+ *       404:
+ *         description: Key not found
+ */
 router.delete(
   "/keys/:id",
   apiKeyRateLimiter("dev_key_revoke"),
@@ -72,6 +123,26 @@ router.delete(
   },
 );
 
+/**
+ * @swagger
+ * /api/developer/keys/{id}/rotate:
+ *   post:
+ *     summary: Rotate an API key
+ *     tags: [Developer]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: API key rotated (new key shown once)
+ *       404:
+ *         description: Key not found or already rotating
+ */
 router.post(
   "/keys/:id/rotate",
   apiKeyRateLimiter("dev_key_rotate"),
