@@ -1,3 +1,11 @@
+## Code of Conduct
+
+This project follows the guidelines outlined in our
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+By participating in this project, you agree to uphold these standards and help
+maintain a welcoming environment for everyone.
+
 # Contributing to Stellar MarketPay
 
 Stellar MarketPay is a decentralized freelance marketplace built on the Stellar network. Contributions of all kinds are welcome — bug fixes, features, docs, and tests.
@@ -8,7 +16,7 @@ Stellar MarketPay is a decentralized freelance marketplace built on the Stellar 
 
 1. [Prerequisites](#prerequisites)
 2. [Local Setup](#local-setup)
-3. [Environment Variables](#environment-variables)
+3. [Environment Variables](#environment-variables) (full reference at [docs/environment-variables.md](docs/environment-variables.md))
 4. [Running the App](#running-the-app)
 5. [Docker Setup (Alternative)](#docker-setup-alternative)
 6. [Project Structure](#project-structure)
@@ -17,6 +25,7 @@ Stellar MarketPay is a decentralized freelance marketplace built on the Stellar 
 9. [Commit Style](#commit-style)
 10. [Submitting a Pull Request](#submitting-a-pull-request)
 11. [Smart Contract Development](#smart-contract-development)
+12. [Pre-commit Hooks (husky + lint-staged)](#pre-commit-hooks-husky--lint-staged)
 
 ---
 
@@ -50,6 +59,14 @@ You must install gitleaks locally for the pre-commit hook to work effectively.
 | Redis | 7+ | Or run via Docker (recommended) |
 | Rust + Cargo | stable | Only for contract work — [rustup.rs](https://rustup.rs) |
 | Freighter Wallet | latest | Browser extension for Stellar — [freighter.app](https://freighter.app) |
+| Tool             | Minimum Version | Notes                                                                  |
+| ---------------- | --------------- | ---------------------------------------------------------------------- |
+| Node.js          | 18.x            | [nodejs.org](https://nodejs.org)                                       |
+| npm              | 9.x             | Included with Node                                                     |
+| PostgreSQL       | 15+             | Or run via Docker (recommended)                                        |
+| Redis            | 7+              | Or run via Docker (recommended)                                        |
+| Rust + Cargo     | stable          | Only for contract work — [rustup.rs](https://rustup.rs)                |
+| Freighter Wallet | latest          | Browser extension for Stellar — [freighter.app](https://freighter.app) |
 
 ---
 
@@ -74,6 +91,7 @@ chmod +x scripts/setup-dev.sh
 ```
 
 The script:
+
 - Checks Node.js and Rust installations
 - Installs frontend and backend dependencies
 - Copies `.env.example` files to their working equivalents
@@ -88,6 +106,7 @@ docker compose up postgres redis -d
 ```
 
 This starts:
+
 - **PostgreSQL** on `localhost:5432` — database `stellarwork`, user `stellarwork`, password `stellarwork_dev`
 - **Redis** on `localhost:6379`
 
@@ -95,7 +114,7 @@ The backend runs schema migrations automatically on startup, so no manual `psql`
 
 ### 4. Configure environment variables
 
-See the [Environment Variables](#environment-variables) section below. At minimum you need:
+See [docs/environment-variables.md](docs/environment-variables.md) for the full reference. At minimum you need:
 
 ```bash
 # backend/.env
@@ -104,7 +123,7 @@ DATABASE_URL=postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork
 DATABASE_ENCRYPTION_KEY=any-16-char-string-or-longer
 ```
 
-The frontend `.env.local` defaults work out of the box for local development.
+The frontend `.env.local` defaults work out of the box for local development. See the [Environment Variables](#environment-variables) section below for a quick-start summary.
 
 ### 5. Start the dev servers
 
@@ -120,7 +139,24 @@ cd backend && npm run dev
 
 The backend applies all pending migrations on startup and logs the result.
 
-### 6. Get testnet XLM
+### 6. Seed the database (optional)
+
+For development and testing, you can populate the database with sample data:
+
+```bash
+cd backend
+npm run db:seed
+```
+
+This creates:
+- 5 users (2 clients, 3 freelancers)
+- 20 open jobs
+- 10 applications
+- 3 in-progress jobs with escrow
+
+The seed script is **idempotent** — running it multiple times will not create duplicates. Users and applications use `ON CONFLICT` clauses to update existing records; jobs are matched by title and skipped if already present.
+
+### 7. Get testnet XLM
 
 Visit [friendbot.stellar.org](https://friendbot.stellar.org) with your Freighter testnet address to fund the wallet with 10,000 XLM. The app must be pointed at `STELLAR_NETWORK=testnet`.
 
@@ -128,52 +164,29 @@ Visit [friendbot.stellar.org](https://friendbot.stellar.org) with your Freighter
 
 ## Environment Variables
 
-### Backend (`backend/.env`)
+See [docs/environment-variables.md](docs/environment-variables.md) for the complete reference — every variable, type, default, validation rule, and example.
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `PORT` | No | `4000` | Express server port |
-| `NODE_ENV` | No | `development` | `development` \| `production` |
-| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
-| `DATABASE_ENCRYPTION_KEY` | Yes | — | Key for pgp_sym_encrypt (min 16 chars) |
-| `JWT_SECRET` | Yes | — | Signs auth tokens — use 32+ random chars |
-| `STELLAR_NETWORK` | No | `testnet` | `testnet` \| `mainnet` |
-| `HORIZON_URL` | No | testnet URL | Stellar Horizon endpoint |
-| `CONTRACT_ID` | No | — | Soroban escrow contract address |
-| `ALLOWED_ORIGINS` | No | `http://localhost:3000` | CORS whitelist (comma-separated) |
-| `REDIS_URL` | No | — | Redis connection string |
-| `SMTP_HOST` | No | — | Mail server (weekly digest feature) |
-| `SMTP_PORT` | No | `587` | SMTP port |
-| `SMTP_USER` | No | — | SMTP username |
-| `SMTP_PASS` | No | — | SMTP password |
-| `SMTP_FROM` | No | — | From address for sent emails |
-| `ADMIN_WALLET_ADDRESSES` | No | — | Comma-separated admin Stellar addresses |
-| `SERVER_PRIVATE_KEY` | No | — | Backend Stellar key for faucet/turrets |
-| `BASE_URL` | No | `http://localhost:3000` | Used in email links |
-| `FRONTEND_URL` | No | `http://localhost:3000` | Frontend origin in digest emails |
-| `API_BASE_URL` | No | `http://localhost:4000` | Backend origin in digest emails |
+### Minimum required for local development
 
-### Frontend (`frontend/.env.local`)
+```bash
+# backend/.env
+JWT_SECRET=any-long-random-string-here
+DATABASE_URL=postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork
+DATABASE_ENCRYPTION_KEY=any-16-char-string-or-longer
+```
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `NEXT_PUBLIC_API_URL` | No | `http://localhost:4000` | Backend base URL |
-| `NEXT_PUBLIC_STELLAR_NETWORK` | No | `testnet` | `testnet` \| `mainnet` |
-| `NEXT_PUBLIC_HORIZON_URL` | No | testnet URL | Horizon endpoint |
-| `NEXT_PUBLIC_SOROBAN_RPC_URL` | No | testnet URL | Soroban RPC endpoint |
-| `NEXT_PUBLIC_CONTRACT_ID` | No | — | Escrow contract address |
-| `NEXT_PUBLIC_USE_CONTRACT_MOCK` | No | `false` | Skip real contract calls in E2E tests |
+The frontend `.env.local` defaults work out of the box for local development.
 
 ---
 
 ## Running the App
 
-| Service | Command | URL |
-|---------|---------|-----|
-| Frontend | `cd frontend && npm run dev` | http://localhost:3000 |
-| Backend | `cd backend && npm run dev` | http://localhost:4000 |
-| API docs | — | http://localhost:4000/api-docs |
-| Health check | — | http://localhost:4000/health |
+| Service      | Command                      | URL                            |
+| ------------ | ---------------------------- | ------------------------------ |
+| Frontend     | `cd frontend && npm run dev` | http://localhost:3000          |
+| Backend      | `cd backend && npm run dev`  | http://localhost:4000          |
+| API docs     | —                            | http://localhost:4000/api-docs |
+| Health check | —                            | http://localhost:4000/health   |
 
 ---
 
@@ -263,9 +276,20 @@ npm run test:e2e
 
 The spec at `tests/e2e/full-marketplace-flow.spec.ts` exercises the complete client and freelancer journey with `NEXT_PUBLIC_USE_CONTRACT_MOCK=true`.
 
+### Backend linting
+
+```bash
+cd backend
+npm run lint        # Check for lint errors
+npm run lint:fix    # Auto-fix lint errors where possible
+```
+
 ### Running all checks locally (CI equivalent)
 
 ```bash
+# Root — pre-commit quality gates (eslint --fix, prettier --write, cargo fmt --check)
+npx lint-staged
+
 # Backend
 cd backend && npm test && npm run lint
 
@@ -313,6 +337,80 @@ Keep the subject line under 72 characters. Add a body when the "why" needs expla
 
 ---
 
+## Pre-commit Hooks (husky + lint-staged)
+
+This repository enforces code quality **before** code enters the history using
+[husky](https://typicode.github.io/husky/) and
+[lint-staged](https://github.com/lint-staged/lint-staged). The hook is managed
+in `.husky/pre-commit` and configured in the root `package.json` (`lint-staged`
+key).
+
+### Installation
+
+Installing the root dependencies also wires up the Git hook automatically
+thanks to the `prepare` script:
+
+```bash
+# From the repository root
+npm install
+```
+
+`npm install` runs `husky`, which sets `core.hooksPath` to `.husky/_` so Git
+invokes `.husky/pre-commit` on every commit. No manual `git config` step is
+required. (If hooks ever stop running, re-run `npx husky`.)
+
+> **Note:** the Rust formatting check runs `cargo fmt --check`, which needs the
+> Rust toolchain (`rustup`). JavaScript/TypeScript contributors without Rust
+> installed are **not** blocked — the check is skipped with a warning.
+
+### What runs on every commit
+
+`lint-staged` operates only on **staged** files:
+
+| Staged files                                       | Command                                                 | Purpose                         |
+| -------------------------------------------------- | ------------------------------------------------------- | ------------------------------- |
+| `*.{js,ts}`                                        | `eslint --fix`                                          | Auto-fix lint issues in JS/TS   |
+| `*.{js,jsx,ts,tsx,json,md,yml,yaml,css,scss,html}` | `prettier --write`                                      | Auto-format staged files        |
+| `*.rs`                                             | `bash scripts/cargo-fmt-check.sh` → `cargo fmt --check` | Verify Rust files are formatted |
+
+The `.rs` step locates the Cargo crate that owns each staged Rust file and runs
+`cargo fmt --check` inside it (the contracts live in separate crates under
+`contracts/`, so there is no single root Cargo workspace).
+
+Because ESLint resolves its config per-project, make sure you have installed
+the dependencies for the workspace you are editing (`npm install` in
+`backend/` and `frontend/`) so ESLint can find the right plugins and rules.
+
+### Running the checks manually
+
+You can run the exact same checks on your currently staged changes without
+committing:
+
+```bash
+npx lint-staged
+```
+
+### Skipping the hook (emergencies only)
+
+```bash
+git commit --no-verify -m "..."   # bypasses pre-commit hooks
+```
+
+This is discouraged and should only be used when you fully understand the
+skipped checks (e.g. you already ran `npx lint-staged` and `cargo fmt --check`
+yourself). CI will still enforce the same rules.
+
+### Troubleshooting
+
+- **Hooks don't run on commit:** ensure you ran `npm install` at the repo root
+  (which runs `husky`) and that `git config core.hooksPath` points to `.husky/_`.
+- **`command not found: lint-staged` / `eslint` / `prettier`:** install root
+  dependencies with `npm install`.
+- **Rust check complains even though you didn't touch Rust:** a stale `.rs`
+  file may be staged; run `cargo fmt` inside the relevant `contracts/*` crate.
+
+---
+
 ## Submitting a Pull Request
 
 1. Branch from `main` using the naming convention above
@@ -324,9 +422,11 @@ Keep the subject line under 72 characters. Add a body when the "why" needs expla
 
 ### PR Checklist
 
+- [ ] Pre-commit hooks pass locally (`npx lint-staged` — runs automatically on commit)
 - [ ] Tests pass locally (`npm test` in both `frontend/` and `backend/`)
 - [ ] TypeScript compiles without errors (`npx tsc --noEmit` in `frontend/`)
 - [ ] Linting passes (`npm run lint`)
+- [ ] Rust files formatted (`cargo fmt --check` in the relevant `contracts/*` crate)
 - [ ] Tested on Testnet (for changes involving Stellar/Soroban)
 - [ ] No breaking API changes, or changes are documented
 - [ ] Documentation updated if adding new features or env vars

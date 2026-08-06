@@ -1,35 +1,66 @@
-#!/bin/sh
-. "$(dirname "$0")/_/husky.sh"
+#!/usr/bin/env sh
+#
+# Stellar MarketPay — pre-commit hook (managed by husky + lint-staged).
+#
+# Checks, in order:
+#   1. gitleaks     -> block commits that introduce secrets
+#   2. lint-staged  -> eslint --fix (staged .js/.ts),
+#                      prettier --write (staged files),
+#                      cargo fmt --check (staged Rust files)
+#
+# Note: husky v9 invokes this script with `sh -e`, so we disable errexit
+# here and handle every failure path explicitly with a non-zero exit.
 
-# Run gitleaks to detect secrets before committing
+set +e
+
+# ---------------------------------------------------------------------------
+# 1. Secret detection with gitleaks
+# ---------------------------------------------------------------------------
 echo "🔍 Running gitleaks to detect secrets..."
 
-# Check if gitleaks is installed
-if ! command -v gitleaks &> /dev/null; then
-    echo "⚠️  gitleaks is not installed. Installing..."
-    # Try to install gitleaks if not present
-    if command -v brew &> /dev/null; then
-        brew install gitleaks
-    elif command -v go &> /dev/null; then
-        go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest
-    else
-        echo "❌ Please install gitleaks manually:"
-        echo "   macOS: brew install gitleaks"
-        echo "   Go: go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest"
-        echo "   Or download from: https://github.com/zricethezav/gitleaks/releases"
-        exit 1
-    fi
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "⚠️  gitleaks is not installed. Installing..."
+  if command -v brew >/dev/null 2>&1; then
+    brew install gitleaks
+  elif command -v go >/dev/null 2>&1; then
+    go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest
+  else
+    echo "❌ Please install gitleaks manually:"
+    echo "   macOS: brew install gitleaks"
+    echo "   Go: go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest"
+    echo "   Or download from: https://github.com/zricethezav/gitleaks/releases"
+    exit 1
+  fi
 fi
 
 # Run gitleaks on staged files
 gitleaks protect -v --staged
+gitleaks detect --source . --config .gitleaks.toml --verbose --no-git --staged
+gitleaks_status=$?
 
-# Check the exit code
-if [ $? -ne 0 ]; then
-    echo "❌ Gitleaks detected potential secrets in your changes!"
-    echo "Please remove or redact the secrets before committing."
-    echo "Run 'gitleaks detect --source . --config .gitleaks.toml --verbose' for details."
-    exit 1
+if [ "$gitleaks_status" -ne 0 ]; then
+  echo "❌ Gitleaks detected potential secrets in your changes!"
+  echo "Please remove or redact the secrets before committing."
+  echo "Run 'gitleaks detect --source . --config .gitleaks.toml --verbose' for details."
+  exit 1
 fi
 
-echo "✅ No secrets detected. Proceeding with commit..."
+echo "✅ No secrets detected."
+
+# ---------------------------------------------------------------------------
+# 2. Lint / format staged files with lint-staged
+#    (eslint --fix, prettier --write, cargo fmt --check — configured in the
+#     root package.json "lint-staged" section)
+# ---------------------------------------------------------------------------
+echo "🧹 Running lint-staged on staged files..."
+npx lint-staged
+lint_status=$?
+
+if [ "$lint_status" -ne 0 ]; then
+  echo "❌ lint-staged failed (eslint/prettier/cargo fmt). Commit aborted."
+  echo "Fix the reported issues, stage the changes, and try again."
+  echo "To skip hooks in an emergency use: git commit --no-verify"
+  exit 1
+fi
+
+echo "✅ Pre-commit checks passed."

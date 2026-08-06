@@ -4,7 +4,8 @@
  */
 import Link from "next/link";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
-import { availabilityBadgeClass, availabilityStatusLabel, formatXLM, shortenAddress } from "@/utils/format";
+import { availabilityBadgeClass, availabilityStatusLabel, formatXLM } from "@/utils/format";
+import WalletAddressDisplay from "@/components/WalletAddressDisplay";
 import type { UserProfile } from "@/utils/types";
 
 interface FreelancerCardProps {
@@ -16,14 +17,16 @@ export default function FreelancerCard({ profile }: FreelancerCardProps) {
     <Link href={`/freelancers/${encodeURIComponent(profile.publicKey)}`}>
       <div className="card-hover group flex h-full flex-col justify-between gap-4 p-5 transition-shadow hover:shadow-xl">
         <div className="space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-            <div>
-              <h3 className="font-display font-semibold text-amber-100 text-base leading-snug line-clamp-2">
-                {profile.displayName || shortenAddress(profile.publicKey)}
-              </h3>
-              <p className="text-amber-700 text-sm">{shortenAddress(profile.publicKey)}</p>
-            </div>
-            <div className="flex items-center gap-2">
+  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div>
+      <h3 className="font-display font-semibold text-amber-100 text-base leading-snug line-clamp-2">
+        {profile.displayName || shortenAddress(profile.publicKey)}
+      </h3>
+      <div className="text-amber-700 text-sm">
+        <WalletAddressDisplay address={profile.publicKey} truncatedChars={4} className="inline-flex" />
+      </div>
+    </div>
+    <div className="flex items-center gap-2">
               <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${availabilityBadgeClass(profile.availability?.status)}`}>
                 {availabilityStatusLabel(profile.availability?.status)}
               </span>

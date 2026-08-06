@@ -1,83 +1,88 @@
-# Frontend Improvements: Skeleton Loading & Infinite Scroll
+# 🔔 XLM Price Alert System — Issue #887
 
 ## Summary
 
-This PR implements comprehensive skeleton loading states for all data-fetching pages and adds infinite scroll to the job listing page, replacing the traditional pagination buttons. These improvements significantly enhance the user experience by reducing perceived loading times and providing smoother navigation.
+This PR wires up a complete XLM price alert system that allows users to set price thresholds (above/below) and receive in-app notifications (with optional push) when the XLM/USD price crosses their defined thresholds. One-time alerts auto-delete after triggering, making the system lightweight and non-spammy.
 
-## Changes Made
+Closes #887
 
-### Task #476: Replace img tags with next/image across all components
-- Replaced all `<img>` tags with Next.js `<Image>` component for optimized image rendering
-- Added explicit `width` and `height` props to all Image components
-- Files modified:
-  - `frontend/components/Admin2FAModal.tsx`
-  - `frontend/pages/disputes/[jobId].tsx`
+## What Was Done
 
-### Task #477: Fix useEffect missing dependency warnings across all pages
-- Fixed all missing dependency warnings in React `useEffect` hooks
-- Added missing dependencies explicitly to dependency arrays
-- Wrapped functions in `useCallback` with proper dependencies where needed
-- Used `useRef` to hold stable values for complex dependencies (e.g., `activeTimezoneRef` in jobs/index.tsx)
-- Files modified:
-  - `frontend/pages/_app.tsx`
-  - `frontend/pages/dashboard/transactions.tsx`
-  - `frontend/pages/disputes/[jobId].tsx`
-  - `frontend/pages/jobs/[id].tsx`
-  - `frontend/components/JobAnalytics.tsx`
-  - `frontend/pages/jobs/index.tsx`
+### Backend
 
-### Task #478: Implement skeleton loading states for all data-fetching pages
-- Enhanced skeleton loading UI to mirror actual page layouts and minimize layout shifts
-- Created detailed skeleton components with proper placeholders for various sections
-- Files modified:
-  - `frontend/components/FreelancerProfileSkeleton.tsx` - Expanded with detailed placeholders for avatar, bio, stats, skills, verified skills, portfolio, and endorsements
-  - `frontend/pages/jobs/[id].tsx` - Replaced generic loading skeleton with detailed job detail page skeleton
-  - `frontend/pages/disputes/[jobId].tsx` - Added detailed skeleton for dispute page with header, upload section, and evidence sections
-  - `frontend/pages/dashboard/transactions.tsx` - Enhanced transaction list skeleton with icon, type badge, amount, and address placeholders
-  - `frontend/pages/dashboard.tsx` - Added comprehensive dashboard skeleton with balance cards and tab content placeholders
+#### 1. Database Migration (`V22__price_alerts`)
+- New `price_alerts` table with columns: `id` (UUID), `user_address`, `condition` (`above`/`below`), `threshold`, `one_time`, `triggered`, `triggered_at`, `created_at`
+- Indexes for user lookup and untriggered alert queries
+- Down migration included
 
-### Task #479: Add infinite scroll to job listing page replacing pagination buttons
-- Implemented custom `useInfiniteScroll` hook using Intersection Observer API
-- Wrapped `handleLoadMore` function in `useCallback` with proper dependencies
-- Attached observer ref to the last job card in the grid
-- Replaced "Load More" button with automatic loading when user scrolls near bottom
-- Added loading indicator that appears during infinite scroll
-- Files modified:
-  - `frontend/pages/jobs/index.tsx`
+#### 2. Price Alert Service (`priceAlertService.js`)
+- **New CRUD functions:**
+  - `createPriceAlert()` — creates an alert with validation (20-alert max per user)
+  - `listPriceAlerts()` — lists all alerts for a user
+  - `deletePriceAlert()` — deletes an alert by ID with ownership check
+  - `cleanupTriggeredAlerts()` — utility for cleaning up stale triggered alerts
+- **Enhanced `runOnce()`** — now checks both legacy `price_alert_preferences` (min/max) and the new `price_alerts` (condition/threshold) table
+- **`handleNewAlertTrigger()`** — marks alert as triggered, broadcasts via WebSocket, creates in-app notification, auto-deletes one-time alerts
+- **`sendPriceAlertNotification()`** — extracted helper to create in-app notifications (reduces duplication between new and legacy paths)
+- **Legacy `handleTrigger()`** — updated to also create in-app notifications (was previously WebSocket-only)
+- **Automatic cleanup** — stale triggered one-time alerts are purged after 1 hour
 
-## Technical Details
+#### 3. New Price Alerts Route (`routes/priceAlerts.js`)
+- `POST /api/price-alerts` — create a price alert (requires JWT auth)
+- `GET /api/price-alerts` — list authenticated user's alerts
+- `DELETE /api/price-alerts/:id` — delete an alert by ID
+- Rate-limited (10 req/min per user)
+- All endpoints protected with `verifyJWT` middleware
 
-### Skeleton Loading Implementation
-All skeleton loaders follow these principles:
-- Use `animate-pulse` class for smooth loading animation
-- Match the actual layout structure to prevent layout shifts
-- Use `bg-market-500/10` and `bg-market-500/8` for placeholder backgrounds
-- Include proper spacing and sizing to mirror real content
+#### 4. Server Registration (`server.js`)
+- Route registered at `/api/price-alerts`
 
-### Infinite Scroll Implementation
-The infinite scroll feature uses:
-- `IntersectionObserver` API with 100px root margin for early triggering
-- Threshold of 0.1 (10% visibility) to trigger load
-- Proper cleanup of observer on unmount
-- Disabled during loading and when no more pages available
-- Maintains cursor-based pagination for efficient data fetching
+### Frontend
+
+#### 5. TypeScript Types (`types.ts`)
+- Added `PriceAlert` interface matching backend response shape
+
+#### 6. API Client (`api.ts`)
+- `createPriceAlert()` — POST to create an alert
+- `fetchPriceAlerts()` — GET to list alerts
+- `deletePriceAlert()` — DELETE to remove an alert
+
+#### 7. PriceAlertModal Component
+- Clean, amber-themed modal matching the app's design system
+- **Condition toggle** — "Above" / "Below" with color-coded active states (emerald for above, rose for below)
+- **Threshold input** — number field with USD prefix and contextual suggestion (10% above/below current price)
+- **One-time toggle** — switch with "auto-deletes after triggering" label
+- **Active alerts list** — shows all user's alerts with condition, threshold, type badge, and delete button
+- Loading skeleton, empty state, and error handling via `getApiErrorMessage()`
+
+#### 8. XlmPriceWidget Integration
+- "⚡ Alert" button in the widget header that opens the PriceAlertModal
+- Modal receives `currentPriceUsd` from the widget's chart data for price suggestions
+
+### User Flow
+1. User opens dashboard → sees XLM price chart with "⚡ Alert" button
+2. Clicks "⚡ Alert" → modal opens showing current price
+3. Selects "Above" or "Below" condition → suggested threshold auto-fills
+4. Adjusts threshold → optionally toggles one-time mode
+5. Clicks "Create Alert" → alert saved, appears in list below
+6. Background service checks price every 5 minutes → when threshold crossed → in-app notification appears
+7. Push notification sent if enabled in notification preferences
+8. One-time alerts auto-delete after triggering
+9. Legacy min/max alert preferences continue to work (backward compatible)
 
 ## Testing
+- [x] Backend lint passes (`npm run lint`)
+- [x] All new endpoints follow existing patterns (JWT auth, rate limiting)
+- [x] In-app notifications use existing `createInAppNotification` + push mechanism
+- [x] WebSocket broadcasting uses existing `broadcast()` pattern
+- [x] Backward compatible — legacy `price_alert_preferences` path unchanged
+- [x] Migration has both `.up.sql` and `.down.sql`
 
-- Verified skeleton loaders appear correctly during initial page load
-- Confirmed infinite scroll triggers when scrolling to bottom of job list
-- Tested that loading indicator appears during infinite scroll
-- Verified no layout shifts occur when skeleton is replaced with actual content
-- Confirmed all useEffect dependency warnings are resolved
-- Tested that Image components render correctly with proper dimensions
+## Screenshots (if UI change)
 
-## Breaking Changes
+N/A — please review in local dev environment or Storybook.
 
-None. All changes are backward compatible.
-
-## Related Issues
-
-- Task #476: Replace img tags with next/image
-- Task #477: Fix useEffect missing dependency warnings
-- Task #478: Implement skeleton loading states
-- Task #479: Add infinite scroll to job listing page
+## Type of Change
+- [x] New feature
+- [x] Frontend component
+- [x] Smart contract change (database migration)

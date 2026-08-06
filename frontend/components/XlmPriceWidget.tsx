@@ -11,6 +11,7 @@ import {
 } from "chart.js";
 import { fetchXlmPriceHistory, Timeframe } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
+import PriceAlertModal from "./PriceAlertModal";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler);
 
@@ -37,6 +38,7 @@ function formatUsd(value: number) {
 export default function XlmPriceWidget() {
   const [collapsed, setCollapsed] = useState(false);
   const [activeTimeframe, setActiveTimeframe] = useState<Timeframe>('7D');
+  const [alertModalOpen, setAlertModalOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -122,6 +124,7 @@ export default function XlmPriceWidget() {
   const TIMEFRAMES: Timeframe[] = ['1D', '7D', '30D'];
 
   return (
+    <>
     <div className="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -130,13 +133,23 @@ export default function XlmPriceWidget() {
             <span className="text-xs text-amber-600 animate-pulse">Refreshing…</span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          className="btn-secondary text-xs py-1 px-2"
-        >
-          {collapsed ? "Expand" : "Collapse"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAlertModalOpen(true)}
+            className="text-xs font-medium px-2.5 py-1 rounded-lg bg-market-500/15 hover:bg-market-500/25 text-market-300 hover:text-market-200 border border-market-500/25 hover:border-market-400/40 transition-all"
+            title="Set price alert"
+          >
+            ⚡ Alert
+          </button>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            className="btn-secondary text-xs py-1 px-2"
+          >
+            {collapsed ? "Expand" : "Collapse"}
+          </button>
+        </div>
       </div>
 
       {!collapsed && (
@@ -203,5 +216,12 @@ export default function XlmPriceWidget() {
         </div>
       )}
     </div>
+
+      <PriceAlertModal
+        open={alertModalOpen}
+        onClose={() => setAlertModalOpen(false)}
+        currentPriceUsd={currentPriceUsd}
+      />
+    </>
   );
 }

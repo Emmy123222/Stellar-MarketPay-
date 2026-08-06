@@ -10,6 +10,7 @@
 
 import { Transaction, SorobanRpc } from "@stellar/stellar-sdk";
 import { sorobanServer, NETWORK_PASSPHRASE } from "./stellar";
+import { parseContractError } from "./contractErrors";
 
 // ─── Per-transaction simulation ──────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ export async function estimateSorobanFee(
   const sim = await sorobanServer.simulateTransaction(tx);
 
   if (SorobanRpc.Api.isSimulationError(sim)) {
-    throw new Error(`Could not estimate fee — the contract rejected the call: ${sim.error}`);
+    throw new Error(`Could not estimate fee — the contract rejected the call: ${parseContractError(sim.error)}`);
   }
 
   const resourceFeeStroops = BigInt(sim.minResourceFee || "0");
@@ -207,4 +208,17 @@ export function describeContractCall(fnName: string): string {
   return labels[fnName] || fnName.replace(/_/g, " ");
 }
 
-export { NETWORK_PASSPHRASE };
+/**
+ * Calculate the actual max fee stroops from a base estimate and a multiplier.
+ * The multiplier is expected to be a number like 1, 1.5, 2, 2.5, 3 (from the slider).
+ *
+ * @param baseStroops  The estimated fee in stroops (from simulateTransaction).
+ * @param multiplier   The multiplier (1 to 3).
+ * @returns            The max fee in stroops as a bigint.
+ */
+export function calculateMaxFee(baseStroops: bigint, multiplier: number): bigint {
+  // Scale by multiplier as a fraction (multiplier * 2 / 2 keeps integer math)
+  return baseStroops * BigInt(Math.round(multiplier * 2)) / BigInt(2);
+}
+
+export { NETWORK_PASSPHRASE, STROOPS_PER_XLM };
