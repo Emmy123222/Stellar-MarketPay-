@@ -33,7 +33,7 @@
         "dataloader": "^2.2.3",
         "date-fns-tz": "^3.2.0",
         "dompurify": "^3.4.12",
-        "dotenv": "^16.4.5",
+        "dotenv": "^17.4.2",
         "express": "^5.2.1",
         "express-rate-limit": "^7.3.1",
         "form-data": "^4.0.6",
