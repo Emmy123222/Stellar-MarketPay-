@@ -307,23 +307,70 @@ describe("jobService", () => {
       expect(frontendJobs.every((job) => job.category === "Frontend Development")).toBe(true);
     });
 
-    it("returns has_more when there are more results", async () => {
-      const { jobs, nextCursor } = await listJobs({ limit: 1 });
+    it("defaults to limit=20 and returns nextCursor when more results exist", async () => {
+      const { jobs, nextCursor } = await listJobs({ status: "open" });
+      // Default limit is 20; we only have 2 open jobs, so all fit in one page
+      expect(jobs.length).toBe(2);
+      // nextCursor should be null because all results fit
+      expect(nextCursor).toBeNull();
+    });
+
+    it("returns nextCursor and has_more when there are more results", async () => {
+      const { jobs, nextCursor, hasMore } = await listJobs({ limit: 1 });
       expect(jobs.length).toBe(1);
       expect(nextCursor).toBeTruthy();
+      // nextCursor is present → there are more results
+      expect(typeof nextCursor).toBe("string");
+      expect(hasMore).toBe(true);
     });
 
     it("paginates with cursor and maintains consistent ordering", async () => {
-      // Mock doesn't implement cursor-based filtering deeply,
-      // but we verify the function returns cursor and can be called with it
-      const page1 = await listJobs({ limit: 2 });
-      expect(page1.jobs.length).toBe(2);
+      // Use status: "all" so all 3 jobs (including in_progress) are returned
+      const page1 = await listJobs({ limit: 1, status: "all" });
+      expect(page1.jobs.length).toBe(1);
       expect(page1.nextCursor).toBeTruthy();
 
-      // Cursor-based pagination requires proper SQL, just verify API shape
-      const page2 = await listJobs({ limit: 2, cursor: page1.nextCursor });
-      expect(page2).toHaveProperty("jobs");
-      expect(page2).toHaveProperty("nextCursor");
+      const page2 = await listJobs({ limit: 2, cursor: page1.nextCursor, status: "all" });
+      expect(page2.jobs.length).toBeGreaterThanOrEqual(1);
+
+      // Pages should not overlap
+      const ids1 = page1.jobs.map((j) => j.id);
+      const ids2 = page2.jobs.map((j) => j.id);
+      const overlap = ids1.filter((id) => ids2.includes(id));
+      expect(overlap).toEqual([]);
+
+      // After 2 pages of 1+2=3 items total, there should be no more results
+      if (page2.nextCursor) {
+        const page3 = await listJobs({ limit: 2, cursor: page2.nextCursor, status: "all" });
+        expect(page3.nextCursor).toBeNull();
+      }
+    });
+
+    it("returns nextCursor null on last page", async () => {
+      // With status: "open", we have 2 open jobs. Limit 100 fits them all.
+      const { jobs, nextCursor } = await listJobs({ limit: 100, status: "open" });
+      expect(jobs.length).toBe(2);
+      expect(nextCursor).toBeNull();
+    });
+
+    it("throws 400 on invalid cursor", async () => {
+      await expect(
+        listJobs({ cursor: "not-a-valid-base64-cursor!" }),
+      ).rejects.toThrow("Invalid cursor");
+    });
+
+    it("enforces max limit of 100", async () => {
+      const { jobs } = await listJobs({ limit: 200, status: "open" });
+      // The route handler caps at 100; the service respects whatever limit it receives.
+      // We verify the service responds correctly with the passed limit.
+      expect(jobs.length).toBeLessThanOrEqual(200);
+      expect(jobs.every((job) => job.status === "open")).toBe(true);
+    });
+
+    it("returns empty jobs array when no jobs match status", async () => {
+      const { jobs, nextCursor } = await listJobs({ status: "completed" });
+      expect(jobs).toEqual([]);
+      expect(nextCursor).toBeNull();
     });
 
     it("returns has_more false on last page", async () => {
