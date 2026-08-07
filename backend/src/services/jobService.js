@@ -236,6 +236,7 @@ function rowToJob(row) {
     extendedUntil: row.extended_until,
     biddingClosedAt: row.bidding_closed_at,
     viewCount: row.view_count,
+    deletedAt: row.deleted_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     searchHeadline: row.headline_title || null,
@@ -786,10 +787,13 @@ async function assignFreelancer(jobId, freelancerAddress) {
  *
  * @param {number|string} jobId - The ID of the job.
  * @param {string} escrowContractId - The escrow contract ID.
+ * @param {Object} [options] - Optional overrides.
+ * @param {string|number} [options.amount] - Escrow amount override (e.g. accepted bid amount).
+ *   Falls back to job.budget when omitted.
  * @returns {Promise<Object>} The updated job object.
  * @throws {Error} If the escrowContractId is invalid or the job is not found.
  */
-async function updateJobEscrowId(jobId, escrowContractId) {
+async function updateJobEscrowId(jobId, escrowContractId, { amount } = {}) {
   if (!escrowContractId || typeof escrowContractId !== "string") {
     const e = new Error("Invalid escrow contract ID");
     e.status = 400;
@@ -803,6 +807,10 @@ async function updateJobEscrowId(jobId, escrowContractId) {
 
   if (rows.length) {
     const job = rowToJob(rows[0]);
+    // Use explicit amount when provided (e.g. accepted bid amount); fall back to job budget
+    const escrowAmount = amount !== undefined
+      ? parseFloat(amount).toFixed(7)
+      : job.budget;
     await pool.query(
       `INSERT INTO escrows (job_id, contract_id, amount_xlm, milestones, status, created_at, updated_at)
        VALUES ($1, $2, $3, $4, 'funded', NOW(), NOW())
@@ -811,7 +819,7 @@ async function updateJobEscrowId(jobId, escrowContractId) {
            amount_xlm = EXCLUDED.amount_xlm,
            milestones = EXCLUDED.milestones,
            updated_at = NOW()`,
-      [job.id, escrowContractId, job.budget, JSON.stringify(job.milestones)],
+      [job.id, escrowContractId, escrowAmount, JSON.stringify(job.milestones)],
     );
     return job;
   }
@@ -870,7 +878,7 @@ async function purgeDeletedJobs(days = 90) {
  */
 async function boostJob(jobId, txHash, boostDays = 7) {
   // Verify job exists
-  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1`, [
+  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`, [
     jobId,
   ]);
   if (!rows.length) {
@@ -1099,7 +1107,7 @@ async function extendJobExpiry(jobId, days = 30, clientAddress) {
     throw e;
   }
 
-  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1`, [jobId]);
+  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`, [jobId]);
   if (!rows.length) {
     const e = new Error("Job not found");
     e.status = 404;
@@ -1178,7 +1186,7 @@ async function incrementViewCount(jobId) {
  */
 async function getJobAnalytics(jobId) {
   const { rows: jobRows } = await pool.query(
-    `${JOB_SELECT_CLAUSE} WHERE id = $1`,
+    `${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`,
     [jobId]
   );
   if (!jobRows.length) {
@@ -1332,15 +1340,16 @@ async function getRecommendedJobs(publicKey) {
   if (!skills.length) {
     // No skills, return recent open jobs excluding applied ones
     const { rows } = await pool.query(
-      `SELECT j.*, COALESCE((SELECT array_agg(s.display_name) FROM job_skills js JOIN skills s ON s.id = js.skill_id WHERE js.job_id = j.id), '{}') AS skills FROM jobs j
-       WHERE j.status = 'open'
-         AND j.visibility = 'public'
-         AND NOT EXISTS (
-           SELECT 1 FROM applications a
-           WHERE a.job_id = j.id AND a.freelancer_address = $1
-         )
-       ORDER BY j.created_at DESC
-       LIMIT 5`,
+       `SELECT j.*, COALESCE((SELECT array_agg(s.display_name) FROM job_skills js JOIN skills s ON s.id = js.skill_id WHERE js.job_id = j.id), '{}') AS skills FROM jobs j
+        WHERE j.status = 'open'
+          AND j.visibility = 'public'
+          AND j.deleted_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM applications a
+            WHERE a.job_id = j.id AND a.freelancer_address = $1
+          )
+        ORDER BY j.created_at DESC
+        LIMIT 5`,
       [publicKey]
     );
     return rows.map(rowToJob);
@@ -1401,6 +1410,130 @@ async function getSuggestions(query) {
   }
 }
 
+// ─── Job Timeline (Issue #876) ────────────────────────────────────────────
+
+/**
+ * Valid timeline event types.
+ */
+const TIMELINE_EVENT_TYPES = [
+  "job_posted",
+  "bid_accepted",
+  "escrow_funded",
+  "work_completed",
+  "escrow_released",
+];
+
+/**
+ * Record a timeline event for a job. If an event type already exists for this
+ * job, it is skipped (idempotent).
+ *
+ * @param {string} jobId     UUID of the job.
+ * @param {string} eventType One of the valid TIMELINE_EVENT_TYPES.
+ * @param {string|null} [txHash=null] On-chain transaction hash, if applicable.
+ * @returns {Promise<Object>} The inserted timeline row.
+ * @throws {Error} 400 — invalid eventType.
+ */
+async function recordTimelineEvent(jobId, eventType, txHash = null) {
+  if (!TIMELINE_EVENT_TYPES.includes(eventType)) {
+    const e = new Error(`Invalid timeline event type: ${eventType}`);
+    e.status = 400;
+    throw e;
+  }
+
+  // Idempotent: skip if this event type already exists for the job
+  const { rows: existing } = await pool.query(
+    "SELECT id FROM job_timeline WHERE job_id = $1 AND event_type = $2",
+    [jobId, eventType],
+  );
+  if (existing.length > 0) {
+    return existing[0];
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO job_timeline (job_id, event_type, tx_hash)
+     VALUES ($1, $2, $3)
+     RETURNING *`,
+    [jobId, eventType, txHash || null],
+  );
+  return rows[0];
+}
+
+/**
+ * Get all timeline events for a job, ordered by creation time ascending.
+ *
+ * @param {string} jobId UUID of the job.
+ * @returns {Promise<Object[]>} Array of timeline event rows (camel-cased).
+ */
+async function getJobTimeline(jobId) {
+  const { rows } = await pool.query(
+    `SELECT id, job_id, event_type, tx_hash, created_at
+     FROM job_timeline
+     WHERE job_id = $1
+     ORDER BY created_at ASC`,
+    [jobId],
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    jobId: row.job_id,
+    eventType: row.event_type,
+    txHash: row.tx_hash || null,
+    createdAt: row.created_at,
+  }));
+}
+
+// ─── Integrate timeline recording into existing lifecycle methods ───────
+
+// Wrap createJob to record 'job_posted' event
+const _createJob = createJob;
+createJob = async function (params) {
+  const job = await _createJob(params);
+  try {
+    await recordTimelineEvent(job.id, "job_posted");
+  } catch (err) {
+    console.error("[timeline] Failed to record job_posted event:", err.message);
+  }
+  return job;
+};
+
+// Wrap assignFreelancer to record 'bid_accepted' event
+const _assignFreelancer = assignFreelancer;
+assignFreelancer = async function (jobId, freelancerAddress) {
+  const job = await _assignFreelancer(jobId, freelancerAddress);
+  try {
+    await recordTimelineEvent(jobId, "bid_accepted");
+  } catch (err) {
+    console.error("[timeline] Failed to record bid_accepted event:", err.message);
+  }
+  return job;
+};
+
+// Wrap updateJobStatus to record 'work_completed' event
+const _updateJobStatus = updateJobStatus;
+updateJobStatus = async function (id, status) {
+  const job = await _updateJobStatus(id, status);
+  if (status === "completed") {
+    try {
+      await recordTimelineEvent(id, "work_completed");
+    } catch (err) {
+      console.error("[timeline] Failed to record work_completed event:", err.message);
+    }
+  }
+  return job;
+};
+
+// Extend updateJobEscrowId to accept optional txHash for recording escrow_funded event
+const _updateJobEscrowId = updateJobEscrowId;
+updateJobEscrowId = async function (jobId, escrowContractId, txHash = null) {
+  const job = await _updateJobEscrowId(jobId, escrowContractId);
+  try {
+    await recordTimelineEvent(jobId, "escrow_funded", txHash);
+  } catch (err) {
+    console.error("[timeline] Failed to record escrow_funded event:", err.message);
+  }
+  return job;
+};
+
 module.exports = {
   createJob,
   getJob,
@@ -1428,4 +1561,7 @@ module.exports = {
   getRecommendedJobs,
   getSuggestions,
   rowToJob,
+  recordTimelineEvent,
+  getJobTimeline,
+  TIMELINE_EVENT_TYPES,
 };

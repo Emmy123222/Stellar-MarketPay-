@@ -10,6 +10,7 @@
 
 import { Transaction, SorobanRpc } from "@stellar/stellar-sdk";
 import { sorobanServer, NETWORK_PASSPHRASE } from "./stellar";
+import { parseContractError } from "./contractErrors";
 
 // ─── Per-transaction simulation ──────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ export async function estimateSorobanFee(
   const sim = await sorobanServer.simulateTransaction(tx);
 
   if (SorobanRpc.Api.isSimulationError(sim)) {
-    throw new Error(`Could not estimate fee — the contract rejected the call: ${sim.error}`);
+    throw new Error(`Could not estimate fee — the contract rejected the call: ${parseContractError(sim.error)}`);
   }
 
   const resourceFeeStroops = BigInt(sim.minResourceFee || "0");

@@ -4,23 +4,6 @@
  * GET  /api/referrals/info               — public: bonus percentage info
  * GET  /api/referrals/:publicKey         — referral history & earnings (auth required)
  * POST /api/referrals/register           — record a new referral on signup
- */
-"use strict";
-
-const express = require("express");
-const { createRateLimiter } = require("../middleware/rateLimiter");
-const { verifyJWT } = require("../middleware/auth");
-const {
-  registerReferral,
-  getReferralStats,
-  REFERRAL_BONUS_BPS,
-} = require("../services/referralService");
-
-const router = express.Router();
-const generalRateLimiter = createRateLimiter(60, 1);
-
-/**
- * src/routes/referrals.js
  *
  * @swagger
  * tags:
