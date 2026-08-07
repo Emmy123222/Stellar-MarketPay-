@@ -33,6 +33,8 @@ if ! command -v gitleaks >/dev/null 2>&1; then
   fi
 fi
 
+# Run gitleaks on staged files
+gitleaks protect -v --staged
 gitleaks detect --source . --config .gitleaks.toml --verbose --no-git --staged
 gitleaks_status=$?
 

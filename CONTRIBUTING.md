@@ -31,6 +31,34 @@ Stellar MarketPay is a decentralized freelance marketplace built on the Stellar 
 
 ## Prerequisites
 
+### Secrets Scanning (Gitleaks)
+
+We use [Gitleaks](https://github.com/gitleaks/gitleaks) in our `husky` pre-commit hook to prevent accidental commits of API keys, Stellar secret keys, and other sensitive information.
+
+**Installation:**
+You must install gitleaks locally for the pre-commit hook to work effectively.
+
+- **macOS (Homebrew):**
+  ```bash
+  brew install gitleaks
+  ```
+- **Linux/Windows (Go):**
+  ```bash
+  go install github.com/gitleaks/gitleaks/v8@latest
+  ```
+
+*Note: If gitleaks detects a false positive, you can configure exceptions in the `.gitleaks.toml` file under the `[allowlist]` section.*
+
+### Required Tools
+
+| Tool | Minimum Version | Notes |
+|------|----------------|-------|
+| Node.js | 18.x | [nodejs.org](https://nodejs.org) |
+| npm | 9.x | Included with Node |
+| PostgreSQL | 15+ | Or run via Docker (recommended) |
+| Redis | 7+ | Or run via Docker (recommended) |
+| Rust + Cargo | stable | Only for contract work — [rustup.rs](https://rustup.rs) |
+| Freighter Wallet | latest | Browser extension for Stellar — [freighter.app](https://freighter.app) |
 | Tool             | Minimum Version | Notes                                                                  |
 | ---------------- | --------------- | ---------------------------------------------------------------------- |
 | Node.js          | 18.x            | [nodejs.org](https://nodejs.org)                                       |
