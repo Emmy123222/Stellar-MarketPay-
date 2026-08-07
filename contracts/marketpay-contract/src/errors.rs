@@ -501,6 +501,9 @@ pub fn error_code_from_panic(msg: &str) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
+    use std::vec::Vec;
+    use std::vec;
     use super::*;
 
     #[test]

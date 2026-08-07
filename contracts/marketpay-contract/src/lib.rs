@@ -272,23 +272,6 @@ pub struct RecurringEscrow {
     pub status: EscrowStatus,
 }
 
-/// Admin-configured dispute bond parameters (Issue #437).
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct DisputeBondConfig {
-    pub token: Address,
-    pub amount: i128,
-}
-
-/// Per-job record of the locked dispute bond (Issue #437).
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct DisputeBond {
-    pub caller: Address,
-    pub token: Address,
-    pub amount: i128,
-    pub raised_at_ledger: u32,
-}
 
 /// Storage key per job
 #[contracttype]
@@ -321,6 +304,7 @@ pub enum DataKey {
     ClientRating(String),
     FreelancerRating(String),
     FreelancerRatingStats(Address),
+    ArbitratorAddress,
     Arbitrator(Address),
     ArbitratorPool,
     ArbitrationCase(u32),
@@ -337,9 +321,6 @@ pub enum DataKey {
     PlatformFeeBps,
     DisputeBondConfig,
     DisputeBond(String),
-    Admins,
-    Frozen,
-    UnfreezeThreshold,
     ExtensionRequest(String),
     MaxReferrerBonusXlm,
 }
@@ -2269,7 +2250,6 @@ impl MarketPayContract {
             (escrow.client.clone(), escrow.freelancer.clone(), milestone_id, payout),
         );
     }
-    }
 
     /// Partial milestone refund — the client rejects a single milestone and its
     /// share of the escrow is returned to the client. Remaining milestones stay
@@ -2852,6 +2832,8 @@ impl MarketPayContract {
 
         let cert = Certificate {
             job_id: job_id.clone(),
+            title,
+            client: escrow.client.clone(),
             freelancer: escrow.freelancer.clone(),
             amount: escrow.amount,
             created_at: env.ledger().sequence(),
@@ -2902,8 +2884,6 @@ impl MarketPayContract {
 
         let escrow: Escrow = env
             .storage()
-        let escrow: Escrow = env
-            .storage()
             .instance()
             .get(&DataKey::Escrow(job_id.clone()))
             .expect("Escrow not found");
@@ -2924,10 +2904,6 @@ impl MarketPayContract {
             .instance()
             .set(&DataKey::EvidenceCids(job_id.clone()), &cids);
 
-        env.events().publish(
-            (symbol_short!("evd_add"), job_id),
-            (caller, env.ledger().sequence()),
-        );
         env.events().publish(
             (symbol_short!("evd_add"), job_id),
             (caller, env.ledger().sequence()),
@@ -2994,6 +2970,31 @@ impl MarketPayContract {
             .get(&DataKey::Escrow(job_id.clone()))
             .expect("Escrow not found");
 
+        if escrow.status != EscrowStatus::Released {
+            panic!("Ratings are allowed only after escrow release");
+        }
+        if escrow.freelancer != freelancer {
+            panic!("Only job freelancer can submit freelancer rating");
+        }
+        if env
+            .storage()
+            .instance()
+            .has(&DataKey::FreelancerRating(job_id.clone()))
+        {
+            panic!("Freelancer rating already submitted for this job");
+        }
+
+        let rating = Rating {
+            job_id: job_id.clone(),
+            rater: freelancer,
+            rated: escrow.client.clone(),
+            score_out_of_5: score,
+            submitted_at_ledger: env.ledger().sequence(),
+        };
+        env.storage()
+            .instance()
+            .set(&DataKey::FreelancerRating(job_id), &rating);
+
         let mut stats: FreelancerRatingStats = env
             .storage()
             .instance()
@@ -3051,8 +3052,6 @@ impl MarketPayContract {
     pub fn get_evidence_cids(env: Env, job_id: String) -> soroban_sdk::Vec<Bytes> {
         env.storage()
             .instance()
-            .get(&DataKey::EvidenceCids(job_id))
-            .unwrap_or_else(|| soroban_sdk::Vec::new(&env))
             .get(&DataKey::EvidenceCids(job_id))
             .unwrap_or_else(|| soroban_sdk::Vec::new(&env))
     }
@@ -4950,5 +4949,4 @@ mod usdc_tests {
         assert!(final_freelancer_balance > 0);
         assert_eq!(token_client.balance(&contract.address), 0);
     }
-}
 }
