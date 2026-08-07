@@ -58,15 +58,18 @@ const graphqlHandler  = require("./graphql");
 const eventsRoutes    = require("./routes/events");
 const invitationRoutes = require("./routes/invitations");
 const statsRoutes      = require("./routes/stats");
+const aiScorerRoutes    = require("./routes/aiScorer");
 const contributorRoutes  = require("./routes/contributors");
 const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
 const priceAlertRoutes     = require("./routes/priceAlerts");
+const nftRoutes            = require("./routes/nft");
 
 const pool            = require("./db/pool");
-const { migrate, getCurrentMigrationVersion, getExpectedMigrationVersion, validateMigrationVersion } = require("./db/migrate");
+const { connectWithRetry } = require("./db/pool");
+const { migrate } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
@@ -184,16 +187,6 @@ function broadcastToUser(userAddress, event, payload) {
   const message = JSON.stringify({ event, payload });
   for (const ws of sockets) {
     if (ws.readyState === WS_OPEN) ws.send(message);
-  }
-}
-
-function broadcastToUser(userAddress, event, payload) {
-  const message = JSON.stringify({ event, payload });
-  const sockets = userClients.get(userAddress);
-  if (sockets) {
-    for (const ws of sockets) {
-      if (ws.readyState === WS_OPEN) ws.send(message);
-    }
   }
 }
 
@@ -431,7 +424,7 @@ app.get("/metrics", metricsAuth, async (req, res, next) => {
 });
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
-app.use("/health",            healthRoutes);
+app.use("/api/health",        healthRoutes);
 app.use("/api/auth",          authRoutes);
 app.use("/api/jobs",          jobRoutes);
 app.use("/api/applications",  applicationRoutes);
@@ -463,6 +456,7 @@ app.use("/api/transactions",   transactionRoutes);
 app.use("/api/dao",            daoRoutes);
 app.use("/api/proposal-templates", proposalTemplateRoutes);
 app.use("/api/price-alerts",      priceAlertRoutes);
+app.use("/api/ai",                aiScorerRoutes);
 
 // 404 handler — must come after all routes
 app.use((req, res) => {
@@ -666,6 +660,7 @@ wsServer.on("connection", async (ws, request) => {
 
 async function bootstrap() {
   try {
+  await connectWithRetry();
   await migrate();
 
   // Validate that the database is at the expected migration version

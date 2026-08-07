@@ -31,6 +31,8 @@ use soroban_sdk::{
     String, Symbol, Vec,
 };
 
+pub mod errors;
+
 // ─── Storage keys ─────────────────────────────────────────────────────────────
 
 /// Default timeout: 7 days in seconds.
@@ -183,10 +185,16 @@ pub struct ExtensionRequest {
 }
 
 /// Job completion certificate (Issue #102)
+///
+/// Acts as a proof-of-work NFT minted to the freelancer once the escrow is
+/// released. On-chain metadata captures the job title, client address,
+/// freelancer address, escrow amount and the ledger at mint time.
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Certificate {
     pub job_id: String,
+    pub title: String,
+    pub client: Address,
     pub freelancer: Address,
     pub amount: i128,
     pub created_at: u32,
@@ -2835,7 +2843,11 @@ impl MarketPayContract {
     // ─── Issue #102: Job Completion Certificate ──────────────────────────────
 
     /// Mint a certificate when job is completed (upon escrow release).
-    pub fn mint_certificate(env: Env, job_id: String, client: Address) {
+    ///
+    /// The certificate is a proof-of-work NFT minted to the freelancer's
+    /// address. `title` is stored on-chain as part of the certificate
+    /// metadata so the certificate carries the job title (not just the id).
+    pub fn mint_certificate(env: Env, job_id: String, title: String, client: Address) {
         client.require_auth();
         Self::check_not_frozen(&env);
 
@@ -2845,6 +2857,12 @@ impl MarketPayContract {
             .get(&DataKey::Escrow(job_id.clone()))
             .expect("Escrow not found");
 
+        if client != escrow.client {
+            panic!("Only the escrow client can mint the certificate");
+        }
+        if title.is_empty() {
+            panic!("Certificate title cannot be empty");
+        }
         if escrow.status != EscrowStatus::Released {
             panic!("Escrow must be released to mint certificate");
         }
@@ -2858,6 +2876,8 @@ impl MarketPayContract {
 
         let cert = Certificate {
             job_id: job_id.clone(),
+            title: title.clone(),
+            client: escrow.client.clone(),
             freelancer: escrow.freelancer.clone(),
             amount: escrow.amount,
             created_at: env.ledger().sequence(),
@@ -4548,6 +4568,74 @@ mod extension_tests {
         });
 
         client.approve_extension(&job_id, &freelancer);
+    }
+}
+#[cfg(test)]
+mod usdc_tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Address, Env, String};
+    use crate::token;
+
+    fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, Address) {
+        env.mock_all_auths();
+        let id = env.register(MarketPayContract, ());
+        let contract = MarketPayContractClient::new(env, &id);
+        let admin = Address::generate(env);
+        let treasury = Address::generate(env);
+        contract.initialize(&admin, &treasury);
+
+        let client = Address::generate(env);
+        let freelancer = Address::generate(env);
+        
+        // Mocking a generic token contract which will simulate USDC
+        let usdc_contract = env.register_stellar_asset_contract_v2(admin.clone());
+        let usdc_id = usdc_contract.address();
+        let usdc_admin = token::StellarAssetClient::new(env, &usdc_id);
+        usdc_admin.mint(&client, &100_000_000); // Give the client some USDC
+
+        (contract, client, freelancer, usdc_id)
+    }
+
+    #[test]
+    fn test_usdc_escrow_flow() {
+        let env = Env::default();
+        let (contract, client, freelancer, usdc_id) = setup(&env);
+        let job_id = String::from_str(&env, "usdc-job-1");
+        
+        let token_client = token::TokenClient::new(&env, &usdc_id);
+        
+        // Initial balances
+        assert_eq!(token_client.balance(&client), 100_000_000);
+        assert_eq!(token_client.balance(&contract.address), 0);
+        assert_eq!(token_client.balance(&freelancer), 0);
+        
+        // 1. Create escrow with USDC
+        contract.create_escrow(
+            &job_id, &client, 
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: usdc_id.clone(),
+                amount: 5_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: None,
+            }
+        );
+        
+        // Verify contract holds USDC
+        assert_eq!(token_client.balance(&client), 99_995_000);
+        assert_eq!(token_client.balance(&contract.address), 5_000);
+        
+        // 2. Freelancer starts work
+        contract.start_work(&job_id, &freelancer);
+        
+        // 3. Client releases escrow
+        contract.release_escrow(&job_id, &client);
+        
+        // Verify freelancer received the funds (assuming 0% fee here or similar, but the exact amount doesn't matter as long as it's not 0 and the contract is 0)
+        let final_freelancer_balance = token_client.balance(&freelancer);
+        assert!(final_freelancer_balance > 0);
+        assert_eq!(token_client.balance(&contract.address), 0);
     }
 }
 }

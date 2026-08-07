@@ -25,6 +25,16 @@ const { sendEmail } = require("../utils/email");
 const { createError, ErrorCodes } = require("../utils/errors");
 const { validateJsonb } = require("../middleware/jsonbValidator");
 const portfolioItemsSchema = require("../schemas/portfolioItems.schema");
+const {
+  validate,
+  upsertProfileSchema,
+  notificationPreferencesSchema,
+  availabilitySchema,
+  priceAlertSchema,
+  endorseSkillSchema,
+  blockFreelancerSchema,
+  encryptionKeySchema,
+} = require("../validators/profileValidator");
 
 const {
   getProfile,
@@ -254,11 +264,12 @@ router.get("/:publicKey/response-time", generalProfileRateLimiter, async (req, r
 
 router.post("/", profileUpdateRateLimiter, validateJsonb({ portfolio_items: portfolioItemsSchema }), async (req, res, next) => {
   try {
-    const data = await upsertProfile(req.body);
-    if (req.body.publicKey) {
-      const key = cache.profileKey(req.body.publicKey);
+    const body = validate(upsertProfileSchema, req.body);
+    const data = await upsertProfile(body);
+    if (body.publicKey) {
+      const key = cache.profileKey(body.publicKey);
       await cache.del(key);
-      profileLogger.debug({ publicKey: req.body.publicKey, cacheKey: key }, "Cache invalidated after POST profile");
+      profileLogger.debug({ publicKey: body.publicKey, cacheKey: key }, "Cache invalidated after POST profile");
     }
     res.json({ success: true, data });
   }
@@ -272,7 +283,8 @@ router.put("/:publicKey", profileUpdateRateLimiter, verifyJWT, async (req, res, 
     if (req.user.publicKey !== publicKey) {
       return res.status(403).json({ error: "You can only update your own profile" });
     }
-    const data = await upsertProfile({ ...req.body, publicKey });
+    const body = validate(upsertProfileSchema, req.body);
+    const data = await upsertProfile({ ...body, publicKey });
     const key = cache.profileKey(publicKey);
     await cache.del(key);
     profileLogger.debug({ publicKey, cacheKey: key }, "Cache invalidated after PUT profile");
@@ -309,7 +321,7 @@ router.get("/:publicKey/notifications", generalProfileRateLimiter, async (req, r
 router.post("/:publicKey/notifications", profileUpdateRateLimiter, async (req, res, next) => {
   try {
     const { publicKey } = req.params;
-    const { email, emailNotificationsEnabled, webhookUrl, webhookSecret } = req.body;
+    const { email, emailNotificationsEnabled, webhookUrl, webhookSecret } = validate(notificationPreferencesSchema, req.body);
 
     // Update profile with notification preferences
     const updated = await upsertProfile({
@@ -381,9 +393,10 @@ router.patch("/:publicKey/notificationPreferences", verifyJWT, profileUpdateRate
 
 router.post("/:publicKey/availability", profileUpdateRateLimiter, async (req, res, next) => {
   try {
+    const body = validate(availabilitySchema, req.body);
     res.json({
       success: true,
-      data: await updateAvailability(req.params.publicKey, req.body),
+      data: await updateAvailability(req.params.publicKey, body),
     });
   }
   catch (e) { next(e); }
@@ -428,12 +441,13 @@ router.get("/:publicKey/price-alerts", generalProfileRateLimiter, async (req, re
 
 router.post("/:publicKey/price-alerts", profileUpdateRateLimiter, async (req, res, next) => {
   try {
+    const body = validate(priceAlertSchema, req.body);
     const pref = await upsertPriceAlertPreference({
       freelancerAddress: req.params.publicKey,
-      minXlmPriceUsd: req.body.minXlmPriceUsd,
-      maxXlmPriceUsd: req.body.maxXlmPriceUsd,
-      emailNotificationsEnabled: req.body.emailNotificationsEnabled,
-      email: req.body.email,
+      minXlmPriceUsd: body.minXlmPriceUsd,
+      maxXlmPriceUsd: body.maxXlmPriceUsd,
+      emailNotificationsEnabled: body.emailNotificationsEnabled,
+      email: body.email,
     });
     res.json({ success: true, data: pref });
   } catch (e) {
@@ -484,7 +498,7 @@ router.get("/:publicKey/endorsements", generalProfileRateLimiter, async (req, re
  */
 router.post("/:publicKey/endorse", profileUpdateRateLimiter, async (req, res, next) => {
   try {
-    const { skill, endorserAddress } = req.body;
+    const { skill, endorserAddress } = validate(endorseSkillSchema, req.body);
     await endorseSkill({
       skill,
       endorserAddress,
@@ -552,7 +566,7 @@ router.post("/:publicKey/block", verifyJWT, profileUpdateRateLimiter, async (req
     if (req.user.publicKey !== req.params.publicKey) {
       return res.status(403).json({ error: "You can only manage your own block list", code: ErrorCodes.FORBIDDEN });
     }
-    const { address } = req.body;
+    const { address } = validate(blockFreelancerSchema, req.body);
     const profile = await blockFreelancer(req.params.publicKey, address);
     res.json({ success: true, data: profile });
   } catch (e) { next(e); }
@@ -762,7 +776,7 @@ router.get("/:publicKey/endorsements", generalProfileRateLimiter, async (req, re
 router.post("/:publicKey/endorse", verifyJWT, async (req, res, next) => {
   try {
     const { publicKey } = req.params;
-    const { skill } = req.body;
+    const { skill } = validate(endorseSkillSchema, req.body);
     const endorserAddress = req.user.publicKey;
 
     if (!skill || typeof skill !== "string" || !skill.trim()) {
@@ -881,23 +895,7 @@ router.put("/:publicKey/encryption-key", verifyJWT, profileUpdateRateLimiter, as
       return next(createError(ErrorCodes.FORBIDDEN, "You can only update your own encryption key", 403));
     }
 
-    const { encryptionPublicKey } = req.body;
-
-    if (!encryptionPublicKey || typeof encryptionPublicKey !== "string") {
-      return next(createError(ErrorCodes.VALIDATION_ERROR, "encryptionPublicKey is required", 400));
-    }
-
-    // Validate: must be a base64-encoded 32-byte X25519 key
-    let keyBytes;
-    try {
-      keyBytes = Buffer.from(encryptionPublicKey, "base64");
-    } catch {
-      return next(createError(ErrorCodes.ENCRYPTION_KEY_INVALID, "encryptionPublicKey must be base64-encoded", 400));
-    }
-
-    if (keyBytes.length !== 32) {
-      return next(createError(ErrorCodes.ENCRYPTION_KEY_INVALID, "encryptionPublicKey must be a 32-byte X25519 key (base64)", 400));
-    }
+    const { encryptionPublicKey } = validate(encryptionKeySchema, req.body);
 
     const { rows } = await pool.query(
       `UPDATE profiles

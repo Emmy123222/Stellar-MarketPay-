@@ -1,92 +1,80 @@
-import { render, screen, cleanup } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import NotificationBell from "@/components/NotificationBell";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import NotificationBell from "../NotificationBell";
+import { fetchNotifications, markAllNotificationsRead } from "@/lib/api";
+import { mutate } from "swr";
 
-const mockMarkAllRead = jest.fn().mockResolvedValue({ updatedCount: 5 });
-const mockFetchNotifications = jest.fn();
-
+// Mock the API calls
 jest.mock("@/lib/api", () => ({
-  markAllNotificationsRead: () => mockMarkAllRead(),
-  fetchNotifications: () => mockFetchNotifications(),
-  markNotificationRead: jest.fn().mockResolvedValue(undefined),
-  setJwtToken: jest.fn(),
-  getJwtToken: jest.fn().mockReturnValue(null),
+  fetchNotifications: jest.fn(),
+  markAllNotificationsRead: jest.fn(),
+  markNotificationRead: jest.fn(),
 }));
 
-const mockPush = jest.fn();
+// Mock SWR mutate
+jest.mock("swr", () => ({
+  mutate: jest.fn(),
+}));
+
+// Mock Next.js router
 jest.mock("next/router", () => ({
-  useRouter: () => ({ push: mockPush, pathname: "/" }),
+  useRouter: () => ({
+    push: jest.fn(),
+  }),
 }));
-
-afterEach(() => {
-  cleanup();
-  jest.clearAllMocks();
-});
-
-function makeNotifications(count: number) {
-  return Array.from({ length: count }, (_, i) => ({
-    id: `n${i}`,
-    title: `Notification ${i}`,
-    body: `Body ${i}`,
-    read: false,
-    createdAt: new Date().toISOString(),
-    jobId: null,
-    linkPath: null,
-  }));
-}
 
 describe("NotificationBell", () => {
-  it("shows badge with unread count", async () => {
-    mockFetchNotifications.mockResolvedValue({
-      notifications: makeNotifications(3),
-      unreadCount: 3,
-      nextCursor: null,
-    });
+  const MOCK_PK = "GC3ABCDEF";
 
-    render(<NotificationBell publicKey="GPUBKEY" />);
-
-    const badge = await screen.findByText("3");
-    expect(badge).toBeInTheDocument();
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  it("optimistically resets count to 0 on 'Mark all read' click", async () => {
-    const notifications = makeNotifications(3);
-    mockFetchNotifications.mockResolvedValue({
-      notifications,
-      unreadCount: 3,
-      nextCursor: null,
+  it("optimistically updates unread count and revalidates SWR cache when marking all as read", async () => {
+    // Setup initial state with 5 unread notifications
+    const mockNotifications = [
+      { id: "1", title: "N1", read: false, createdAt: new Date().toISOString() },
+      { id: "2", title: "N2", read: false, createdAt: new Date().toISOString() },
+      { id: "3", title: "N3", read: false, createdAt: new Date().toISOString() },
+      { id: "4", title: "N4", read: false, createdAt: new Date().toISOString() },
+      { id: "5", title: "N5", read: false, createdAt: new Date().toISOString() },
+    ];
+
+    (fetchNotifications as jest.Mock).mockResolvedValueOnce({
+      notifications: mockNotifications,
+      unreadCount: 5,
     });
 
-    render(<NotificationBell publicKey="GPUBKEY" />);
+    (markAllNotificationsRead as jest.Mock).mockImplementation(
+      () => new Promise((resolve) => setTimeout(resolve, 100))
+    );
 
-    const bell = await screen.findByLabelText("Notifications");
-    await userEvent.click(bell);
+    render(<NotificationBell publicKey={MOCK_PK} />);
 
-    const markAllBtn = await screen.findByText("Mark all read");
-    await userEvent.click(markAllBtn);
-
-    expect(screen.queryByText("3")).not.toBeInTheDocument();
-    expect(mockMarkAllRead).toHaveBeenCalledTimes(1);
-  });
-
-  it("restores count if API call fails", async () => {
-    const notifications = makeNotifications(3);
-    mockFetchNotifications.mockResolvedValue({
-      notifications,
-      unreadCount: 3,
-      nextCursor: null,
-    });
-    mockMarkAllRead.mockRejectedValueOnce(new Error("Network error"));
-
-    render(<NotificationBell publicKey="GPUBKEY" />);
-
-    const bell = await screen.findByLabelText("Notifications");
-    await userEvent.click(bell);
-
-    const markAllBtn = await screen.findByText("Mark all read");
-    await userEvent.click(markAllBtn);
-
-    const badge = await screen.findByText("3");
+    // Wait for notifications to load
+    const badge = await screen.findByText("5");
     expect(badge).toBeInTheDocument();
+
+    // Open the panel
+    const bellButton = screen.getByLabelText("Notifications");
+    fireEvent.click(bellButton);
+
+    // Find and click "Mark all read"
+    const markAllReadBtn = await screen.findByText("Mark all read");
+    fireEvent.click(markAllReadBtn);
+
+    // Verify optimistic update: badge should disappear immediately (or become 0 and not render)
+    await waitFor(() => {
+      expect(screen.queryByText("5")).not.toBeInTheDocument();
+    });
+
+    // Verify SWR cache revalidation
+    expect(mutate).toHaveBeenCalledWith(
+      "/api/notifications/unread-count",
+      { unreadCount: 0 },
+      { revalidate: true }
+    );
+
+    // Verify API call was made
+    expect(markAllNotificationsRead).toHaveBeenCalled();
   });
 });

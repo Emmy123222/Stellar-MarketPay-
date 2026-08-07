@@ -6,5 +6,6 @@ export { default as WelcomeModal } from "./WelcomeModal";
 export { default as ProfileChecklist } from "./ProfileChecklist";
 export { default as ProgressBar } from "./ProgressBar";
 export { default as Tooltips } from "./Tooltips";
+export { default as OnboardingWizard } from "./OnboardingWizard";
 export type { ChecklistItem } from "./ProfileChecklist";
 export type { TooltipConfig } from "./Tooltips";

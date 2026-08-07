@@ -8,6 +8,7 @@ jest.mock("../db/pool", () => ({
 
 jest.mock("./jobService", () => ({
   getJob: jest.fn(),
+  recordTimelineEvent: jest.fn(),
 }));
 
 jest.mock("./contractAuditService", () => ({
