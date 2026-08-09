@@ -41,6 +41,7 @@ import { signTransactionWithWallet } from "@/lib/wallet";
 import { optionalClientEnv } from "@/lib/env";
 import type { Transaction } from "@stellar/stellar-sdk";
 import type { Application, Job } from "@/utils/types";
+import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 
 // ── Site-wide canonical origin used in OG/Twitter meta tags (#487) ─────────
 // RESOLVED_AT_BUILD is the build-time fallback used by client-rendered
@@ -202,6 +203,8 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
 
+  const { addRecentJob } = useRecentlyViewed();
+
   const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
   const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
   const hasApplied = optimisticallyApplied || applications.some((a) => a.freelancerAddress === publicKey);
@@ -241,10 +244,11 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
       .then(([loadedJob, loadedApplications]) => {
         setJob(loadedJob);
         setApplications(loadedApplications);
+        addRecentJob(jobId);
       })
       .catch(() => router.push("/jobs"))
       .finally(() => setLoading(false));
-  }, [jobId, router.isReady, router]);
+  }, [jobId, router.isReady, router, addRecentJob]);
 
   const handleAcceptApplication = async (applicationId: string) => {
     if (!publicKey || !jobId) return;

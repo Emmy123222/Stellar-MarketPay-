@@ -236,6 +236,7 @@ function rowToJob(row) {
     extendedUntil: row.extended_until,
     biddingClosedAt: row.bidding_closed_at,
     viewCount: row.view_count,
+    deletedAt: row.deleted_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     searchHeadline: row.headline_title || null,
@@ -786,10 +787,13 @@ async function assignFreelancer(jobId, freelancerAddress) {
  *
  * @param {number|string} jobId - The ID of the job.
  * @param {string} escrowContractId - The escrow contract ID.
+ * @param {Object} [options] - Optional overrides.
+ * @param {string|number} [options.amount] - Escrow amount override (e.g. accepted bid amount).
+ *   Falls back to job.budget when omitted.
  * @returns {Promise<Object>} The updated job object.
  * @throws {Error} If the escrowContractId is invalid or the job is not found.
  */
-async function updateJobEscrowId(jobId, escrowContractId) {
+async function updateJobEscrowId(jobId, escrowContractId, { amount } = {}) {
   if (!escrowContractId || typeof escrowContractId !== "string") {
     const e = new Error("Invalid escrow contract ID");
     e.status = 400;
@@ -803,6 +807,10 @@ async function updateJobEscrowId(jobId, escrowContractId) {
 
   if (rows.length) {
     const job = rowToJob(rows[0]);
+    // Use explicit amount when provided (e.g. accepted bid amount); fall back to job budget
+    const escrowAmount = amount !== undefined
+      ? parseFloat(amount).toFixed(7)
+      : job.budget;
     await pool.query(
       `INSERT INTO escrows (job_id, contract_id, amount_xlm, milestones, status, created_at, updated_at)
        VALUES ($1, $2, $3, $4, 'funded', NOW(), NOW())
@@ -811,7 +819,7 @@ async function updateJobEscrowId(jobId, escrowContractId) {
            amount_xlm = EXCLUDED.amount_xlm,
            milestones = EXCLUDED.milestones,
            updated_at = NOW()`,
-      [job.id, escrowContractId, job.budget, JSON.stringify(job.milestones)],
+      [job.id, escrowContractId, escrowAmount, JSON.stringify(job.milestones)],
     );
     return job;
   }
@@ -870,7 +878,7 @@ async function purgeDeletedJobs(days = 90) {
  */
 async function boostJob(jobId, txHash, boostDays = 7) {
   // Verify job exists
-  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1`, [
+  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`, [
     jobId,
   ]);
   if (!rows.length) {
@@ -1099,7 +1107,7 @@ async function extendJobExpiry(jobId, days = 30, clientAddress) {
     throw e;
   }
 
-  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1`, [jobId]);
+  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`, [jobId]);
   if (!rows.length) {
     const e = new Error("Job not found");
     e.status = 404;
@@ -1178,7 +1186,7 @@ async function incrementViewCount(jobId) {
  */
 async function getJobAnalytics(jobId) {
   const { rows: jobRows } = await pool.query(
-    `${JOB_SELECT_CLAUSE} WHERE id = $1`,
+    `${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`,
     [jobId]
   );
   if (!jobRows.length) {
@@ -1332,15 +1340,16 @@ async function getRecommendedJobs(publicKey) {
   if (!skills.length) {
     // No skills, return recent open jobs excluding applied ones
     const { rows } = await pool.query(
-      `SELECT j.*, COALESCE((SELECT array_agg(s.display_name) FROM job_skills js JOIN skills s ON s.id = js.skill_id WHERE js.job_id = j.id), '{}') AS skills FROM jobs j
-       WHERE j.status = 'open'
-         AND j.visibility = 'public'
-         AND NOT EXISTS (
-           SELECT 1 FROM applications a
-           WHERE a.job_id = j.id AND a.freelancer_address = $1
-         )
-       ORDER BY j.created_at DESC
-       LIMIT 5`,
+       `SELECT j.*, COALESCE((SELECT array_agg(s.display_name) FROM job_skills js JOIN skills s ON s.id = js.skill_id WHERE js.job_id = j.id), '{}') AS skills FROM jobs j
+        WHERE j.status = 'open'
+          AND j.visibility = 'public'
+          AND j.deleted_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM applications a
+            WHERE a.job_id = j.id AND a.freelancer_address = $1
+          )
+        ORDER BY j.created_at DESC
+        LIMIT 5`,
       [publicKey]
     );
     return rows.map(rowToJob);
