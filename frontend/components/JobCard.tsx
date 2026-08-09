@@ -38,7 +38,6 @@ import type { Job } from "@/utils/types";
 import { usePriceContext } from "@/contexts/PriceContext";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import JobStatusTimeline from "@/components/JobStatusTimeline";
-import { Download } from "lucide-react";
 
 interface JobCardProps {
   job: Job;
@@ -313,7 +312,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
                 {downloadingInvoice ? (
                   <span className="w-4 h-4 border-2 border-market-400 border-t-transparent rounded-full animate-spin" />
                 ) : (
-                  <Download className="w-4 h-4 transition-transform group-hover/invoice:scale-110" />
+                  <DownloadIcon className="w-4 h-4 transition-transform group-hover/invoice:scale-110" />
                 )}
               </button>
             )}
@@ -421,3 +420,11 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
 // Export the standalone JobCardSkeleton from its own file for better discoverability
 // (see frontend/components/JobCardSkeleton.tsx)
 export { default as JobCardSkeleton } from "./JobCardSkeleton";
+
+function DownloadIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 21h16" />
+    </svg>
+  );
+}

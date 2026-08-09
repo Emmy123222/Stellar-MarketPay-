@@ -11,8 +11,10 @@ import FaucetButton from "@/components/FaucetButton";
 import { usePriceContext } from "@/contexts/PriceContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import NotificationBell from "@/components/NotificationBell";
+import WalletAddressDisplay from "@/components/WalletAddressDisplay";
 import { fetchJobs, searchFreelancers } from "@/lib/api";
 import type { Job, UserProfile } from "@/utils/types";
+import { shortenAddress } from "@/utils/format";
 
 interface NavbarProps {
   publicKey: string | null;
@@ -21,13 +23,13 @@ interface NavbarProps {
 }
 
 const links = [
-  { href: "/", labelKey: "nav.home" },
-  { href: "/jobs", labelKey: "nav.browseJobs" },
-  { href: "/dashboard", labelKey: "nav.dashboard" },
-  { href: "/post-job", labelKey: "nav.postJob" },
-  { href: "/insights", labelKey: "nav.insights" },
-  { href: "/developer", labelKey: "nav.developer" },
-  { href: "/dao", labelKey: "nav.dao" },
+  { href: "/",            labelKey: "nav.home" },
+  { href: "/jobs",        labelKey: "nav.browseJobs" },
+  { href: "/dashboard",   labelKey: "nav.dashboard" },
+  { href: "/post-job",    labelKey: "nav.postJob" },
+  { href: "/insights",    labelKey: "nav.insights" },
+  { href: "/developer",   labelKey: "nav.developer" },
+  { href: "/dao",           labelKey: "nav.dao" },
 ];
 
 const STELLAR_NETWORK = process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet";
@@ -36,17 +38,14 @@ type SearchResult =
   | { type: "job"; id: string; title: string; description?: string }
   | { type: "freelancer"; id: string; title: string; description?: string };
 
-export default function Navbar({
-  publicKey,
-  onConnect,
-  onDisconnect,
-}: NavbarProps) {
+export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarProps) {
   const router = useRouter();
   const { t } = useTranslation("common");
   const [hasNotification, setHasNotification] = useState(false);
   const [hasJobAlertBadge, setHasJobAlertBadge] = useState(false);
   const { currencyMode, setCurrencyMode, priceLoading } = usePriceContext();
-  const [darkMode, setDarkMode] = useState(false);
+  const { theme, toggleTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [balance, setBalance] = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
@@ -109,8 +108,7 @@ export default function Navbar({
       }
     };
     window.addEventListener("job-alert-matches", handleAlertMatches);
-    return () =>
-      window.removeEventListener("job-alert-matches", handleAlertMatches);
+    return () => window.removeEventListener("job-alert-matches", handleAlertMatches);
   }, [router.pathname]);
 
   useEffect(() => {
@@ -171,8 +169,7 @@ export default function Navbar({
           ...freelancers.slice(0, 5).map((freelancer: UserProfile) => ({
             type: "freelancer" as const,
             id: freelancer.publicKey,
-            title:
-              freelancer.displayName || shortenAddress(freelancer.publicKey),
+            title: freelancer.displayName || shortenAddress(freelancer.publicKey),
             description:
               freelancer.skills?.slice(0, 3).join(", ") ||
               freelancer.bio ||
@@ -231,12 +228,9 @@ export default function Navbar({
   return (
     <nav className="sticky top-0 z-50 border-b border-[rgba(251,191,36,0.10)] bg-ink-900/85 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-4">
+
         {/* Logo */}
-        <Link
-          href="/"
-          locale={false}
-          className="flex items-center gap-2.5 group flex-shrink-0"
-        >
+        <Link href="/" locale={false} className="flex items-center gap-2.5 group flex-shrink-0">
           <div className="w-8 h-8 rounded-lg bg-market-500/15 border border-market-500/25 flex items-center justify-center group-hover:border-market-500/50 transition-colors">
             <BriefcaseIcon className="w-4 h-4 text-market-400" />
           </div>
@@ -249,29 +243,24 @@ export default function Navbar({
         </Link>
 
         {/* Network badge - hidden on mobile */}
-        <span
-          className={clsx(
-            "hidden lg:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border flex-shrink-0",
-            STELLAR_NETWORK === "mainnet"
-              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-              : "bg-amber-500/10 text-amber-400 border-amber-500/20",
-          )}
-        >
+        <span className={clsx(
+          "hidden lg:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border flex-shrink-0",
+          STELLAR_NETWORK === "mainnet"
+            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+            : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+        )}>
           {STELLAR_NETWORK === "mainnet" ? "Mainnet" : "Testnet"}
         </span>
 
         {/* Desktop Nav links */}
         <div className="hidden md:flex items-center gap-1">
           {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              locale={false}
+            <Link key={l.href} href={l.href} locale={false}
               className={clsx(
                 "px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative min-h-[44px] flex items-center",
                 router.pathname === l.href
                   ? "bg-market-500/12 text-market-300"
-                  : "text-amber-700 hover:text-amber-300 hover:bg-market-500/8",
+                  : "text-amber-700 hover:text-amber-300 hover:bg-market-500/8"
               )}
             >
               {t(l.labelKey)}
@@ -288,6 +277,7 @@ export default function Navbar({
         {/* Spacer */}
         <div className="flex-1 md:flex-none" />
 
+        {/* Global search */}
         <div
           ref={searchContainerRef}
           className="relative hidden sm:flex items-center"
@@ -329,23 +319,21 @@ export default function Navbar({
           )}
         </div>
 
-        {/* Language Switcher - hidden on mobile, visible on tablet+ */}
+        {/* Language selector */}
         <div className="hidden sm:flex items-center">
           <LanguageSwitcher />
         </div>
         {/* Currency Toggle */}
         <div className="hidden md:flex items-center">
           <button
-            onClick={() =>
-              setCurrencyMode(currencyMode === "XLM" ? "USD" : "XLM")
-            }
+            onClick={() => setCurrencyMode(currencyMode === "XLM" ? "USD" : "XLM")}
             disabled={priceLoading}
             className={clsx(
               "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all duration-150",
               currencyMode === "USD"
                 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                 : "bg-market-500/10 text-market-400 border-market-500/20",
-              priceLoading && "opacity-50 cursor-not-allowed",
+              priceLoading && "opacity-50 cursor-not-allowed"
             )}
             title={currencyMode === "XLM" ? "Switch to USD" : "Switch to XLM"}
             aria-label={`Currency: ${currencyMode}. Click to switch`}
@@ -353,68 +341,34 @@ export default function Navbar({
             {priceLoading ? (
               <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
             ) : (
-              <span className="text-[10px] font-bold">
-                {currencyMode === "XLM" ? "◎" : "$"}
-              </span>
+              <span className="text-[10px] font-bold">{currencyMode === "XLM" ? "◎" : "$"}</span>
             )}
             {currencyMode}
           </button>
         </div>
 
-        {/* Dark Mode Toggle */}
-        <div className="hidden md:flex items-center">
-          <button
-            onClick={toggleDarkMode}
-            className="p-1.5 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors"
-            title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-            aria-label={
-              darkMode ? "Switch to light mode" : "Switch to dark mode"
-            }
-          >
-            {darkMode ? (
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
-                />
-              </svg>
-            ) : (
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
-                />
-              </svg>
-            )}
-          </button>
-        </div>
-
-        {/* Language Switcher */}
-        <div className="hidden md:flex items-center">
-          <select
-            value={i18n.language}
-            onChange={(e) => i18n.changeLanguage(e.target.value)}
-            className="bg-market-900/40 border border-amber-900/30 rounded px-2 py-1 text-xs text-amber-100 cursor-pointer"
-            aria-label={t("language.switch") as string}
-          >
-            <option value="en">{t("language.english")}</option>
-            <option value="es">{t("language.spanish")}</option>
-          </select>
-        </div>
+        {/* Dark Mode Toggle — Desktop */}
+        {mounted && (
+          <div className="hidden md:flex items-center">
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {theme === "dark" ? (
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+                  <circle cx="12" cy="12" r="4" />
+                  <path strokeLinecap="round" d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                </svg>
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Wallet - responsive */}
         <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
@@ -434,7 +388,7 @@ export default function Navbar({
                 ) : balance && usdcBalance ? (
                   <span className="text-xs font-medium text-market-400 hidden sm:inline">{balance} XLM / {usdcBalance} USDC</span>
                 ) : null}
-              </button>
+              </WalletAddressDisplay>
               <button
                 onClick={onDisconnect}
                 className="hidden sm:inline text-xs text-amber-800 hover:text-amber-500 transition-colors px-2 py-1"
@@ -469,15 +423,12 @@ export default function Navbar({
           <div className="px-4 py-4 space-y-2">
             {/* Mobile Nav Links */}
             {links.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                locale={false}
+              <Link key={l.href} href={l.href} locale={false}
                 className={clsx(
                   "px-3 py-3 rounded-lg text-sm font-medium transition-all duration-150 relative min-h-[44px] flex items-center",
                   router.pathname === l.href
                     ? "bg-market-500/12 text-market-300"
-                    : "text-amber-700 hover:text-amber-300 hover:bg-market-500/8",
+                    : "text-amber-700 hover:text-amber-300 hover:bg-market-500/8"
                 )}
               >
                 {t(l.labelKey)}
@@ -544,36 +495,16 @@ export default function Navbar({
 
 function BriefcaseIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0M12 12.75h.008v.008H12v-.008z"
-      />
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0M12 12.75h.008v.008H12v-.008z" />
     </svg>
   );
 }
 
 function HamburgerIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5"
-      />
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
     </svg>
   );
 }
@@ -658,18 +589,8 @@ function GlobalSearchDropdown({
 
 function SearchIcon({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 110-15 7.5 7.5 0 010 15z"
-      />
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 110-15 7.5 7.5 0 010 15z" />
     </svg>
   );
 }

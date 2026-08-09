@@ -5,4 +5,4 @@
  * instance to these hooks. Keeping this small adapter preserves the existing
  * application import path while ensuring components re-render on locale changes.
  */
-export { appWithTranslation, useTranslation } from "next-i18next";
+export { appWithTranslation, useTranslation } from "next-i18next/pages";

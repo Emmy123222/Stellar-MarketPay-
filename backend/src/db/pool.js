@@ -3,6 +3,14 @@
 const { Pool } = require("pg");
 const { requireEnv } = require("../config/env");
 const { createServiceLogger } = require("../utils/logger");
+const {
+  sqlOperation,
+  observePoolQuery,
+  dbConnections,
+  pgPoolTotal,
+  pgPoolIdle,
+  pgPoolWaiting,
+} = require("../metrics");
 
 const DATABASE_URL = requireEnv("DATABASE_URL");
 

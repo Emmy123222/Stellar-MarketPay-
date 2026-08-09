@@ -677,7 +677,7 @@ async function listJobs({
     nextCursor = encodeCursor(rows[rows.length - 1]);
   }
 
-  return { jobs, nextCursor };
+  return { jobs, nextCursor, hasMore: nextCursor !== null };
 }
 
 /**

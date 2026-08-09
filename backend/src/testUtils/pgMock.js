@@ -34,9 +34,9 @@ function defaultJobRow(overrides = {}) {
     extended_until: overrides.extended_until || null,
     bidding_closed_at: overrides.bidding_closed_at || null,
     view_count: overrides.view_count ?? 0,
+    deleted_at: overrides.deleted_at || null,
     created_at: overrides.created_at || new Date().toISOString(),
     updated_at: overrides.updated_at || new Date().toISOString(),
-    deleted_at: overrides.deleted_at || null,
   };
 }
 
@@ -204,14 +204,180 @@ function createPgMock() {
       return { rows: [row] };
     }
 
-    if (text.includes("FROM jobs WHERE id = $1")) {
-      const row = jobs.get(params[0]);
-      if (!row) return { rows: [] };
-      if (text.includes("AND deleted_at IS NULL") && row.deleted_at) return { rows: [] };
-      return { rows: [row] };
+    // Generic job lookup by id (handles JOB_SELECT_CLAUSE too)
+    const jobId = findJobIdFromUpdate(text, params);
+    const hasWhereId = text.includes("WHERE id = $") || text.includes("WHERE  id = $");
+
+    // Handle jobs queries — but NOT applications/notifications (which also use WHERE id = $N)
+    if (hasWhereId && jobId && !text.includes("applications") && !text.includes("notifications") && !text.includes("notification_queue")) {
+      const row = jobs.get(jobId);
+
+      // If job doesn't exist for UPDATE, return empty (so caller can throw 404)
+      if (!row && text.startsWith("UPDATE")) {
+        return { rows: [] };
+      }
+
+      if (!row) {
+        // Job not found for SELECT
+        return { rows: [] };
+      }
+
+      // Order matters: check most specific patterns first!
+
+      // UPDATE ... resolveDispute: SET status = 'in_progress', dispute_reason = NULL ... (must come before dispute handler)
+      if (text.startsWith("UPDATE") && text.includes("dispute_reason = NULL")) {
+        row.status = "in_progress";
+        row.dispute_reason = null;
+        row.dispute_description = null;
+        row.disputed_by = null;
+        row.disputed_at = null;
+        row.updated_at = new Date().toISOString();
+        jobs.set(row.id, row);
+        return { rows: [row], rowCount: 1 };
+      }
+
+      // UPDATE jobs SET status = 'disputed', dispute_reason = $N ... (raiseDispute)
+      if (text.startsWith("UPDATE") && text.includes("dispute_reason =") && text.includes("$1")) {
+        row.dispute_reason = params[0];
+        row.dispute_description = params[1];
+        row.status = "disputed";
+        row.disputed_at = new Date().toISOString();
+        row.updated_at = new Date().toISOString();
+        row.disputed_by = params[2];
+        jobs.set(row.id, row);
+        return { rows: [row], rowCount: 1 };
+      }
+
+      // UPDATE ... SET status = 'cancelled' WHERE ... AND client_address = $2 AND status = 'open'
+      if (text.startsWith("UPDATE") && text.includes("client_address") && text.includes("status = 'open'")) {
+        const clientAddress = params[params.length === 2 ? 1 : 1];
+        if (row.client_address === clientAddress && row.status === "open") {
+          row.status = "cancelled";
+          row.updated_at = new Date().toISOString();
+          jobs.set(row.id, row);
+          return { rows: [row] };
+        }
+        return { rows: [] };
+      }
+
+      // UPDATE jobs SET status = ... WHERE id = $N  (generic status update — uses $1 placeholder)
+      if (text.startsWith("UPDATE") && text.includes("SET status")) {
+        // Try literal string first (e.g., status = 'cancelled')
+        const literalMatch = text.match(/SET\s+status\s*=\s*'([^']+)'/i);
+        if (literalMatch) {
+          row.status = literalMatch[1];
+        } else {
+          // Otherwise use first param (e.g., status = $1)
+          row.status = params[0];
+        }
+        row.updated_at = new Date().toISOString();
+        jobs.set(row.id, row);
+        return { rows: [row] };
+      }
+
+      // UPDATE jobs SET deleted_at = ...
+      if (text.startsWith("UPDATE") && text.includes("deleted_at")) {
+        if (row.deleted_at) return { rows: [], rowCount: 0 };
+        row.deleted_at = new Date().toISOString();
+        row.updated_at = new Date().toISOString();
+        jobs.set(row.id, row);
+        return { rows: [row], rowCount: 1 };
+      }
+
+      // UPDATE jobs SET share_count = ...
+      if (text.startsWith("UPDATE") && text.includes("share_count")) {
+        row.share_count = (row.share_count || 0) + 1;
+        row.updated_at = new Date().toISOString();
+        jobs.set(row.id, row);
+        return { rows: [row], rowCount: 1 };
+      }
+
+      // UPDATE jobs SET escrow_contract_id = ...
+      if (text.startsWith("UPDATE") && text.includes("escrow_contract_id")) {
+        row.escrow_contract_id = params[0];
+        row.updated_at = new Date().toISOString();
+        jobs.set(row.id, row);
+        return { rows: [row] };
+      }
+
+      // UPDATE jobs SET freelancer_address = ...
+      if (text.startsWith("UPDATE") && text.includes("freelancer_address")) {
+        row.freelancer_address = params[0];
+        row.status = "in_progress";
+        row.updated_at = new Date().toISOString();
+        jobs.set(row.id, row);
+        return { rows: [row] };
+      }
+
+      // UPDATE jobs SET boosted = ...
+      if (text.startsWith("UPDATE") && text.includes("boosted")) {
+        row.boosted = true;
+        row.boosted_until = params[0];
+        row.updated_at = new Date().toISOString();
+        jobs.set(row.id, row);
+        return { rows: [row] };
+      }
+
+      // UPDATE jobs SET expires_at = ...
+      if (text.startsWith("UPDATE") && text.includes("expires_at")) {
+        row.expires_at = params[0];
+        row.extended_count = (row.extended_count || 0) + 1;
+        row.extended_until = params[0];
+        row.updated_at = new Date().toISOString();
+        jobs.set(row.id, row);
+        return { rows: [row] };
+      }
+
+      // UPDATE jobs SET bidding_closed_at = ...
+      if (text.startsWith("UPDATE") && text.includes("bidding_closed_at")) {
+        row.bidding_closed_at = new Date().toISOString();
+        row.updated_at = new Date().toISOString();
+        jobs.set(row.id, row);
+        return { rows: [row] };
+      }
+
+      // UPDATE jobs SET view_count = ...
+      if (text.startsWith("UPDATE") && text.includes("view_count")) {
+        row.view_count = (row.view_count || 0) + 1;
+        row.updated_at = new Date().toISOString();
+        jobs.set(row.id, row);
+        return { rows: [row] };
+      }
+
+      // UPDATE ... RETURNING * — fallback (only if job exists)
+      if (text.startsWith("UPDATE") && text.includes("RETURNING")) {
+        row.updated_at = new Date().toISOString();
+        jobs.set(row.id, row);
+        return { rows: [row] };
+      }
+
+      // SELECT ... WHERE id = $1 — return the job
+      if (text.startsWith("SELECT")) {
+        if (row.deleted_at && text.includes("deleted_at IS NULL")) {
+          return { rows: [] };
+        }
+        return { rows: [row] };
+      }
     }
 
-    if (text.includes("FROM jobs WHERE client_address = $1")) {
+    // SELECT ... FROM applications WHERE a.job_id = $1 (with JOINs)
+    if (text.includes("FROM applications a") && text.includes("WHERE a.job_id = $1")) {
+      const rows = [...applications.values()]
+        .filter(app => app.job_id === params[0])
+        .map(app => ({ ...defaultApplicationRow(), ...app }));
+      return { rows };
+    }
+
+    // SELECT ... FROM applications ... WHERE a.freelancer_address = $1
+    if (text.includes("FROM applications") && text.includes("freelancer_address = $1") && !text.includes("job_id")) {
+      const rows = [...applications.values()]
+        .filter(app => app.freelancer_address === params[0])
+        .map(app => ({ ...defaultApplicationRow(), ...app }));
+      return { rows };
+    }
+
+    // FROM jobs WHERE client_address = $1
+    if (text.includes("FROM jobs") && text.includes("WHERE client_address = $1")) {
       let rows = [...jobs.values()].filter(
         (job) => job.client_address === params[0],
       );
@@ -258,16 +424,10 @@ function createPgMock() {
       });
       return { rows: [] };
     }
-    if (text.startsWith("UPDATE jobs SET deleted_at")) {
-      const row = jobs.get(params[0]);
-      if (!row || row.deleted_at) return { rows: [], rowCount: 0 };
-      row.deleted_at = new Date().toISOString();
-      row.updated_at = new Date().toISOString();
-      jobs.set(row.id, row);
-      return { rows: [row], rowCount: 1 };
-    }
-    if (text.startsWith("UPDATE jobs SET status")) {
-      const row = jobs.get(params[1]);
+
+    // UPDATE applications SET bid_revealed = TRUE
+    if (text.startsWith("UPDATE applications SET bid_revealed")) {
+      const row = applications.get(params[0]);
       if (!row) return { rows: [] };
       row.bid_revealed = true;
       row.revealed_bid_amount = params[1];
@@ -339,13 +499,10 @@ function createPgMock() {
       if (text.includes("deleted_at IS NULL")) {
         rows = rows.filter((job) => !job.deleted_at);
       }
-      if (text.includes("status = $1")) {
-        rows = rows.filter((job) => job.status === params[0]);
-      }
-      if (text.includes("category = $")) {
-        const categoryIndex = text.indexOf("category = $2") >= 0 ? 1 : 0;
-        const category = params[categoryIndex];
-        if (category) rows = rows.filter((job) => job.category === category);
+      if (text.includes("status = $")) {
+        const statusIdx = text.indexOf("status = $2") >= 0 ? 1 : 0;
+        const status = params[statusIdx];
+        if (status) rows = rows.filter((job) => job.status === status);
       }
       const limit = params[params.length - 1] ?? 50;
       return { rows: rows.slice(0, limit) };

@@ -1,7 +1,7 @@
 import TimeTracker from "@/components/TimeTracker";
 import FeeEstimationModal from "@/components/FeeEstimationModal";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import Head from "next/head";
@@ -42,6 +42,8 @@ import { optionalClientEnv } from "@/lib/env";
 import type { Transaction } from "@stellar/stellar-sdk";
 import type { Application, Job } from "@/utils/types";
 import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
+import { useRealtimeBids } from "@/hooks/useRealtimeBids";
+import RealtimeBidComparison from "@/components/RealtimeBidComparison";
 
 // ── Site-wide canonical origin used in OG/Twitter meta tags (#487) ─────────
 // RESOLVED_AT_BUILD is the build-time fallback used by client-rendered

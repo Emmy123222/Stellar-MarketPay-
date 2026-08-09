@@ -33,7 +33,7 @@ import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
 import OfflineBanner from "@/components/OfflineBanner";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useBackgroundSync } from "@/hooks/useBackgroundSync";
-import { appWithTranslation } from "next-i18next";
+import { appWithTranslation } from "next-i18next/pages";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const nextI18NextConfig = require("../next-i18next.config.js");
 
