@@ -341,6 +341,7 @@ export interface TimeEntry {
   jobId: string;
   durationMinutes: number;
   description?: string;
+  milestoneIndex?: number | null;
   startedAt?: string;
   createdAt: string;
 }

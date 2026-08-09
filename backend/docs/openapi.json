@@ -3,7 +3,7 @@
   "info": {
     "title": "Stellar MarketPay API",
     "version": "1.0.0",
-    "description": "Backend API for Stellar MarketPay - A decentralized freelance marketplace built on Stellar blockchain",
+    "description": "Backend API for Stellar MarketPay - A decentralized freelance marketplace built on the Stellar blockchain.\n\n## Authentication\nMost endpoints require JWT authentication obtained via the **/api/auth** challenge-response flow using Stellar wallet signatures.\n\n## Pagination\nList endpoints support cursor-based pagination via the `after` query parameter. Responses include `next_cursor` and `has_more` fields.",
     "contact": {
       "name": "Stellar MarketPay Team",
       "email": "support@stellarmarketpay.com"
@@ -23,58 +23,228 @@
       "description": "Production server"
     }
   ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Health check and monitoring endpoints"
+    },
+    {
+      "name": "Authentication",
+      "description": "Stellar wallet-based authentication"
+    },
+    {
+      "name": "Jobs",
+      "description": "Job listing CRUD and management"
+    },
+    {
+      "name": "Applications",
+      "description": "Job application submission and management"
+    },
+    {
+      "name": "Profiles",
+      "description": "User profile management"
+    },
+    {
+      "name": "Onboarding",
+      "description": "User onboarding progress tracking"
+    },
+    {
+      "name": "Escrow",
+      "description": "Escrow management (release, refund, milestones)"
+    },
+    {
+      "name": "Ratings",
+      "description": "User rating and review system"
+    },
+    {
+      "name": "Progress",
+      "description": "Job progress tracking"
+    },
+    {
+      "name": "Messages",
+      "description": "In-app messaging between users"
+    },
+    {
+      "name": "Insights",
+      "description": "Platform analytics and insights"
+    },
+    {
+      "name": "Notifications",
+      "description": "Push/in-app notification management"
+    },
+    {
+      "name": "WebAuthn",
+      "description": "Passkey/WebAuthn authentication"
+    },
+    {
+      "name": "Disputes",
+      "description": "Dispute evidence and resolution"
+    },
+    {
+      "name": "Admin",
+      "description": "Admin-only moderation and analytics"
+    },
+    {
+      "name": "Admin 2FA",
+      "description": "Admin two-factor authentication"
+    },
+    {
+      "name": "Developer",
+      "description": "API key management for developers"
+    },
+    {
+      "name": "Public API",
+      "description": "Public API endpoints (requires API key)"
+    },
+    {
+      "name": "Time Entries",
+      "description": "Time tracking and invoicing"
+    },
+    {
+      "name": "Referrals",
+      "description": "Referral program management"
+    },
+    {
+      "name": "Events",
+      "description": "Contract event indexing"
+    },
+    {
+      "name": "Invitations",
+      "description": "Job invitation system"
+    },
+    {
+      "name": "Stats",
+      "description": "Platform statistics"
+    },
+    {
+      "name": "Gas",
+      "description": "Soroban gas fee estimation"
+    },
+    {
+      "name": "Transactions",
+      "description": "Transaction history export"
+    },
+    {
+      "name": "DAO",
+      "description": "DAO governance (proposals, voting, treasury)"
+    },
+    {
+      "name": "Proposal Templates",
+      "description": "Proposal template management"
+    },
+    {
+      "name": "Tokens",
+      "description": "Stellar token registry and metadata"
+    },
+    {
+      "name": "Categories",
+      "description": "Job category tree"
+    },
+    {
+      "name": "Skills",
+      "description": "Skill autocomplete"
+    },
+    {
+      "name": "Faucet",
+      "description": "Testnet XLM faucet"
+    },
+    {
+      "name": "2FA",
+      "description": "Two-factor authentication (TOTP)"
+    },
+    {
+      "name": "Audit",
+      "description": "Audit log access"
+    },
+    {
+      "name": "Scope",
+      "description": "Collaborative scope session management"
+    },
+    {
+      "name": "Utility",
+      "description": "Utility endpoints (rate limit, CSRF)"
+    },
+    {
+      "name": "Verification",
+      "description": "Email, phone, and ID verification"
+    },
+    {
+      "name": "Contributors",
+      "description": "GitHub contributor fetching"
+    },
+    {
+      "name": "Saved Searches",
+      "description": "Saved job search alerts"
+    },
+    {
+      "name": "Assessments",
+      "description": "Skill assessments and certificates"
+    },
+    {
+      "name": "AI Scorer",
+      "description": "AI-powered job description scoring"
+    },
+    {
+      "name": "NFT",
+      "description": "NFT minting for job completion certificates"
+    },
+    {
+      "name": "Certificates",
+      "description": "Skill certificates"
+    },
+    {
+      "name": "Turrets",
+      "description": "Stellar Turrets for serverless contract execution"
+    }
+  ],
   "components": {
     "securitySchemes": {
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "bearerFormat": "JWT"
+        "bearerFormat": "JWT",
+        "description": "JWT token obtained from /api/auth (Stellar wallet signature)"
       },
       "cookieAuth": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "jwt"
+        "name": "jwt",
+        "description": "JWT cookie set after authentication"
+      },
+      "apiKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key",
+        "description": "Developer API key for public API endpoints"
       }
     },
     "schemas": {
       "Error": {
         "type": "object",
-        "required": ["error"],
+        "description": "Structured API error response",
         "properties": {
           "error": {
-            "type": "string",
-            "description": "Human-readable error message"
-          },
-          "code": {
-            "type": "string",
-            "description": "Machine-readable error code"
-          },
-          "details": {
             "type": "object",
-            "description": "Optional extra context (validation errors, etc.)"
-          }
-        }
-      },
-      "Success": {
-        "type": "object",
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "description": "Success status"
-          },
-          "message": {
-            "type": "string",
-            "description": "Success message"
-          }
-        }
-      },
-      "StellarAccount": {
-        "type": "object",
-        "properties": {
-          "publicKey": {
-            "type": "string",
-            "description": "Stellar public key",
-            "example": "GD5JQHFZLLM7H45AEB5S7M2E7EYQ3M3K5Y6R7B8C9D0E1F2G3H4I5J6K7L8M9N0O"
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Machine-readable error code",
+                "example": "JOB_NOT_FOUND"
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable error message",
+                "example": "Job not found"
+              },
+              "details": {
+                "description": "Optional additional context",
+                "nullable": true
+              }
+            }
           }
         }
       },
@@ -98,9 +268,14 @@
             "type": "number",
             "description": "Job budget in XLM"
           },
-          "clientId": {
+          "clientAddress": {
             "type": "string",
             "description": "Client Stellar address"
+          },
+          "freelancerAddress": {
+            "type": "string",
+            "description": "Assigned freelancer address",
+            "nullable": true
           },
           "status": {
             "type": "string",
@@ -108,46 +283,15 @@
               "open",
               "in_progress",
               "completed",
-              "cancelled"
+              "cancelled",
+              "expired",
+              "disputed"
             ],
             "description": "Job status"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Creation timestamp"
-          },
-          "expiresAt": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Expiration timestamp"
-          }
-        }
-      },
-      "PublicJob": {
-        "type": "object",
-        "description": "Syndication-safe job listing (no client address or applicant details)",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Job ID"
-          },
-          "title": {
-            "type": "string",
-            "description": "Job title"
           },
           "category": {
             "type": "string",
             "description": "Job category"
-          },
-          "budget": {
-            "type": "number",
-            "description": "Job budget"
-          },
-          "currency": {
-            "type": "string",
-            "description": "Payment currency"
           },
           "skills": {
             "type": "array",
@@ -156,10 +300,26 @@
             },
             "description": "Required skills"
           },
+          "currency": {
+            "type": "string",
+            "description": "Payment currency",
+            "default": "XLM"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public"
+          },
           "createdAt": {
             "type": "string",
-            "format": "date-time",
-            "description": "Creation timestamp"
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -168,45 +328,1824 @@
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid",
-            "description": "Application ID"
+            "format": "uuid"
           },
           "jobId": {
             "type": "string",
-            "format": "uuid",
-            "description": "Job ID"
+            "format": "uuid"
           },
-          "freelancerId": {
-            "type": "string",
-            "description": "Freelancer Stellar address"
+          "freelancerAddress": {
+            "type": "string"
           },
           "proposal": {
-            "type": "string",
-            "description": "Application proposal"
+            "type": "string"
           },
           "bidAmount": {
-            "type": "number",
-            "description": "Bid amount in XLM"
+            "type": "number"
+          },
+          "estimatedDuration": {
+            "type": "string"
           },
           "status": {
             "type": "string",
             "enum": [
               "pending",
               "accepted",
-              "rejected"
-            ],
-            "description": "Application status"
+              "rejected",
+              "withdrawn"
+            ]
           },
           "createdAt": {
             "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Profile": {
+        "type": "object",
+        "properties": {
+          "publicKey": {
+            "type": "string",
+            "description": "Stellar public key"
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Display name"
+          },
+          "bio": {
+            "type": "string",
+            "description": "User biography"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "freelancer",
+              "client",
+              "both"
+            ]
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rating": {
+            "type": "number",
+            "description": "Average rating (1-5)"
+          },
+          "totalEarnedXlm": {
+            "type": "number"
+          },
+          "completedJobs": {
+            "type": "integer"
+          },
+          "availability": {
+            "type": "string",
+            "enum": [
+              "available",
+              "busy",
+              "unavailable"
+            ]
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Escrow": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amountXlm": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "funded",
+              "released",
+              "refunded",
+              "disputed",
+              "resolved"
+            ]
+          },
+          "contractId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "releasedAt": {
+            "type": "string",
             "format": "date-time",
-            "description": "Creation timestamp"
+            "nullable": true
+          }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "senderAddress": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string",
+            "description": "Message content (encrypted)"
+          },
+          "contractTxHash": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "read": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Rating": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "raterAddress": {
+            "type": "string"
+          },
+          "ratedAddress": {
+            "type": "string"
+          },
+          "stars": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "review": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GasEstimate": {
+        "type": "object",
+        "properties": {
+          "slow": {
+            "type": "object",
+            "properties": {
+              "fee": {
+                "type": "string"
+              },
+              "usd": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "medium": {
+            "type": "object",
+            "properties": {
+              "fee": {
+                "type": "string"
+              },
+              "usd": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "fast": {
+            "type": "object",
+            "properties": {
+              "fee": {
+                "type": "string"
+              },
+              "usd": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "recommended": {
+            "type": "string",
+            "enum": [
+              "slow",
+              "medium",
+              "fast"
+            ]
+          },
+          "lastUpdated": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DAOProposal": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "funding",
+              "parameter_change",
+              "arbitrator_election"
+            ]
+          },
+          "proposer": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "passed",
+              "rejected",
+              "executed",
+              "expired"
+            ]
+          },
+          "votesFor": {
+            "type": "number"
+          },
+          "votesAgainst": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TokenInfo": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "decimals": {
+            "type": "integer"
+          },
+          "icon": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "Invoice": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "freelancerAddress": {
+            "type": "string"
+          },
+          "totalHours": {
+            "type": "number"
+          },
+          "hourlyRateXlm": {
+            "type": "number"
+          },
+          "totalXlm": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       }
     }
   },
   "paths": {
+    "/api/webauthn/register-options": {
+      "post": {
+        "summary": "Get WebAuthn registration options",
+        "tags": [
+          "WebAuthn"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Registration options for creating a passkey"
+          }
+        }
+      }
+    },
+    "/api/webauthn/register-verify": {
+      "post": {
+        "summary": "Verify and store a WebAuthn credential",
+        "tags": [
+          "WebAuthn"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "credential"
+                ],
+                "properties": {
+                  "credential": {
+                    "type": "object"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Passkey registered"
+          },
+          "400": {
+            "description": "Verification failed or no pending challenge"
+          }
+        }
+      }
+    },
+    "/api/webauthn/login-options": {
+      "post": {
+        "summary": "Get WebAuthn login options",
+        "tags": [
+          "WebAuthn"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "publicKey"
+                ],
+                "properties": {
+                  "publicKey": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authentication options"
+          }
+        }
+      }
+    },
+    "/api/webauthn/login-verify": {
+      "post": {
+        "summary": "Verify WebAuthn authentication and issue JWT",
+        "tags": [
+          "WebAuthn"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "credential",
+                  "publicKey"
+                ],
+                "properties": {
+                  "credential": {
+                    "type": "object"
+                  },
+                  "publicKey": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "JWT token issued"
+          },
+          "401": {
+            "description": "Authentication failed"
+          }
+        }
+      }
+    },
+    "/api/webauthn/credentials": {
+      "get": {
+        "summary": "List registered passkeys",
+        "tags": [
+          "WebAuthn"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credential list"
+          }
+        }
+      }
+    },
+    "/api/webauthn/credentials/{id}": {
+      "delete": {
+        "summary": "Remove a passkey",
+        "tags": [
+          "WebAuthn"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Passkey removed"
+          }
+        }
+      }
+    },
+    "/api/webauthn/admin/credentials": {
+      "get": {
+        "summary": "Admin list credentials for any user",
+        "tags": [
+          "WebAuthn"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "publicKey",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credential list"
+          }
+        }
+      }
+    },
+    "/api/webauthn/admin/credentials/{id}": {
+      "delete": {
+        "summary": "Admin revoke a passkey",
+        "tags": [
+          "WebAuthn"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Passkey revoked"
+          }
+        }
+      }
+    },
+    "/api/verification/email": {
+      "post": {
+        "summary": "Send email verification link",
+        "tags": [
+          "Verification"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "publicKey"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "publicKey": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Verification email sent"
+          }
+        }
+      }
+    },
+    "/api/verification/email/confirm": {
+      "post": {
+        "summary": "Confirm email verification with token",
+        "tags": [
+          "Verification"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Email verified"
+          },
+          "400": {
+            "description": "Invalid or expired token"
+          }
+        }
+      }
+    },
+    "/api/verification/phone": {
+      "post": {
+        "summary": "Send phone verification OTP",
+        "tags": [
+          "Verification"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "phone",
+                  "publicKey"
+                ],
+                "properties": {
+                  "phone": {
+                    "type": "string"
+                  },
+                  "publicKey": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OTP sent"
+          }
+        }
+      }
+    },
+    "/api/verification/phone/confirm": {
+      "post": {
+        "summary": "Confirm phone verification with OTP",
+        "tags": [
+          "Verification"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "otp",
+                  "publicKey"
+                ],
+                "properties": {
+                  "otp": {
+                    "type": "string"
+                  },
+                  "publicKey": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Phone verified"
+          },
+          "400": {
+            "description": "Invalid or expired OTP"
+          }
+        }
+      }
+    },
+    "/api/verification/id/submit": {
+      "post": {
+        "summary": "Submit ID verification for admin review",
+        "tags": [
+          "Verification"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "publicKey",
+                  "idType",
+                  "idNumber",
+                  "fullName"
+                ],
+                "properties": {
+                  "publicKey": {
+                    "type": "string"
+                  },
+                  "idType": {
+                    "type": "string"
+                  },
+                  "idNumber": {
+                    "type": "string"
+                  },
+                  "fullName": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ID submitted for review"
+          }
+        }
+      }
+    },
+    "/api/verification/{publicKey}": {
+      "get": {
+        "summary": "Get verification status for a user",
+        "tags": [
+          "Verification"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verification status"
+          }
+        }
+      }
+    },
+    "/api/turrets/submit": {
+      "post": {
+        "summary": "Submit transaction via Turret",
+        "tags": [
+          "Turrets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "transactionXDR"
+                ],
+                "properties": {
+                  "transactionXDR": {
+                    "type": "string"
+                  },
+                  "useTurret": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transaction submitted"
+          }
+        }
+      }
+    },
+    "/api/turrets/status": {
+      "get": {
+        "summary": "Get Turret service status",
+        "tags": [
+          "Turrets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Turret status"
+          }
+        }
+      }
+    },
+    "/api/turrets/estimate": {
+      "post": {
+        "summary": "Estimate transaction fees via Turret",
+        "tags": [
+          "Turrets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "transactionXDR"
+                ],
+                "properties": {
+                  "transactionXDR": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fee estimation"
+          }
+        }
+      }
+    },
+    "/api/turrets/config": {
+      "get": {
+        "summary": "Get Turret configuration",
+        "tags": [
+          "Turrets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Turret config"
+          }
+        }
+      }
+    },
+    "/api/transactions/export": {
+      "get": {
+        "summary": "Export transaction history as CSV",
+        "tags": [
+          "Transactions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "format",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "csv"
+              ]
+            },
+            "description": "Export format (only csv supported)"
+          },
+          {
+            "in": "query",
+            "name": "account",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stellar public key"
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "sent",
+                "received",
+                "escrow"
+              ],
+              "default": "all"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV file download (streamed)",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters"
+          },
+          "403": {
+            "description": "Can only export own transactions"
+          }
+        }
+      }
+    },
+    "/api/tokens": {
+      "get": {
+        "summary": "List supported tokens (cached 1 hour)",
+        "tags": [
+          "Tokens"
+        ],
+        "responses": {
+          "200": {
+            "description": "Token list"
+          }
+        }
+      }
+    },
+    "/api/tokens/popular": {
+      "get": {
+        "summary": "Get popular tokens",
+        "tags": [
+          "Tokens"
+        ],
+        "responses": {
+          "200": {
+            "description": "Popular tokens list"
+          }
+        }
+      }
+    },
+    "/api/tokens/search": {
+      "get": {
+        "summary": "Search tokens by name or symbol",
+        "tags": [
+          "Tokens"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results"
+          },
+          "400": {
+            "description": "Missing search query"
+          }
+        }
+      }
+    },
+    "/api/tokens/{contractId}/metadata": {
+      "get": {
+        "summary": "Get token metadata by contract ID",
+        "tags": [
+          "Tokens"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contractId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token metadata"
+          }
+        }
+      }
+    },
+    "/api/tokens/{contractId}/balance/{publicKey}": {
+      "get": {
+        "summary": "Get token balance for an account",
+        "tags": [
+          "Tokens"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contractId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token balance"
+          }
+        }
+      }
+    },
+    "/api/tokens/validate": {
+      "post": {
+        "summary": "Validate if a contract is a token contract",
+        "tags": [
+          "Tokens"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "contractId"
+                ],
+                "properties": {
+                  "contractId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result"
+          },
+          "400": {
+            "description": "Missing contract ID"
+          }
+        }
+      }
+    },
+    "/api/time-entries": {
+      "post": {
+        "summary": "Log a time entry for a job",
+        "tags": [
+          "Time Entries"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "jobId",
+                  "durationMinutes"
+                ],
+                "properties": {
+                  "jobId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "durationMinutes": {
+                    "type": "integer"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "startedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Time entry created"
+          }
+        }
+      }
+    },
+    "/api/time-entries/job/{jobId}": {
+      "get": {
+        "summary": "Get time entries for a job",
+        "tags": [
+          "Time Entries"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Time entries list"
+          }
+        }
+      }
+    },
+    "/api/time-entries/job/{jobId}/invoices": {
+      "get": {
+        "summary": "Get invoices for a job",
+        "tags": [
+          "Time Entries"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invoice list"
+          }
+        }
+      }
+    },
+    "/api/time-entries/invoice": {
+      "post": {
+        "summary": "Generate invoice from time entries",
+        "tags": [
+          "Time Entries"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "jobId",
+                  "hourlyRateXlm"
+                ],
+                "properties": {
+                  "jobId": {
+                    "type": "string"
+                  },
+                  "hourlyRateXlm": {
+                    "type": "number"
+                  },
+                  "entryIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Invoice created"
+          }
+        }
+      }
+    },
+    "/api/time-entries/invoice/{invoiceId}/review": {
+      "patch": {
+        "summary": "Client approves or rejects an invoice",
+        "tags": [
+          "Time Entries"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoiceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "decision"
+                ],
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approved",
+                      "rejected"
+                    ]
+                  },
+                  "contractTxHash": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Invoice reviewed"
+          }
+        }
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "summary": "Get platform-wide metrics",
+        "tags": [
+          "Stats"
+        ],
+        "responses": {
+          "200": {
+            "description": "Platform metrics"
+          }
+        }
+      }
+    },
+    "/api/stats/trends/jobs": {
+      "get": {
+        "summary": "Get job posting trends",
+        "tags": [
+          "Stats"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "schema": {
+              "type": "integer",
+              "default": 90,
+              "maximum": 365
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job trends"
+          }
+        }
+      }
+    },
+    "/api/stats/trends/escrow": {
+      "get": {
+        "summary": "Get escrow volume trends",
+        "tags": [
+          "Stats"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "schema": {
+              "type": "integer",
+              "default": 90,
+              "maximum": 365
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Escrow trends"
+          }
+        }
+      }
+    },
+    "/api/stats/categories": {
+      "get": {
+        "summary": "Get top job categories",
+        "tags": [
+          "Stats"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Top categories"
+          }
+        }
+      }
+    },
+    "/api/stats/xlm-price-history": {
+      "get": {
+        "summary": "Get 7-day XLM/USD price history",
+        "tags": [
+          "Stats"
+        ],
+        "responses": {
+          "200": {
+            "description": "Price history data",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills": {
+      "get": {
+        "summary": "Search skills for autocomplete",
+        "tags": [
+          "Skills"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search query for skill name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching skills (up to 10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scope/{sessionId}/renew": {
+      "post": {
+        "summary": "Extend a scope session by 24 hours",
+        "tags": [
+          "Scope"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session extended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "sessionId": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found or expired"
+          }
+        }
+      }
+    },
+    "/api/saved-searches": {
+      "get": {
+        "summary": "List saved searches",
+        "tags": [
+          "Saved Searches"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saved searches list"
+          }
+        }
+      },
+      "post": {
+        "summary": "Save a new search (max 10)",
+        "tags": [
+          "Saved Searches"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "query_params"
+                ],
+                "properties": {
+                  "query_params": {
+                    "type": "object"
+                  },
+                  "notify_in_app": {
+                    "type": "boolean"
+                  },
+                  "notify_email": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Search saved"
+          },
+          "400": {
+            "description": "Limit reached or invalid params"
+          }
+        }
+      }
+    },
+    "/api/saved-searches/{id}": {
+      "patch": {
+        "summary": "Update saved search notification prefs",
+        "tags": [
+          "Saved Searches"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search updated"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a saved search",
+        "tags": [
+          "Saved Searches"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search deleted"
+          }
+        }
+      }
+    },
+    "/api/referrals/info": {
+      "get": {
+        "summary": "Get referral bonus info (public)",
+        "tags": [
+          "Referrals"
+        ],
+        "responses": {
+          "200": {
+            "description": "Referral bonus percentage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "bonusBps": {
+                          "type": "integer"
+                        },
+                        "bonusPercent": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/referrals/{publicKey}": {
+      "get": {
+        "summary": "Get referral stats and history",
+        "tags": [
+          "Referrals"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Referral stats"
+          },
+          "403": {
+            "description": "Can only view own referral data"
+          }
+        }
+      }
+    },
+    "/api/referrals/register": {
+      "post": {
+        "summary": "Register a new referral",
+        "tags": [
+          "Referrals"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "referrerAddress",
+                  "refereeAddress"
+                ],
+                "properties": {
+                  "referrerAddress": {
+                    "type": "string"
+                  },
+                  "refereeAddress": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Referral registered (or already exists)"
+          }
+        }
+      }
+    },
+    "/api/ratings": {
+      "post": {
+        "summary": "Submit a rating for a completed job",
+        "tags": [
+          "Ratings"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "jobId",
+                  "ratedAddress",
+                  "stars"
+                ],
+                "properties": {
+                  "jobId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "ratedAddress": {
+                    "type": "string",
+                    "description": "Stellar address of the user being rated"
+                  },
+                  "stars": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  },
+                  "review": {
+                    "type": "string",
+                    "maxLength": 200
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Rating submitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Rating"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "403": {
+            "description": "Not a job participant or job not completed"
+          }
+        }
+      }
+    },
+    "/api/ratings/{publicKey}": {
+      "get": {
+        "summary": "List ratings for a user",
+        "tags": [
+          "Ratings"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stellar public key of the user"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ratings retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Rating"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/rate-limit": {
       "get": {
         "summary": "Check current API rate limit status",
@@ -244,6 +2183,1602 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/public/jobs": {
+      "get": {
+        "summary": "List public job listings (no auth required)",
+        "description": "Read-only feed of open, publicly-visible job listings intended for third-party job board syndication. Rate-limited to 60 requests per minute per IP address. Excludes client address and applicant details.\n",
+        "tags": [
+          "Public"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by job category"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            },
+            "description": "Maximum number of jobs to return"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public job listings retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PublicJob"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests — rate limit exceeded"
+          }
+        }
+      }
+    },
+    "/api/public/jobs": {
+      "get": {
+        "summary": "List public jobs (API key required)",
+        "tags": [
+          "Public API"
+        ],
+        "security": [
+          {
+            "apiKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Max results"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jobs retrieved"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          }
+        }
+      }
+    },
+    "/api/public/jobs/{id}": {
+      "get": {
+        "summary": "Get public job by ID (API key required)",
+        "tags": [
+          "Public API"
+        ],
+        "security": [
+          {
+            "apiKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job retrieved"
+          },
+          "404": {
+            "description": "Job not found"
+          }
+        }
+      }
+    },
+    "/api/public/freelancers/{publicKey}": {
+      "get": {
+        "summary": "Get public freelancer profile (API key required)",
+        "tags": [
+          "Public API"
+        ],
+        "security": [
+          {
+            "apiKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profile retrieved"
+          },
+          "404": {
+            "description": "Profile not found"
+          }
+        }
+      }
+    },
+    "/api/proposal-templates": {
+      "get": {
+        "summary": "List proposal templates for authenticated freelancer",
+        "tags": [
+          "Proposal Templates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Templates retrieved"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a proposal template",
+        "tags": [
+          "Proposal Templates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Template created"
+          }
+        }
+      }
+    },
+    "/api/proposal-templates/{id}": {
+      "patch": {
+        "summary": "Update a proposal template",
+        "tags": [
+          "Proposal Templates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Template updated"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a proposal template",
+        "tags": [
+          "Proposal Templates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Template deleted"
+          }
+        }
+      }
+    },
+    "/api/progress/{jobId}": {
+      "get": {
+        "summary": "Get progress updates for a job",
+        "tags": [
+          "Progress"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Progress updates retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/progress": {
+      "post": {
+        "summary": "Add a progress update",
+        "tags": [
+          "Progress"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "jobId",
+                  "description"
+                ],
+                "properties": {
+                  "jobId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "percentage": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Progress update created"
+          }
+        }
+      }
+    },
+    "/api/profiles": {
+      "get": {
+        "summary": "List profiles",
+        "tags": [
+          "Profiles"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "role",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "freelancer",
+                "client",
+                "both"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "availability",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Cursor for next page"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profile list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Profile"
+                      }
+                    },
+                    "next_cursor": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "has_more": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create or update a profile",
+        "tags": [
+          "Profiles"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "publicKey": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "bio": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  },
+                  "skills": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Profile upserted"
+          }
+        }
+      }
+    },
+    "/api/profiles/{publicKey}": {
+      "get": {
+        "summary": "Get a profile by public key",
+        "tags": [
+          "Profiles"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profile data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Profile"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update own profile",
+        "tags": [
+          "Profiles"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profile updated"
+          },
+          "403": {
+            "description": "Can only update own profile"
+          }
+        }
+      }
+    },
+    "/api/profiles/{publicKey}/stats": {
+      "get": {
+        "summary": "Get profile stats",
+        "tags": [
+          "Profiles"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profile stats"
+          }
+        }
+      }
+    },
+    "/api/profiles/{publicKey}/response-time": {
+      "get": {
+        "summary": "Get freelancer response time",
+        "tags": [
+          "Profiles"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response time data"
+          }
+        }
+      }
+    },
+    "/api/profiles/{publicKey}/availability": {
+      "post": {
+        "summary": "Update availability status",
+        "tags": [
+          "Profiles"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "availability": {
+                    "type": "string",
+                    "enum": [
+                      "available",
+                      "busy",
+                      "unavailable"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Availability updated"
+          }
+        }
+      }
+    },
+    "/api/profiles/{publicKey}/price-alerts": {
+      "get": {
+        "summary": "Get price alert preferences",
+        "tags": [
+          "Profiles"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Price alert prefs"
+          }
+        }
+      },
+      "post": {
+        "summary": "Update price alert preferences",
+        "tags": [
+          "Profiles"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Price alert prefs updated"
+          }
+        }
+      }
+    },
+    "/api/profiles/{publicKey}/endorse": {
+      "post": {
+        "summary": "Endorse a skill",
+        "tags": [
+          "Profiles"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "skill",
+                  "endorserAddress"
+                ],
+                "properties": {
+                  "skill": {
+                    "type": "string"
+                  },
+                  "endorserAddress": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Skill endorsed"
+          }
+        }
+      }
+    },
+    "/api/profiles/{publicKey}/spending": {
+      "get": {
+        "summary": "Get client spending analytics",
+        "tags": [
+          "Profiles"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Spending analytics"
+          }
+        }
+      }
+    },
+    "/api/profiles/{publicKey}/client-reputation": {
+      "get": {
+        "summary": "Get client reputation",
+        "tags": [
+          "Profiles"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Client reputation data"
+          }
+        }
+      }
+    },
+    "/api/profiles/{publicKey}/earnings": {
+      "get": {
+        "summary": "Get freelancer earnings history",
+        "tags": [
+          "Profiles"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Earnings breakdown with monthly totals"
+          }
+        }
+      }
+    },
+    "/api/profiles/{publicKey}/endorsements": {
+      "get": {
+        "summary": "Get skill endorsements",
+        "tags": [
+          "Profiles"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Endorsements list"
+          }
+        }
+      }
+    },
+    "/api/profiles/{publicKey}/encryption-key": {
+      "get": {
+        "summary": "Get NaCl encryption public key (public lookup)",
+        "tags": [
+          "Profiles"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Encryption public key"
+          },
+          "404": {
+            "description": "Profile not found"
+          }
+        }
+      },
+      "put": {
+        "summary": "Store X25519 encryption public key",
+        "tags": [
+          "Profiles"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "encryptionPublicKey"
+                ],
+                "properties": {
+                  "encryptionPublicKey": {
+                    "type": "string",
+                    "description": "Base64-encoded 32-byte X25519 key"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Key stored"
+          },
+          "403": {
+            "description": "Can only update own key"
+          }
+        }
+      }
+    },
+    "/api/profiles/{publicKey}/data": {
+      "delete": {
+        "summary": "GDPR deletion request (30-day grace period)",
+        "tags": [
+          "Profiles"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profile marked for deletion"
+          },
+          "403": {
+            "description": "Can only delete own profile"
+          }
+        }
+      }
+    },
+    "/api/onboarding": {
+      "patch": {
+        "summary": "Update onboarding progress",
+        "tags": [
+          "Onboarding"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "publicKey"
+                ],
+                "properties": {
+                  "publicKey": {
+                    "type": "string"
+                  },
+                  "currentStep": {
+                    "type": "integer"
+                  },
+                  "completedSteps": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "dismissed": {
+                    "type": "boolean"
+                  },
+                  "completed": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Onboarding progress updated"
+          },
+          "400": {
+            "description": "Missing publicKey"
+          }
+        }
+      }
+    },
+    "/api/onboarding/{publicKey}": {
+      "get": {
+        "summary": "Get onboarding progress for a user",
+        "tags": [
+          "Onboarding"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Onboarding progress retrieved (null if none)"
+          }
+        }
+      }
+    },
+    "/api/notifications/vapid-public-key": {
+      "get": {
+        "summary": "Get VAPID public key for push notifications",
+        "tags": [
+          "Notifications"
+        ],
+        "responses": {
+          "200": {
+            "description": "VAPID public key"
+          },
+          "503": {
+            "description": "Push notifications not configured"
+          }
+        }
+      }
+    },
+    "/api/notifications/push-subscribe": {
+      "post": {
+        "summary": "Save a push notification subscription",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "subscription"
+                ],
+                "properties": {
+                  "subscription": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Subscription saved"
+          }
+        }
+      }
+    },
+    "/api/notifications/push-unsubscribe": {
+      "post": {
+        "summary": "Remove a push notification subscription",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "endpoint"
+                ],
+                "properties": {
+                  "endpoint": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Subscription removed"
+          }
+        }
+      }
+    },
+    "/api/notifications/failed-webhooks": {
+      "get": {
+        "summary": "List failed webhook notifications (admin only)",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Failed webhooks list"
+          },
+          "403": {
+            "description": "Admin access required"
+          }
+        }
+      }
+    },
+    "/api/notifications/failed-webhooks/{id}/retry": {
+      "post": {
+        "summary": "Retry a failed webhook (admin only)",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification queued for retry"
+          },
+          "404": {
+            "description": "Failed notification not found"
+          }
+        }
+      }
+    },
+    "/api/notifications/preferences": {
+      "get": {
+        "summary": "Get notification preferences",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User notification preferences"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update notification preferences",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "preferences"
+                ],
+                "properties": {
+                  "preferences": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Preferences updated"
+          }
+        }
+      }
+    },
+    "/api/notifications": {
+      "get": {
+        "summary": "List in-app notifications",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification list with unread count"
+          }
+        }
+      }
+    },
+    "/api/notifications/read-all": {
+      "patch": {
+        "summary": "Mark all notifications as read",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All notifications marked read"
+          }
+        }
+      }
+    },
+    "/api/notifications/{id}/read": {
+      "patch": {
+        "summary": "Mark a notification as read",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification marked read"
+          }
+        }
+      }
+    },
+    "/api/notifications/unsubscribe": {
+      "get": {
+        "summary": "Unsubscribe from weekly digest (HTML page, no auth)",
+        "tags": [
+          "Notifications"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "HTML confirmation page"
+          },
+          "400": {
+            "description": "Invalid token"
+          }
+        }
+      }
+    },
+    "/api/nft/mint-completion-certificate": {
+      "post": {
+        "summary": "Mint a job completion NFT certificate",
+        "tags": [
+          "NFT"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "jobId",
+                  "jobTitle",
+                  "clientAddress",
+                  "freelancerAddress",
+                  "paymentAmount"
+                ],
+                "properties": {
+                  "jobId": {
+                    "type": "string"
+                  },
+                  "jobTitle": {
+                    "type": "string"
+                  },
+                  "clientAddress": {
+                    "type": "string"
+                  },
+                  "freelancerAddress": {
+                    "type": "string"
+                  },
+                  "paymentAmount": {
+                    "type": "number"
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "completionDate": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "NFT minting queued"
+          }
+        }
+      }
+    },
+    "/api/nft/job/{jobId}": {
+      "get": {
+        "summary": "Get NFT certificate by job ID",
+        "tags": [
+          "NFT"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "NFT details"
+          }
+        }
+      }
+    },
+    "/api/nft/freelancer/{publicKey}": {
+      "get": {
+        "summary": "Get NFTs owned by a freelancer",
+        "tags": [
+          "NFT"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "NFT list"
+          }
+        }
+      }
+    },
+    "/api/messages/job/{jobId}": {
+      "post": {
+        "summary": "Send a message in a job thread",
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "content"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "description": "Message content (encrypted)"
+                  },
+                  "contractTxHash": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Message sent"
+          }
+        }
+      },
+      "get": {
+        "summary": "Get messages for a job thread",
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message list (marks as read)"
+          }
+        }
+      }
+    },
+    "/api/messages/unread-count": {
+      "get": {
+        "summary": "Get total unread message count",
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Unread count"
+          }
+        }
+      }
+    },
+    "/api/messages/{messageId}/tx-hash": {
+      "patch": {
+        "summary": "Attach on-chain tx hash to a message",
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "messageId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "txHash"
+                ],
+                "properties": {
+                  "txHash": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tx hash attached"
+          }
+        }
+      }
+    },
+    "/api/messages/job/{jobId}/attachments": {
+      "post": {
+        "summary": "Upload an encrypted file attachment",
+        "tags": [
+          "Messages"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "senderNaclPub": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Attachment uploaded to IPFS"
           }
         }
       }
@@ -462,56 +3997,242 @@
         }
       }
     },
-    "/api/v1/public/jobs": {
+    "/api/invitations": {
       "get": {
-        "summary": "List public job listings (no auth required)",
-        "description": "Read-only feed of open, publicly-visible job listings intended for third-party job board syndication. Rate-limited to 60 requests per minute per IP address. Excludes client address and applicant details.",
+        "summary": "List pending invitations for authenticated freelancer",
         "tags": [
-          "Public"
+          "Invitations"
         ],
-        "parameters": [
+        "security": [
           {
-            "in": "query",
-            "name": "category",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Filter by job category"
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 50,
-              "default": 20
-            },
-            "description": "Maximum number of jobs to return"
+            "bearerAuth": []
           }
         ],
         "responses": {
           "200": {
-            "description": "Public job listings retrieved successfully",
+            "description": "Pending invitations"
+          }
+        }
+      }
+    },
+    "/api/invitations/{id}/decline": {
+      "patch": {
+        "summary": "Decline a job invitation",
+        "tags": [
+          "Invitations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invitation declined"
+          }
+        }
+      }
+    },
+    "/api/invitations/{id}/accept": {
+      "post": {
+        "summary": "Accept a job invitation (auto-creates application)",
+        "tags": [
+          "Invitations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "proposal",
+                  "bidAmount"
+                ],
+                "properties": {
+                  "proposal": {
+                    "type": "string"
+                  },
+                  "bidAmount": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Application created"
+          },
+          "400": {
+            "description": "Missing proposal or bidAmount"
+          },
+          "403": {
+            "description": "Not the invited freelancer"
+          }
+        }
+      }
+    },
+    "/api/insights": {
+      "get": {
+        "summary": "Get platform-wide analytics summary",
+        "tags": [
+          "Insights"
+        ],
+        "responses": {
+          "200": {
+            "description": "Analytics summary (cached 1 hour)",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "success": {
-                      "type": "boolean",
-                      "example": true
+                      "type": "boolean"
                     },
                     "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/PublicJob"
+                      "type": "object",
+                      "properties": {
+                        "totalJobs": {
+                          "type": "integer"
+                        },
+                        "totalXlmTransacted": {
+                          "type": "number"
+                        },
+                        "activeFreelancers": {
+                          "type": "integer"
+                        },
+                        "avgTimeToHire": {
+                          "type": "number"
+                        }
                       }
                     }
                   }
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/insights/categories": {
+      "get": {
+        "summary": "Get category insights",
+        "tags": [
+          "Insights"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Category insights with client mix"
+          }
+        }
+      }
+    },
+    "/api/insights/skills": {
+      "get": {
+        "summary": "Get skill demand insights",
+        "tags": [
+          "Insights"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Skill insights"
+          }
+        }
+      }
+    },
+    "/api/insights/competitive": {
+      "get": {
+        "summary": "Get competitive job listings",
+        "tags": [
+          "Insights"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Competitive job listings"
+          }
+        }
+      }
+    },
+    "/api/insights/trends/pay": {
+      "get": {
+        "summary": "Get pay trends over time",
+        "tags": [
+          "Insights"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "schema": {
+              "type": "integer",
+              "default": 30,
+              "maximum": 90
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pay trend data"
           }
         }
       }
@@ -572,6 +4293,12 @@
                     "version": {
                       "type": "string",
                       "example": "1.0.0"
+                    },
+                    "migrationVersion": {
+                      "type": "integer",
+                      "nullable": true,
+                      "example": 21,
+                      "description": "Current schema_migrations version from the database"
                     }
                   }
                 }
@@ -580,6 +4307,921 @@
           },
           "503": {
             "description": "One or more dependencies are down"
+          }
+        }
+      }
+    },
+    "/api/gas-estimate": {
+      "get": {
+        "summary": "Get current Soroban fee estimate tiers",
+        "tags": [
+          "Gas"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "currency",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "XLM",
+                "USD"
+              ]
+            },
+            "description": "Include USD conversion when set to \"USD\""
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fee estimate tiers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GasEstimate"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gas-estimate/refresh": {
+      "post": {
+        "summary": "Force-refresh cached fee estimates",
+        "tags": [
+          "Gas"
+        ],
+        "responses": {
+          "200": {
+            "description": "Fresh fee estimate tiers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GasEstimate"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/faucet/fund": {
+      "post": {
+        "summary": "Fund a testnet wallet",
+        "tags": [
+          "Faucet"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "publicKey"
+                ],
+                "properties": {
+                  "publicKey": {
+                    "type": "string",
+                    "description": "Stellar public key to fund"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Wallet funded successfully"
+          },
+          "400": {
+            "description": "Missing public key"
+          },
+          "403": {
+            "description": "Faucet only available on testnet"
+          }
+        }
+      }
+    },
+    "/api/faucet/check/{publicKey}": {
+      "get": {
+        "summary": "Check if an account needs funding",
+        "tags": [
+          "Faucet"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Account funding status"
+          },
+          "403": {
+            "description": "Faucet only available on testnet"
+          }
+        }
+      }
+    },
+    "/api/faucet/status": {
+      "get": {
+        "summary": "Get faucet status and configuration",
+        "tags": [
+          "Faucet"
+        ],
+        "responses": {
+          "200": {
+            "description": "Faucet status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "network": {
+                          "type": "string"
+                        },
+                        "amount": {
+                          "type": "string"
+                        },
+                        "asset": {
+                          "type": "string"
+                        },
+                        "rateLimitPerMinute": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/{jobId}": {
+      "get": {
+        "summary": "Get indexed contract events for a job",
+        "tags": [
+          "Events"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contract events in chronological order"
+          },
+          "500": {
+            "description": "Indexer service unavailable"
+          }
+        }
+      }
+    },
+    "/api/disputes/{jobId}/onchain-cids": {
+      "get": {
+        "summary": "Get chain-attested evidence CID list",
+        "tags": [
+          "Disputes"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "On-chain CIDs"
+          }
+        }
+      }
+    },
+    "/api/disputes/{jobId}": {
+      "get": {
+        "summary": "Get dispute details and evidence list",
+        "tags": [
+          "Disputes"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dispute detail with evidence list"
+          },
+          "404": {
+            "description": "Job not found"
+          }
+        }
+      }
+    },
+    "/api/disputes/{jobId}/evidence": {
+      "post": {
+        "summary": "Upload dispute evidence file",
+        "tags": [
+          "Disputes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Evidence file (max 5 MB, images/PDF/text)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Evidence uploaded"
+          },
+          "400": {
+            "description": "File limit reached or invalid file"
+          },
+          "403": {
+            "description": "Only client or freelancer can upload"
+          }
+        }
+      }
+    },
+    "/api/disputes/{jobId}/evidence/{id}/url": {
+      "get": {
+        "summary": "Generate signed URL for evidence access",
+        "tags": [
+          "Disputes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Signed proxy URL (valid 15 min)"
+          }
+        }
+      }
+    },
+    "/api/developer/keys": {
+      "get": {
+        "summary": "List API keys",
+        "tags": [
+          "Developer"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API keys listed"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new API key",
+        "tags": [
+          "Developer"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "API key created (full key shown once)"
+          }
+        }
+      }
+    },
+    "/api/developer/keys/{id}": {
+      "delete": {
+        "summary": "Revoke an API key",
+        "tags": [
+          "Developer"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API key revoked"
+          },
+          "404": {
+            "description": "Key not found"
+          }
+        }
+      }
+    },
+    "/api/developer/keys/{id}/rotate": {
+      "post": {
+        "summary": "Rotate an API key",
+        "tags": [
+          "Developer"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API key rotated (new key shown once)"
+          },
+          "404": {
+            "description": "Key not found or already rotating"
+          }
+        }
+      }
+    },
+    "/api/dao/proposals": {
+      "get": {
+        "summary": "List DAO proposals",
+        "tags": [
+          "DAO"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "passed",
+                "rejected",
+                "executed",
+                "expired"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Proposal list"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a DAO proposal",
+        "tags": [
+          "DAO"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "title",
+                  "description",
+                  "type"
+                ],
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "funding",
+                      "parameter_change",
+                      "arbitrator_election"
+                    ]
+                  },
+                  "amount": {
+                    "type": "number"
+                  },
+                  "recipient": {
+                    "type": "string"
+                  },
+                  "votingDays": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Proposal created"
+          }
+        }
+      }
+    },
+    "/api/dao/proposals/{id}": {
+      "get": {
+        "summary": "Get proposal details",
+        "tags": [
+          "DAO"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Proposal details"
+          }
+        }
+      }
+    },
+    "/api/dao/proposals/{id}/vote": {
+      "post": {
+        "summary": "Cast a vote on a proposal",
+        "tags": [
+          "DAO"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "support": {
+                    "type": "boolean"
+                  },
+                  "weight": {
+                    "type": "number"
+                  },
+                  "txHash": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Vote cast"
+          }
+        }
+      }
+    },
+    "/api/dao/treasury": {
+      "get": {
+        "summary": "Get DAO treasury summary",
+        "tags": [
+          "DAO"
+        ],
+        "responses": {
+          "200": {
+            "description": "Treasury summary"
+          }
+        }
+      }
+    },
+    "/api/dao/arbitrators": {
+      "get": {
+        "summary": "List arbitrators and top panel",
+        "tags": [
+          "DAO"
+        ],
+        "responses": {
+          "200": {
+            "description": "Arbitrator list with top panel"
+          }
+        }
+      },
+      "post": {
+        "summary": "Register as an arbitrator",
+        "tags": [
+          "DAO"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "bio": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Arbitrator profile created"
+          }
+        }
+      }
+    },
+    "/api/dao/arbitrators/{publicKey}": {
+      "get": {
+        "summary": "Get arbitrator profile",
+        "tags": [
+          "DAO"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Arbitrator profile"
+          },
+          "404": {
+            "description": "Arbitrator not found"
+          }
+        }
+      }
+    },
+    "/api/dao/arbitrators/{publicKey}/vote": {
+      "post": {
+        "summary": "Vote for an arbitrator",
+        "tags": [
+          "DAO"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "weight": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Vote recorded"
+          }
+        }
+      }
+    },
+    "/api/dao/proposals/{id}/execute": {
+      "post": {
+        "summary": "Execute a passed proposal (admin only)",
+        "tags": [
+          "DAO"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Proposal executed"
+          }
+        }
+      }
+    },
+    "/api/contributors": {
+      "get": {
+        "summary": "Get top GitHub contributors (cached 24h)",
+        "tags": [
+          "Contributors"
+        ],
+        "responses": {
+          "200": {
+            "description": "Contributor list"
+          }
+        }
+      }
+    },
+    "/api/contributors/refresh": {
+      "post": {
+        "summary": "Refresh contributor cache",
+        "tags": [
+          "Contributors"
+        ],
+        "responses": {
+          "200": {
+            "description": "Cache refreshed"
+          }
+        }
+      }
+    },
+    "/api/certificates/{id}": {
+      "get": {
+        "summary": "Get a certificate by ID",
+        "tags": [
+          "Certificates"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Certificate details"
+          },
+          "404": {
+            "description": "Certificate not found"
+          }
+        }
+      }
+    },
+    "/api/certificates/user/{publicKey}": {
+      "get": {
+        "summary": "Get all certificates for a user",
+        "tags": [
+          "Certificates"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of certificates"
+          }
+        }
+      }
+    },
+    "/api/categories": {
+      "get": {
+        "summary": "Get the full category tree",
+        "tags": [
+          "Categories"
+        ],
+        "responses": {
+          "200": {
+            "description": "Category tree with nested children",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "children": {
+                            "type": "array"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/csrf-token": {
+      "get": {
+        "summary": "Issue a CSRF token for double-submit protection",
+        "description": "Generates a fresh CSRF token, sets it as a non-HttpOnly `csrf-token`\ncookie, and returns it in the response body. The frontend Axios\ninstance attaches this token in the `X-CSRF-Token` header on every\nsubsequent state-mutating request (`POST`, `PUT`, `PATCH`, `DELETE`).\n",
+        "tags": [
+          "Authentication"
+        ],
+        "responses": {
+          "200": {
+            "description": "CSRF token issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "csrfToken": {
+                      "type": "string",
+                      "description": "Token the client must echo in `X-CSRF-Token`"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -700,6 +5342,207 @@
         }
       }
     },
+    "/api/audit": {
+      "get": {
+        "summary": "List audit logs (admin only, cursor pagination)",
+        "tags": [
+          "Audit"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_type",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Cursor for next page (base64-encoded ID)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit log entries"
+          }
+        }
+      }
+    },
+    "/api/audit/{jobId}": {
+      "get": {
+        "summary": "Get audit logs for a specific job",
+        "tags": [
+          "Audit"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job audit logs"
+          },
+          "403": {
+            "description": "Not a participant or admin"
+          }
+        }
+      }
+    },
+    "/api/assessments/{skill}": {
+      "get": {
+        "summary": "Get assessment questions for a skill",
+        "tags": [
+          "Assessments"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Questions (without answers)"
+          },
+          "404": {
+            "description": "Unknown skill"
+          }
+        }
+      }
+    },
+    "/api/assessments/{skill}/submit": {
+      "post": {
+        "summary": "Submit assessment answers",
+        "tags": [
+          "Assessments"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "answers"
+                ],
+                "properties": {
+                  "answers": {
+                    "type": "object",
+                    "description": "Map of question IDs to selected option indices"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Score and result"
+          },
+          "429": {
+            "description": "Cooldown active"
+          }
+        }
+      }
+    },
+    "/api/assessments/results/{publicKey}": {
+      "get": {
+        "summary": "Get assessment results for a user (public)",
+        "tags": [
+          "Assessments"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publicKey",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Assessment results"
+          }
+        }
+      }
+    },
     "/api/applications/job/{jobId}": {
       "get": {
         "summary": "Get applications for a job",
@@ -749,466 +5592,6 @@
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/jobs/{id}": {
-      "get": {
-        "summary": "Get a single job by ID",
-        "description": "Returns the full detail of a single job posting.",
-        "tags": ["Jobs"],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": { "type": "string", "format": "uuid" },
-            "description": "Job ID"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Job retrieved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success", "data"],
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": { "$ref": "#/components/schemas/Job" }
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Job not found",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" }
-              }
-            }
-          }
-        }
-      },
-      "patch": {
-        "summary": "Store escrow contract ID on a job",
-        "description": "Updates a job's escrow_contract_id after the on-chain lock is confirmed.",
-        "tags": ["Jobs"],
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": { "type": "string", "format": "uuid" }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["escrowContractId"],
-                "properties": {
-                  "escrowContractId": {
-                    "type": "string",
-                    "description": "On-chain Soroban contract ID"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Escrow contract ID stored",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success", "data"],
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": { "$ref": "#/components/schemas/Job" }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "summary": "Delete a job",
-        "description": "Deletes an orphaned job posting (e.g. escrow creation failed after job record was written).",
-        "tags": ["Jobs"],
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": { "type": "string", "format": "uuid" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Job deleted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success"],
-                  "properties": {
-                    "success": { "type": "boolean", "example": true }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/applications/{id}/accept": {
-      "post": {
-        "summary": "Accept an application",
-        "description": "Client accepts a freelancer's proposal, transitioning the job to in_progress.",
-        "tags": ["Applications"],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": { "type": "string", "format": "uuid" },
-            "description": "Application ID"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["clientAddress"],
-                "properties": {
-                  "clientAddress": {
-                    "type": "string",
-                    "description": "Client's Stellar address"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Application accepted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success", "data"],
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": { "$ref": "#/components/schemas/Application" }
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Application not found",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/profiles/{address}": {
-      "get": {
-        "summary": "Get a user profile",
-        "description": "Returns the public profile for the given Stellar address.",
-        "tags": ["Profiles"],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "address",
-            "required": true,
-            "schema": { "type": "string" },
-            "description": "Stellar public key of the user"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Profile retrieved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success"],
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": {
-                      "nullable": true,
-                      "type": "object",
-                      "properties": {
-                        "publicKey": { "type": "string" },
-                        "role": { "type": "string" },
-                        "displayName": { "type": "string", "nullable": true },
-                        "bio": { "type": "string", "nullable": true },
-                        "skills": {
-                          "type": "array",
-                          "items": { "type": "string" }
-                        },
-                        "completedJobs": { "type": "integer" },
-                        "totalEarnedXlm": { "type": "string", "nullable": true },
-                        "rating": { "type": "number", "nullable": true },
-                        "tier": { "type": "string", "nullable": true },
-                        "createdAt": { "type": "string", "format": "date-time" }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/profiles": {
-      "post": {
-        "summary": "Upsert user profile",
-        "description": "Creates or updates the profile for the given Stellar address.",
-        "tags": ["Profiles"],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["publicKey"],
-                "properties": {
-                  "publicKey": { "type": "string" },
-                  "role": { "type": "string" },
-                  "displayName": { "type": "string" },
-                  "bio": { "type": "string" },
-                  "skills": {
-                    "type": "array",
-                    "items": { "type": "string" }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Profile upserted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success"],
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": {
-                      "nullable": true,
-                      "type": "object",
-                      "properties": {
-                        "publicKey": { "type": "string" },
-                        "role": { "type": "string" },
-                        "displayName": { "type": "string", "nullable": true },
-                        "bio": { "type": "string", "nullable": true },
-                        "skills": {
-                          "type": "array",
-                          "items": { "type": "string" }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/notifications": {
-      "get": {
-        "summary": "List in-app notifications",
-        "description": "Returns paginated in-app notifications for the authenticated user.",
-        "tags": ["Notifications"],
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "limit",
-            "schema": { "type": "integer", "default": 20 }
-          },
-          {
-            "in": "query",
-            "name": "cursor",
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Notifications retrieved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success", "data"],
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": {
-                      "type": "object",
-                      "required": ["notifications", "unreadCount"],
-                      "properties": {
-                        "notifications": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {},
-                              "type": { "type": "string" },
-                              "title": { "type": "string" },
-                              "body": { "type": "string" },
-                              "read": { "type": "boolean" },
-                              "jobId": { "nullable": true },
-                              "linkPath": { "nullable": true },
-                              "createdAt": { "type": "string" }
-                            }
-                          }
-                        },
-                        "unreadCount": { "type": "integer" },
-                        "next_cursor": { "nullable": true },
-                        "has_more": { "type": "boolean" }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/notifications/{id}/read": {
-      "patch": {
-        "summary": "Mark a single notification as read",
-        "tags": ["Notifications"],
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {},
-            "description": "Notification ID"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Notification marked as read",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success", "data"],
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": {
-                      "type": "object",
-                      "required": ["read"],
-                      "properties": {
-                        "id": {},
-                        "read": { "type": "boolean" },
-                        "type": { "type": "string" },
-                        "title": { "type": "string" },
-                        "body": { "type": "string" }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/notifications/read-all": {
-      "patch": {
-        "summary": "Mark all notifications as read",
-        "tags": ["Notifications"],
-        "security": [{ "bearerAuth": [] }],
-        "responses": {
-          "200": {
-            "description": "All notifications marked as read",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["success", "data"],
-                  "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "data": {
-                      "type": "object",
-                      "required": ["updatedCount"],
-                      "properties": {
-                        "updatedCount": { "type": "integer" }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" }
               }
             }
           }
@@ -1303,7 +5686,121 @@
           }
         }
       }
+    },
+    "/api/ai-scorer/score-job-description": {
+      "post": {
+        "summary": "Score a job description using AI",
+        "tags": [
+          "AI Scorer"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "description"
+                ],
+                "properties": {
+                  "description": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Quality score and improvement suggestions"
+          },
+          "500": {
+            "description": "AI API not configured"
+          }
+        }
+      }
+    },
+    "/api/admin/2fa/setup": {
+      "post": {
+        "summary": "Generate TOTP secret and QR code for admin",
+        "tags": [
+          "Admin 2FA"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "QR code and manual entry key"
+          },
+          "400": {
+            "description": "2FA already enabled"
+          }
+        }
+      }
+    },
+    "/api/admin/2fa/verify": {
+      "post": {
+        "summary": "Verify TOTP, enable 2FA, upgrade JWT",
+        "tags": [
+          "Admin 2FA"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  },
+                  "setup": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "2FA enabled/verified with upgraded token"
+          },
+          "400": {
+            "description": "Invalid code"
+          }
+        }
+      }
+    },
+    "/api/admin/2fa/status": {
+      "get": {
+        "summary": "Get admin 2FA status",
+        "tags": [
+          "Admin 2FA"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "2FA status including verification state"
+          }
+        }
+      }
     }
-  },
-  "tags": []
+  }
 }
