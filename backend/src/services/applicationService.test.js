@@ -10,6 +10,7 @@ jest.mock("./profileService", () => ({
 
 jest.mock("./notificationService", () => ({
   createJobNotification: jest.fn().mockResolvedValue({}),
+  queueNotification: jest.fn().mockResolvedValue({}),
   EVENT_TYPES: {
     APPLICATION_RECEIVED: "application_received",
     APPLICATION_ACCEPTED: "application_accepted",

@@ -75,7 +75,7 @@
     "fast-check": "^4.8.0",
     "jest": "^30.4.2",
     "jest-axe": "^9.0.0",
-    "jest-environment-jsdom": "^29.7.0",
+    "jest-environment-jsdom": "^30.4.1",
     "postcss": "^8",
     "storybook": "^8.6.18",
     "tailwindcss": "^4.3.3",

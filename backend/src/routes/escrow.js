@@ -72,10 +72,24 @@ router.post("/:jobId/release", async (req, res, next) => {
     );
     const escrowStatus = escrowRows.length ? escrowRows[0].status : null;
 
+    if (!escrowRows.length) {
+      const e = new Error("No escrow record found for this job");
+      e.status = 400;
+      throw e;
+    }
+
     // Process referral bonus payout (2% of earnings to referrer on referee's first job).
     // The on-chain transfer is handled by the Soroban contract's release_escrow();
     // this records the payout in the DB and updates referral status.
-    const amountXlm = escrowRows.length ? escrowRows[0].amount_xlm : "0";
+    const amountXlm = escrowRows[0].amount_xlm;
+    const escrowAmountNum = parseFloat(amountXlm);
+
+    // Bug #850: Validate escrow amount consistency before release.
+    if (isNaN(escrowAmountNum) || escrowAmountNum <= 0) {
+      const e = new Error("Escrow amount is missing or invalid");
+      e.status = 400;
+      throw e;
+    }
     const referralResult = await processReferralPayout(
       jobId,
       job.freelancerAddress,
@@ -152,6 +166,12 @@ router.post(
       });
 
       // Notify users about escrow release
+      const { rows: escrowRows } = await pool.query(
+        `SELECT amount_xlm FROM escrows WHERE job_id = $1`,
+        [jobId],
+      );
+      const escrowAmount = escrowRows.length ? escrowRows[0].amount_xlm : job.budget;
+
       await notifyEscrowEvent({
         eventType: EVENT_TYPES.ESCROW_RELEASED,
         jobId,
@@ -160,7 +180,7 @@ router.post(
         data: {
           jobTitle: job.title,
           jobId,
-          amount: job.budget,
+          amount: escrowAmount,
           currency: job.currency,
         },
       });
@@ -290,6 +310,12 @@ router.post("/:jobId/refund", async (req, res, next) => {
     });
 
     // Notify users about refund
+    const { rows: escrowRows } = await pool.query(
+      `SELECT amount_xlm FROM escrows WHERE job_id = $1`,
+      [jobId],
+    );
+    const escrowAmount = escrowRows.length ? escrowRows[0].amount_xlm : job.budget;
+
     await notifyEscrowEvent({
       eventType: EVENT_TYPES.REFUND_ISSUED,
       jobId,
@@ -298,7 +324,7 @@ router.post("/:jobId/refund", async (req, res, next) => {
       data: {
         jobTitle: job.title,
         jobId,
-        amount: job.budget,
+        amount: escrowAmount,
         currency: job.currency,
       },
     });
