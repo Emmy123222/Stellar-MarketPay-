@@ -3494,7 +3494,8 @@
     },
     "/api/nft/mint-completion-certificate": {
       "post": {
-        "summary": "Mint a job completion NFT certificate",
+        "summary": "Record a minted proof-of-work certificate for a completed job",
+        "description": "Called by the client's wallet after the on-chain `mint_certificate` transaction has been submitted (which happens automatically after escrow release). Persists the certificate metadata (job title, client address, freelancer address, completion date, XLM amount) keyed on job_id so it can be rendered and shared via URL.\n",
         "tags": [
           "NFT"
         ],
@@ -3506,31 +3507,17 @@
                 "type": "object",
                 "required": [
                   "jobId",
-                  "jobTitle",
                   "clientAddress",
-                  "freelancerAddress",
-                  "paymentAmount"
+                  "contractTxHash"
                 ],
                 "properties": {
                   "jobId": {
                     "type": "string"
                   },
-                  "jobTitle": {
-                    "type": "string"
-                  },
                   "clientAddress": {
                     "type": "string"
                   },
-                  "freelancerAddress": {
-                    "type": "string"
-                  },
-                  "paymentAmount": {
-                    "type": "number"
-                  },
-                  "currency": {
-                    "type": "string"
-                  },
-                  "completionDate": {
+                  "contractTxHash": {
                     "type": "string"
                   }
                 }
@@ -3540,14 +3527,20 @@
         },
         "responses": {
           "201": {
-            "description": "NFT minting queued"
+            "description": "Certificate recorded"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "403": {
+            "description": "Only the job client can record the certificate"
           }
         }
       }
     },
     "/api/nft/job/{jobId}": {
       "get": {
-        "summary": "Get NFT certificate by job ID",
+        "summary": "Get the certificate for a job",
         "tags": [
           "NFT"
         ],
@@ -3563,14 +3556,17 @@
         ],
         "responses": {
           "200": {
-            "description": "NFT details"
+            "description": "Certificate details"
+          },
+          "404": {
+            "description": "No certificate minted for this job"
           }
         }
       }
     },
     "/api/nft/freelancer/{publicKey}": {
       "get": {
-        "summary": "Get NFTs owned by a freelancer",
+        "summary": "Get certificates earned by a freelancer",
         "tags": [
           "NFT"
         ],
@@ -3586,7 +3582,7 @@
         ],
         "responses": {
           "200": {
-            "description": "NFT list"
+            "description": "List of certificates"
           }
         }
       }
@@ -4237,10 +4233,10 @@
         }
       }
     },
-    "/health": {
+    "/api/health": {
       "get": {
-        "summary": "Enhanced health check",
-        "description": "Checks database connectivity (SELECT 1) and Stellar Horizon reachability. Returns 200 when healthy, 503 when any critical dependency is down.\n",
+        "summary": "Health check",
+        "description": "Checks PostgreSQL, Redis, and Stellar Horizon connectivity. Returns 200 when all deps are healthy, 503 when any is down.\n",
         "tags": [
           "Health"
         ],
@@ -4307,6 +4303,20 @@
           },
           "503": {
             "description": "One or more dependencies are down"
+          }
+        }
+      }
+    },
+    "/api/health/db": {
+      "get": {
+        "summary": "Database pool stats",
+        "description": "Pool connection statistics for monitoring dashboards.",
+        "tags": [
+          "Health"
+        ],
+        "responses": {
+          "200": {
+            "description": "Pool statistics"
           }
         }
       }
@@ -5687,7 +5697,7 @@
         }
       }
     },
-    "/api/ai-scorer/score-job-description": {
+    "/api/ai/score-job": {
       "post": {
         "summary": "Score a job description using AI",
         "tags": [
