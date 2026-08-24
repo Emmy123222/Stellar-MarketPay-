@@ -55,6 +55,18 @@ function shouldSkipCsrf(req) {
   if (path.startsWith("/api/public/")) return true;
   if (path.startsWith("/api/developer/")) return true;
 
+  // Bearer-token callers are not vulnerable to CSRF: the browser attaches
+  // cookies to cross-site requests automatically, but never an Authorization
+  // header — the attacker's page would have to read the token first, which the
+  // same-origin policy prevents. Only skip when no auth cookie is present,
+  // since middleware/auth.js prefers the cookie when both are supplied.
+  const authHeader = req.headers.authorization || "";
+  if (authHeader.startsWith("Bearer ")) {
+    const cookies = req.headers.cookie || "";
+    const hasAuthCookie = /(?:^|;\s*)(?:token|refreshToken)=/.test(cookies);
+    if (!hasAuthCookie) return true;
+  }
+
   return false;
 }
 

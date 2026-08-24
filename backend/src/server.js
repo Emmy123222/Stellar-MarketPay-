@@ -76,7 +76,7 @@ const {
   validateMigrationVersion,
 } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
-const PriceAlertService = require("./services/priceAlertService");
+const { PriceAlertService } = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
 const { startSavedSearchAlertChecker } = require("./services/savedSearchAlertService");
 const { startWsEventCleanup } = require("./services/wsEventCleanupService");

@@ -27,11 +27,11 @@ jest.mock("../services/indexerService", () => {
   }));
 });
 
-jest.mock("../services/priceAlertService", () => {
-  return jest.fn().mockImplementation(() => ({
+jest.mock("../services/priceAlertService", () => ({
+  PriceAlertService: jest.fn().mockImplementation(() => ({
     start: jest.fn(),
-  }));
-});
+  })),
+}));
 
 jest.mock("../db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),
