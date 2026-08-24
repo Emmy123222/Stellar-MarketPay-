@@ -64,6 +64,35 @@ function defaultApplicationRow(overrides = {}) {
   };
 }
 
+function defaultDaoProposalRow(overrides = {}) {
+  return {
+    id: overrides.id || `prop-${Date.now()}`,
+    title: overrides.title || "Default Governance Proposal",
+    description: overrides.description || "Proposal description for governance testing.",
+    type: overrides.type || "treasury",
+    proposer: overrides.proposer || "G" + "A".repeat(55),
+    amount: overrides.amount != null ? String(overrides.amount) : "100.0000000",
+    recipient: overrides.recipient || "G" + "B".repeat(55),
+    status: overrides.status || "active",
+    voting_ends_at: overrides.voting_ends_at || new Date(Date.now() + 7 * 86400000).toISOString(),
+    created_at: overrides.created_at || new Date().toISOString(),
+    executed_at: overrides.executed_at || null,
+  };
+}
+
+function defaultDaoArbitratorRow(overrides = {}) {
+  return {
+    public_key: overrides.public_key || "G" + "C".repeat(55),
+    display_name: overrides.display_name || "Test Arbitrator",
+    bio: overrides.bio || "Experienced dispute arbitrator",
+    votes_received: overrides.votes_received ?? 0,
+    disputes_resolved: overrides.disputes_resolved ?? 0,
+    elected_at: overrides.elected_at || null,
+    active: overrides.active ?? true,
+    created_at: overrides.created_at || new Date().toISOString(),
+  };
+}
+
 // Helper: find the last occurrence of a numeric param placeholder like $1, $2, etc.
 // and extract the first non-null param index to use as the id for lookups.
 function findJobIdFromUpdate(text, params) {
@@ -86,6 +115,9 @@ function createPgMock() {
   const skillsMap = new Map();
   const jobSkillsMap = new Map();
   const wsEvents = new Map();
+  const daoProposals = new Map();
+  const daoVotes = new Map();
+  const daoArbitrators = new Map();
 
   const query = jest.fn(async (sql, params = []) => {
     const text = sql.replace(/\s+/g, " ").trim();
@@ -488,6 +520,126 @@ function createPgMock() {
       return { rows: [{ count: 0 }] };
     }
 
+    // DAO Queries
+    if (text.startsWith("INSERT INTO dao_proposals")) {
+      const days = parseInt(params[6], 10) || 7;
+      const row = defaultDaoProposalRow({
+        id: `prop-${daoProposals.size + 1}`,
+        title: params[0],
+        description: params[1],
+        type: params[2],
+        proposer: params[3],
+        amount: params[4],
+        recipient: params[5],
+        voting_ends_at: new Date(Date.now() + days * 86400000).toISOString(),
+      });
+      daoProposals.set(row.id, row);
+      return { rows: [row] };
+    }
+
+    if (text.includes("FROM dao_proposals p") && text.includes("dao_votes v")) {
+      let list = [...daoProposals.values()];
+      if (text.includes("WHERE p.id = $1") || text.includes("WHERE id = $1")) {
+        list = list.filter((p) => p.id === params[0]);
+      } else if (text.includes("p.status = $1") || text.includes("status = $1")) {
+        list = list.filter((p) => p.status === params[0]);
+      }
+      const rows = list.map((p) => {
+        const votes = [...daoVotes.values()].filter((v) => v.proposal_id === p.id);
+        const votesFor = votes.filter((v) => v.support).reduce((acc, v) => acc + Number(v.weight), 0);
+        const votesAgainst = votes.filter((v) => !v.support).reduce((acc, v) => acc + Number(v.weight), 0);
+        const totalWeight = votesFor + votesAgainst;
+        return {
+          ...p,
+          votes_for: votesFor,
+          votes_against: votesAgainst,
+          quorum_reached: totalWeight >= 100,
+        };
+      });
+      return { rows };
+    }
+
+    if (text.startsWith("INSERT INTO dao_votes")) {
+      const voteKey = `${params[0]}:${params[1]}`;
+      const row = {
+        proposal_id: params[0],
+        voter: params[1],
+        support: Boolean(params[2]),
+        weight: params[3],
+        tx_hash: params[4] || null,
+      };
+      daoVotes.set(voteKey, row);
+      return { rows: [row] };
+    }
+
+    if (text.startsWith("UPDATE dao_proposals") && text.includes("status = CASE")) {
+      const updated = [];
+      for (const [id, prop] of daoProposals.entries()) {
+        if (prop.status === "active" && new Date(prop.voting_ends_at) < new Date()) {
+          const votes = [...daoVotes.values()].filter((v) => v.proposal_id === id);
+          const votesFor = votes.filter((v) => v.support).reduce((acc, v) => acc + Number(v.weight), 0);
+          const votesAgainst = votes.filter((v) => !v.support).reduce((acc, v) => acc + Number(v.weight), 0);
+          prop.status = votesFor > votesAgainst ? "passed" : "rejected";
+          daoProposals.set(id, prop);
+          updated.push({ id: prop.id, status: prop.status, type: prop.type });
+        }
+      }
+      return { rows: updated };
+    }
+
+    if (text.startsWith("UPDATE dao_proposals SET status = 'executed'")) {
+      const prop = daoProposals.get(params[0]);
+      if (prop) {
+        prop.status = "executed";
+        prop.executed_at = new Date().toISOString();
+        daoProposals.set(prop.id, prop);
+        return { rows: [prop], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (text.includes("FROM dao_proposals") && text.includes("SUM(amount)")) {
+      const activeProposals = [...daoProposals.values()].filter((p) => p.status === "active").length;
+      const allocated = [...daoProposals.values()]
+        .filter((p) => ["passed", "executed"].includes(p.status) && p.type === "treasury")
+        .reduce((acc, p) => acc + parseFloat(p.amount || 0), 0);
+      return {
+        rows: [{
+          allocated: String(allocated),
+          active_proposals: activeProposals,
+        }],
+      };
+    }
+
+    if (text.startsWith("INSERT INTO dao_arbitrators")) {
+      const existing = daoArbitrators.get(params[0]) || defaultDaoArbitratorRow({ public_key: params[0] });
+      existing.display_name = params[1] !== undefined ? params[1] : existing.display_name;
+      existing.bio = params[2] !== undefined ? params[2] : existing.bio;
+      daoArbitrators.set(params[0], existing);
+      return { rows: [existing] };
+    }
+
+    if (text.startsWith("UPDATE dao_arbitrators SET votes_received")) {
+      const key = params[0];
+      const weight = Number(params[1]) || 1;
+      const arb = daoArbitrators.get(key) || defaultDaoArbitratorRow({ public_key: key });
+      arb.votes_received = (arb.votes_received || 0) + weight;
+      daoArbitrators.set(key, arb);
+      return { rows: [arb], rowCount: 1 };
+    }
+
+    if (text.includes("FROM dao_arbitrators")) {
+      if (text.includes("WHERE public_key = ANY")) {
+        const keys = params[0] || [];
+        const rows = keys.map((k) => daoArbitrators.get(k)).filter(Boolean);
+        return { rows };
+      }
+      const rows = [...daoArbitrators.values()]
+        .filter((a) => a.active !== false)
+        .sort((a, b) => (b.votes_received || 0) - (a.votes_received || 0));
+      return { rows };
+    }
+
     return { rows: [] };
   });
 
@@ -508,15 +660,35 @@ function createPgMock() {
     skillsMap.clear();
     jobSkillsMap.clear();
     wsEvents.clear();
+    daoProposals.clear();
+    daoVotes.clear();
+    daoArbitrators.clear();
     query.mockClear();
     connect.mockClear();
   }
 
-  const mock = { query, connect, jobs, applications, invitations, reset, end: jest.fn() };
+  const mock = {
+    query,
+    connect,
+    jobs,
+    applications,
+    invitations,
+    daoProposals,
+    daoVotes,
+    daoArbitrators,
+    reset,
+    end: jest.fn(),
+  };
   // jobService/applicationService destructure { readPool, writePool } from pool
   mock.readPool = { query };
   mock.writePool = mock;
   return mock;
 }
 
-module.exports = { createPgMock, defaultJobRow, defaultApplicationRow };
+module.exports = {
+  createPgMock,
+  defaultJobRow,
+  defaultApplicationRow,
+  defaultDaoProposalRow,
+  defaultDaoArbitratorRow,
+};
