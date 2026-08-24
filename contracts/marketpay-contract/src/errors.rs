@@ -503,16 +503,18 @@ mod tests {
 
     #[test]
     fn every_error_has_unique_code() {
-        let mut codes: Vec<u32> = vec![];
+        // The crate is #![no_std], so there is no growable Vec here — compare
+        // every pair directly instead.
         let variants = [
             ContractError::AlreadyInitialized,
             ContractError::NotInitialized,
             ContractError::ContractFrozen,
             ContractError::ContractNotFrozen,
         ];
-        for v in &variants {
-            assert!(!codes.contains(&v.code()), "Duplicate code {}", v.code());
-            codes.push(v.code());
+        for (i, a) in variants.iter().enumerate() {
+            for b in variants.iter().skip(i + 1) {
+                assert_ne!(a.code(), b.code(), "Duplicate error code {}", a.code());
+            }
         }
     }
 
