@@ -24,6 +24,7 @@ import {
   type EarningPayment,
 } from "@/lib/api";
 import StateMessage from "@/components/StateMessage";
+import { useToast } from "@/components/Toast";
 import {
   availabilityStatusLabel,
   availabilitySummary,
@@ -77,6 +78,7 @@ export default function PublicFreelancerProfilePage({
   publicKey: string | null;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const rawKey =
     typeof router.query.publicKey === "string" ? router.query.publicKey : "";
 
@@ -120,7 +122,7 @@ export default function PublicFreelancerProfilePage({
       setEndorsements(refreshed);
     } catch (error: unknown) {
       console.error("Endorsement error:", error);
-      alert(error instanceof Error ? error.message : "Failed to endorse skill");
+      toast.error(error instanceof Error ? error.message : "Failed to endorse skill");
     } finally {
       setEndorsingSkill(null);
     }
