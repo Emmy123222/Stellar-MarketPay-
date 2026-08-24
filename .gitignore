@@ -44,3 +44,7 @@ Cargo.lock
 contracts/marketpay-contract/coverage/
 frontend/test-results/
 frontend/playwright-report/
+
+# Python
+__pycache__/
+*.pyc

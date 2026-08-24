@@ -23,6 +23,16 @@ title = "Stellar MarketPay Gitleaks Configuration"
     '''vendor''',
   ]
 
+  # Throwaway credentials for CI service containers and local development.
+  # These are literal `test:test@localhost` style values that never leave the
+  # runner — not secrets. Anything pointing at a real host is still flagged.
+  regexes = [
+    '''postgresql://test:test@localhost:\d+/\w+''',
+    '''postgresql://postgres:postgres@localhost:\d+/\w+''',
+    '''ci-test-[a-z-]*(secret|key)[a-z0-9-]*''',
+    '''test-[a-z-]*(secret|key)-with-[a-z-]*''',
+  ]
+
   # Allow specific commits or branches if needed
   commits = []
   branches = []
