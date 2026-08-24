@@ -26,6 +26,11 @@ title = "Stellar MarketPay Gitleaks Configuration"
   # Throwaway credentials for CI service containers and local development.
   # These are literal `test:test@localhost` style values that never leave the
   # runner — not secrets. Anything pointing at a real host is still flagged.
+  #
+  # regexTarget = "line" so these match the whole source line; the default
+  # target is the extracted secret alone, which never contains the host and so
+  # could never match a connection-string pattern.
+  regexTarget = "line"
   regexes = [
     '''postgresql://test:test@localhost:\d+/\w+''',
     '''postgresql://postgres:postgres@localhost:\d+/\w+''',
