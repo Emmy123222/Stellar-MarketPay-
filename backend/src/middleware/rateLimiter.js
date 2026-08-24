@@ -14,7 +14,7 @@ const createRateLimiter = (maxRequests, windowMinutes) => {
     handler: (req, res) => {
       res.set("Retry-After", Math.ceil(windowMinutes * 60));
       return res.status(429).json({
-        message: "Too many requests â€” please wait before trying again",
+        message: "Too many requests — please wait before trying again",
       });
     },
   });
