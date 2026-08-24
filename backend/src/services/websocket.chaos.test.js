@@ -17,10 +17,8 @@
 const { WebSocket: WsClient } = require("ws");
 const jwt = require("jsonwebtoken");
 
-const TEST_USER_A =
-  "GAXJ4S6F7W2K3H5N8D9P0Q2R4T6V8W1Z3X5C7V9B2N4M6P8R0T2V4X6Z8";
-const TEST_USER_B =
-  "GBYJ4S6F7W2K3H5N8D9P0Q2R4T6V8W1Z3X5C7V9B2N4M6P8R0T2V4X6Z9";
+const TEST_USER_A = "GAXJ4S6F7W2K3H5N8D9P0Q2R4T6V8W1Z3X5C7V9B2N4M6P8R0T2V4X6Z8";
+const TEST_USER_B = "GBYJ4S6F7W2K3H5N8D9P0Q2R4T6V8W1Z3X5C7V9B2N4M6P8R0T2V4X6Z9";
 const PER_RECONNECT_TIMEOUT = 3_000; // each reconnect must finish faster than this
 
 // ── Prevent process.exit from killing the test runner ─────────────────────
@@ -52,11 +50,10 @@ jest.mock("../db/pool", () => {
         return { rows: [row] };
       }
       if (/^SELECT \* FROM notifications WHERE user_address/i.test(text)) {
-        let rows = notifications.filter(
-          (n) => n.user_address === params[0],
-        );
+        let rows = notifications.filter((n) => n.user_address === params[0]);
         rows.sort(
-          (a, b) => new Date(b.created_at) - new Date(a.created_at) || b.id - a.id,
+          (a, b) =>
+            new Date(b.created_at) - new Date(a.created_at) || b.id - a.id,
         );
         const limit = params[params.length - 1] || 20;
         return { rows: rows.slice(0, limit) };
@@ -126,8 +123,7 @@ jest.mock("../services/indexerService", () =>
 
 jest.mock("../services/priceAlertService", () => ({
   PriceAlertService: jest.fn().mockImplementation(() => ({ start: jest.fn() })),
-})),
-);
+}));
 
 jest.mock("../db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),
@@ -382,9 +378,7 @@ describe("WebSocket chaos & reconnection resilience (#888)", () => {
       );
 
       // Count total dedup messages on ws2 — should be exactly 1 (id=43)
-      const dedupMsgs = ws2._messages.filter(
-        (m) => m.event === "test:dedup",
-      );
+      const dedupMsgs = ws2._messages.filter((m) => m.event === "test:dedup");
       expect(dedupMsgs).toHaveLength(1);
 
       ws2.close();
