@@ -204,6 +204,22 @@ function createPgMock() {
       return { rows: [row] };
     }
 
+    // findApplicationsByJob (applicationService.getApplicationsForJob)
+    if (text.startsWith("SELECT a.*") && text.includes("WHERE a.job_id = $1")) {
+      const rows = [...applications.values()]
+        .filter((app) => app.job_id === params[0])
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      return { rows };
+    }
+
+    // getApplicationsForFreelancer
+    if (text.startsWith("SELECT a.*") && text.includes("WHERE a.freelancer_address = $1")) {
+      const rows = [...applications.values()]
+        .filter((app) => app.freelancer_address === params[0])
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      return { rows };
+    }
+
     if (text.includes("FROM jobs WHERE id = $1")) {
       const row = jobs.get(params[0]);
       if (!row) return { rows: [] };
@@ -235,6 +251,16 @@ function createPgMock() {
         jobs.set(job.id, job);
       }
       return { rows: [] };
+    }
+
+    // UPDATE jobs SET bidding_closed_at (closeBiddingForJob)
+    if (text.startsWith("UPDATE jobs SET bidding_closed_at")) {
+      const row = jobs.get(params[0]);
+      if (!row) return { rows: [] };
+      row.bidding_closed_at = new Date().toISOString();
+      row.updated_at = new Date().toISOString();
+      jobs.set(row.id, row);
+      return { rows: [{ bidding_closed_at: row.bidding_closed_at }] };
     }
 
     // UPDATE applications SET status = 'accepted'
@@ -281,6 +307,17 @@ function createPgMock() {
       const row = applications.get(params[0]);
       if (!row) return { rows: [] };
       row.withdrawn_at = new Date().toISOString();
+      applications.set(row.id, row);
+      return { rows: [row] };
+    }
+
+    // UPDATE applications SET bid_revealed (revealApplicationBid)
+    if (text.startsWith("UPDATE applications SET bid_revealed")) {
+      const row = applications.get(params[0]);
+      if (!row) return { rows: [] };
+      row.bid_revealed = true;
+      row.revealed_bid_amount = params[1];
+      row.revealed_at = new Date().toISOString();
       applications.set(row.id, row);
       return { rows: [row] };
     }
