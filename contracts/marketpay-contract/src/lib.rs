@@ -271,24 +271,6 @@ pub struct RecurringEscrow {
     pub status: EscrowStatus,
 }
 
-/// Global dispute bond configuration (Issue #437).
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct DisputeBondConfig {
-    pub token: Address,
-    pub amount: i128,
-}
-
-/// Per-job locked dispute bond record (Issue #437).
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct DisputeBond {
-    pub caller: Address,
-    pub token: Address,
-    pub amount: i128,
-    pub raised_at_ledger: u32,
-}
-
 /// Storage key per job
 #[contracttype]
 pub enum DataKey {
@@ -334,12 +316,6 @@ pub enum DataKey {
     TreasuryAddress,
     /// Platform fee in basis points (e.g. 100 = 1%)
     PlatformFeeBps,
-    /// List of admin addresses for multi-sig
-    Admins,
-    /// Whether the contract is globally frozen
-    Frozen,
-    /// M-of-N unfreeze threshold
-    UnfreezeThreshold,
     /// Maximum referrer bonus cap in token stroops
     MaxReferrerBonusXlm,
     /// Pending escrow timeout extension request
