@@ -550,10 +550,10 @@ export default function TimeTracker({
         <>
           {/* Hourly rate */}
           <div>
-            <label className="text-xs text-amber-700 block mb-1">
+            <label htmlFor="hourly-rate-xlm" className="text-xs text-amber-700 block mb-1">
               Hourly Rate (XLM)
             </label>
-            <input
+            <input id="hourly-rate-xlm"
               type="number"
               min="0"
               step="0.01"
@@ -567,10 +567,10 @@ export default function TimeTracker({
           {/* Milestone selector */}
           {milestones.length > 0 && (
             <div>
-              <label className="text-xs text-amber-700 block mb-1">
+              <label htmlFor="track-time-against-milestone" className="text-xs text-amber-700 block mb-1">
                 Track time against milestone
               </label>
-              <select
+              <select id="track-time-against-milestone"
                 value={selectedMilestoneIndex ?? ""}
                 onChange={(e) => {
                   const val = e.target.value;
@@ -648,10 +648,10 @@ export default function TimeTracker({
               <div className="mt-3 space-y-2 bg-ink-800 rounded-xl p-4 border border-market-500/15">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-xs text-amber-700 block mb-1">
+                    <label htmlFor="duration-minutes" className="text-xs text-amber-700 block mb-1">
                       Duration (minutes)
                     </label>
-                    <input
+                    <input id="duration-minutes"
                       type="number"
                       min="1"
                       max="1440"
@@ -662,10 +662,10 @@ export default function TimeTracker({
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-amber-700 block mb-1">
+                    <label htmlFor="started-at-optional" className="text-xs text-amber-700 block mb-1">
                       Started at (optional)
                     </label>
-                    <input
+                    <input id="started-at-optional"
                       type="datetime-local"
                       value={manualStartedAt}
                       onChange={(e) => setManualStartedAt(e.target.value)}
@@ -675,10 +675,10 @@ export default function TimeTracker({
                 </div>
                 {milestones.length > 0 && (
                   <div>
-                    <label className="text-xs text-amber-700 block mb-1">
+                    <label htmlFor="milestone-optional" className="text-xs text-amber-700 block mb-1">
                       Milestone (optional)
                     </label>
-                    <select
+                    <select id="milestone-optional"
                       value={manualMilestoneIndex ?? ""}
                       onChange={(e) => {
                         const val = e.target.value;
@@ -696,10 +696,10 @@ export default function TimeTracker({
                   </div>
                 )}
                 <div>
-                  <label className="text-xs text-amber-700 block mb-1">
+                  <label htmlFor="description-optional" className="text-xs text-amber-700 block mb-1">
                     Description (optional)
                   </label>
-                  <input
+                  <input id="description-optional"
                     type="text"
                     value={manualDesc}
                     onChange={(e) => setManualDesc(e.target.value)}

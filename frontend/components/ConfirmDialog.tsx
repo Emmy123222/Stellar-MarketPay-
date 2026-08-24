@@ -67,7 +67,12 @@ export default function ConfirmDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onCancel} />
+      <button
+        type="button"
+        aria-label="Close dialog"
+        className="absolute inset-0 w-full bg-black/60 cursor-default"
+        onClick={onCancel}
+      />
       <div
         className={`relative w-full max-w-md mx-4 rounded-xl border ${borderColor} bg-market-900 shadow-2xl`}
       >

@@ -34,8 +34,7 @@ import OfflineBanner from "@/components/OfflineBanner";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useBackgroundSync } from "@/hooks/useBackgroundSync";
 import { appWithTranslation } from "next-i18next";
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const nextI18NextConfig = require("../next-i18next.config.js");
+import nextI18NextConfig from "../next-i18next.config.js";
 
 const WALLET_PUBLIC_KEY_STORAGE_KEY = "smp_wallet_public_key";
 const REF_STORAGE_KEY = "smp_referrer";

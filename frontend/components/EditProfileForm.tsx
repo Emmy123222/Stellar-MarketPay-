@@ -320,8 +320,8 @@ export default function EditProfileForm({ publicKey }: Props) {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <label className="block text-sm font-medium text-amber-100 mb-2">Display Name</label>
-          <input
+          <label htmlFor="display-name" className="block text-sm font-medium text-amber-100 mb-2">Display Name</label>
+          <input id="display-name"
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
@@ -337,8 +337,8 @@ export default function EditProfileForm({ publicKey }: Props) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-amber-100 mb-2">Role</label>
-          <div className="flex flex-wrap gap-4">
+          <span id="role-label" className="block text-sm font-medium text-amber-100 mb-2">Role</span>
+          <div className="flex flex-wrap gap-4" role="group" aria-labelledby="role-label">
             {(["freelancer", "client", "both"] as UserRole[]).map((r) => (
               <label
                 key={r}
@@ -364,8 +364,8 @@ export default function EditProfileForm({ publicKey }: Props) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-amber-100 mb-2">Bio</label>
-          <textarea
+          <label htmlFor="bio" className="block text-sm font-medium text-amber-100 mb-2">Bio</label>
+          <textarea id="bio"
             value={bio}
             onChange={(e) => setBio(e.target.value)}
             className="w-full bg-ink-900/50 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 placeholder:text-amber-600/70 focus:outline-none focus:border-market-400 transition-colors h-32 resize-none"
@@ -379,7 +379,7 @@ export default function EditProfileForm({ publicKey }: Props) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-amber-100 mb-2">Skills</label>
+          <label htmlFor="skills" className="block text-sm font-medium text-amber-100 mb-2">Skills</label>
           <div className="bg-ink-900/50 border border-market-500/20 rounded-xl p-2 focus-within:border-market-400 transition-colors min-h-[52px] flex flex-wrap gap-2 items-center">
             {skills.map((skill) => (
               <span key={skill} className="flex items-center gap-1.5 bg-ink-800 border border-market-500/20 text-amber-100 text-sm px-2.5 py-1 rounded-lg">
@@ -393,7 +393,7 @@ export default function EditProfileForm({ publicKey }: Props) {
                 </button>
               </span>
             ))}
-            <input
+            <input id="skills"
               type="text"
               value={skillInput}
               onChange={(e) => setSkillInput(e.target.value)}
@@ -407,7 +407,7 @@ export default function EditProfileForm({ publicKey }: Props) {
         <div>
           <div className="flex items-center justify-between gap-4 mb-3">
             <div>
-              <label className="block text-sm font-medium text-amber-100">Availability</label>
+              <span className="block text-sm font-medium text-amber-100">Availability</span>
               <p className="text-xs text-amber-600 mt-1">
                 Show clients when you can take on new work.
               </p>
@@ -416,8 +416,8 @@ export default function EditProfileForm({ publicKey }: Props) {
 
           <div className="rounded-xl border border-market-500/20 bg-ink-900/50 p-4 space-y-4">
             <div>
-              <label className="block text-xs font-medium text-amber-100 mb-1.5">Status</label>
-              <select
+              <label htmlFor="status" className="block text-xs font-medium text-amber-100 mb-1.5">Status</label>
+              <select id="status"
                 value={availability.status}
                 onChange={(e) => updateAvailabilityField("status", e.target.value as AvailabilityStatus)}
                 className="w-full bg-ink-950/60 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 focus:outline-none focus:border-market-400 transition-colors"
@@ -432,8 +432,8 @@ export default function EditProfileForm({ publicKey }: Props) {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-amber-100 mb-1.5">Available From</label>
-                <input
+                <label htmlFor="available-from" className="block text-xs font-medium text-amber-100 mb-1.5">Available From</label>
+                <input id="available-from"
                   type="date"
                   value={availability.availableFrom ? availability.availableFrom.slice(0, 10) : ""}
                   onChange={(e) => updateAvailabilityField("availableFrom", e.target.value)}
@@ -442,8 +442,8 @@ export default function EditProfileForm({ publicKey }: Props) {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-amber-100 mb-1.5">Available Until</label>
-                <input
+                <label htmlFor="available-until" className="block text-xs font-medium text-amber-100 mb-1.5">Available Until</label>
+                <input id="available-until"
                   type="date"
                   value={availability.availableUntil ? availability.availableUntil.slice(0, 10) : ""}
                   onChange={(e) => updateAvailabilityField("availableUntil", e.target.value)}
@@ -457,7 +457,7 @@ export default function EditProfileForm({ publicKey }: Props) {
         <div>
           <div className="flex items-center justify-between gap-4 mb-3">
             <div>
-              <label className="block text-sm font-medium text-amber-100">Portfolio</label>
+              <span className="block text-sm font-medium text-amber-100">Portfolio</span>
               <p className="text-xs text-amber-600 mt-1">
                 Add up to {MAX_PORTFOLIO_ITEMS} verified work samples.
               </p>
@@ -494,8 +494,8 @@ export default function EditProfileForm({ publicKey }: Props) {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-amber-100 mb-1.5">Title</label>
-                      <input
+                      <label htmlFor="title" className="block text-xs font-medium text-amber-100 mb-1.5">Title</label>
+                      <input id="title"
                         type="text"
                         value={item.title}
                         onChange={(e) => updatePortfolioItem(index, "title", e.target.value)}
@@ -506,8 +506,8 @@ export default function EditProfileForm({ publicKey }: Props) {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-amber-100 mb-1.5">Type</label>
-                      <select
+                      <label htmlFor="type" className="block text-xs font-medium text-amber-100 mb-1.5">Type</label>
+                      <select id="type"
                         value={item.type}
                         onChange={(e) => updatePortfolioItem(index, "type", e.target.value as PortfolioItemType)}
                         className="w-full bg-ink-950/60 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 focus:outline-none focus:border-market-400 transition-colors"
@@ -547,7 +547,7 @@ export default function EditProfileForm({ publicKey }: Props) {
             <div className="mt-4">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <label className="block text-sm font-medium text-amber-100">Upload Files</label>
+                  <span className="block text-sm font-medium text-amber-100">Upload Files</span>
                   <p className="text-xs text-amber-600 mt-1">
                     Upload up to {MAX_PORTFOLIO_FILES} files (max 5MB each). Images and PDFs supported.
                   </p>

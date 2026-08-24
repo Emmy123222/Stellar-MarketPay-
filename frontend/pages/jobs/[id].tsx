@@ -42,6 +42,7 @@ import { optionalClientEnv } from "@/lib/env";
 import type { Transaction } from "@stellar/stellar-sdk";
 import type { Application, Job } from "@/utils/types";
 import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
+import RealtimeBidComparison from "@/components/RealtimeBidComparison";
 
 // ── Site-wide canonical origin used in OG/Twitter meta tags (#487) ─────────
 // RESOLVED_AT_BUILD is the build-time fallback used by client-rendered
@@ -918,15 +919,20 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
       {/* ── Dispute modal ── */}
       {showDisputeModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-ink-950/80 backdrop-blur-sm" onClick={() => setShowDisputeModal(false)} />
+          <button
+            type="button"
+            aria-label="Close dispute dialog"
+            className="absolute inset-0 w-full bg-ink-950/80 backdrop-blur-sm cursor-default"
+            onClick={() => setShowDisputeModal(false)}
+          />
           <div className="relative w-full max-w-md bg-ink-900 border border-market-500/20 rounded-2xl p-4 sm:p-6 shadow-2xl animate-scale-in max-h-[90vh] overflow-y-auto">
             <h3 className="font-display text-lg sm:text-xl font-bold text-amber-100 mb-2">Raise a Dispute</h3>
             <p className="text-xs sm:text-sm text-amber-800 mb-6">Flag this job for admin review. This will block escrow release until resolved.</p>
 
             <div className="space-y-4">
               <div>
-                <label className="label">Reason</label>
-                <select
+                <label htmlFor="reason" className="label">Reason</label>
+                <select id="reason"
                   value={disputeReason}
                   onChange={(e) => setDisputeReason(e.target.value)}
                   className="input-field"
@@ -940,8 +946,8 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
                 </select>
               </div>
               <div>
-                <label className="label">Description</label>
-                <textarea
+                <label htmlFor="description" className="label">Description</label>
+                <textarea id="description"
                   value={disputeDescription}
                   onChange={(e) => setDisputeDescription(e.target.value)}
                   className="input-field min-h-[100px]"
@@ -978,15 +984,20 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
       {/* ── Invite Freelancer modal ── */}
       {showInviteModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-ink-950/80 backdrop-blur-sm" onClick={() => setShowInviteModal(false)} />
+          <button
+            type="button"
+            aria-label="Close invite dialog"
+            className="absolute inset-0 w-full bg-ink-950/80 backdrop-blur-sm cursor-default"
+            onClick={() => setShowInviteModal(false)}
+          />
           <div className="relative w-full max-w-md bg-ink-900 border border-market-500/20 rounded-2xl p-4 sm:p-6 shadow-2xl animate-scale-in">
             <h3 className="font-display text-lg sm:text-xl font-bold text-amber-100 mb-2">Invite Freelancer</h3>
-            <p className="text-xs sm:text-sm text-amber-800 mb-6">Enter the freelancer's Stellar public key to invite them to this job.</p>
+            <p className="text-xs sm:text-sm text-amber-800 mb-6">Enter the freelancer&apos;s Stellar public key to invite them to this job.</p>
 
             <div className="space-y-4">
               <div>
-                <label className="label">Freelancer Public Key</label>
-                <input
+                <label htmlFor="freelancer-public-key" className="label">Freelancer Public Key</label>
+                <input id="freelancer-public-key"
                   type="text"
                   value={inviteFreelancerAddress}
                   onChange={(e) => setInviteFreelancerAddress(e.target.value)}

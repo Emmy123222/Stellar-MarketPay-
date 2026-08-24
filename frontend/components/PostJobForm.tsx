@@ -62,10 +62,6 @@ function StepIndicator({
     <nav
       aria-label="Form progress"
       className="w-full mb-8"
-      role="progressbar"
-      aria-valuenow={currentStep}
-      aria-valuemin={1}
-      aria-valuemax={FORM_STEPS.length}
     >
       <ol className="flex items-center">
         {FORM_STEPS.map((step, i) => {

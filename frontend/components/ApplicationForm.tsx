@@ -132,8 +132,8 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
 
         <div className="space-y-5">
           <div>
-            <label className="label">Use Template</label>
-            <select
+            <label htmlFor="use-template" className="label">Use Template</label>
+            <select id="use-template"
               value={selectedTemplateId}
               onChange={(e) => {
                 const templateId = e.target.value;
@@ -185,8 +185,8 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
 
           {/* Bid amount */}
           <div>
-            <label className="label">Your Bid (XLM)</label>
-            <input
+            <label htmlFor="your-bid-xlm" className="label">Your Bid (XLM)</label>
+            <input id="your-bid-xlm"
               type="number" value={bidAmount} onChange={(e) => setBidAmount(e.target.value)}
               min="1" step="1" className="input-field"
               placeholder="Enter your bid amount"
@@ -197,8 +197,8 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
           </div>
 
           <div>
-            <label className="label">Reveal Nonce (keep safe)</label>
-            <input
+            <label htmlFor="reveal-nonce-keep-safe" className="label">Reveal Nonce (keep safe)</label>
+            <input id="reveal-nonce-keep-safe"
               type="text"
               value={revealNonce}
               onChange={(e) => setRevealNonce(e.target.value)}
@@ -213,9 +213,9 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
           {/* Screening Questions */}
           {job.screeningQuestions && job.screeningQuestions.length > 0 && (
             <div>
-              <label className="label">Screening Questions <span className="text-red-400">*</span></label>
+              <span id="screening-questions" className="label">Screening Questions <span className="text-red-400">*</span></span>
               <p className="text-xs text-amber-600 mb-3">Please answer all questions to submit your application.</p>
-              <div className="space-y-4">
+              <div className="space-y-4" role="group" aria-labelledby="screening-questions">
                 {job.screeningQuestions.map((question, index) => (
                   <div key={index}>
                     <label className="text-sm text-amber-200 mb-1.5 block">

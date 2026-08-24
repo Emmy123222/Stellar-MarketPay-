@@ -13,6 +13,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import NotificationBell from "@/components/NotificationBell";
 import { fetchJobs, searchFreelancers } from "@/lib/api";
 import type { Job, UserProfile } from "@/utils/types";
+import { shortenAddress } from "@/utils/format";
 
 interface NavbarProps {
   publicKey: string | null;
@@ -42,11 +43,13 @@ export default function Navbar({
   onDisconnect,
 }: NavbarProps) {
   const router = useRouter();
-  const { t } = useTranslation("common");
+  const { t, i18n } = useTranslation("common");
+  const { theme, toggleTheme } = useTheme();
+  // Gate theme-dependent UI until after hydration so SSR and client agree.
+  const [mounted, setMounted] = useState(false);
   const [hasNotification, setHasNotification] = useState(false);
   const [hasJobAlertBadge, setHasJobAlertBadge] = useState(false);
   const { currencyMode, setCurrencyMode, priceLoading } = usePriceContext();
-  const [darkMode, setDarkMode] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [balance, setBalance] = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
@@ -364,14 +367,14 @@ export default function Navbar({
         {/* Dark Mode Toggle */}
         <div className="hidden md:flex items-center">
           <button
-            onClick={toggleDarkMode}
+            onClick={toggleTheme}
             className="p-1.5 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors"
-            title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             aria-label={
-              darkMode ? "Switch to light mode" : "Switch to dark mode"
+              theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
             }
           >
-            {darkMode ? (
+            {theme === "dark" ? (
               <svg
                 className="w-4 h-4"
                 viewBox="0 0 24 24"

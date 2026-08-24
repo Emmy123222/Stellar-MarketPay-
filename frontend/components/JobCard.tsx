@@ -212,7 +212,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
           isFocused ? "ring-2 ring-market-400/50" : "",
           job.isInvited ? "ring-2 ring-market-400/30 bg-market-500/5" : "",
         ].join(" ")}
-        tabIndex={0}
+        tabIndex={-1}
         data-job-card-focus={isFocused ? "true" : undefined}
         onFocus={onFocus}
         onMouseEnter={handleMouseEnter}

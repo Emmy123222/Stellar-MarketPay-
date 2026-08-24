@@ -110,8 +110,18 @@ export default function CommandPalette({ isOpen, onClose }: { isOpen: boolean; o
   const groups = ["Pages", "Jobs", "Freelancers"] as const;
   const activeId = results[activeIndex]?.id;
   return (
-    <div className="fixed inset-0 z-[90] bg-ink-950/80 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="command-palette-title" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={dialogRef} className="mx-auto mt-24 max-w-2xl overflow-hidden rounded-2xl border border-market-500/30 bg-ink-900 shadow-2xl">
+    <div
+      role="presentation"
+      className="fixed inset-0 z-[90] bg-ink-950/80 backdrop-blur-sm p-4"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="command-palette-title"
+        className="mx-auto mt-24 max-w-2xl overflow-hidden rounded-2xl border border-market-500/30 bg-ink-900 shadow-2xl"
+      >
         <div className="border-b border-market-500/20 p-4">
           <h2 id="command-palette-title" className="sr-only">Command palette</h2>
           <input ref={inputRef} role="combobox" aria-expanded="true" aria-controls="command-palette-results" aria-activedescendant={activeId} value={query} onChange={(e) => { setQuery(e.target.value); setActiveIndex(0); }} placeholder="Search pages, jobs, or freelancers…" className="input-field w-full" />

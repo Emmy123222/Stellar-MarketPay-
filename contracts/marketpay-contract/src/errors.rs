@@ -340,9 +340,7 @@ impl ContractError {
             }
             Self::CannotExtendStatus => "Cannot extend timeout in current status",
             Self::NewTimeoutMustBeLater => "New timeout must be later than current timeout",
-            Self::ExtensionAlreadyPending => {
-                "An extension request is already pending for this job"
-            }
+            Self::ExtensionAlreadyPending => "An extension request is already pending for this job",
             Self::NoPendingExtension => "No pending extension request",
             Self::CannotApproveOwnExtension => "Cannot approve your own extension request",
             Self::OnlyParticipantsCanApprove => {
@@ -530,10 +528,7 @@ mod tests {
     fn soroban_wrapped_error_parsed() {
         // Simulate Soroban's "Error(Contract, #N)" wrapping
         // Unknown contract errors return the generic code 0
-        assert_eq!(
-            error_code_from_panic("Error(Contract, #1)"),
-            Some(0)
-        );
+        assert_eq!(error_code_from_panic("Error(Contract, #1)"), Some(0));
     }
 
     #[test]
@@ -556,17 +551,11 @@ mod tests {
 
     #[test]
     fn unknown_message_returns_none() {
-        assert_eq!(
-            error_code_from_panic("Some random unknown error"),
-            None
-        );
+        assert_eq!(error_code_from_panic("Some random unknown error"), None);
     }
 
     #[test]
     fn error_prefix_stripped() {
-        assert_eq!(
-            error_code_from_panic("Error: Escrow not found"),
-            Some(2004)
-        );
+        assert_eq!(error_code_from_panic("Error: Escrow not found"), Some(2004));
     }
 }

@@ -92,7 +92,7 @@ export default function OfflinePage() {
               Recently viewed jobs
             </h2>
 
-            <ul className="space-y-3" role="list">
+            <ul className="space-y-3">
               {lastViewed.map((job) => (
                 <li key={job.id}>
                   <Link
