@@ -934,43 +934,75 @@ Returns the integer floor average of all ratings the freelancer has received. Re
 
 ## Dispute Arbitration
 
-Formal dispute resolution with a randomly selected 3-arbitrator panel.
+The escrow contract supports two dispute paths:
 
-### `register_arbitrator`
+- Direct admin/arbitrator settlement through `raise_dispute` and `resolve_dispute`.
+- Formal arbitration case finalization through `resolve_arbitration` for pre-recorded `ArbitrationCase` storage records.
+
+Arbitrator enrollment is handled by the separate `contracts/arbitrator-registry` contract (`initialize`, `register`, `deregister`, `dao_register_arbitrator`, `dao_remove_arbitrator`, and related getters). The current `MarketPayContract` source does not expose `register_arbitrator`, `open_arbitration`, `cast_arbitration_vote`, or `get_arbitration_case` entry points.
+
+### `set_dispute_bond`
 
 ```rust
-pub fn register_arbitrator(env: Env, admin: Address, arbitrator: Address)
+pub fn set_dispute_bond(env: Env, admin: Address, token: Address, amount: i128)
 ```
 
-Admin adds a trusted address to the arbitrator pool.
+Configures the token and amount a participant must lock before raising a dispute. Emits `dispute_bond`.
 
 **Auth required:** `admin`
+**Panics:** `"Only admin can update the dispute bond"`, `"Bond amount must be positive"`
 
 ---
 
-### `open_arbitration`
+### `raise_dispute`
 
 ```rust
-pub fn open_arbitration(env: Env, job_id: String, admin: Address) -> u32
+pub fn raise_dispute(env: Env, job_id: String, caller: Address)
 ```
 
-Admin opens a formal arbitration case. Selects 3 arbitrators from the pool using `ledger_sequence % pool_size` as a deterministic (non-cryptographic) seed. Returns the `case_id`.
+Moves an active escrow to `Disputed`. The caller must be the client or freelancer and must transfer the configured dispute bond into the contract. Emits `escrow_ds`.
 
-**Auth required:** `admin`
-**Panics:** `"Need at least 3 registered arbitrators"`
+**Auth required:** `caller`
+**Panics:** `"Only participants can raise a dispute"`, `"Cannot dispute a resolved, frozen, or already-disputed escrow"`, `"Caller must have a non-zero dispute bond"`
 
 ---
 
-### `cast_arbitration_vote`
+### `resolve_dispute`
 
 ```rust
-pub fn cast_arbitration_vote(env: Env, case_id: u32, arbitrator: Address, client_percent: u32)
+pub fn resolve_dispute(
+    env: Env,
+    job_id: String,
+    arbitrator: Address,
+    winner: Address,
+    split_percentage: u32,
+)
 ```
 
-Each of the 3 selected arbitrators votes on what share (0–100%) of the escrowed funds should go to the client. The remainder goes to the freelancer.
+The configured arbitrator resolves a disputed escrow. `split_percentage` is the winner's share, from `0` through `100`, and the remainder is paid to the other participant. Emits `dispute_resolved`.
 
-**Auth required:** `arbitrator` (must be one of the 3 selected)
-**Panics:** `"Client percent must be 0-100"`, `"Arbitration case is not open"`, `"Only selected arbitrators can vote"`, `"All votes already submitted"`
+**Auth required:** `arbitrator`
+**Panics:** `"Only the arbitrator can resolve a dispute"`, `"Split percentage must be between 0 and 100"`, `"Escrow is not in Disputed state"`
+
+---
+
+### `get_dispute_bond_config`
+
+```rust
+pub fn get_dispute_bond_config(env: Env) -> (Option<Address>, i128)
+```
+
+Returns the configured dispute-bond token and amount. Returns `(None, 0)` if no bond is configured.
+
+---
+
+### `get_dispute_bond`
+
+```rust
+pub fn get_dispute_bond(env: Env, job_id: String) -> Option<DisputeBond>
+```
+
+Returns the locked dispute-bond record for a job, if a dispute bond has been posted.
 
 ---
 
@@ -980,20 +1012,10 @@ Each of the 3 selected arbitrators votes on what share (0–100%) of the escrowe
 pub fn resolve_arbitration(env: Env, case_id: u32)
 ```
 
-Finalizes the case once all 3 votes are in. The resolution is the **median** vote (drops the highest and lowest). Emits `arb_res`. Callable by anyone.
+Finalizes a stored arbitration case once all 3 votes are in. The resolution is the **median** vote (drops the highest and lowest). Emits `arb_rsl`. Callable by anyone.
 
 **Auth required:** None
 **Panics:** `"Exactly 3 votes required"`
-
----
-
-### `get_arbitration_case`
-
-```rust
-pub fn get_arbitration_case(env: Env, case_id: u32) -> ArbitrationCase
-```
-
-Returns the full arbitration case record.
 
 ---
 

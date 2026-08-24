@@ -30,57 +30,97 @@
                                                ▲
                                                │ Soroban
                                   ┌────────────────────────────────┐
-                                  │  MarketPay Escrow Contract     │
-                                  │  (Rust/WASM)                   │
+                                  │  MarketPay Contract Suite      │
+                                  │  (Soroban Rust/WASM)           │
                                   │                                │
-                                  │  create_escrow()               │
-                                  │  start_work()                  │
-                                  │  release_escrow()              │
-                                  │  refund_escrow()               │
+                                  │  Escrow lifecycle              │
+                                  │  Milestones + disputes         │
+                                  │  Sealed-bid auctions           │
+                                  │  Deliverables + evidence CIDs  │
+                                  │  Governance + admin controls   │
                                   └────────────────────────────────┘
 ```
 
 ## Job Lifecycle
 
 ```
-Client posts job ──► Budget locked in Soroban escrow
+Client posts job ──► Optional sealed budget commitment
          │
          ▼
-Freelancers submit proposals
+Freelancers submit sealed bid commitments
          │
          ▼
-Client reviews & accepts proposal
+Client closes bidding; freelancers reveal bids
+         │
+         ▼
+Client selects freelancer and creates escrow
+         │
+         ▼
+Budget locked in Soroban escrow
+         │
+         ▼
+Freelancer starts work
          │
          ▼
 Job status → in_progress
-Freelancer notified
          │
          ▼
-Freelancer delivers work
+Freelancer submits deliverable hash / IPFS evidence
          │
          ▼
-Client reviews deliverables
+Client reviews deliverables or milestones
          │
-    ┌────┴────┐
-    │         │
-Approve    Dispute
-    │         │
-    ▼         ▼
-Escrow    Admin
-released  resolves (v2.1)
-to
-freelancer
+    ┌────┴───────────────┬──────────────────┐
+    │                    │                  │
+Approve              Dispute          Timeout/refund
+    │                    │                  │
+    ▼                    ▼                  ▼
+Funds released       Bonded dispute   Funds refunded
+to freelancer        + arbitration    when eligible
 ```
 
 ## Escrow Flow (Soroban Contract)
 
 ```
-create_escrow()          start_work()         release_escrow()
-[Client locks XLM]  →  [Work begins]    →   [Funds sent to freelancer]
-      │                                              OR
-      └──────────── refund_escrow() ────────── [Refund to client]
-                   [Before work starts]
+commit_budget() ──► submit_bid_commitment() ──► close_bidding() ──► reveal_bid()
+      │
+      ▼
+create_escrow() / create_escrow_with_milestones()
+[Client locks XLM/USDC in the selected SAC token]
+      │
+      ├──► start_work() ──► release_escrow()
+      │                    [Full payout, platform fee, optional referral bonus]
+      │
+      ├──► release_milestone() / reject_milestone()
+      │                    [Partial payout or milestone refund]
+      │
+      ├──► submit_deliverable_hash() / submit_deliverable()
+      │                    [Hash match auto-releases; mismatch enters dispute]
+      │
+      ├──► raise_dispute() ──► resolve_dispute() / resolve_arbitration()
+      │                    [Bonded dispute path with evidence CIDs]
+      │
+      └──► refund_escrow() / timeout_refund()
+                           [Client refund before work or after timeout]
 ```
+
+## Contract Surface
+
+The primary `MarketPayContract` exposes these capability groups:
+
+| Capability | Representative entry points |
+|------------|-----------------------------|
+| Initialization and upgrades | `initialize`, `upgrade`, `get_version` |
+| Escrow lifecycle | `create_escrow`, `start_work`, `release_escrow`, `refund_escrow`, `timeout_refund` |
+| Milestones | `create_escrow_with_milestones`, `release_milestone`, `reject_milestone`, `get_milestone` |
+| Disputes and arbitration | `raise_dispute`, `resolve_dispute`, `set_dispute_bond`, `get_dispute_bond`, `resolve_arbitration` |
+| Sealed-bid auctions | `commit_budget`, `reveal_budget`, `submit_bid_commitment`, `close_bidding`, `reveal_bid`, `get_revealed_bids` |
+| Deliverables and evidence | `submit_deliverable_hash`, `submit_deliverable`, `submit_evidence_cid`, `get_evidence_cids` |
+| Certificates and ratings | `mint_certificate`, `get_certificate`, `submit_client_rating`, `submit_freelancer_rating` |
+| Messaging | `publish_message`, `get_message_cids` |
+| Governance and administration | `create_proposal`, `cast_vote`, `resolve_proposal`, `freeze_contract`, `unfreeze_contract`, `set_platform_fee_bps` |
+
+`contracts/arbitrator-registry` is a separate registry contract for arbitrator enrollment and DAO-managed registry updates.
 
 ## Security Model
 

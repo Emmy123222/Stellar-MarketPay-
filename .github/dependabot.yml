@@ -1,0 +1,95 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 3
+    groups:
+      root-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:15"
+    open-pull-requests-limit: 3
+    groups:
+      backend-runtime:
+        patterns:
+          - express
+          - helmet
+          - cors
+          - pg
+          - zod
+          - jsonwebtoken
+        update-types:
+          - minor
+          - patch
+      backend-tooling:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:30"
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: react
+        update-types:
+          - version-update:semver-major
+      - dependency-name: react-dom
+        update-types:
+          - version-update:semver-major
+      - dependency-name: storybook
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@storybook/*"
+        update-types:
+          - version-update:semver-major
+    groups:
+      react-18-minor-patch:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+        update-types:
+          - minor
+          - patch
+      storybook-8-minor-patch:
+        patterns:
+          - storybook
+          - "@storybook/*"
+        update-types:
+          - minor
+          - patch
+      frontend-tooling:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:45"
+    open-pull-requests-limit: 2
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch

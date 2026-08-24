@@ -11,10 +11,13 @@ This guide covers common issues you may encounter when developing, deploying, or
   - [WebSocket Disconnects](#websocket-disconnects)
 - [Backend Issues](#backend-issues)
   - [PostgreSQL Migration Failure](#postgresql-migration-failure)
+  - [Migration Version Collision](#migration-version-collision)
+  - [CSRF 403 From Scripts](#csrf-403-from-scripts)
   - [Redis Connection Refused](#redis-connection-refused)
   - [Soroban RPC Timeout](#soroban-rpc-timeout)
   - [IPFS Upload Failure](#ipfs-upload-failure)
 - [CI/CD Issues](#cicd-issues)
+  - [npm ci Peer Dependency Conflict](#npm-ci-peer-dependency-conflict)
   - [Workflow Failures (Missing Secrets)](#workflow-failures-missing-secrets)
 - [Network Issues](#network-issues)
   - [Wrong Stellar Network](#wrong-stellar-network)
@@ -458,6 +461,99 @@ npm run migrate:rollback
 
 ---
 
+### Migration Version Collision
+
+**Symptom**:
+```
+Error: duplicate key value violates unique constraint "schema_migrations_pkey"
+Migration failed: version V12 has already been applied
+Error: migration version collision: V12__*.sql
+```
+
+**Cause**:
+Two branches introduced migrations with the same numeric prefix, or a local database already recorded a migration version whose file was renamed on the current branch.
+
+**Fix**:
+
+#### 1. Compare Files and Applied Versions
+
+```bash
+cd backend
+ls src/db/migrations
+psql "$DATABASE_URL" -c "select version, name, applied_at from schema_migrations order by version;"
+```
+
+#### 2. Rename the Newer Migration
+
+Use the next unused version number:
+
+```bash
+git mv src/db/migrations/V12__new_feature.up.sql src/db/migrations/V13__new_feature.up.sql
+git mv src/db/migrations/V12__new_feature.down.sql src/db/migrations/V13__new_feature.down.sql
+```
+
+Update any tests or documentation that reference the old filename.
+
+#### 3. Reset Only Disposable Local Databases
+
+If the collision exists only in a throwaway local database:
+
+```bash
+dropdb stellarwork_dev
+createdb stellarwork_dev
+npm run migrate
+```
+
+Do not delete rows from `schema_migrations` in shared, staging, or production databases. Add a forward migration that repairs state instead.
+
+**Related Files**:
+- `backend/src/db/migrate.js`
+- `backend/src/db/migrations/*.sql`
+
+---
+
+### CSRF 403 From Scripts
+
+**Symptom**:
+```
+HTTP/1.1 403 Forbidden
+ForbiddenError: invalid csrf token
+Error: CSRF token missing or invalid
+```
+
+**Cause**:
+State-changing API routes require the CSRF cookie and matching token header. Browser flows obtain both automatically, but `curl`, one-off Node scripts, and API clients often post JSON directly without first fetching the CSRF token.
+
+**Fix**:
+
+#### 1. Fetch a CSRF Token and Keep Cookies
+
+```bash
+curl -c cookies.txt http://localhost:4000/api/csrf-token
+```
+
+#### 2. Send the Token on the Write Request
+
+```bash
+TOKEN="$(curl -s -b cookies.txt -c cookies.txt http://localhost:4000/api/csrf-token | jq -r .csrfToken)"
+curl -b cookies.txt \
+  -H "Content-Type: application/json" \
+  -H "x-csrf-token: $TOKEN" \
+  -X POST http://localhost:4000/api/jobs \
+  -d '{"title":"Test job"}'
+```
+
+#### 3. Use the Test Helper in Backend Tests
+
+For integration tests, use the shared test app/helper so cookies and CSRF headers are set consistently instead of hand-building each request.
+
+**Related Files**:
+- `backend/src/middleware/csrf.js`
+- `backend/src/server.js`
+- `backend/tests/`
+
+---
+
 ### Redis Connection Refused
 
 **Symptom**:
@@ -763,6 +859,53 @@ curl -X POST https://api.pinata.cloud/pinning/pinFileToIPFS \
 ---
 
 ## CI/CD Issues
+
+### npm ci Peer Dependency Conflict
+
+**Symptom**:
+```
+npm ERR! ERESOLVE unable to resolve dependency tree
+npm ERR! peer react@"^19.0.0" from react-dom@19
+npm ERR! peer storybook@"^10.0.0" from @storybook/react-vite@10
+```
+
+**Cause**:
+The lockfile or package manifests contain incompatible major versions. Common examples are `react-dom@19` with `react@18`, or `@storybook/react-vite@10` while the rest of Storybook remains on `8.6.x`.
+
+**Fix**:
+
+#### 1. Check the Installed Major Versions
+
+```bash
+cd frontend
+npm ls react react-dom storybook @storybook/react-vite
+```
+
+#### 2. Keep Related Packages on the Same Major
+
+For the current React 18 / Storybook 8 stack:
+
+```bash
+npm install react@^18.3.1 react-dom@^18.3.1
+npm install -D storybook@^8.6.18 @storybook/react@^8.6.18 @storybook/react-vite@^8.6.18
+```
+
+#### 3. Regenerate the Lockfile
+
+```bash
+rm -rf node_modules package-lock.json
+npm install
+npm ci
+```
+
+Avoid committing `--legacy-peer-deps` as a permanent fix. It hides the conflict and lets incompatible majors drift further apart.
+
+**Related Files**:
+- `frontend/package.json`
+- `frontend/package-lock.json`
+- `.github/dependabot.yml`
+
+---
 
 ### Workflow Failures (Missing Secrets)
 
