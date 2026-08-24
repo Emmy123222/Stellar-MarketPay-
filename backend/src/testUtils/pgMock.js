@@ -122,6 +122,17 @@ function defaultEscrowRow(overrides = {}) {
   };
 }
 
+function defaultOnboardingRow(overrides = {}) {
+  return {
+    public_key: overrides.public_key || "G" + "A".repeat(55),
+    current_step: overrides.current_step ?? 0,
+    completed_steps: overrides.completed_steps || [],
+    dismissed: overrides.dismissed ?? false,
+    completed: overrides.completed ?? false,
+    updated_at: overrides.updated_at || new Date().toISOString(),
+  };
+}
+
 // Helper: find the last occurrence of a numeric param placeholder like $1, $2, etc.
 // and extract the first non-null param index to use as the id for lookups.
 function findJobIdFromUpdate(text, params) {
@@ -149,6 +160,7 @@ function createPgMock() {
   const daoArbitrators = new Map();
   const apiKeys = new Map();
   const escrows = new Map();
+  const onboardingProgress = new Map();
 
   const query = jest.fn(async (sql, params = []) => {
     const text = sql.replace(/\s+/g, " ").trim();
@@ -598,6 +610,24 @@ function createPgMock() {
       return { rows: [{ id: 1 }] };
     }
 
+    // Onboarding progress upsert
+    if (text.startsWith("INSERT INTO onboarding_progress")) {
+      const row = defaultOnboardingRow({
+        public_key: params[0],
+        current_step: params[1],
+        completed_steps: typeof params[2] === "string" ? JSON.parse(params[2]) : params[2],
+        dismissed: params[3],
+        completed: params[4],
+      });
+      onboardingProgress.set(row.public_key, row);
+      return { rows: [row] };
+    }
+
+    if (text.includes("FROM onboarding_progress") && text.includes("public_key = $1")) {
+      const row = onboardingProgress.get(params[0]);
+      return { rows: row ? [row] : [] };
+    }
+
     // Generic SELECT from categories
     if (text.includes("FROM categories")) {
       return { rows: [] };
@@ -768,6 +798,7 @@ function createPgMock() {
     daoArbitrators.clear();
     apiKeys.clear();
     escrows.clear();
+    onboardingProgress.clear();
     query.mockClear();
     connect.mockClear();
   }
@@ -783,6 +814,7 @@ function createPgMock() {
     daoArbitrators,
     apiKeys,
     escrows,
+    onboardingProgress,
     reset,
     end: jest.fn(),
   };
@@ -800,4 +832,5 @@ module.exports = {
   defaultDaoArbitratorRow,
   defaultApiKeyRow,
   defaultEscrowRow,
+  defaultOnboardingRow,
 };
