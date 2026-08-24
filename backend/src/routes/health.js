@@ -109,7 +109,7 @@ async function checkHorizon() {
 
 /**
  * @swagger
- * /health:
+ * /api/health:
  *   get:
  *     summary: Health check
  *     description: >
@@ -173,7 +173,18 @@ router.get("/", healthRateLimiter, async (req, res) => {
   res.status(allUp ? 200 : 503).json(body);
 });
 
-// GET /health/db — pool connection stats for monitoring
+// GET /api/health/db — pool connection stats for monitoring
+/**
+ * @swagger
+ * /api/health/db:
+ *   get:
+ *     summary: Database pool stats
+ *     description: Pool connection statistics for monitoring dashboards.
+ *     tags: [Health]
+ *     responses:
+ *       200:
+ *         description: Pool statistics
+ */
 router.get("/db", healthRateLimiter, async (req, res) => {
   const stats = getPoolStats();
   res.json({
