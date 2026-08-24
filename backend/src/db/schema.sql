@@ -1,5 +1,34 @@
 -- Idempotent schema.  Run via migrate.js on every startup.
 
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- ─────────────────────────────────────────
+-- categories (normalised taxonomy — V18)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS categories (
+  id        SERIAL  PRIMARY KEY,
+  slug      TEXT    UNIQUE NOT NULL,
+  name      TEXT    NOT NULL,
+  parent_id INTEGER REFERENCES categories(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS categories_parent_id_idx ON categories(parent_id);
+CREATE INDEX IF NOT EXISTS categories_slug_idx      ON categories(slug);
+
+-- Seed top-level categories (idempotent)
+INSERT INTO categories (slug, name, parent_id) VALUES
+  ('smart-contracts',      'Smart Contracts',      NULL),
+  ('frontend-development', 'Frontend Development', NULL),
+  ('backend-development',  'Backend Development',  NULL),
+  ('ui-ux-design',         'UI/UX Design',         NULL),
+  ('technical-writing',    'Technical Writing',    NULL),
+  ('devops',               'DevOps',               NULL),
+  ('security-audit',       'Security Audit',       NULL),
+  ('data-analysis',        'Data Analysis',        NULL),
+  ('mobile-development',   'Mobile Development',   NULL),
+  ('other',                'Other',                NULL)
+ON CONFLICT (slug) DO NOTHING;
+
 -- ─────────────────────────────────────────
 -- profiles
 -- ─────────────────────────────────────────
@@ -15,7 +44,9 @@ CREATE TABLE IF NOT EXISTS profiles (
   total_earned_xlm  NUMERIC(20,7) NOT NULL DEFAULT 0,
   rating            NUMERIC(3,2),                -- NULL until first rating
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reputation_points INTEGER     NOT NULL DEFAULT 0,
+  referral_count    INTEGER     NOT NULL DEFAULT 0
 );
 
 ALTER TABLE profiles
@@ -25,15 +56,29 @@ ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS availability JSONB;
 
 ALTER TABLE profiles
-  ADD COLUMN IF NOT EXISTS did_hash TEXT,
-  ADD COLUMN IF NOT EXISTS is_kyc_verified BOOLEAN NOT NULL DEFAULT FALSE,
-  ADD COLUMN IF NOT EXISTS github_username TEXT,
-  ADD COLUMN IF NOT EXISTS github_avatar_url TEXT,
-  ADD COLUMN IF NOT EXISTS github_profile_url TEXT,
-  ADD COLUMN IF NOT EXISTS github_primary_languages TEXT[] NOT NULL DEFAULT '{}',
-  ADD COLUMN IF NOT EXISTS github_top_repos JSONB NOT NULL DEFAULT '[]'::jsonb,
-  ADD COLUMN IF NOT EXISTS github_token_encrypted TEXT,
-  ADD COLUMN IF NOT EXISTS github_connected_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS blocked_addresses TEXT[] NOT NULL DEFAULT '{}';
+
+-- Weekly digest fields (V5)
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS email                   TEXT,
+  ADD COLUMN IF NOT EXISTS last_login_at           TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS digest_unsubscribe_token UUID NOT NULL DEFAULT gen_random_uuid();
+
+CREATE UNIQUE INDEX IF NOT EXISTS profiles_digest_unsubscribe_token_idx
+  ON profiles(digest_unsubscribe_token);
+
+-- V12 columns (Issues #553)
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS encryption_public_key TEXT;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS preferred_language TEXT NOT NULL DEFAULT 'en';
+
+CREATE INDEX IF NOT EXISTS profiles_deleted_at_idx ON profiles(deleted_at)
+  WHERE deleted_at IS NOT NULL;
 
 -- ─────────────────────────────────────────
 -- jobs
@@ -43,8 +88,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   title               TEXT        NOT NULL,
   description         TEXT        NOT NULL,
   budget              NUMERIC(20,7) NOT NULL,
+  currency            TEXT        NOT NULL DEFAULT 'XLM',
   category            TEXT        NOT NULL,
-  skills              TEXT[]      NOT NULL DEFAULT '{}',
   status              TEXT        NOT NULL DEFAULT 'open',
   client_address      TEXT        NOT NULL REFERENCES profiles(public_key),
   freelancer_address  TEXT        REFERENCES profiles(public_key),
@@ -53,12 +98,22 @@ CREATE TABLE IF NOT EXISTS jobs (
   deadline            TIMESTAMPTZ,
   timezone            TEXT,
   screening_questions TEXT[]      NOT NULL DEFAULT '{}',
+  milestones          JSONB       NOT NULL DEFAULT '[]'::jsonb,
+  dispute_reason      TEXT,
+  dispute_description TEXT,
+  disputed_by         TEXT        REFERENCES profiles(public_key),
+  disputed_at         TIMESTAMPTZ,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at          TIMESTAMPTZ,
   extended_count      INTEGER     NOT NULL DEFAULT 0,
-  extended_until      TIMESTAMPTZ
+  extended_until      TIMESTAMPTZ,
+  view_count          INTEGER     NOT NULL DEFAULT 0
 );
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS share_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS boosted BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS boosted_until TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS jobs_status_idx          ON jobs(status);
 CREATE INDEX IF NOT EXISTS jobs_category_idx        ON jobs(category);
@@ -75,7 +130,73 @@ ALTER TABLE jobs
   ADD COLUMN IF NOT EXISTS screening_questions TEXT[] NOT NULL DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS extended_count INTEGER NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS extended_until TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS extended_until TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS bidding_closed_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS tfidf_vector JSONB;
+
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+-- V18: normalised category FK
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS jobs_category_id_idx ON jobs(category_id);
+
+-- Back-fill category_id from legacy free-text category column
+UPDATE jobs j
+SET    category_id = c.id
+FROM   categories c
+WHERE (LOWER(TRIM(j.category)) = REPLACE(LOWER(TRIM(c.slug)), '-', ' ')
+   OR  LOWER(TRIM(j.category)) = LOWER(TRIM(c.name)))
+  AND  j.category_id IS NULL;
+
+-- Fallback unmapped rows to 'other'
+UPDATE jobs j
+SET    category_id = c.id
+FROM   categories c
+WHERE  c.slug = 'other'
+  AND  j.category_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS jobs_deleted_at_idx ON jobs(deleted_at)
+  WHERE deleted_at IS NOT NULL;
+
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS job_search_vector tsvector
+  GENERATED ALWAYS AS (
+    setweight(to_tsvector('simple', COALESCE(title, '')), 'A') ||
+    setweight(to_tsvector('simple', COALESCE(description, '')), 'B')
+  ) STORED;
+
+-- Issue #773: Full-text search column (managed by trigger, uses 'english' config for stemming)
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS search_vector TSVECTOR;
+
+-- Trigger function to automatically keep search_vector in sync
+CREATE OR REPLACE FUNCTION jobs_search_vector_update()
+RETURNS trigger AS $$
+BEGIN
+  NEW.search_vector := to_tsvector(
+    'english',
+    coalesce(NEW.title, '') || ' ' || coalesce(NEW.description, '')
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create the trigger (fires on INSERT or UPDATE of title/description)
+DROP TRIGGER IF EXISTS trg_jobs_search_vector ON jobs;
+CREATE TRIGGER trg_jobs_search_vector
+  BEFORE INSERT OR UPDATE OF title, description ON jobs
+  FOR EACH ROW
+  EXECUTE FUNCTION jobs_search_vector_update();
+
+-- Backfill search_vector for existing rows
+UPDATE jobs
+SET search_vector = to_tsvector('english', coalesce(title, '') || ' ' || coalesce(description, ''))
+WHERE search_vector IS NULL;
 
 -- enforce valid visibility values for all rows
 DO $$
@@ -92,6 +213,22 @@ BEGIN
 END $$;
 
 -- ─────────────────────────────────────────
+-- skills
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS skills (
+  id SERIAL PRIMARY KEY,
+  slug TEXT UNIQUE NOT NULL,
+  display_name TEXT NOT NULL,
+  category TEXT
+);
+
+CREATE TABLE IF NOT EXISTS job_skills (
+  job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  skill_id INT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+  PRIMARY KEY (job_id, skill_id)
+);
+
+-- ─────────────────────────────────────────
 -- applications
 -- ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS applications (
@@ -103,11 +240,13 @@ CREATE TABLE IF NOT EXISTS applications (
   status              TEXT        NOT NULL DEFAULT 'pending',
   accepted_at         TIMESTAMPTZ,                 -- When the client accepted this application
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  referred_by         TEXT        REFERENCES profiles(public_key),
   UNIQUE (job_id, freelancer_address)              -- prevent duplicate applications
 );
 
 CREATE INDEX IF NOT EXISTS applications_job_id_idx             ON applications(job_id);
 CREATE INDEX IF NOT EXISTS applications_freelancer_address_idx ON applications(freelancer_address);
+CREATE INDEX IF NOT EXISTS applications_job_created_idx        ON applications(job_id, created_at ASC);
 
 -- ─────────────────────────────────────────
 -- job analytics (Issue #212)
@@ -133,7 +272,8 @@ CREATE TABLE IF NOT EXISTS private_messages (
   recipient_public_key  TEXT        NOT NULL,
   nonce                 TEXT        NOT NULL,
   cipher_text           TEXT        NOT NULL,
-  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (nonce)
 );
 
 CREATE INDEX IF NOT EXISTS private_messages_participants_idx
@@ -141,7 +281,13 @@ CREATE INDEX IF NOT EXISTS private_messages_participants_idx
 
 ALTER TABLE applications
   ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'XLM',
-  ADD COLUMN IF NOT EXISTS screening_answers JSONB NOT NULL DEFAULT '{}'::jsonb;
+  ADD COLUMN IF NOT EXISTS screening_answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS withdrawn_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS bid_commitment TEXT,
+  ADD COLUMN IF NOT EXISTS bid_nonce TEXT,
+  ADD COLUMN IF NOT EXISTS bid_revealed BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS revealed_bid_amount NUMERIC(20,7),
+  ADD COLUMN IF NOT EXISTS revealed_at TIMESTAMPTZ;
 
 -- ─────────────────────────────────────────
 -- escrows  (schema only; populated by smart-contract layer)
@@ -151,8 +297,10 @@ CREATE TABLE IF NOT EXISTS escrows (
   job_id              UUID        NOT NULL UNIQUE REFERENCES jobs(id),
   contract_id         TEXT        NOT NULL,
   amount_xlm          NUMERIC(20,7) NOT NULL,
-  status              TEXT        NOT NULL DEFAULT 'funded',   -- funded | released | refunded
+  milestones          JSONB       NOT NULL DEFAULT '[]'::jsonb,
+  status              TEXT        NOT NULL DEFAULT 'funded',   -- funded | released | refunded | timeout_refunded
   released_at         TIMESTAMPTZ,                 -- When the escrow was released
+  timeout_at          TIMESTAMPTZ,                 -- Issue #175: Ledger timeout mapped to wall-clock (approx)
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -186,140 +334,273 @@ CREATE TABLE IF NOT EXISTS ratings (
 
 CREATE INDEX IF NOT EXISTS ratings_rated_address_idx ON ratings(rated_address);
 CREATE INDEX IF NOT EXISTS ratings_job_id_idx        ON ratings(job_id);
+CREATE INDEX IF NOT EXISTS ratings_rated_created_idx ON ratings(rated_address, created_at DESC);
 
 -- ─────────────────────────────────────────
--- payment_records (on-chain payment mirror)
+-- query optimization indexes
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS payment_records (
-  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tx_hash             TEXT        NOT NULL UNIQUE,
-  operation_id        TEXT        NOT NULL UNIQUE,
-  ledger              BIGINT      NOT NULL,
-  job_id              UUID        REFERENCES jobs(id),
-  from_address        TEXT        NOT NULL,
-  to_address          TEXT        NOT NULL,
-  amount              NUMERIC(20,7) NOT NULL,
-  asset               TEXT        NOT NULL DEFAULT 'XLM',
-  memo                TEXT,
-  direction           TEXT        NOT NULL DEFAULT 'outbound',
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE INDEX IF NOT EXISTS jobs_open_public_created_idx
+  ON jobs(created_at DESC, id DESC)
+  WHERE status = 'open' AND visibility = 'public';
+
+CREATE INDEX IF NOT EXISTS jobs_status_category_created_idx
+  ON jobs(status, category, created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS jobs_search_vector_idx
+  ON jobs USING GIN (job_search_vector);
+
+-- Issue #773: GIN index for full-text search on search_vector (trigger-managed, english config)
+CREATE INDEX IF NOT EXISTS idx_jobs_search_vector ON jobs USING GIN (search_vector);
+
+CREATE INDEX IF NOT EXISTS jobs_title_trgm_idx
+  ON jobs USING GIN (lower(title) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS jobs_description_trgm_idx
+  ON jobs USING GIN (lower(description) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS profiles_public_key_rating_idx
+  ON profiles(public_key, rating);
+
+-- Issue #559: Composite indexes for common filter patterns
+CREATE INDEX IF NOT EXISTS jobs_status_category
+  ON jobs (status, category)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS jobs_client_status
+  ON jobs (client_address, status);
+
+CREATE INDEX IF NOT EXISTS jobs_created_desc
+  ON jobs (created_at DESC)
+  WHERE status = 'open';
+
+-- ─────────────────────────────────────────
+-- messages
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS messages (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id           UUID        NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  sender_address   TEXT        NOT NULL REFERENCES profiles(public_key),
+  receiver_address TEXT        NOT NULL REFERENCES profiles(public_key),
+  content          TEXT        NOT NULL CHECK (char_length(content) >= 1 AND char_length(content) <= 2000),
+  read             BOOLEAN    NOT NULL DEFAULT FALSE,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS payment_records_job_id_idx ON payment_records(job_id);
-CREATE INDEX IF NOT EXISTS payment_records_ledger_idx ON payment_records(ledger DESC);
-
 -- ─────────────────────────────────────────
--- donor_stats (simple on-chain donor leaderboard)
+-- referrals — tracks who referred whom and bonus payout status
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS donor_stats (
-  address             TEXT PRIMARY KEY,
-  total_donated_xlm   NUMERIC(20,7) NOT NULL DEFAULT 0,
-  donation_count      INTEGER       NOT NULL DEFAULT 0,
-  updated_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS referrals (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  referrer_address TEXT        NOT NULL REFERENCES profiles(public_key),
+  referee_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  job_id           UUID        REFERENCES jobs(id),          -- first job that triggered payout
+  status           TEXT        NOT NULL DEFAULT 'pending',   -- pending | paid | ineligible
+  payout_amount    NUMERIC(20,7),                            -- XLM paid to referrer (2% of job earnings)
+  paid_at          TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (referrer_address, referee_address)                 -- one referral relationship per pair
 );
 
+CREATE INDEX IF NOT EXISTS referrals_referrer_address_idx ON referrals(referrer_address);
+CREATE INDEX IF NOT EXISTS referrals_referee_address_idx  ON referrals(referee_address);
+CREATE INDEX IF NOT EXISTS referrals_job_id_idx           ON referrals(job_id);
+
 -- ─────────────────────────────────────────
--- indexer_state (single-row sync cursor)
+-- referral_payouts — audit log of every XLM bonus sent
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS indexer_state (
-  id                     INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  synced                 BOOLEAN      NOT NULL DEFAULT FALSE,
-  last_processed_ledger  BIGINT,
-  last_transaction_at    TIMESTAMPTZ,
-  updated_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS referral_payouts (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  referral_id      UUID        NOT NULL REFERENCES referrals(id),
+  referrer_address TEXT        NOT NULL REFERENCES profiles(public_key),
+  referee_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  job_id           UUID        NOT NULL REFERENCES jobs(id),
+  amount_xlm       NUMERIC(20,7) NOT NULL,
+  contract_tx_hash TEXT,                                     -- on-chain tx hash from release_escrow
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-INSERT INTO indexer_state (id, synced)
-VALUES (1, FALSE)
-ON CONFLICT (id) DO NOTHING;
+CREATE INDEX IF NOT EXISTS referral_payouts_referrer_idx ON referral_payouts(referrer_address);
+CREATE INDEX IF NOT EXISTS referral_payouts_referee_idx  ON referral_payouts(referee_address);
 
 -- ─────────────────────────────────────────
--- scope_sessions (real-time scope collaboration history)
+-- scope_sessions (real-time collaborative editor — Issue #227)
 -- ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS scope_sessions (
-  session_id          TEXT PRIMARY KEY,
-  content             TEXT        NOT NULL DEFAULT '',
-  cursors             JSONB       NOT NULL DEFAULT '{}'::jsonb,
-  finalized           BOOLEAN     NOT NULL DEFAULT FALSE,
-  finalized_payload   JSONB,
-  expires_at          TIMESTAMPTZ NOT NULL,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  session_id        TEXT PRIMARY KEY,
+  content           TEXT          NOT NULL DEFAULT '',
+  cursors           JSONB         NOT NULL DEFAULT '{}'::jsonb,
+  finalized         BOOLEAN       NOT NULL DEFAULT false,
+  finalized_hash    TEXT,
+  finalized_payload JSONB,
+  expires_at        TIMESTAMPTZ   NOT NULL,
+  created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS scope_sessions_expires_at_idx ON scope_sessions(expires_at);
 
 -- ─────────────────────────────────────────
--- contract_events (Issue #199)
+-- webauthn_credentials (passkey auth — Issue #218)
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS contract_events (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id          TEXT        NOT NULL,                -- May be UUID or contract String ID
-  event_type      TEXT        NOT NULL,                -- escrow_created, work_started, etc.
-  contract_id     TEXT        NOT NULL,
-  tx_hash         TEXT        NOT NULL,
-  ledger          BIGINT      NOT NULL,
-  data            JSONB       NOT NULL DEFAULT '{}'::jsonb,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+  id               UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
+  public_key       TEXT  NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
+  credential_id    TEXT  NOT NULL UNIQUE,
+  credential_name  TEXT  NOT NULL DEFAULT 'Passkey',
+  public_key_cose  TEXT  NOT NULL,
+  counter          BIGINT NOT NULL DEFAULT 0,
+  transports       TEXT[] NOT NULL DEFAULT '{}',
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS contract_events_job_id_idx ON contract_events(job_id);
-CREATE INDEX IF NOT EXISTS contract_events_created_at_idx ON contract_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS webauthn_credentials_public_key_idx ON webauthn_credentials(public_key);
 
 -- ─────────────────────────────────────────
--- job_drafts (Issue #219)
+-- dispute_evidence (IPFS evidence upload — Issue #223)
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS job_drafts (
-  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_address      TEXT        NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
-  title               TEXT        NOT NULL,
-  description         TEXT        NOT NULL,
-  budget              NUMERIC(20,7) NOT NULL,
-  category            TEXT        NOT NULL,
-  skills              TEXT[]      NOT NULL DEFAULT '{}',
-  currency            TEXT        NOT NULL DEFAULT 'XLM',
-  timezone            TEXT,
-  visibility          TEXT        NOT NULL DEFAULT 'public',
-  screening_questions TEXT[]      NOT NULL DEFAULT '{}',
-  deadline            TIMESTAMPTZ,
+CREATE TABLE IF NOT EXISTS dispute_evidence (
+  id               UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id           UUID  NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  uploader_address TEXT  NOT NULL REFERENCES profiles(public_key),
+  file_name        TEXT  NOT NULL,
+  file_size        INTEGER NOT NULL,
+  mime_type        TEXT  NOT NULL,
+  ipfs_cid         TEXT  NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS dispute_evidence_job_id_idx ON dispute_evidence(job_id);
+
+-- ─────────────────────────────────────────
+-- time_entries  (Issue #346 — time tracking)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS time_entries (
+  id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id              UUID        NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  freelancer_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  duration_minutes    INTEGER     NOT NULL CHECK (duration_minutes > 0 AND duration_minutes <= 1440),
+  description         TEXT,
+  milestone_index     INTEGER,
+  started_at          TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS time_entries_job_id_idx         ON time_entries(job_id);
+CREATE INDEX IF NOT EXISTS time_entries_freelancer_idx     ON time_entries(freelancer_address);
+CREATE INDEX IF NOT EXISTS time_entries_milestone_idx      ON time_entries(job_id, milestone_index);
+
+-- ─────────────────────────────────────────
+-- time_invoices  (Issue #346 — billing)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS time_invoices (
+  id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id              UUID        NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  freelancer_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  client_address      TEXT        NOT NULL REFERENCES profiles(public_key),
+  total_minutes       INTEGER     NOT NULL CHECK (total_minutes > 0),
+  hourly_rate_xlm     NUMERIC(20,7) NOT NULL,
+  total_amount_xlm    NUMERIC(20,7) NOT NULL,
+  status              TEXT        NOT NULL DEFAULT 'pending'
+                                  CHECK (status IN ('pending', 'approved', 'rejected')),
+  entry_ids           UUID[]      NOT NULL DEFAULT '{}',
+  contract_tx_hash    TEXT,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS job_drafts_client_idx ON job_drafts(client_address);
-CREATE INDEX IF NOT EXISTS job_drafts_updated_at_idx ON job_drafts(updated_at DESC);
+CREATE INDEX IF NOT EXISTS time_invoices_job_id_idx        ON time_invoices(job_id);
+CREATE INDEX IF NOT EXISTS time_invoices_freelancer_idx    ON time_invoices(freelancer_address);
+CREATE INDEX IF NOT EXISTS time_invoices_client_idx        ON time_invoices(client_address);
 
 -- ─────────────────────────────────────────
--- platform_stats (Issue #232)
+-- job_invitations  (Issue #342 — direct invitations)
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS platform_stats (
-  id                  INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  total_jobs_posted   INTEGER     NOT NULL DEFAULT 0,
-  total_escrow_xlm    NUMERIC(20,7) NOT NULL DEFAULT 0,
-  active_users_30d    INTEGER     NOT NULL DEFAULT 0,
-  completion_rate     NUMERIC(5,2) NOT NULL DEFAULT 0,
-  avg_job_budget      NUMERIC(20,7) NOT NULL DEFAULT 0,
-  last_updated        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS job_invitations (
+  id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id              UUID        NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  client_address      TEXT        NOT NULL REFERENCES profiles(public_key),
+  freelancer_address  TEXT        NOT NULL REFERENCES profiles(public_key),
+  status              TEXT        NOT NULL DEFAULT 'pending'
+                                  CHECK (status IN ('pending', 'accepted', 'declined')),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (job_id, freelancer_address)
 );
 
-INSERT INTO platform_stats (id)
-VALUES (1)
-ON CONFLICT (id) DO NOTHING;
+CREATE INDEX IF NOT EXISTS job_invitations_freelancer_idx ON job_invitations(freelancer_address);
+CREATE INDEX IF NOT EXISTS job_invitations_job_id_idx     ON job_invitations(job_id);
+
+-- Add status column to existing job_invitations if it was created without it
+ALTER TABLE job_invitations ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending'
+  CHECK (status IN ('pending', 'accepted', 'declined'));
 
 -- ─────────────────────────────────────────
--- skill_endorsements
+-- notification_queue additions (in_app type support)
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS skill_endorsements (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  skill             TEXT NOT NULL,
-  endorser_address  TEXT NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
-  recipient_address TEXT NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (skill, endorser_address, recipient_address)
+CREATE TABLE IF NOT EXISTS notification_queue (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recipient_address   TEXT NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
+  notification_type   TEXT NOT NULL,
+  event_type          TEXT NOT NULL,
+  job_id              UUID REFERENCES jobs(id) ON DELETE CASCADE,
+  payload             JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status              TEXT NOT NULL DEFAULT 'pending',
+  retry_count         INTEGER NOT NULL DEFAULT 0,
+  error_message       TEXT,
+  sent_at             TIMESTAMPTZ,
+  last_attempt_at     TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS skill_endorsements_recipient_idx ON skill_endorsements(recipient_address, skill);
-CREATE INDEX IF NOT EXISTS skill_endorsements_endorser_idx ON skill_endorsements(endorser_address);
+CREATE INDEX IF NOT EXISTS notification_queue_status_retry_idx ON notification_queue(status, retry_count);
+CREATE INDEX IF NOT EXISTS notification_queue_recipient_idx ON notification_queue(recipient_address);
 
--- ─────────────────────────────
+-- Allow 'in_app' as a notification_type in addition to 'email' and 'webhook'
+-- The notification_queue table was created without a CHECK constraint on
+-- notification_type so this is a no-op schema change (just documentation).
 
+-- Exponential backoff retry support
+ALTER TABLE notification_queue
+  ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
+
+-- ─────────────────────────────────────────
+-- Soft-delete support (Issue #469)
+-- ─────────────────────────────────────────
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+-- ─────────────────────────────────────────
+-- ledger_timestamps  (Issue #443 — V12 migration)
+-- Maps Stellar ledger sequence numbers to UTC close timestamps so that
+-- timeout_ledger values stored on escrows can be displayed as real dates.
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ledger_timestamps (
+  ledger      INTEGER     PRIMARY KEY,
+  timestamp   TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ledger_timestamps_timestamp_idx ON ledger_timestamps(timestamp);
+
+-- ─────────────────────────────────────────
+-- audit_log  (V22 — immutable state-change audit trail)
+-- Every state-changing operation (job status change, escrow release, dispute
+-- filing, etc.) is recorded here with before/after snapshots so that any
+-- change can be traced back to the actor.
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS audit_log (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_address   TEXT        NOT NULL,
+  action          TEXT        NOT NULL,
+  entity_type     TEXT        NOT NULL,
+  entity_id       TEXT        NOT NULL,
+  old_value       JSONB,
+  new_value       JSONB,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS audit_log_entity_idx     ON audit_log(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS audit_log_actor_idx      ON audit_log(actor_address);
+CREATE INDEX IF NOT EXISTS audit_log_action_idx     ON audit_log(action);
+CREATE INDEX IF NOT EXISTS audit_log_created_idx    ON audit_log(created_at DESC);

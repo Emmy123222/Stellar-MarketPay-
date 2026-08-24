@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: marketpay
+    orgId: 1
+    folder: MarketPay
+    type: file
+    disableDeletion: false
+    editable: false
+    options:
+      path: /var/lib/grafana/dashboards

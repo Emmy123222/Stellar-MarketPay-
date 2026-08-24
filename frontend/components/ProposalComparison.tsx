@@ -1,319 +1,294 @@
-/**
- * components/ProposalComparison.tsx
- * Modal for side-by-side comparison of job applications/proposals.
- */
-import { useState, useEffect } from "react";
+"use client";
+
+import { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/router";
+import { acceptApplication, fetchPublicProfile } from "@/lib/api";
 import { formatXLM, shortenAddress } from "@/utils/format";
-import { accountUrl } from "@/lib/stellar";
-import { fetchProfile, fetchMyApplications } from "@/lib/api";
 import type { Application, Job, UserProfile } from "@/utils/types";
-import clsx from "clsx";
+import StateMessage from "@/components/StateMessage";
 
-interface ProposalComparisonProps {
-  applications: Application[];
-  job: Job | null;
-  publicKey: string | null;
-  onClose: () => void;
-  onAccept: (appId: string) => Promise<void>;
+interface Props {
+  myJobs: Job[];
+  jobApplications: Map<string, Application[]>;
+  publicKey: string;
 }
 
-interface ApplicationWithProfile extends Application {
-  profile?: UserProfile;
-  applicationCount?: number;
-}
+const TIER_COLORS: Record<string, string> = {
+  Newcomer: "bg-gray-500/10 text-gray-400 border-gray-500/30",
+  "Rising Talent": "bg-blue-500/10 text-blue-400 border-blue-500/30",
+  "Top Rated": "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+  Expert: "bg-purple-500/10 text-purple-400 border-purple-500/30",
+};
 
-export default function ProposalComparison({
-  applications,
-  job,
-  publicKey,
-  onClose,
-  onAccept,
-}: ProposalComparisonProps) {
-  const [applicationsWithProfile, setApplicationsWithProfile] = useState<ApplicationWithProfile[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function ProposalComparison({ myJobs, jobApplications, publicKey }: Props) {
+  const router = useRouter();
+  const [selectedJobId, setSelectedJobId] = useState<string>("");
+  const [selectedProposalIds, setSelectedProposalIds] = useState<Set<string>>(new Set());
+  const [profiles, setProfiles] = useState<Map<string, UserProfile>>(new Map());
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
 
+  const applications = selectedJobId ? jobApplications.get(selectedJobId) ?? [] : [];
+  const selectedApplications = applications.filter((a) => selectedProposalIds.has(a.id));
+
+  const totalProposals = useMemo(() => {
+    let count = 0;
+    jobApplications.forEach((apps) => { count += apps.length; });
+    return count;
+  }, [jobApplications]);
+
   useEffect(() => {
-    const loadProfiles = async () => {
-      if (applications.length === 0) {
-        setLoading(false);
-        return;
+    const job = router.query.job as string;
+    const compare = router.query.compare as string;
+    if (job && myJobs.some((j) => j.id === job)) {
+      setSelectedJobId(job);
+    }
+    if (compare) {
+      const ids = compare.split(",").filter(Boolean);
+      if (ids.length >= 2 && ids.length <= 4) {
+        setSelectedProposalIds(new Set(ids));
       }
+    }
+  }, []);
 
-      try {
-        const enrichedApps = await Promise.all(
-          applications.map(async (app) => {
-            try {
-              const [profile, userApplications] = await Promise.all([
-                fetchProfile(app.freelancerAddress),
-                fetchMyApplications(app.freelancerAddress),
-              ]);
-              return {
-                ...app,
-                profile,
-                applicationCount: userApplications.length,
-              };
-            } catch {
-              return {
-                ...app,
-                applicationCount: 0,
-              };
-            }
-          })
-        );
-        setApplicationsWithProfile(enrichedApps);
-      } catch (error) {
-        console.error("Failed to load profiles:", error);
-        setApplicationsWithProfile(
-          applications.map((app) => ({ ...app, applicationCount: 0 }))
-        );
-      } finally {
-        setLoading(false);
+  useEffect(() => {
+    if (!selectedJobId) return;
+    const freshest = jobApplications.get(selectedJobId) ?? [];
+    const validIds = new Set(freshest.map((a) => a.id));
+    const pruned = new Set([...selectedProposalIds].filter((id) => validIds.has(id)));
+    if (pruned.size !== selectedProposalIds.size) {
+      setSelectedProposalIds(pruned);
+    }
+  }, [selectedJobId, jobApplications]);
+
+  const syncUrl = (jobId: string, ids: Set<string>) => {
+    const query: Record<string, string | undefined> = Object.fromEntries(
+      Object.entries(router.query).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v]),
+    );
+    if (jobId) query.job = jobId;
+    else delete query.job;
+    if (ids.size >= 2) query.compare = [...ids].join(",");
+    else delete query.compare;
+    router.push({ pathname: router.pathname, query }, undefined, { shallow: true });
+  };
+
+  const selectJob = (jobId: string) => {
+    setSelectedProposalIds(new Set());
+    setSelectedJobId(jobId);
+    syncUrl(jobId, new Set());
+  };
+
+  const toggleProposal = (id: string) => {
+    setSelectedProposalIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        if (next.size >= 4) return prev;
+        next.add(id);
       }
-    };
+      syncUrl(selectedJobId, next);
+      return next;
+    });
+  };
 
-    loadProfiles();
-  }, [applications]);
-
-  const handleAccept = async (appId: string) => {
-    if (!publicKey) return;
-    setAcceptingId(appId);
+  const handleAccept = async (application: Application) => {
+    setAcceptingId(application.id);
     try {
-      await onAccept(appId);
-      onClose();
-    } catch (error) {
-      console.error("Failed to accept application:", error);
-    } finally {
+      await acceptApplication(application.id, publicKey);
+      window.location.reload();
+    } catch {
       setAcceptingId(null);
     }
   };
 
-  const getFreelancerTier = (profile?: UserProfile): string => {
-    if (!profile) return "Unknown";
-    if (profile.completedJobs >= 10) return "Expert";
-    if (profile.completedJobs >= 5) return "Senior";
-    if (profile.completedJobs >= 1) return "Mid";
-    return "Junior";
-  };
+  useEffect(() => {
+    if (selectedApplications.length < 2) return;
+    const addresses = selectedApplications.map((a) => a.freelancerAddress).filter(Boolean);
+    addresses.forEach((addr) => {
+      if (profiles.has(addr)) return;
+      fetchPublicProfile(addr).then((profile) => {
+        if (profile) {
+          setProfiles((prev) => new Map(prev).set(addr, profile));
+        }
+      });
+    });
+  }, [selectedProposalIds]);
 
-  const renderStars = (rating?: number): string => {
-    if (!rating) return "N/A";
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 >= 0.5;
-    let stars = "★".repeat(fullStars);
-    if (hasHalfStar) stars += "½";
-    return stars;
-  };
-
-  if (loading) {
+  if (myJobs.length === 0) {
     return (
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-        <div className="card max-w-6xl w-full max-h-[90vh] overflow-auto p-8 text-center">
-          <div className="animate-pulse space-y-4">
-            <div className="h-6 bg-market-500/8 rounded w-1/3 mx-auto" />
-            <div className="h-4 bg-market-500/8 rounded w-2/3 mx-auto" />
-          </div>
-        </div>
-      </div>
+      <StateMessage
+        type="empty"
+        title="No jobs posted yet"
+        description="Post a job to start receiving proposals"
+        ctaLabel="Post a Job"
+        onCta={() => router.push("/post-job")}
+      />
     );
   }
 
-  if (applicationsWithProfile.length === 0) {
-    return null;
-  }
-
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="card max-w-6xl w-full max-h-[90vh] overflow-auto">
-        {/* Header */}
-        <div className="sticky top-0 bg-[#0a0a0f] border-b border-market-500/10 p-6 z-10">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-xl font-bold text-amber-100">
-              Compare Proposals ({applicationsWithProfile.length})
-            </h2>
-            <button
-              onClick={onClose}
-              className="text-amber-800 hover:text-amber-400 transition-colors text-2xl font-light"
-            >
-              ×
-            </button>
-          </div>
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold text-amber-100 mb-3">Your Jobs</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {myJobs.map((job) => {
+            const apps = jobApplications.get(job.id) ?? [];
+            const pending = apps.filter((a) => a.status === "pending").length;
+            return (
+              <button
+                key={job.id}
+                onClick={() => selectJob(job.id)}
+                className={`text-left rounded-xl border p-4 transition-all ${
+                  selectedJobId === job.id
+                    ? "border-market-400 bg-market-500/10"
+                    : "border-market-500/20 bg-ink-800/50 hover:border-market-500/40"
+                }`}
+              >
+                <p className="text-sm font-medium text-amber-100 truncate">{job.title}</p>
+                <div className="flex items-center gap-3 mt-2 text-xs text-amber-700">
+                  <span>{apps.length} proposal{apps.length !== 1 ? "s" : ""}</span>
+                  {pending > 0 && (
+                    <span className="text-market-400">{pending} pending</span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
         </div>
+      </div>
 
-        {/* Comparison Table */}
-        <div className="p-6">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <tbody>
-                {/* Freelancer Address */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Freelancer
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4 min-w-[200px]">
-                      <a
-                        href={accountUrl(app.freelancerAddress)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="address-tag hover:border-market-500/40 transition-colors block"
-                      >
-                        {shortenAddress(app.freelancerAddress)} ↗
-                      </a>
-                    </td>
-                  ))}
-                </tr>
+      {selectedJobId && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-amber-200">
+              Proposals ({applications.length})
+            </h3>
+            {selectedProposalIds.size > 0 && selectedProposalIds.size < 2 && (
+              <p className="text-xs text-amber-600">
+                Select at least 2 proposals to compare
+              </p>
+            )}
+          </div>
 
-                {/* Bid Amount */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Bid Amount
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <span className="font-mono text-market-400 font-semibold">
-                        {formatXLM(app.bidAmount)}
+          {applications.length === 0 ? (
+            <StateMessage
+              type="empty"
+              title="No proposals yet"
+              description="Proposals will appear here when freelancers apply"
+            />
+          ) : selectedProposalIds.size < 2 ? (
+            <div className="space-y-2">
+              {applications.map((app) => (
+                <button
+                  key={app.id}
+                  onClick={() => toggleProposal(app.id)}
+                  disabled={!selectedProposalIds.has(app.id) && selectedProposalIds.size >= 4}
+                  className={`w-full text-left rounded-xl border p-4 transition-all ${
+                    selectedProposalIds.has(app.id)
+                      ? "border-market-400 bg-market-500/10"
+                      : "border-market-500/20 bg-ink-800/50 hover:border-market-500/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                        selectedProposalIds.has(app.id)
+                          ? "border-market-400 bg-market-400"
+                          : "border-amber-600"
+                      }`}>
+                        {selectedProposalIds.has(app.id) && (
+                          <svg className="w-2.5 h-2.5 text-ink-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
                       </span>
-                    </td>
-                  ))}
-                </tr>
-
-                {/* Proposal Excerpt */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap align-top">
-                    Proposal
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <p className="text-amber-700/80 text-sm leading-relaxed max-h-32 overflow-y-auto">
-                        {app.proposal}
-                      </p>
-                    </td>
-                  ))}
-                </tr>
-
-                {/* Freelancer Tier */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Experience Level
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <span className="text-sm bg-market-500/10 text-market-400/80 border border-market-500/15 px-3 py-1 rounded-full">
-                        {getFreelancerTier(app.profile)}
+                      <span className="text-sm text-amber-100 font-medium truncate">
+                        {shortenAddress(app.freelancerAddress)}
                       </span>
-                    </td>
-                  ))}
-                </tr>
-
-                {/* Freelancer Rating */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Rating
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-market-400 text-lg">
-                          {renderStars(app.profile?.rating)}
+                      {app.freelancerTier && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${TIER_COLORS[app.freelancerTier] || TIER_COLORS.Newcomer}`}>
+                          {app.freelancerTier}
                         </span>
-                        {app.profile?.ratingCount && app.profile.ratingCount > 0 && (
-                          <span className="text-xs text-amber-800">
-                            ({app.profile.ratingCount})
+                      )}
+                    </div>
+                    <span className="font-mono text-sm text-market-400 flex-shrink-0">
+                      {formatXLM(app.bidAmount)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-700 mt-2 line-clamp-2">{app.proposal}</p>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className={`grid gap-4 ${
+              selectedApplications.length === 2 ? "grid-cols-1 sm:grid-cols-2" :
+              selectedApplications.length === 3 ? "grid-cols-1 sm:grid-cols-3" :
+              "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
+            }`}>
+              {selectedApplications.map((app) => {
+                const profile = app.freelancerAddress ? profiles.get(app.freelancerAddress) : undefined;
+                return (
+                  <div key={app.id} className="rounded-xl border border-market-500/20 bg-ink-800/50 p-4 flex flex-col gap-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-amber-100 truncate">
+                          {shortenAddress(app.freelancerAddress)}
+                        </p>
+                        {app.freelancerTier && (
+                          <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${TIER_COLORS[app.freelancerTier] || TIER_COLORS.Newcomer}`}>
+                            {app.freelancerTier}
                           </span>
                         )}
                       </div>
-                    </td>
-                  ))}
-                </tr>
-
-                {/* Applications Count */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Total Applications
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <span className="text-amber-700/80 text-sm">
-                        {app.applicationCount ?? 0}
+                      <span className="font-mono text-lg font-bold text-market-400 flex-shrink-0">
+                        {formatXLM(app.bidAmount)}
                       </span>
-                    </td>
-                  ))}
-                </tr>
+                    </div>
 
-                {/* Completed Jobs */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Completed Jobs
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <span className="text-amber-700/80 text-sm">
-                        {app.profile?.completedJobs ?? 0}
-                      </span>
-                    </td>
-                  ))}
-                </tr>
-
-                {/* Status */}
-                <tr className="border-b border-market-500/10">
-                  <td className="py-4 pr-4 text-sm font-semibold text-amber-300 whitespace-nowrap">
-                    Status
-                  </td>
-                  {applicationsWithProfile.map((app) => (
-                    <td key={app.id} className="py-4 px-4">
-                      <span
-                        className={clsx(
-                          "text-xs px-2.5 py-1 rounded-full border",
-                          app.status === "accepted"
-                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                            : app.status === "rejected"
-                            ? "bg-red-500/10 text-red-400 border-red-500/20"
-                            : "bg-market-500/10 text-market-400 border-market-500/20"
+                    {profile && profile.rating != null && (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-600">
+                        <span className="text-yellow-400">{Array(Math.round(profile.rating)).fill("★").join("")}</span>
+                        <span>{profile.rating.toFixed(1)}</span>
+                        {profile.ratingCount != null && (
+                          <span>({profile.ratingCount})</span>
                         )}
-                      >
-                        {app.status}
-                      </span>
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Accept Buttons */}
-          <div className="mt-8 pt-6 border-t border-market-500/10">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {applicationsWithProfile.map((app) => (
-                <div key={app.id} className="text-center">
-                  <button
-                    onClick={() => handleAccept(app.id)}
-                    disabled={
-                      app.status !== "pending" ||
-                      job?.status !== "open" ||
-                      acceptingId === app.id
-                    }
-                    className={clsx(
-                      "w-full py-3 px-4 rounded-lg font-medium transition-all",
-                      app.status === "pending" && job?.status === "open"
-                        ? "btn-primary"
-                        : "bg-market-500/10 text-amber-800 cursor-not-allowed"
+                      </div>
                     )}
-                  >
-                    {acceptingId === app.id
-                      ? "Accepting..."
-                      : app.status === "accepted"
-                      ? "Accepted"
-                      : app.status === "rejected"
-                      ? "Rejected"
-                      : "Accept Proposal"}
-                  </button>
-                </div>
-              ))}
+
+                    <div className="flex-1 min-h-0">
+                      <p className="text-xs text-amber-700 leading-relaxed line-clamp-6 whitespace-pre-wrap">
+                        {app.proposal}
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => handleAccept(app)}
+                      disabled={acceptingId === app.id || app.status !== "pending"}
+                      className={`w-full py-2 rounded-lg text-xs font-semibold transition-all ${
+                        app.status === "accepted"
+                          ? "bg-emerald-500/20 text-emerald-400 cursor-default"
+                          : app.status === "rejected"
+                          ? "bg-red-500/20 text-red-400 cursor-default"
+                          : acceptingId === app.id
+                          ? "bg-indigo-500/50 text-white cursor-wait"
+                          : "bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95"
+                      }`}
+                    >
+                      {app.status === "accepted"
+                        ? "Accepted"
+                        : app.status === "rejected"
+                        ? "Rejected"
+                        : acceptingId === app.id
+                        ? "Accepting..."
+                        : "Accept Proposal"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-          </div>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

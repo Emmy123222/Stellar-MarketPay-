@@ -1,12 +1,19 @@
 /**
  * components/Navbar.tsx
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { shortenAddress } from "@/utils/format";
 import clsx from "clsx";
 import { useTranslation } from "@/lib/i18n";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
+import FaucetButton from "@/components/FaucetButton";
+import { usePriceContext } from "@/contexts/PriceContext";
+import { useTheme } from "@/contexts/ThemeContext";
+import NotificationBell from "@/components/NotificationBell";
+import { fetchJobs, searchFreelancers } from "@/lib/api";
+import type { Job, UserProfile } from "@/utils/types";
+import { shortenAddress } from "@/utils/format";
 
 interface NavbarProps {
   publicKey: string | null;
@@ -15,22 +22,69 @@ interface NavbarProps {
 }
 
 const links = [
-  { href: "/",            labelKey: "nav.home" },
-  { href: "/jobs",        labelKey: "nav.browseJobs" },
-  { href: "/dashboard",   labelKey: "nav.dashboard" },
-  { href: "/post-job",    labelKey: "nav.postJob" },
+  { href: "/", labelKey: "nav.home" },
+  { href: "/jobs", labelKey: "nav.browseJobs" },
+  { href: "/dashboard", labelKey: "nav.dashboard" },
+  { href: "/post-job", labelKey: "nav.postJob" },
+  { href: "/insights", labelKey: "nav.insights" },
+  { href: "/developer", labelKey: "nav.developer" },
+  { href: "/dao", labelKey: "nav.dao" },
 ];
 
 const STELLAR_NETWORK = process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet";
 
-export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarProps) {
-  const router = useRouter();
-  const { i18n } = useTranslation("common");
-  const [hasNotification, setHasNotification] = useState(false);
-  const [balance, setBalance] = useState<string | null>(null);
-  const [balanceLoading, setBalanceLoading] = useState(false);
+type SearchResult =
+  | { type: "job"; id: string; title: string; description?: string }
+  | { type: "freelancer"; id: string; title: string; description?: string };
 
-  const t = (key: string): string => i18n.t(key) as string;
+export default function Navbar({
+  publicKey,
+  onConnect,
+  onDisconnect,
+}: NavbarProps) {
+  const router = useRouter();
+  const { t, i18n } = useTranslation("common");
+  const { theme, toggleTheme } = useTheme();
+  // Gate theme-dependent UI until after hydration so SSR and client agree.
+  const [mounted, setMounted] = useState(false);
+  const [hasNotification, setHasNotification] = useState(false);
+  const [hasJobAlertBadge, setHasJobAlertBadge] = useState(false);
+  const { currencyMode, setCurrencyMode, priceLoading } = usePriceContext();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [balance, setBalance] = useState<string | null>(null);
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [activeSearchIndex, setActiveSearchIndex] = useState(0);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (publicKey) {
+      setBalanceLoading(true);
+      Promise.all([
+        import("@/lib/stellar").then(m => m.getXLMBalance(publicKey)),
+        import("@/lib/stellar").then(m => m.getUSDCBalance(publicKey))
+      ]).then(([xlm, usdc]) => {
+        setBalance(Number(xlm).toFixed(2));
+        setUsdcBalance(Number(usdc).toFixed(2));
+      }).catch(() => {
+        setBalance("0.00");
+        setUsdcBalance("0.00");
+      }).finally(() => {
+        setBalanceLoading(false);
+      });
+    } else {
+      setBalance(null);
+      setUsdcBalance(null);
+    }
+  }, [publicKey]);
+
+  // Hydration-safe mount tracking for theme toggle
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     const handleActivity = () => {
@@ -49,96 +103,314 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
     }
   }, [router.pathname]);
 
+  // Job-alert badge on Browse Jobs
   useEffect(() => {
-    if (!publicKey) {
-      setBalance(null);
+    const handleAlertMatches = (e: Event) => {
+      const count = (e as CustomEvent<{ count: number }>).detail?.count ?? 0;
+      if (router.pathname !== "/jobs") {
+        setHasJobAlertBadge(count > 0);
+      }
+    };
+    window.addEventListener("job-alert-matches", handleAlertMatches);
+    return () =>
+      window.removeEventListener("job-alert-matches", handleAlertMatches);
+  }, [router.pathname]);
+
+  useEffect(() => {
+    if (router.pathname === "/jobs") {
+      setHasJobAlertBadge(false);
+    }
+  }, [router.pathname]);
+
+  useEffect(() => {
+    const handleGlobalShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+      }
+    };
+    window.addEventListener("keydown", handleGlobalShortcut);
+    return () => window.removeEventListener("keydown", handleGlobalShortcut);
+  }, []);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(event.target as Node)
+      ) {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
+
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (query.length < 2) {
+      setSearchResults([]);
+      setSearchLoading(false);
       return;
     }
 
     let cancelled = false;
-    const fetchBalance = async () => {
-      setBalanceLoading(true);
+    setSearchLoading(true);
+    const timer = window.setTimeout(async () => {
       try {
-        const horizonUrl = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
-        const res = await fetch(`${horizonUrl}/accounts/${publicKey}`);
-        if (!res.ok) throw new Error("Failed to fetch balance");
-        const data = await res.json();
-        const xlmBalance = data.balances?.find((b: any) => b.asset_type === "native");
-        if (!cancelled && xlmBalance) {
-          setBalance(parseFloat(xlmBalance.balance).toFixed(2));
-        }
-      } catch (err) {
-        console.error("Balance fetch error:", err);
+        const [jobsResponse, freelancers] = await Promise.all([
+          fetchJobs({ search: query, limit: 5 }),
+          searchFreelancers({ search: query, limit: 5 }),
+        ]);
+        if (cancelled) return;
+        setSearchResults([
+          ...jobsResponse.jobs.slice(0, 5).map((job: Job) => ({
+            type: "job" as const,
+            id: job.id,
+            title: job.title,
+            description: `${job.category} · ${job.budget} ${job.currency}`,
+          })),
+          ...freelancers.slice(0, 5).map((freelancer: UserProfile) => ({
+            type: "freelancer" as const,
+            id: freelancer.publicKey,
+            title:
+              freelancer.displayName || shortenAddress(freelancer.publicKey),
+            description:
+              freelancer.skills?.slice(0, 3).join(", ") ||
+              freelancer.bio ||
+              "Freelancer profile",
+          })),
+        ]);
+        setActiveSearchIndex(0);
+      } catch {
+        if (!cancelled) setSearchResults([]);
       } finally {
-        if (!cancelled) setBalanceLoading(false);
+        if (!cancelled) setSearchLoading(false);
       }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
     };
+  }, [searchQuery]);
 
-    fetchBalance();
-    const interval = setInterval(fetchBalance, 30000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [publicKey]);
-
-  const switchLanguage = (locale: string) => {
-    router.push(router.pathname, router.asPath, { locale });
-    localStorage.setItem("preferredLocale", locale);
+  const navigateToSearchResult = (result: SearchResult) => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    router.push(
+      result.type === "job"
+        ? `/jobs/${result.id}`
+        : `/freelancers/${result.id}`,
+    );
   };
 
-  useEffect(() => {
-    const savedLocale = localStorage.getItem("preferredLocale");
-    if (savedLocale && savedLocale !== i18n.language) {
-      switchLanguage(savedLocale);
+  const handleSearchKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setSearchOpen(false);
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveSearchIndex((index) =>
+        Math.min(index + 1, Math.max(searchResults.length - 1, 0)),
+      );
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveSearchIndex((index) => Math.max(index - 1, 0));
+    } else if (event.key === "Enter" && searchResults[activeSearchIndex]) {
+      event.preventDefault();
+      navigateToSearchResult(searchResults[activeSearchIndex]);
     }
-  }, []);
+  };
+
+  // Close mobile menu when route changes
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [router.pathname]);
 
   return (
     <nav className="sticky top-0 z-50 border-b border-[rgba(251,191,36,0.10)] bg-ink-900/85 backdrop-blur-xl">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-4">
         {/* Logo */}
-        <Link href="/" locale={false} className="flex items-center gap-2.5 group flex-shrink-0">
+        <Link
+          href="/"
+          locale={false}
+          className="flex items-center gap-2.5 group flex-shrink-0"
+        >
           <div className="w-8 h-8 rounded-lg bg-market-500/15 border border-market-500/25 flex items-center justify-center group-hover:border-market-500/50 transition-colors">
             <BriefcaseIcon className="w-4 h-4 text-market-400" />
           </div>
-          <span className="font-display font-bold text-amber-100 text-lg tracking-tight">
+          <span className="hidden sm:inline font-display font-bold text-amber-100 text-lg tracking-tight">
             Stellar<span className="text-market-400">MarketPay</span>
+          </span>
+          <span className="sm:hidden font-display font-bold text-amber-100 text-sm tracking-tight">
+            <span className="text-market-400">SMP</span>
           </span>
         </Link>
 
-        {/* Network badge */}
-        <span className={clsx(
-          "hidden md:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border flex-shrink-0",
-          STELLAR_NETWORK === "mainnet"
-            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-            : "bg-amber-500/10 text-amber-400 border-amber-500/20"
-        )}>
+        {/* Network badge - hidden on mobile */}
+        <span
+          className={clsx(
+            "hidden lg:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border flex-shrink-0",
+            STELLAR_NETWORK === "mainnet"
+              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+              : "bg-amber-500/10 text-amber-400 border-amber-500/20",
+          )}
+        >
           {STELLAR_NETWORK === "mainnet" ? "Mainnet" : "Testnet"}
         </span>
 
-        {/* Nav links */}
+        {/* Desktop Nav links */}
         <div className="hidden md:flex items-center gap-1">
           {links.map((l) => (
-            <Link key={l.href} href={l.href} locale={false}
+            <Link
+              key={l.href}
+              href={l.href}
+              locale={false}
               className={clsx(
-                "px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
+                "px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative min-h-[44px] flex items-center",
                 router.pathname === l.href
                   ? "bg-market-500/12 text-market-300"
-                  : "text-amber-700 hover:text-amber-300 hover:bg-market-500/8"
+                  : "text-amber-700 hover:text-amber-300 hover:bg-market-500/8",
               )}
             >
               {t(l.labelKey)}
               {l.href === "/dashboard" && hasNotification && (
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-emerald-400 rounded-full border border-ink-900" />
               )}
+              {l.href === "/jobs" && hasJobAlertBadge && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-market-400 rounded-full border border-ink-900" />
+              )}
             </Link>
           ))}
+        </div>
+
+        {/* Spacer */}
+        <div className="flex-1 md:flex-none" />
+
+        <div
+          ref={searchContainerRef}
+          className="relative hidden sm:flex items-center"
+        >
+          {searchOpen ? (
+            <div className="relative">
+              <input
+                ref={searchInputRef}
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                className="w-56 rounded-lg border border-market-500/25 bg-ink-950/90 px-3 py-2 text-sm text-amber-100 placeholder:text-amber-800 focus:border-market-400 focus:outline-none"
+                placeholder="Search jobs and freelancers…"
+                aria-label="Global search"
+                aria-expanded={searchOpen}
+                aria-controls="global-search-results"
+                role="combobox"
+              />
+              <GlobalSearchDropdown
+                results={searchResults}
+                loading={searchLoading}
+                activeIndex={activeSearchIndex}
+                onSelect={navigateToSearchResult}
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchOpen(true);
+                requestAnimationFrame(() => searchInputRef.current?.focus());
+              }}
+              className="p-2 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors"
+              aria-label="Open global search"
+              title="Search (Ctrl/Cmd+K)"
+            >
+              <SearchIcon className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Language Switcher - hidden on mobile, visible on tablet+ */}
+        <div className="hidden sm:flex items-center">
+          <LanguageSwitcher />
+        </div>
+        {/* Currency Toggle */}
+        <div className="hidden md:flex items-center">
+          <button
+            onClick={() =>
+              setCurrencyMode(currencyMode === "XLM" ? "USD" : "XLM")
+            }
+            disabled={priceLoading}
+            className={clsx(
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all duration-150",
+              currencyMode === "USD"
+                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                : "bg-market-500/10 text-market-400 border-market-500/20",
+              priceLoading && "opacity-50 cursor-not-allowed",
+            )}
+            title={currencyMode === "XLM" ? "Switch to USD" : "Switch to XLM"}
+            aria-label={`Currency: ${currencyMode}. Click to switch`}
+          >
+            {priceLoading ? (
+              <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <span className="text-[10px] font-bold">
+                {currencyMode === "XLM" ? "◎" : "$"}
+              </span>
+            )}
+            {currencyMode}
+          </button>
+        </div>
+
+        {/* Dark Mode Toggle */}
+        <div className="hidden md:flex items-center">
+          <button
+            onClick={toggleTheme}
+            className="p-1.5 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors"
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label={
+              theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+            }
+          >
+            {theme === "dark" ? (
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                />
+              </svg>
+            ) : (
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+                />
+              </svg>
+            )}
+          </button>
         </div>
 
         {/* Language Switcher */}
         <div className="hidden md:flex items-center">
           <select
             value={i18n.language}
-            onChange={(e) => switchLanguage(e.target.value)}
+            onChange={(e) => i18n.changeLanguage(e.target.value)}
             className="bg-market-900/40 border border-amber-900/30 rounded px-2 py-1 text-xs text-amber-100 cursor-pointer"
             aria-label={t("language.switch") as string}
           >
@@ -147,42 +419,260 @@ export default function Navbar({ publicKey, onConnect, onDisconnect }: NavbarPro
           </select>
         </div>
 
-        {/* Wallet */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        {/* Wallet - responsive */}
+        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
           {publicKey ? (
             <>
+              <NotificationBell publicKey={publicKey} />
               <button
                 onClick={() => router.push("/dashboard/transactions")}
-                className="flex items-center gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity"
+                className="flex items-center gap-1 sm:gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity text-xs sm:text-sm px-2 py-2 sm:px-3 sm:py-2 min-h-[44px]"
                 title={t("wallet.balance") as string}
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                {shortenAddress(publicKey)}
+                <span className="hidden sm:inline">{shortenAddress(publicKey)}</span>
+                <span className="sm:hidden text-[10px]">{shortenAddress(publicKey, 6)}</span>
                 {balanceLoading ? (
                   <span className="text-xs text-amber-800">{t("wallet.loading")}</span>
-                ) : balance ? (
-                  <span className="text-xs font-medium text-market-400">{balance} XLM</span>
+                ) : balance && usdcBalance ? (
+                  <span className="text-xs font-medium text-market-400 hidden sm:inline">{balance} XLM / {usdcBalance} USDC</span>
                 ) : null}
               </button>
-              <button onClick={onDisconnect} className="text-xs text-amber-800 hover:text-amber-500 transition-colors px-2 py-1">
+              <button
+                onClick={onDisconnect}
+                className="hidden sm:inline text-xs text-amber-800 hover:text-amber-500 transition-colors px-2 py-1"
+              >
                 {t("nav.disconnect")}
               </button>
             </>
           ) : (
-            <button onClick={onConnect} className="btn-primary text-sm py-2 px-4">
+            <button
+              onClick={onConnect}
+              className="btn-primary text-xs sm:text-sm py-2 px-3 sm:px-4 min-h-[44px] flex items-center"
+            >
               {t("nav.connectWallet")}
             </button>
           )}
         </div>
+
+        {/* Mobile Menu Toggle */}
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className="md:hidden w-10 h-10 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-market-500/10 transition-colors"
+          aria-label="Toggle menu"
+          aria-expanded={mobileMenuOpen}
+        >
+          <HamburgerIcon className="w-5 h-5 text-amber-300" />
+        </button>
       </div>
+
+      {/* Mobile Menu */}
+      {mobileMenuOpen && (
+        <div className="md:hidden border-t border-[rgba(251,191,36,0.10)] bg-ink-900/95 backdrop-blur-xl">
+          <div className="px-4 py-4 space-y-2">
+            {/* Mobile Nav Links */}
+            {links.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                locale={false}
+                className={clsx(
+                  "px-3 py-3 rounded-lg text-sm font-medium transition-all duration-150 relative min-h-[44px] flex items-center",
+                  router.pathname === l.href
+                    ? "bg-market-500/12 text-market-300"
+                    : "text-amber-700 hover:text-amber-300 hover:bg-market-500/8",
+                )}
+              >
+                {t(l.labelKey)}
+                {l.href === "/dashboard" && hasNotification && (
+                  <span className="absolute top-3 right-3 w-2 h-2 bg-emerald-400 rounded-full border border-ink-900" />
+                )}
+                {l.href === "/jobs" && hasJobAlertBadge && (
+                  <span className="absolute top-3 right-3 w-2 h-2 bg-market-400 rounded-full border border-ink-900" />
+                )}
+              </Link>
+            ))}
+
+            {/* Mobile language selector */}
+            <div className="flex items-center px-3 py-2">
+              <LanguageSwitcher className="bg-market-900/40 border border-amber-900/30 rounded px-2 py-2 text-xs text-amber-100 cursor-pointer w-full min-h-[44px]" />
+            </div>
+
+            {/* Mobile Dark Mode Toggle */}
+            {mounted && (
+              <button
+                onClick={() => {
+                  toggleTheme();
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors min-h-[44px]"
+              >
+                {theme === "dark" ? (
+                  <>
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+                      <circle cx="12" cy="12" r="4" />
+                      <path strokeLinecap="round" d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                    </svg>
+                    Light Mode
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                    </svg>
+                    Dark Mode
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* Mobile Disconnect Button */}
+            {publicKey && (
+              <button
+                onClick={() => {
+                  onDisconnect();
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full text-left text-xs text-amber-800 hover:text-amber-500 transition-colors px-3 py-3 rounded-lg hover:bg-market-500/8 min-h-[44px] flex items-center"
+              >
+                {t("nav.disconnect")}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </nav>
   );
 }
 
 function BriefcaseIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0M12 12.75h.008v.008H12v-.008z" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0M12 12.75h.008v.008H12v-.008z"
+      />
+    </svg>
+  );
+}
+
+function HamburgerIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5"
+      />
+    </svg>
+  );
+}
+
+function GlobalSearchDropdown({
+  results,
+  loading,
+  activeIndex,
+  onSelect,
+}: {
+  results: SearchResult[];
+  loading: boolean;
+  activeIndex: number;
+  onSelect: (result: SearchResult) => void;
+}) {
+  const jobs = results.filter((result) => result.type === "job");
+  const freelancers = results.filter((result) => result.type === "freelancer");
+  let resultIndex = -1;
+
+  return (
+    <div
+      id="global-search-results"
+      role="listbox"
+      className="absolute right-0 top-full mt-2 w-80 overflow-hidden rounded-xl border border-market-500/20 bg-ink-900 shadow-2xl"
+    >
+      {loading && (
+        <div className="px-4 py-3 text-sm text-amber-700">Searching…</div>
+      )}
+      {!loading && results.length === 0 && (
+        <div className="px-4 py-3 text-sm text-amber-700">
+          Type at least 2 characters to search.
+        </div>
+      )}
+      {(
+        [
+          ["Jobs", jobs],
+          ["Freelancers", freelancers],
+        ] as const
+      ).map(
+        ([label, items]) =>
+          items.length > 0 && (
+            <div
+              key={label}
+              className="border-b border-market-500/10 last:border-b-0"
+            >
+              <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-market-400">
+                {label}
+              </div>
+              {items.map((result) => {
+                resultIndex += 1;
+                const active = resultIndex === activeIndex;
+                return (
+                  <button
+                    key={`${result.type}-${result.id}`}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => onSelect(result)}
+                    className={clsx(
+                      "block w-full px-4 py-3 text-left text-sm transition-colors",
+                      active
+                        ? "bg-market-500/15 text-market-300"
+                        : "text-amber-100 hover:bg-market-500/8",
+                    )}
+                  >
+                    <span className="block font-medium">{result.title}</span>
+                    {result.description && (
+                      <span className="block truncate text-xs text-amber-700">
+                        {result.description}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ),
+      )}
+    </div>
+  );
+}
+
+function SearchIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 110-15 7.5 7.5 0 010 15z"
+      />
     </svg>
   );
 }

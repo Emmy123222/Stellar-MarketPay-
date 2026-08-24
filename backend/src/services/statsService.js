@@ -102,10 +102,93 @@ async function getTopCategories(limit = 10) {
   return result.rows;
 }
 
+// Issue #561: Hourly aggregation into platform_metrics
+async function aggregatePlatformMetrics() {
+  const bucket = new Date();
+  bucket.setMinutes(0, 0, 0);
+
+  const queries = [
+    {
+      metric: "total_jobs",
+      sql: "SELECT COUNT(*)::numeric AS value FROM jobs WHERE deleted_at IS NULL",
+    },
+    {
+      metric: "total_escrow_volume_xlm",
+      sql: "SELECT COALESCE(SUM(amount_xlm), 0) AS value FROM escrows WHERE status = 'funded'",
+    },
+    {
+      metric: "active_users",
+      sql: "SELECT COUNT(DISTINCT public_key)::numeric AS value FROM profiles WHERE deleted_at IS NULL",
+    },
+    {
+      metric: "dispute_rate",
+      sql: `SELECT COALESCE(
+        ROUND(
+          COUNT(*) FILTER (WHERE status = 'disputed')::numeric /
+          NULLIF(COUNT(*)::numeric, 0) * 100, 2
+        ), 0
+      ) AS value FROM jobs WHERE deleted_at IS NULL`,
+    },
+  ];
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const { metric, sql } of queries) {
+      const { rows } = await client.query(sql);
+      const value = rows[0]?.value ?? 0;
+      await client.query(
+        `INSERT INTO platform_metrics (metric_name, value, granularity, bucket, created_at)
+         VALUES ($1, $2, 'hour', $3, NOW())
+         ON CONFLICT (metric_name, granularity, bucket)
+         DO UPDATE SET value = EXCLUDED.value, created_at = NOW()`,
+        [metric, value, bucket]
+      );
+    }
+    await client.query("COMMIT");
+    return { success: true, bucket: bucket.toISOString() };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// Issue #561: Get time-series metrics from platform_metrics
+async function getTimeSeriesMetrics({ metric = "total_jobs", from, to, granularity = "day" } = {}) {
+  const conditions = ["metric_name = $1", "granularity = $2"];
+  const params = [metric, granularity];
+  let paramIdx = 3;
+
+  if (from) {
+    conditions.push(`bucket >= $${paramIdx}`);
+    params.push(from);
+    paramIdx++;
+  }
+  if (to) {
+    conditions.push(`bucket <= $${paramIdx}`);
+    params.push(to);
+    paramIdx++;
+  }
+
+  const where = conditions.join(" AND ");
+  const { rows } = await pool.query(
+    `SELECT metric_name, value, granularity, bucket
+     FROM platform_metrics
+     WHERE ${where}
+     ORDER BY bucket ASC`,
+    params
+  );
+  return rows;
+}
+
 module.exports = {
   computeStats,
   getStats,
   getJobTrends,
   getEscrowTrends,
-  getTopCategories
+  getTopCategories,
+  aggregatePlatformMetrics,
+  getTimeSeriesMetrics,
 };

@@ -1,24 +1,59 @@
 /**
- * src/services/twoFactorService.js
- * TOTP 2FA using speakeasy
+ * TOTP 2FA for admin accounts (speakeasy + encrypted storage)
+ * Backup codes are stored as SHA-256 hashes (one-way), never reversible.
  */
 "use strict";
+
+const crypto = require("crypto");
 const speakeasy = require("speakeasy");
 const pool = require("../db/pool");
+const { encrypt, decrypt } = require("../utils/encryption");
 
-function generateSecret(email) {
-  return speakeasy.generateSecret({
-    name: `StellarMarketPay:${email}`,
+function generateSecret(adminId) {
+  const secret = speakeasy.generateSecret({
+    name: `StellarMarketPay:${adminId}`,
     length: 20,
   });
+  return {
+    base32: secret.base32,
+    otpauth_url: secret.otpauth_url,
+  };
 }
 
-async function enable2FA(adminId, secret, backupCodes) {
+/** Generate 8 random backup codes and return [plaintext[], hashed[]] */
+function generateBackupCodes() {
+  const plain = Array.from({ length: 8 }, () =>
+    crypto.randomBytes(5).toString("hex").toUpperCase()
+  );
+  const hashed = plain.map((c) => crypto.createHash("sha256").update(c).digest("hex"));
+  return { plain, hashed };
+}
+
+async function ensureAdminProfile(adminId) {
+  await pool.query(
+    `INSERT INTO admin_profiles (id, email, totp_enabled, created_at, updated_at)
+     VALUES ($1, $2, false, NOW(), NOW())
+     ON CONFLICT (id) DO NOTHING`,
+    [adminId, `${adminId.slice(0, 8)}@admin.local`]
+  );
+}
+
+async function getDecryptedSecret(adminId) {
+  const { rows } = await pool.query(
+    "SELECT totp_secret FROM admin_profiles WHERE id = $1",
+    [adminId]
+  );
+  if (!rows[0]?.totp_secret) return null;
+  return decrypt(rows[0].totp_secret);
+}
+
+async function enable2FA(adminId, plainSecret, hashedBackupCodes) {
   await pool.query(
     `UPDATE admin_profiles
-     SET totp_secret = $1, totp_enabled = true, backup_codes = $2, totp_attempts = 0, totp_locked_until = NULL
+     SET totp_secret = $1, totp_enabled = true, backup_codes = $2,
+         totp_attempts = 0, totp_locked_until = NULL, updated_at = NOW()
      WHERE id = $3`,
-    [secret, JSON.stringify(backupCodes), adminId]
+    [encrypt(plainSecret), encrypt(JSON.stringify(hashedBackupCodes)), adminId]
   );
 }
 
@@ -31,13 +66,13 @@ async function verify2FA(adminId, token) {
   const admin = rows[0];
   if (!admin || !admin.totp_enabled) return { success: false, error: "2FA not enabled" };
 
-  // Check if locked out
   if (admin.totp_locked_until && new Date(admin.totp_locked_until) > new Date()) {
     return { success: false, error: "Account locked due to too many failed attempts. Try again later." };
   }
 
+  const secret = decrypt(admin.totp_secret);
   const verified = speakeasy.totp.verify({
-    secret: admin.totp_secret,
+    secret,
     encoding: "base32",
     token,
     window: 1,
@@ -48,10 +83,9 @@ async function verify2FA(adminId, token) {
     return { success: true };
   }
 
-  // Increment failed attempts
   const newAttempts = (admin.totp_attempts || 0) + 1;
   if (newAttempts >= 5) {
-    const lockUntil = new Date(Date.now() + 15 * 60 * 1000); // Lock for 15 minutes
+    const lockUntil = new Date(Date.now() + 15 * 60 * 1000);
     await pool.query(
       "UPDATE admin_profiles SET totp_attempts = $1, totp_locked_until = $2 WHERE id = $3",
       [newAttempts, lockUntil, adminId]
@@ -65,25 +99,30 @@ async function verify2FA(adminId, token) {
 
 async function verifyBackupCode(adminId, code) {
   const { rows } = await pool.query(
-    `SELECT backup_codes FROM admin_profiles WHERE id = $1`,
+    "SELECT backup_codes FROM admin_profiles WHERE id = $1",
     [adminId]
   );
   const admin = rows[0];
-  if (!admin || !admin.backup_codes) return { success: false, error: "No backup codes found" };
+  if (!admin?.backup_codes) return { success: false, error: "No backup codes found" };
 
-  const codes = JSON.parse(admin.backup_codes);
-  const index = codes.indexOf(code);
+  const hashed = JSON.parse(decrypt(admin.backup_codes));
+  const inputHash = crypto.createHash("sha256").update(String(code).toUpperCase()).digest("hex");
+  const index = hashed.indexOf(inputHash);
   if (index === -1) return { success: false, error: "Invalid backup code" };
 
-  codes.splice(index, 1);
-  await pool.query("UPDATE admin_profiles SET backup_codes = $1 WHERE id = $2", [JSON.stringify(codes), adminId]);
+  hashed.splice(index, 1);
+  await pool.query(
+    "UPDATE admin_profiles SET backup_codes = $1 WHERE id = $2",
+    [encrypt(JSON.stringify(hashed)), adminId]
+  );
   return { success: true };
 }
 
 async function disable2FA(adminId) {
   await pool.query(
     `UPDATE admin_profiles
-     SET totp_secret = NULL, totp_enabled = false, backup_codes = NULL, totp_attempts = 0, totp_locked_until = NULL
+     SET totp_secret = NULL, totp_enabled = false, backup_codes = NULL,
+         totp_attempts = 0, totp_locked_until = NULL, updated_at = NOW()
      WHERE id = $1`,
     [adminId]
   );
@@ -91,10 +130,20 @@ async function disable2FA(adminId) {
 
 async function get2FAStatus(adminId) {
   const { rows } = await pool.query(
-    `SELECT totp_enabled FROM admin_profiles WHERE id = $1`,
+    "SELECT totp_enabled FROM admin_profiles WHERE id = $1",
     [adminId]
   );
   return rows[0] || { totp_enabled: false };
 }
 
-module.exports = { generateSecret, enable2FA, verify2FA, verifyBackupCode, disable2FA, get2FAStatus };
+module.exports = {
+  generateSecret,
+  generateBackupCodes,
+  ensureAdminProfile,
+  getDecryptedSecret,
+  enable2FA,
+  verify2FA,
+  verifyBackupCode,
+  disable2FA,
+  get2FAStatus,
+};

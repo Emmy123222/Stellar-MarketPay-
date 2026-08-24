@@ -2,6 +2,8 @@
 
 const { Horizon } = require("@stellar/stellar-sdk");
 const pool = require("../db/pool");
+const { requireEnv } = require("../config/env");
+const horizonClient = require("../utils/horizonClient");
 
 function parseJobIdFromMemo(memoValue) {
   if (!memoValue || typeof memoValue !== "string") return null;
@@ -32,7 +34,7 @@ function isDonation(op, platformWallet) {
 }
 
 class IndexerService {
-  constructor({ platformWallet, horizonUrl, broadcast = () => {} }) {
+  constructor({ platformWallet, horizonUrl, contractId, broadcast = () => {} }) {
     this.platformWallet = platformWallet;
     this.horizonUrl = horizonUrl || "https://horizon-testnet.stellar.org";
     this.broadcast = broadcast;
@@ -46,7 +48,8 @@ class IndexerService {
     };
     this.closeStream = null;
     this.closeEventStream = null;
-    this.contractId = process.env.ESCROW_CONTRACT_ID;
+    this.closeContractStream = null;
+    this.contractId = requireEnv("CONTRACT_ID", { fallback: contractId || process.env.ESCROW_CONTRACT_ID });
   }
 
   async loadCheckpoint() {
@@ -80,7 +83,13 @@ class IndexerService {
     const txMemo = tx.memo || null;
     const ledgerNumber = tx.ledger_attr || tx.ledger || null;
     const matchedJobId = parseJobIdFromMemo(txMemo);
-    const operations = await this.horizon.operations().forTransaction(tx.hash).limit(200).call();
+
+    // Record ledger → UTC timestamp mapping for #443 (ledger_timestamps table).
+    await this.recordLedgerTimestamp(ledgerNumber, tx.created_at || null);
+    const operations = await horizonClient.callWithLimit(
+      () => this.horizon.operations().forTransaction(tx.hash).limit(200).call(),
+      "operations.forTransaction"
+    );
     const records = operations?.records || [];
 
     const client = await pool.connect();
@@ -183,44 +192,151 @@ class IndexerService {
     }
   }
 
+  extractTopicString(topic) {
+    // Horizon returns Soroban symbols as plain strings.
+    // Soroban String values can be { type: "string", value: "..." } or a plain string.
+    if (!topic) return null;
+    if (typeof topic === "string") return topic;
+    if (typeof topic.value === "string") return topic.value;
+    return null;
+  }
+
   async processEvent(event) {
-    // Soroban events from Horizon have: type, id, paging_token, ledger, ledger_closed_at, contract_id, topic, value, etc.
     if (this.contractId && event.contract_id !== this.contractId) return;
 
-    const eventTypeRaw = event.topic?.[0];
+    const eventTypeRaw = this.extractTopicString(event.topic?.[0]);
     if (!eventTypeRaw) return;
 
-    // Map contract symbols to DB event types
     const typeMap = {
-      "created": "escrow_created",
-      "started": "work_started",
-      "released": "escrow_released",
-      "conv_rel": "escrow_released",
-      "refunded": "escrow_refunded",
-      "disputed": "dispute_opened"
+      "escrow_cr":           "escrow_created",
+      "escrow_created":      "escrow_created",
+      "work_strt":           "work_started",
+      "work_started":        "work_started",
+      "escrow_rl":           "escrow_released",
+      "escrow_released":     "escrow_released",
+      "escrow_rf":           "escrow_refunded",
+      "escrow_refunded":     "escrow_refunded",
+      "escrow_timeout_refunded": "escrow_refunded",
+      "escrow_ds":           "dispute_opened",
+      "escrow_disputed":     "dispute_opened",
+      "ms_rel":              "milestone_released",
+      "milestone_released":  "milestone_released",
+      "msg_sent":            "message_sent",
+      "message_sent":        "message_sent"
     };
 
     const eventType = typeMap[eventTypeRaw];
     if (!eventType) return;
 
-    const jobId = event.value?.job_id || event.value; // Simplification: depends on event structure
+    // Extract job_id from topic[1] — all escrow lifecycle events use (symbol, job_id) as topics
+    const jobId = this.extractTopicString(event.topic?.[1]) || event.value?.job_id;
     if (!jobId) return;
+
+    const data = JSON.stringify(event.value || {});
 
     await pool.query(
       `INSERT INTO contract_events (job_id, event_type, contract_id, tx_hash, ledger, data, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT DO NOTHING`,
       [
         jobId,
         eventType,
         event.contract_id,
         event.transaction_hash,
         event.ledger,
-        JSON.stringify(event.value || {}),
+        data,
         event.ledger_closed_at
       ]
     );
 
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      switch (eventType) {
+        case "escrow_created":
+          await client.query(
+            `UPDATE escrows SET status = 'funded', updated_at = NOW() WHERE job_id = $1 AND status = 'funded'`,
+            [jobId]
+          );
+          break;
+
+        case "work_started":
+          await client.query(
+            `UPDATE escrows SET status = 'in_progress', updated_at = NOW() WHERE job_id = $1`,
+            [jobId]
+          );
+          break;
+
+        case "escrow_released":
+          await client.query(
+            `UPDATE jobs SET status = 'completed', updated_at = NOW() WHERE id = $1 AND status <> 'completed'`,
+            [jobId]
+          );
+          await client.query(
+            `UPDATE escrows SET status = 'released', released_at = NOW(), updated_at = NOW() WHERE job_id = $1 AND status <> 'released'`,
+            [jobId]
+          );
+          break;
+
+        case "escrow_refunded":
+          await client.query(
+            `UPDATE jobs SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND status <> 'cancelled'`,
+            [jobId]
+          );
+          await client.query(
+            `UPDATE escrows SET status = 'refunded', updated_at = NOW() WHERE job_id = $1 AND status <> 'refunded'`,
+            [jobId]
+          );
+          break;
+
+        case "dispute_opened":
+          await client.query(
+            `UPDATE jobs SET status = 'disputed', updated_at = NOW() WHERE id = $1`,
+            [jobId]
+          );
+          await client.query(
+            `UPDATE escrows SET status = 'disputed', updated_at = NOW() WHERE job_id = $1`,
+            [jobId]
+          );
+          break;
+
+        case "milestone_released":
+          // Mark partial progress; full release events will update status separately
+          await client.query(
+            `UPDATE escrows SET updated_at = NOW() WHERE job_id = $1`,
+            [jobId]
+          );
+          break;
+
+        default:
+          break;
+      }
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      // Non-fatal: event is already inserted, status update will retry on next event
+      console.error("[Indexer] failed to update DB status for event:", error.message);
+    } finally {
+      client.release();
+    }
+
     this.broadcast("contract:event", { jobId, eventType, txHash: event.transaction_hash });
+  }
+
+  async recordLedgerTimestamp(ledger, closedAt) {
+    if (!ledger || !closedAt) return;
+    try {
+      await pool.query(
+        `INSERT INTO ledger_timestamps (ledger, timestamp)
+         VALUES ($1, $2)
+         ON CONFLICT (ledger) DO NOTHING`,
+        [ledger, closedAt]
+      );
+    } catch (err) {
+      console.error("[Indexer] failed to record ledger timestamp:", err.message);
+    }
   }
 
   async start() {
@@ -255,15 +371,15 @@ class IndexerService {
         },
       });
 
-    // Start event stream
     this.startEventStream();
+    this.startContractTransactionStream();
   }
 
-  startEventStream() {
-    const cursor = "now";
+  startEventStream(retryDelay = 1000) {
+    const MAX_RETRY_DELAY = 60_000;
     this.closeEventStream = this.horizon
       .events()
-      .cursor(cursor)
+      .cursor("now")
       .stream({
         onmessage: async (event) => {
           try {
@@ -274,13 +390,49 @@ class IndexerService {
         },
         onerror: (error) => {
           console.error("[Indexer] event stream error:", error?.message);
-          // Auto-reconnect logic
+          if (typeof this.closeEventStream === "function") {
+            this.closeEventStream();
+            this.closeEventStream = null;
+          }
+          const nextDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
           setTimeout(() => {
             if (this.syncState.running) {
-              console.log("[Indexer] attempting to reconnect event stream...");
-              this.startEventStream();
+              console.log(`[Indexer] reconnecting event stream in ${retryDelay}ms...`);
+              this.startEventStream(nextDelay);
             }
-          }, 5000);
+          }, retryDelay);
+        },
+      });
+  }
+
+  startContractTransactionStream(retryDelay = 1000) {
+    if (!this.contractId) return;
+    const MAX_RETRY_DELAY = 60_000;
+    this.closeContractStream = this.horizon
+      .transactions()
+      .forAccount(this.contractId)
+      .cursor("now")
+      .stream({
+        onmessage: async (tx) => {
+          try {
+            await this.processTransaction(tx);
+            this.broadcast("contract:transaction", { txHash: tx.hash, contractId: this.contractId });
+          } catch (error) {
+            console.error("[Indexer] contract tx stream error:", error.message);
+          }
+        },
+        onerror: (error) => {
+          console.error("[Indexer] contract tx stream error:", error?.message);
+          if (typeof this.closeContractStream === "function") {
+            this.closeContractStream();
+            this.closeContractStream = null;
+          }
+          const nextDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
+          setTimeout(() => {
+            if (this.syncState.running) {
+              this.startContractTransactionStream(nextDelay);
+            }
+          }, retryDelay);
         },
       });
   }
@@ -293,12 +445,13 @@ class IndexerService {
     return rows;
   }
 
-
   stop() {
     if (typeof this.closeStream === "function") this.closeStream();
     if (typeof this.closeEventStream === "function") this.closeEventStream();
+    if (typeof this.closeContractStream === "function") this.closeContractStream();
     this.closeStream = null;
     this.closeEventStream = null;
+    this.closeContractStream = null;
     this.syncState.running = false;
   }
 

@@ -1,913 +1,701 @@
 /**
  * components/PostJobForm.tsx
- * Form for clients to post a new job with XLM budget.
- * Issue #21: Integrates Soroban escrow contract into job creation flow.
+ * Issue #494 — Multi-step job posting form with progress indicator.
+ *
+ * Steps:
+ *   1. Basic Info     — title, description, category
+ *   2. Budget & Escrow — amount, currency, milestones
+ *   3. Requirements   — skills, screening questions, deadline, visibility
+ *   4. Review & Publish — summary + submit
  */
-import { useEffect, useState } from "react";
-import type { Transaction } from "@stellar/stellar-sdk";
-import { createJob, updateJobEscrowId, deleteJob, saveDraft, fetchDrafts } from "@/lib/api";
-import { buildCreateEscrowTransaction, submitSorobanTransaction } from "@/lib/stellar";
-import { fetchActualFee } from "@/lib/sorobanFees";
-import { signTransactionWithWallet } from "@/lib/wallet";
-import { JOB_CATEGORIES, SKILL_SUGGESTIONS, formatUSDEquivalent, getMonthlyEstimate } from "@/utils/format";
-import { useRouter } from "next/router";
-import clsx from "clsx";
-import { useToast } from "@/components/Toast";
+"use client";
+
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft, updateDraft, fetchSkillSuggestions, fetchMyJobs } from "@/lib/api";
+import { performSEP0010Auth } from "@/lib/wallet";
+import { createEscrowOnChain } from "@/lib/stellar";
 import { usePriceContext } from "@/contexts/PriceContext";
-import FeeEstimationModal from "@/components/FeeEstimationModal";
-import type { Currency, Job } from "@/utils/types";
+import type { JobFormData, Milestone, FormStep, SubmitStep } from "@/components/PostJobFormtypes";
+import type { Job } from "@/utils/types";
+import BasicInfoStep from "@/components/post-job-steps/BasicInfoStep";
+import BudgetEscrowStep from "@/components/post-job-steps/BudgetEscrowStep";
+import RequirementsStep from "@/components/post-job-steps/RequirementsStep";
+import ReviewStep from "@/components/post-job-steps/ReviewStep";
 
-interface PostJobFormProps { publicKey: string; }
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-type Step = "idle" | "posting" | "locking" | "done" | "error";
-type FormState = {
-  title: string;
-  description: string;
-  budget: string;
-  category: string;
-  skillInput: string;
-  deadline: string;
-  currency: Currency;
-  timezone: string;
-  visibility: "public" | "private" | "invite_only";
-};
+interface PostJobFormProps {
+  publicKey: string;
+  initialCategory?: string;
+  suggestedFreelancer?: string;
+}
 
-type JobTemplate = {
-  name: string;
-  title: string;
-  description: string;
-  budget: string;
-  category: string;
-  skills: string[];
-  deadline: string;
-};
+const DRAFT_STORAGE_KEY = "marketpay_post_job_draft";
 
-const JOB_TEMPLATES_STORAGE_KEY = "stellar-marketpay-job-templates";
-const SCOPE_PREFILL_STORAGE_KEY = "marketpay_scope_prefill";
-const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
-const emptyForm: FormState = {
-  title: "",
-  description: "",
-  budget: "",
-  category: "",
-  skillInput: "",
-  deadline: "",
-  currency: "XLM" as Currency,
-  timezone: "",
-  visibility: "public",
-};
+// ---------------------------------------------------------------------------
+// Multi-step config (Issue #494)
+// ---------------------------------------------------------------------------
 
-export default function PostJobForm({ publicKey }: PostJobFormProps) {
-  const router = useRouter();
-  const toast = useToast();
-  const { xlmPriceUsd } = usePriceContext();
-  const [form, setForm] = useState<FormState>({
-    title: "", description: "", budget: "", category: "", skillInput: "", deadline: "", currency: "XLM" as Currency, timezone: "", visibility: "public",
-  });
-  const [skills, setSkills] = useState<string[]>([]);
-  const [screeningQuestions, setScreeningQuestions] = useState<string[]>([""]);
-  const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<Step>("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
-  const [templates, setTemplates] = useState<JobTemplate[]>(() => readTemplates());
-  const [selectedTemplateName, setSelectedTemplateName] = useState("");
-  const [templateNameInput, setTemplateNameInput] = useState("");
-  const [templateError, setTemplateError] = useState<string | null>(null);
-  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
-  const [pendingOverwriteTemplate, setPendingOverwriteTemplate] = useState<JobTemplate | null>(null);
-  const [draftId, setDraftId] = useState<string | null>(null);
-  const [showResumeDraft, setShowResumeDraft] = useState(false);
-  const [availableDrafts, setAvailableDrafts] = useState<any[]>([]);
-  const [pendingEscrow, setPendingEscrow] = useState<{
-    transaction: Transaction;
-    jobId: string;
-  } | null>(null);
+const FORM_STEPS = [
+  { id: 1, label: "Basic Info" },
+  { id: 2, label: "Budget & Escrow" },
+  { id: 3, label: "Requirements" },
+  { id: 4, label: "Review & Publish" },
+] as const;
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const rawPrefill = window.localStorage.getItem(SCOPE_PREFILL_STORAGE_KEY);
-    if (!rawPrefill) return;
-    try {
-      const prefill = JSON.parse(rawPrefill);
-      if (prefill && typeof prefill === "object") {
-        setForm((prev) => ({
-          ...prev,
-          title: typeof prefill.title === "string" ? prefill.title : prev.title,
-          description: typeof prefill.description === "string" ? prefill.description : prev.description,
-          category: typeof prefill.category === "string" ? prefill.category : prev.category,
-        }));
-      }
-    } catch (_) {
-      // Ignore malformed prefill payload
-    } finally {
-      window.localStorage.removeItem(SCOPE_PREFILL_STORAGE_KEY);
-    }
-  }, []);
+// ---------------------------------------------------------------------------
+// Step indicator component
+// ---------------------------------------------------------------------------
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const rawRepostPrefill = window.localStorage.getItem(REPOST_JOB_PREFILL_STORAGE_KEY);
-    if (!rawRepostPrefill) return;
-
-    try {
-      const prefill = JSON.parse(rawRepostPrefill) as Partial<Job>;
-      setForm((prev) => ({
-        ...prev,
-        title: typeof prefill.title === "string" ? prefill.title : prev.title,
-        description: typeof prefill.description === "string" ? prefill.description : prev.description,
-        budget: typeof prefill.budget === "string" ? prefill.budget : prev.budget,
-        category: typeof prefill.category === "string" ? prefill.category : prev.category,
-        currency: prefill.currency === "USDC" || prefill.currency === "XLM" ? prefill.currency : prev.currency,
-        timezone: typeof prefill.timezone === "string" ? prefill.timezone : prev.timezone,
-        deadline: "",
-      }));
-
-      if (Array.isArray(prefill.skills)) {
-        setSkills(prefill.skills.filter((skill): skill is string => typeof skill === "string"));
-      }
-      if (Array.isArray(prefill.screeningQuestions)) {
-        const filteredQuestions = prefill.screeningQuestions.filter(
-          (question): question is string => typeof question === "string"
-        );
-        setScreeningQuestions(filteredQuestions.length > 0 ? filteredQuestions : [""]);
-      }
-    } catch (_) {
-      // Ignore malformed repost prefill payload
-    } finally {
-      window.localStorage.removeItem(REPOST_JOB_PREFILL_STORAGE_KEY);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const loadDrafts = async () => {
-      try {
-        const drafts = await fetchDrafts();
-        setAvailableDrafts(drafts);
-        if (drafts.length > 0 && !draftId) {
-          setShowResumeDraft(true);
-        }
-      } catch (_) {
-        // Silently ignore draft loading errors
-      }
-    };
-    loadDrafts();
-  }, [publicKey, draftId]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !publicKey) return;
-    const autoSaveInterval = setInterval(async () => {
-      if (form.title.trim().length > 0 || form.description.trim().length > 0) {
-        try {
-          const draft = await saveDraft({
-            id: draftId,
-            title: form.title,
-            description: form.description,
-            budget: form.budget,
-            category: form.category,
-            skills: skills,
-            currency: form.currency,
-            timezone: form.timezone,
-            visibility: form.visibility,
-            screeningQuestions: screeningQuestions.filter(q => q.trim()),
-            deadline: form.deadline || null,
-          });
-          if (!draftId) setDraftId(draft.id);
-        } catch (_) {
-          // Silently ignore auto-save errors
-        }
-      }
-    }, 10000); // Auto-save every 10 seconds
-    return () => clearInterval(autoSaveInterval);
-  }, [form, skills, screeningQuestions, draftId, publicKey]);
-
-  const resumeDraft = (draft: any) => {
-    setForm((prev) => ({
-      ...prev,
-      title: draft.title || "",
-      description: draft.description || "",
-      budget: draft.budget?.toString() || "",
-      category: draft.category || "",
-      currency: draft.currency || "XLM",
-      timezone: draft.timezone || "",
-      visibility: draft.visibility || "public",
-      deadline: draft.deadline || "",
-    }));
-    setSkills(draft.skills || []);
-    setScreeningQuestions(draft.screening_questions?.length > 0 ? draft.screening_questions : [""]);
-    setDraftId(draft.id);
-    setShowResumeDraft(false);
-  };
-
-  const usdPreview = formatUSDEquivalent(form.budget, xlmPriceUsd);
-  const monthlyEst = getMonthlyEstimate(form.budget, xlmPriceUsd);
-
-  const set = (key: string, val: string) => setForm((f) => ({ ...f, [key]: val }));
-
-  // Filter suggestions based on input
-  const filteredSuggestions = form.skillInput.trim().length > 0
-    ? SKILL_SUGGESTIONS.filter(
-        (s) => s.toLowerCase().includes(form.skillInput.toLowerCase()) && !skills.includes(s)
-      ).slice(0, 5)
-    : [];
-
-  const addSkill = (skill?: string) => {
-    const s = (skill || form.skillInput).trim();
-    if (s && !skills.includes(s) && skills.length < 8) {
-      setSkills([...skills, s]);
-      set("skillInput", "");
-      setShowSuggestions(false);
-      setSelectedSuggestionIndex(0);
-    }
-  };
-
-  const removeSkill = (s: string) => setSkills(skills.filter((x) => x !== s));
-
-  const addScreeningQuestion = () => {
-    if (screeningQuestions.length < 5) {
-      setScreeningQuestions([...screeningQuestions, ""]);
-    }
-  };
-
-  const removeScreeningQuestion = (index: number) => {
-    setScreeningQuestions(screeningQuestions.filter((_, i) => i !== index));
-  };
-
-  const updateScreeningQuestion = (index: number, value: string) => {
-    const updated = [...screeningQuestions];
-    updated[index] = value;
-    setScreeningQuestions(updated);
-  };
-
-  function getStepStatus(currentStep: Step, targetStep: Step): "idle" | "active" | "done" {
-    if (currentStep === targetStep) return "active";
-    if (targetStep === "done" && currentStep === "done") return "done";
-    if (targetStep === "locking" && (currentStep === "done" || currentStep === "error")) return "done";
-    if (targetStep === "posting" && (currentStep === "locking" || currentStep === "done" || currentStep === "error")) return "done";
-    return "idle";
-  }
-
-  function getStepTextColor(currentStep: Step, targetStep: Step): string {
-    if (currentStep === targetStep) return "text-amber-100";
-    if (targetStep === "done" && currentStep === "done") return "text-green-400";
-    if (targetStep === "locking" && (currentStep === "done" || currentStep === "error")) return "text-green-400";
-    if (targetStep === "posting" && (currentStep === "locking" || currentStep === "done" || currentStep === "error")) return "text-green-400";
-    return "text-amber-800/50";
-  }
-
-  const isValid =
-    form.title.trim().length >= 10 &&
-    form.description.trim().length >= 30 &&
-    parseFloat(form.budget) > 0 &&
-    form.category !== "";
-
-  const handleSubmit = async () => {
-    if (!isValid) return;
-    setLoading(true);
-    setError(null);
-    setStep("posting");
-
-    try {
-      const job = await createJob({
-        title: form.title.trim(),
-        description: form.description.trim(),
-        budget: parseFloat(form.budget).toFixed(7),
-        currency: form.currency,
-        category: form.category,
-        skills,
-        deadline: form.deadline || undefined,
-        timezone: form.timezone || undefined,
-        visibility: form.visibility,
-        clientAddress: publicKey,
-        screeningQuestions: screeningQuestions.filter(q => q.trim().length > 0),
-      });
-
-      setStep("locking");
-
-      const unsignedTx = await buildCreateEscrowTransaction({
-        clientPublicKey: publicKey,
-        jobId: job.id,
-        freelancerAddress: publicKey,
-        budget: parseFloat(form.budget).toFixed(7),
-        currency: form.currency,
-      });
-
-      // Pause here so the user can review the on-chain fee (Issue #222)
-      // before Freighter prompts them to sign.
-      setPendingEscrow({ transaction: unsignedTx, jobId: job.id });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      setError(msg);
-      setStep("error");
-      toast.error(`Failed: ${msg}`);
-      setLoading(false);
-    }
-  };
-
-  const handleConfirmEscrowFee = async () => {
-    if (!pendingEscrow) return;
-    const { transaction, jobId } = pendingEscrow;
-    setPendingEscrow(null);
-
-    try {
-      const { signedXDR, error: signError } = await signTransactionWithWallet(transaction.toXDR());
-      if (signError || !signedXDR) {
-        await deleteJob(jobId).catch(() => {});
-        throw new Error(signError || "Freighter signing was cancelled");
-      }
-
-      const txHash = await submitSorobanTransaction(signedXDR).catch(async (e) => {
-        await deleteJob(jobId).catch(() => {});
-        throw e;
-      });
-
-      // Log the actual fee charged for the AC.
-      fetchActualFee(txHash).then((actual) => {
-        if (actual) {
-          // eslint-disable-next-line no-console
-          console.info(`[escrow] create_escrow ${jobId} actual fee ${actual.feeChargedXlm} XLM`);
-        }
-      }).catch(() => {});
-
-      await updateJobEscrowId(jobId, txHash);
-
-      setStep("done");
-      toast.success("Job posted and budget locked in escrow.");
-      router.push(`/jobs/${jobId}`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      setError(msg);
-      setStep("error");
-      toast.error(`Failed: ${msg}`);
-      setLoading(false);
-    }
-  };
-
-  const handleCancelEscrowFee = async () => {
-    if (!pendingEscrow) return;
-    const { jobId } = pendingEscrow;
-    setPendingEscrow(null);
-    await deleteJob(jobId).catch(() => {});
-    setStep("idle");
-    setLoading(false);
-    setError("Cancelled before signing — the orphaned job was removed.");
-  };
-
-  const handleLoadTemplate = (name: string) => {
-    const template = templates.find((t) => t.name === name);
-    if (template) {
-      setForm((f) => ({
-        ...f,
-        title: template.title,
-        description: template.description,
-        budget: template.budget,
-        category: template.category,
-        deadline: template.deadline,
-      }));
-      setSkills(template.skills);
-      setSelectedTemplateName(name);
-    }
-  };
-
-  const handleSaveTemplate = () => {
-    if (!templateNameInput.trim()) {
-      setTemplateError("Template name is required");
-      return;
-    }
-    const existing = templates.find((t) => t.name === templateNameInput);
-    if (existing) {
-      setPendingOverwriteTemplate(existing);
-      return;
-    }
-    const newTemplate: JobTemplate = {
-      name: templateNameInput, title: form.title, description: form.description,
-      budget: form.budget, category: form.category, skills, deadline: form.deadline,
-    };
-    const updated = [...templates, newTemplate];
-    setTemplates(updated);
-    localStorage.setItem(JOB_TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
-    setTemplateNameInput("");
-    setTemplateError(null);
-    toast.success(`Template "${templateNameInput}" saved`);
-  };
-
-  const handleConfirmOverwrite = () => {
-    const updated = templates.map((t) =>
-      t.name === templateNameInput
-        ? { ...t, title: form.title, description: form.description, budget: form.budget, category: form.category, skills, deadline: form.deadline }
-        : t
-    );
-    setTemplates(updated);
-    localStorage.setItem(JOB_TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
-    setTemplateNameInput("");
-    setPendingOverwriteTemplate(null);
-    toast.success("Template updated");
-  };
-
-  const handleCancelOverwrite = () => setPendingOverwriteTemplate(null);
-
-  const handleDeleteTemplate = () => setShowDeleteConfirmation(true);
-
-  const handleConfirmDelete = () => {
-    const updated = templates.filter((t) => t.name !== selectedTemplateName);
-    setTemplates(updated);
-    localStorage.setItem(JOB_TEMPLATES_STORAGE_KEY, JSON.stringify(updated));
-    setSelectedTemplateName("");
-    setShowDeleteConfirmation(false);
-    toast.success("Template deleted");
-  };
-
-  const handleCancelDelete = () => setShowDeleteConfirmation(false);
-
+function StepIndicator({
+  currentStep,
+  completedSteps,
+  onStepClick,
+}: {
+  currentStep: FormStep;
+  completedSteps: Set<number>;
+  onStepClick?: (step: number) => void;
+}) {
   return (
-    <div className="card max-w-2xl mx-auto animate-slide-up">
-      <h2 className="font-display text-2xl font-bold text-amber-100 mb-2">Post a Job</h2>
-      <p className="text-amber-800 text-sm mb-8">Fill in the details and set your XLM budget. Funds will be locked in escrow when a freelancer is hired.</p>
-
-      <div className="space-y-6">
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-          <div>
-            <label className="label">Load Template</label>
-            <select
-              value={selectedTemplateName}
-              onChange={(e) => handleLoadTemplate(e.target.value)}
-              className="input-field appearance-none cursor-pointer"
-            >
-              <option value="">Select a saved template...</option>
-              {templates.map((template) => (
-                <option key={template.name} value={template.name}>
-                  {template.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            type="button"
-            onClick={handleDeleteTemplate}
-            disabled={!selectedTemplateName}
-            className="btn-secondary px-4 py-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Delete Template
-          </button>
-        </div>
-
-        {showDeleteConfirmation && selectedTemplateName && (
-          <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 space-y-3">
-            <p className="text-sm text-red-300">Delete template &quot;{selectedTemplateName}&quot;?</p>
-            <div className="flex flex-wrap gap-3">
-              <button type="button" onClick={handleConfirmDelete} className="btn-secondary px-4 py-2 text-sm">
-                Confirm Delete
-              </button>
-              <button type="button" onClick={handleCancelDelete} className="btn-secondary px-4 py-2 text-sm">
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Title */}
-        <div>
-          <label className="label">Job Title</label>
-          <input type="text" value={form.title} onChange={(e) => set("title", e.target.value)}
-            placeholder="e.g. Build a Soroban escrow contract for NFT marketplace"
-            className={clsx("input-field", form.title.length > 0 && form.title.length < 10 && "border-red-500/40")} />
-          {form.title.length > 0 && form.title.length < 10 && (
-            <p className="mt-1 text-xs text-red-400">Title must be at least 10 characters</p>
-          )}
-        </div>
-
-            {/* Description */}
-        <div>
-          <label className="label">Description</label>
-        
-          <textarea
-            value={form.description}
-            rows={5}
-            maxLength={2000}
-            placeholder="Describe the work in detail — requirements, deliverables, acceptance criteria..."
-            className={clsx(
-              "textarea-field",
-              form.description.length > 0 &&
-                form.description.trim().length < 30 &&
-                "border-red-500/40"
-            )}
-            aria-invalid={form.description.trim().length > 0 && form.description.trim().length < 30}
-            aria-describedby="description-counter description-error"
-            onChange={(e) => {
-              let value = e.target.value;
-        
-              // Prevent overflow beyond 2000 characters (extra safety beyond maxLength)
-              if (value.length > 2000) {
-                value = value.slice(0, 2000);
-              }
-        
-              set("description", value);
-            }}
-            onPaste={(e) => {
-              const paste = e.clipboardData.getData("text");
-              const newLength = form.description.length + paste.length;
-        
-              // If pasted content would exceed limit, truncate it
-              if (newLength > 2000) {
-                e.preventDefault();
-                const allowed = paste.slice(0, 2000 - form.description.length);
-                set("description", form.description + allowed);
-              }
-            }}
-          />
-        
-          {/* Character Counter + Word Count Quality Indicator (Issue #148) */}
-          {(() => {
-            const wordCount = form.description.trim() === ""
-              ? 0
-              : form.description.trim().split(/\s+/).length;
-            const quality: "too_short" | "good" | "detailed" =
-              wordCount < 30 ? "too_short" : wordCount <= 80 ? "good" : "detailed";
-            const qualityLabel =
-              quality === "too_short" ? "Too short"
-              : quality === "good" ? "Good"
-              : "Detailed";
-            const qualityClass =
-              quality === "too_short"
-                ? "bg-red-500/10 text-red-400 border-red-500/20"
-                : quality === "good"
-                  ? "bg-amber-500/10 text-amber-300 border-amber-500/20"
-                  : "bg-green-500/10 text-green-400 border-green-500/20";
-
-            return (
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <p
-                  id="description-counter"
-                  className={clsx(
-                    "text-xs font-medium",
-                    form.description.trim().length < 30 && "text-red-400",
-                    form.description.trim().length >= 30 &&
-                      form.description.trim().length <= 100 &&
-                      "text-amber-400",
-                    form.description.trim().length > 100 && "text-green-400"
-                  )}
+    <nav
+      aria-label="Form progress"
+      className="w-full mb-8"
+    >
+      <ol className="flex items-center">
+        {FORM_STEPS.map((step, i) => {
+          const isDone = completedSteps.has(step.id);
+          const isCurrent = currentStep === step.id;
+          const isLast = i === FORM_STEPS.length - 1;
+          const canClick = isDone && onStepClick;
+          return (
+            <li key={step.id} className={`flex items-center ${isLast ? "flex-shrink-0" : "flex-1"}`}>
+              <div className="flex flex-col items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={!canClick}
+                  onClick={() => canClick && onStepClick(step.id)}
+                  className={[
+                    "w-8 h-8 rounded-full flex items-center justify-center border-2 text-xs font-bold transition-all duration-300",
+                    isDone
+                      ? "bg-market-400 border-market-400 text-ink-900"
+                      : isCurrent
+                      ? "bg-ink-900 border-market-400 text-market-400"
+                      : "bg-ink-800 border-market-500/20 text-amber-700",
+                    canClick ? "cursor-pointer hover:opacity-80" : "cursor-default",
+                  ].join(" ")}
+                  aria-current={isCurrent ? "step" : undefined}
+                  aria-label={isDone ? `Step ${step.id}: ${step.label} (completed, click to edit)` : `Step ${step.id}: ${step.label}`}
                 >
-                  {form.description.length} / 2000
-                </p>
-                <p className="text-xs font-medium text-amber-800/80">
-                  {wordCount} {wordCount === 1 ? "word" : "words"}
-                </p>
+                  {isDone ? "✓" : step.id}
+                </button>
                 <span
-                  className={clsx(
-                    "text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border font-semibold",
-                    qualityClass
-                  )}
+                  className={[
+                    "text-xs font-medium whitespace-nowrap hidden sm:block",
+                    isDone ? "text-market-400" : isCurrent ? "text-amber-100" : "text-amber-700",
+                  ].join(" ")}
                 >
-                  {qualityLabel}
+                  {step.label}
                 </span>
               </div>
-            );
-          })()}
-
-          {/* Inline Error */}
-          {form.description.length > 0 && form.description.trim().length < 30 && (
-            <p
-              id="description-error"
-              className="mt-1 text-xs text-red-400"
-            >
-              Description must be at least 30 characters
-            </p>
-          )}
-        </div>
-
-        {/* Category + Budget + Currency row */}
-        <div className="grid sm:grid-cols-3 gap-4">
-          <div>
-            <label className="label">Category</label>
-            <select value={form.category} onChange={(e) => set("category", e.target.value)}
-              className="input-field appearance-none cursor-pointer">
-              <option value="">Select a category...</option>
-              {JOB_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="label">Budget</label>
-            <input type="number" value={form.budget} onChange={(e) => set("budget", e.target.value)}
-              placeholder="e.g. 500" min="1" step="1" className="input-field" />
-            <p className="mt-1 text-xs text-amber-800/50">Will be locked in escrow on hire</p>
-          </div>
-          <div>
-            <label className="label">Currency</label>
-            <select value={form.currency} onChange={(e) => set("currency", e.target.value as Currency)}
-              className="input-field appearance-none cursor-pointer">
-              <option value="XLM">XLM (Stellar Lumens)</option>
-              <option value="USDC">USDC (USD Coin)</option>
-            </select>
-            <p className="mt-1 text-xs text-amber-800/50">Payment currency for this job</p>
-          </div>
-        </div>
-
-        <div>
-          <label className="label">Visibility</label>
-          <select
-            value={form.visibility}
-            onChange={(e) => set("visibility", e.target.value as "public" | "private" | "invite_only")}
-            className="input-field appearance-none cursor-pointer"
-          >
-            <option value="public">Public</option>
-            <option value="private">Private (only you)</option>
-            <option value="invite_only">Invite Only</option>
-          </select>
-        </div>
-
-        {/* Skills */}
-        <div className="relative">
-          <label className="label">Required Skills</label>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <input 
-                type="text" 
-                value={form.skillInput} 
-                onChange={(e) => {
-                  set("skillInput", e.target.value);
-                  setShowSuggestions(e.target.value.trim().length > 0);
-                  setSelectedSuggestionIndex(0);
-                }}
-                onFocus={() => setShowSuggestions(form.skillInput.trim().length > 0)}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    if (showSuggestions && filteredSuggestions.length > 0) {
-                      addSkill(filteredSuggestions[selectedSuggestionIndex]);
-                    } else {
-                      addSkill();
-                    }
-                  } else if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setSelectedSuggestionIndex((prev) => 
-                      prev < filteredSuggestions.length - 1 ? prev + 1 : prev
-                    );
-                  } else if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setSelectedSuggestionIndex((prev) => prev > 0 ? prev - 1 : 0);
-                  } else if (e.key === "Escape") {
-                    setShowSuggestions(false);
-                  }
-                }}
-                placeholder="Type a skill and press Enter"
-                className="input-field w-full" />
-              {/* Suggestions Dropdown */}
-              {showSuggestions && filteredSuggestions.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-market-900 border border-market-500/20 rounded-lg shadow-lg overflow-hidden">
-                  {filteredSuggestions.map((suggestion, index) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      onClick={() => addSkill(suggestion)}
-                      className={clsx(
-                        "w-full text-left px-3 py-2 text-sm transition-colors",
-                        index === selectedSuggestionIndex 
-                          ? "bg-market-500/20 text-market-400" 
-                          : "text-amber-100 hover:bg-market-500/10"
-                      )}
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button onClick={() => addSkill()} type="button" className="btn-secondary px-4 py-3 text-sm">Add</button>
-          </div>
-          {skills.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-3">
-              {skills.map((s) => (
-                <span key={s} className="flex items-center gap-1.5 text-xs bg-market-500/10 text-market-400 border border-market-500/20 px-2.5 py-1 rounded-full">
-                  {s}
-                  <button onClick={() => removeSkill(s)} className="text-market-600 hover:text-red-400 transition-colors">×</button>
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Deadline (optional) */}
-        <div>
-          <label className="label">Deadline <span className="normal-case text-amber-900 font-normal">(optional)</span></label>
-          <input type="date" value={form.deadline} onChange={(e) => set("deadline", e.target.value)}
-            className="input-field" min={new Date().toISOString().split("T")[0]} />
-        </div>
-
-        {/* Timezone (optional) */}
-        <div>
-          <label className="label">Timezone/Location <span className="normal-case text-amber-900 font-normal">(optional)</span></label>
-          <select value={form.timezone} onChange={(e) => set("timezone", e.target.value)}
-            className="input-field appearance-none cursor-pointer">
-            <option value="">No timezone preference</option>
-            <option value="UTC">UTC (Universal)</option>
-            <option value="America/New_York">America/New York (EST/EDT)</option>
-            <option value="America/Los_Angeles">America/Los Angeles (PST/PDT)</option>
-            <option value="America/Chicago">America/Chicago (CST/CDT)</option>
-            <option value="Europe/London">Europe/London (GMT/BST)</option>
-            <option value="Europe/Paris">Europe/Paris (CET/CEST)</option>
-            <option value="Europe/Berlin">Europe/Berlin (CET/CEST)</option>
-            <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
-            <option value="Asia/Shanghai">Asia/Shanghai (CST)</option>
-            <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
-            <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
-            <option value="Australia/Sydney">Australia/Sydney (AEST/AEDT)</option>
-            <option value="Pacific/Auckland">Pacific/Auckland (NZST/NZDT)</option>
-          </select>
-          <p className="mt-1 text-xs text-amber-800/50">Helps freelancers in compatible timezones find your job</p>
-        </div>
-
-        {/* Screening Questions (optional) */}
-        <div>
-          <label className="label">Screening Questions <span className="normal-case text-amber-900 font-normal">(optional - up to 5)</span></label>
-          <p className="text-xs text-amber-800/50 mb-3">Add questions applicants must answer when applying. This helps filter relevant candidates.</p>
-          <div className="space-y-3">
-            {screeningQuestions.map((question, index) => (
-              <div key={index} className="flex gap-2">
-                <input
-                  type="text"
-                  value={question}
-                  onChange={(e) => updateScreeningQuestion(index, e.target.value)}
-                  placeholder={`Question ${index + 1}`}
-                  className="input-field flex-1"
+              {!isLast && (
+                <div className="flex-1 h-0.5 mx-2 transition-all duration-500"
+                  style={{ background: isDone ? "var(--color-market-400, #f59e0b)" : "rgba(245,158,11,0.15)" }}
                 />
-                {screeningQuestions.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeScreeningQuestion(index)}
-                    className="btn-secondary px-3 py-2 text-sm"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            ))}
-            {screeningQuestions.length < 5 && (
-              <button
-                type="button"
-                onClick={addScreeningQuestion}
-                className="btn-secondary text-sm py-2 px-4"
-              >
-                + Add Question
-              </button>
-            )}
-          </div>
-        </div>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  );
+}
 
-        {/* Multi-step progress indicator */}
-        {step !== "idle" && (
-          <div className="p-4 rounded-xl bg-market-900/60 border border-market-500/20 space-y-3">
-            <p className="text-xs font-medium text-amber-800/70 uppercase tracking-wider">Transaction progress</p>
-            <div className="flex items-center gap-3">
-              <StepDot status={getStepStatus(step, "posting")} />
-              <span className={clsx("text-sm", getStepTextColor(step, "posting"))}>
-                Posting job
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <StepDot status={getStepStatus(step, "locking")} />
-              <span className={clsx("text-sm", getStepTextColor(step, "locking"))}>
-                Locking escrow on-chain
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <StepDot status={getStepStatus(step, "done")} />
-              <span className={clsx("text-sm", getStepTextColor(step, "done"))}>
-                Complete
-              </span>
-            </div>
-          </div>
-        )}
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-        {error && (
-          <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
-        )}
+function loadLocalDraft(): JobFormData | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as JobFormData) : null;
+  } catch {
+    return null;
+  }
+}
 
-        <div className="space-y-3 rounded-xl border border-market-500/20 bg-market-900/30 p-4">
-          <label className="label">Template Name</label>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <input
-              type="text"
-              value={templateNameInput}
-              onChange={(e) => {
-                setTemplateNameInput(e.target.value);
-                setTemplateError(null);
-                setPendingOverwriteTemplate(null);
-                setShowDeleteConfirmation(false);
-              }}
-              placeholder="e.g. Ongoing smart contract audit brief"
-              className={clsx("input-field flex-1", templateError && "border-red-500/40")}
-            />
-            <button
-              type="button"
-              onClick={handleSaveTemplate}
-              className="btn-secondary px-4 py-3 text-sm"
-            >
-              Save as Template
-            </button>
-          </div>
-          {templateError && (
-            <p className="text-xs text-red-400">{templateError}</p>
-          )}
-          {pendingOverwriteTemplate && (
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 space-y-3">
-              <p className="text-sm text-amber-100">
-                A template named &quot;{pendingOverwriteTemplate.name}&quot; already exists. Overwrite it?
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <button type="button" onClick={handleConfirmOverwrite} className="btn-secondary px-4 py-2 text-sm">
-                  Overwrite Template
-                </button>
-                <button type="button" onClick={handleCancelOverwrite} className="btn-secondary px-4 py-2 text-sm">
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+function hasFormContent(form: JobFormData): boolean {
+  return Boolean(
+    form.title.trim() || form.description.trim() || form.skills.trim() || form.deadline || form.budget !== "50"
+  );
+}
 
-        <button
-          onClick={handleSubmit}
-          disabled={
-            loading ||
-            !isValid ||
-            form.description.trim().length < 30 ||
-            form.description.trim().length > 2000 ||
-            form.description.replace(/\s/g, "").length < 30
-          }
-          className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {step === "posting" && <><Spinner /> Posting job...</>}
-          {step === "locking" && <><Spinner /> Locking escrow — sign in Freighter...</>}
-          {(step === "idle" || step === "error") && "Post Job & Lock Budget in Escrow"}
-        </button>
+function milestoneTotal(milestones: Milestone[]): number {
+  return milestones.reduce((sum, m) => sum + (parseFloat(m.amount) || 0), 0);
+}
 
-        <p className="text-center text-xs text-amber-800/60">
-          By posting, budget ({form.budget ? `${form.budget} ${form.currency}` : "—"}) will be held in a Soroban escrow contract and released when you approve of completed work.
-        </p>
-      </div>
-
-      {pendingEscrow && (
-        <FeeEstimationModal
-          transaction={pendingEscrow.transaction}
-          functionName="create_escrow"
-          payerPublicKey={publicKey}
-          onConfirm={handleConfirmEscrowFee}
-          onCancel={handleCancelEscrowFee}
-        />
-      )}
+function AnimatedStep({ children, visible }: { children: React.ReactNode; visible: boolean }) {
+  return (
+    <div
+      className={[
+        "transition-all duration-300",
+        visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none absolute",
+      ].join(" ")}
+      aria-hidden={!visible}
+    >
+      {children}
     </div>
   );
 }
 
-function Spinner() {
-  return <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>;
-}
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
-function StepDot({ status }: { status: "idle" | "active" | "done" }) {
-  if (status === "done") {
+export default function PostJobForm({
+  publicKey,
+  initialCategory = "",
+}: PostJobFormProps) {
+  const { xlmPriceUsd } = usePriceContext();
+
+  const [form, setForm] = useState<JobFormData>(() => {
+    const draft = loadLocalDraft();
+    return draft || {
+      title: "",
+      description: "",
+      budget: "50",
+      currency: "XLM",
+      category: initialCategory || "Smart Contracts",
+      skills: "",
+      deadline: "",
+      milestones: [{ description: "Final delivery", amount: "50" }],
+      visibility: "public",
+      screeningQuestions: [""],
+      // Issue #450: Recurring escrow fields
+      isRecurring: false,
+      intervalDays: "30",
+      totalReleases: "12",
+    };
+  });
+
+  const [currentStep, setCurrentStep] = useState<FormStep>(1);
+  const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
+  const [submitStep, setSubmitStep] = useState<SubmitStep>("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [postedBudget, setPostedBudget] = useState<string>("");
+  const [postedCurrency, setPostedCurrency] = useState<string>("");
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [draftId, setDraftId] = useState<string | null>(() => {
+    const draft = loadLocalDraft();
+    return draft?.id || null;
+  });
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Duplicate job detection (Issue #151) ──────────────────────────────────
+  const [duplicateWarning, setDuplicateWarning] = useState<Pick<Job, "title" | "id"> | null>(null);
+  const [dismissedDuplicate, setDismissedDuplicate] = useState(false);
+
+  /**
+   * Check if two titles are over 80% similar using a substring / word-overlap approach.
+   */
+  function isTitleSimilar(a: string, b: string): boolean {
+    const s1 = a.toLowerCase().trim();
+    const s2 = b.toLowerCase().trim();
+    if (!s1 || !s2) return false;
+
+    // Direct substring check with length ratio >= 80%
+    if (s1.includes(s2)) return s2.length / s1.length >= 0.8;
+    if (s2.includes(s1)) return s1.length / s2.length >= 0.8;
+
+    // Word-level overlap check (ignore short words like "a", "an", "the")
+    const words1 = s1.split(/\s+/).filter((w) => w.length > 2);
+    const words2 = s2.split(/\s+/).filter((w) => w.length > 2);
+    if (!words1.length || !words2.length) return false;
+
+    const common = words1.filter((w) => words2.includes(w));
+    const maxLen = Math.max(words1.length, words2.length);
+    return common.length / maxLen >= 0.8;
+  }
+
+  /**
+   * Called when the title field loses focus.
+   * Fetches the client's existing open jobs and checks for duplicates.
+   */
+  async function handleTitleBlur() {
+    const title = form.title.trim();
+    if (!title || title.length < 5) {
+      setDuplicateWarning(null);
+      return;
+    }
+
+    try {
+      const myJobs = await fetchMyJobs(publicKey);
+      const openJobs = myJobs.filter((j) => j.status === "open" && j.id !== jobId);
+
+      for (const existing of openJobs) {
+        if (isTitleSimilar(title, existing.title)) {
+          setDuplicateWarning({ title: existing.title, id: existing.id });
+          setDismissedDuplicate(false);
+          return;
+        }
+      }
+
+      setDuplicateWarning(null);
+    } catch {
+      // Silently fail — duplicate detection is a nice-to-have
+      setDuplicateWarning(null);
+    }
+  }
+
+  function handleDismissDuplicate() {
+    setDismissedDuplicate(true);
+  }
+
+  const isMockMode = process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
+  const budgetValue = parseFloat(form.budget) || 0;
+  const milestoneSum = milestoneTotal(form.milestones);
+
+  // ── Field validation per step ──────────────────────────────────────────────
+  const step1Errors = {
+    title: !form.title.trim()
+      ? "Title is required"
+      : form.title.trim().length < 10
+      ? "Must be at least 10 characters"
+      : undefined,
+    description: !form.description.trim()
+      ? "Description is required"
+      : form.description.trim().length < 30
+      ? "Must be at least 30 characters"
+      : undefined,
+  };
+
+  const step2Errors = {
+    budget: !budgetValue || budgetValue <= 0 ? "Enter a positive budget" : undefined,
+    milestones:
+      form.milestones.length > 10
+        ? "Use 10 milestones or fewer"
+        : form.milestones.some((m) => !m.description.trim())
+        ? "Every milestone needs a description"
+        : form.milestones.some((m) => !parseFloat(m.amount) || parseFloat(m.amount) <= 0)
+        ? "Every milestone needs a positive amount"
+        : Math.abs(milestoneSum - budgetValue) > 0.000001
+        ? `Milestones total ${milestoneSum.toFixed(2)} — must equal budget ${budgetValue.toFixed(2)}`
+        : undefined,
+  };
+
+  const isStep1Valid = !step1Errors.title && !step1Errors.description;
+  const isStep2Valid = !step2Errors.budget && !step2Errors.milestones;
+  // step 3 has no required fields
+
+  // ── Persist draft to localStorage ─────────────────────────────────────────
+  useEffect(() => {
+    if (hasFormContent(form)) {
+      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(form));
+    }
+  }, [form]);
+
+  // ── Skills autocomplete ────────────────────────────────────────────────────
+  useEffect(() => {
+    const parts = form.skills.split(",");
+    const lastPart = parts[parts.length - 1]?.trim() || "";
+    if (lastPart.length < 1) { setSuggestions([]); setShowSuggestions(false); return; }
+    const timer = setTimeout(async () => {
+      try {
+        const data = await fetchSkillSuggestions(lastPart);
+        setSuggestions(data);
+        setShowSuggestions(data.length > 0);
+      } catch { /* ignore */ }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [form.skills]);
+
+  function handleSelectSkill(skill: string) {
+    const parts = form.skills.split(",");
+    parts.pop();
+    parts.push(` ${skill}`);
+    setForm((p) => ({ ...p, skills: parts.join(",").trim() + ", " }));
+    setSuggestions([]);
+    setShowSuggestions(false);
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
+    const { name, value } = e.target;
+    setForm((p) => ({ ...p, [name]: value }));
+    setTouched((p) => ({ ...p, [name]: true }));
+  }
+
+  function updateMilestone(index: number, field: "description" | "amount", value: string) {
+    setForm((p) => ({ ...p, milestones: p.milestones.map((m, i) => i === index ? { ...m, [field]: value } : m) }));
+    setTouched((p) => ({ ...p, milestones: true }));
+  }
+
+  function addMilestone() {
+    setForm((p) => ({ ...p, milestones: [...p.milestones, { description: "", amount: "" }].slice(0, 10) }));
+  }
+
+  function removeMilestone(index: number) {
+    if (form.milestones.length <= 1) return;
+    setForm((p) => ({ ...p, milestones: p.milestones.filter((_, i) => i !== index) }));
+  }
+
+  function updateScreeningQuestion(index: number, value: string) {
+    setForm((p) => {
+      const q = [...p.screeningQuestions];
+      q[index] = value;
+      return { ...p, screeningQuestions: q };
+    });
+  }
+
+  function addScreeningQuestion() {
+    if (form.screeningQuestions.length >= 5) return;
+    setForm((p) => ({ ...p, screeningQuestions: [...p.screeningQuestions, ""] }));
+  }
+
+  function removeScreeningQuestion(index: number) {
+    setForm((p) => ({ ...p, screeningQuestions: p.screeningQuestions.filter((_, i) => i !== index) }));
+  }
+
+  // ── Navigation ─────────────────────────────────────────────────────────────
+  function goNext() {
+    if (currentStep === 1) {
+      setTouched({ title: true, description: true });
+      if (!isStep1Valid) return;
+    }
+    if (currentStep === 2) {
+      setTouched((p) => ({ ...p, budget: true, milestones: true }));
+      if (!isStep2Valid) return;
+    }
+    setCompletedSteps((p) => new Set([...p, currentStep]));
+    setCurrentStep((s) => Math.min(s + 1, 4) as FormStep);
+  }
+
+  function goBack() {
+    setCurrentStep((s) => Math.max(s - 1, 1) as FormStep);
+  }
+
+  // ── Auto-save draft with debouncing ───────────────────────────────────
+  useEffect(() => {
+    if (!hasFormContent(form)) return;
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+
+    saveTimerRef.current = setTimeout(async () => {
+      setSaveStatus("saving");
+      try {
+        if (!getJwtToken()) {
+          const { error } = await performSEP0010Auth(publicKey);
+          if (error) throw new Error(error);
+        }
+
+        const skillsArray = form.skills.split(",").map((s) => s.trim()).filter(Boolean);
+        const draftData: any = {
+          title: form.title,
+          description: form.description,
+          budget: form.budget,
+          category: form.category,
+          skills: skillsArray,
+          deadline: form.deadline,
+        };
+
+        if (draftId) {
+          draftData.id = draftId;
+          const result = await updateDraft(draftData);
+          setDraftId(result.id);
+        } else {
+          const result = await saveDraft(draftData);
+          setDraftId(result.id);
+        }
+
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 3000);
+      } catch {
+        setSaveStatus("failed");
+        setTimeout(() => setSaveStatus("idle"), 3000);
+      }
+    }, 2000);
+
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, [form, publicKey, draftId]);
+
+  // ── Submit ─────────────────────────────────────────────────────────────────
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (submitStep !== "idle") return;
+
+    setSubmitStep("posting");
+    setErrorMsg(null);
+    let createdJobId: string | null = null;
+
+    try {
+      if (!getJwtToken()) {
+        const { token, error } = await performSEP0010Auth(publicKey);
+        if (error || !token) throw new Error(error || "Authentication required");
+      }
+
+      const job = await createJob({
+        title: form.title,
+        description: form.description,
+        budget: form.budget,
+        currency: form.currency,
+        category: form.category,
+        skills: form.skills.split(",").map((s) => s.trim()).filter(Boolean),
+        deadline: form.deadline,
+        clientAddress: publicKey,
+        milestones: form.milestones,
+        visibility: form.visibility,
+        screeningQuestions: form.screeningQuestions.filter(Boolean),
+      });
+      createdJobId = job.id as string;
+      setJobId(createdJobId);
+
+      setSubmitStep("signing");
+      const { txHash: hash } = await createEscrowOnChain({
+        clientPublicKey: publicKey,
+        jobId: createdJobId,
+        budget: budgetValue,
+        currency: form.currency,
+      });
+      await updateJobEscrowId(createdJobId, hash);
+      setTxHash(hash);
+      setPostedBudget(form.budget);
+      setPostedCurrency(form.currency);
+      setSubmitStep("complete");
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+
+      // Call form.reset() equivalent and clear step states
+      setForm({
+        title: "",
+        description: "",
+        budget: "50",
+        currency: "XLM",
+        category: initialCategory || "Smart Contracts",
+        skills: "",
+        deadline: "",
+        milestones: [{ description: "Final delivery", amount: "50" }],
+        visibility: "public",
+        screeningQuestions: [""],
+        isRecurring: false,
+        intervalDays: "30",
+        totalReleases: "12",
+      });
+      setCurrentStep(1);
+      setCompletedSteps(new Set());
+      setTouched({});
+      setDraftId(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "An unexpected error occurred.";
+      if (createdJobId) await deleteJob(createdJobId).catch(() => {});
+      setErrorMsg(msg);
+      setSubmitStep("error");
+    }
+  }
+
+  function handleReset() {
+    setTouched({});
+    setSubmitStep("idle");
+    setErrorMsg(null);
+    setTxHash(null);
+    setJobId(null);
+    setPostedBudget("");
+    setPostedCurrency("");
+    setCurrentStep(1);
+    setCompletedSteps(new Set());
+    setDraftId(null);
+    setSaveStatus("idle");
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setForm({
+      title: "",
+      description: "",
+      budget: "50",
+      currency: "XLM",
+      category: initialCategory || "Smart Contracts",
+      skills: "",
+      deadline: "",
+      visibility: "public",
+      milestones: [{ description: "Final delivery", amount: "50" }],
+      screeningQuestions: [""],
+      // Issue #450: Recurring escrow fields
+      isRecurring: false,
+      intervalDays: "30",
+      totalReleases: "12",
+    });
+  }
+
+  // ── Success state ──────────────────────────────────────────────────────────
+  if (submitStep === "complete") {
     return (
-      <span className="w-5 h-5 rounded-full bg-green-500/20 border border-green-500/40 flex items-center justify-center text-green-400 text-xs">✓</span>
+      <div className="max-w-lg mx-auto bg-white dark:bg-ink-800 rounded-2xl shadow-lg dark:border dark:border-market-500/10 p-8 text-center space-y-4">
+        <div className="flex flex-col items-center gap-3 pt-2">
+          <div className="w-16 h-16 rounded-full bg-market-500/10 flex items-center justify-center">
+            <svg className="w-8 h-8 text-market-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-amber-100">Job Posted!</h2>
+          <p className="text-gray-500 dark:text-amber-700 text-sm">
+            Your budget of{" "}
+            <span className="font-semibold text-market-400">{postedBudget || form.budget} {postedCurrency || form.currency}</span>{" "}
+            has been locked in escrow.
+          </p>
+        </div>
+        {txHash && (
+          <div className="bg-gray-50 dark:bg-ink-700 rounded-xl p-4 text-left space-y-1">
+            <p className="text-xs font-semibold text-gray-500 dark:text-amber-700 uppercase tracking-wider">Transaction Hash</p>
+            <p className="text-xs font-mono text-gray-800 dark:text-amber-200 break-all">{txHash}</p>
+            {!isMockMode && (
+              <a href={`https://stellar.expert/explorer/testnet/tx/${txHash}`} target="_blank" rel="noopener noreferrer" className="text-xs text-market-400 hover:underline">
+                View on Stellar Expert ↗
+              </a>
+            )}
+          </div>
+        )}
+        {jobId && (
+          <a href={`/jobs/${jobId}`} className="btn-primary text-sm inline-block px-8 py-2.5">View Job →</a>
+        )}
+        <button onClick={handleReset} className="btn-secondary text-sm px-6 py-2 block w-full">Post Another Job</button>
+      </div>
     );
   }
-  if (status === "active") {
-    return (
-      <span className="w-5 h-5 rounded-full border border-amber-400/60 flex items-center justify-center">
-        <Spinner />
-      </span>
-    );
-  }
-  return <span className="w-5 h-5 rounded-full border border-amber-800/30 bg-market-900/40" />;
+
+  const isSubmitting = submitStep === "posting" || submitStep === "signing";
+
+  // ── Draft indicator ─────────────────────────────────────────────────────────
+  const saveDraftIndicator = (
+    <div className="text-xs text-amber-700 flex items-center gap-1.5" aria-live="polite">
+      {saveStatus === "saving" && (
+        <>
+          <span className="inline-block w-3 h-3 border-2 border-amber-700 border-t-transparent rounded-full animate-spin" />
+          Saving…
+        </>
+      )}
+      {saveStatus === "saved" && <span className="text-green-400">✓ Saved</span>}
+      {saveStatus === "failed" && <span className="text-red-400">✗ Save failed</span>}
+    </div>
+  );
+
+  return (
+    <div className="max-w-lg mx-auto">
+      <div className="bg-white dark:bg-ink-800 rounded-2xl shadow-lg dark:border dark:border-market-500/10 p-6 sm:p-8">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-amber-100">Post a Job</h1>
+            <p className="text-gray-500 dark:text-amber-700 text-sm mt-0.5">Step {currentStep} of {FORM_STEPS.length}</p>
+          </div>
+          {saveDraftIndicator}
+        </div>
+
+        <StepIndicator
+          currentStep={currentStep}
+          completedSteps={completedSteps}
+          onStepClick={(step) => setCurrentStep(step as FormStep)}
+        />
+
+        {/* Error banner */}
+        {submitStep === "error" && (
+          <div className="mb-5 rounded-xl bg-red-50 border border-red-200 p-4">
+            <p className="text-sm font-semibold text-red-700">Something went wrong</p>
+            <p className="text-xs text-red-600 mt-1">{errorMsg}</p>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="relative">
+          {/* ── Step 1: Basic Info ── */}
+          <AnimatedStep visible={currentStep === 1}>
+            <BasicInfoStep
+              form={form}
+              touched={touched}
+              errors={step1Errors}
+              onChange={handleChange}
+              onTitleBlur={handleTitleBlur}
+              duplicateWarning={!dismissedDuplicate ? duplicateWarning : null}
+              onDismissDuplicate={handleDismissDuplicate}
+            />
+          </AnimatedStep>
+
+          {/* ── Step 2: Budget & Escrow ── */}
+          <AnimatedStep visible={currentStep === 2}>
+            <BudgetEscrowStep
+              form={form}
+              touched={touched}
+              errors={step2Errors}
+              budgetValue={budgetValue}
+              milestoneSum={milestoneSum}
+              xlmPriceUsd={xlmPriceUsd}
+              onChange={handleChange}
+              updateMilestone={updateMilestone}
+              addMilestone={addMilestone}
+              removeMilestone={removeMilestone}
+            />
+          </AnimatedStep>
+
+          {/* ── Step 3: Requirements ── */}
+          <AnimatedStep visible={currentStep === 3}>
+            <RequirementsStep
+              form={form}
+              suggestions={suggestions}
+              showSuggestions={showSuggestions}
+              onChange={handleChange}
+              onSelectSkill={handleSelectSkill}
+              updateScreeningQuestion={updateScreeningQuestion}
+              addScreeningQuestion={addScreeningQuestion}
+              removeScreeningQuestion={removeScreeningQuestion}
+            />
+          </AnimatedStep>
+
+          {/* ── Step 4: Review & Publish ── */}
+          <AnimatedStep visible={currentStep === 4}>
+            <ReviewStep
+              form={form}
+              isSubmitting={isSubmitting}
+              submitStep={submitStep}
+            />
+          </AnimatedStep>
+
+          {/* ── Navigation buttons ── */}
+          {currentStep < 4 && (
+            <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100 dark:border-market-500/10">
+              <button
+                type="button"
+                onClick={goBack}
+                disabled={currentStep === 1}
+                className="btn-secondary text-sm px-5 py-2.5 disabled:opacity-30"
+              >
+                ← Back
+              </button>
+              <button
+                type="button"
+                onClick={goNext}
+                className="btn-primary text-sm px-5 py-2.5"
+              >
+                Next →
+              </button>
+            </div>
+          )}
+          {currentStep === 4 && (
+            <div className="mt-4">
+              <button type="button" onClick={goBack} className="btn-secondary text-sm px-5 py-2.5 w-full">
+                ← Back to Edit
+              </button>
+            </div>
+          )}
+        </form>
+      </div>
+    </div>
+  );
 }
 
-function readTemplates(): JobTemplate[] {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const rawTemplates = window.localStorage.getItem(JOB_TEMPLATES_STORAGE_KEY);
-    if (!rawTemplates) return [];
-
-    const parsedTemplates = JSON.parse(rawTemplates);
-    if (!Array.isArray(parsedTemplates)) return [];
-
-    return parsedTemplates.filter(isJobTemplate);
-  } catch {
-    return [];
-  }
-}
-
-function isJobTemplate(value: unknown): value is JobTemplate {
-  if (!value || typeof value !== "object") return false;
-
-  const template = value as Partial<JobTemplate>;
-  return typeof template.name === "string" &&
-    typeof template.title === "string" &&
-    typeof template.description === "string" &&
-    typeof template.budget === "string" &&
-    typeof template.category === "string" &&
-    Array.isArray(template.skills) &&
-    template.skills.every((skill) => typeof skill === "string") &&
-    typeof template.deadline === "string";
-}

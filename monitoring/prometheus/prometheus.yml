@@ -1,0 +1,64 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    project: stellar-marketpay
+    environment: production
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # ── Stellar MarketPay Express API ───────────────────────────────────────────
+  # The backend exposes the Prometheus text format on GET /metrics. The
+  # endpoint requires internal auth (see backend/src/middleware/metricsAuth.js):
+  # either a bearer token OR a private-network source IP. Inside the compose /
+  # k8s network the scrape already originates from private space, so this job
+  # works out of the box.
+  #
+  # To ENFORCE token auth instead (recommended when the backend is reachable
+  # from outside the private network):
+  #   1. Set METRICS_TOKEN=<secret> and METRICS_ALLOW_PRIVATE_NETWORK=false on
+  #      the backend service.
+  #   2. Mount the same secret into this container, e.g. in
+  #      docker-compose.prod.yml:
+  #        secrets: [metrics_token]
+  #   3. Uncomment the `authorization` block below.
+  - job_name: marketpay-backend
+    metrics_path: /metrics
+    scheme: http
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    honor_labels: false
+    # authorization:
+    #   type: Bearer
+    #   credentials_file: /run/secrets/metrics_token
+    static_configs:
+      - targets:
+          - backend:4000
+        labels:
+          service: marketpay-backend
+          component: api
+    metric_relabel_configs:
+      # Drop very-high-cardinality Node.js GC buckets we never chart.
+      - source_labels: [__name__]
+        regex: marketpay_nodejs_gc_duration_seconds_bucket
+        action: drop
+
+  # ── Host metrics ────────────────────────────────────────────────────────────
+  - job_name: node-exporter
+    static_configs:
+      - targets:
+          - node-exporter:9100
+        labels:
+          service: node-exporter
+          component: host
+
+  # ── Prometheus self-monitoring ──────────────────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+        labels:
+          service: prometheus
+          component: monitoring

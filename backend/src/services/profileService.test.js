@@ -1,3 +1,5 @@
+process.env.DATABASE_ENCRYPTION_KEY = "test-encryption-key-32chars!!!!!";
+
 jest.mock("../db/pool", () => ({
   query: jest.fn(),
 }));
@@ -7,6 +9,9 @@ const {
   getProfile,
   upsertProfile,
   updateAvailability,
+  getProfileStats,
+  getResponseTime,
+  calculateFreelancerTier,
   MAX_PORTFOLIO_ITEMS,
 } = require("./profileService");
 
@@ -122,31 +127,38 @@ describe("profileService", () => {
 
   describe("getProfile", () => {
     it("returns portfolioItems from the profile row", async () => {
-      pool.query.mockResolvedValueOnce({
-        rows: [
-          {
-            public_key: publicKey,
-            display_name: "Jane Doe",
-            bio: "Freelancer bio",
-            skills: ["React"],
-            portfolio_items: [
-              { title: "Repo", url: "https://github.com/example/repo", type: "github" },
-            ],
-            availability: {
-              status: "busy",
-              availableFrom: "2026-06-01T00:00:00.000Z",
-              availableUntil: "2026-06-30T00:00:00.000Z",
-            },
-            role: "freelancer",
+      const profileRow = {
+        public_key: publicKey,
+        display_name: "Jane Doe",
+        bio: "Freelancer bio",
+        skills: ["React"],
+        portfolio_items: [
+          { title: "Repo", url: "https://github.com/example/repo", type: "github" },
+        ],
+        availability: {
+          status: "busy",
+          availableFrom: "2026-06-01T00:00:00.000Z",
+          availableUntil: "2026-06-30T00:00:00.000Z",
+        },
+        role: "freelancer",
+        completed_jobs: 3,
+        total_earned_xlm: "150.0000000",
+        avg_rating: "4.80",
+        rating_count: 2,
+        created_at: "2026-04-23T00:00:00.000Z",
+        updated_at: "2026-04-23T00:00:00.000Z",
+      };
+      pool.query
+        .mockResolvedValueOnce({ rows: [profileRow] })
+        .mockResolvedValueOnce({
+          rows: [{
+            created_at: profileRow.created_at,
             completed_jobs: 3,
+            total_jobs: 3,
             total_earned_xlm: "150.0000000",
             avg_rating: "4.80",
-            rating_count: 2,
-            created_at: "2026-04-23T00:00:00.000Z",
-            updated_at: "2026-04-23T00:00:00.000Z",
-          },
-        ],
-      });
+          }],
+        });
 
       const profile = await getProfile(publicKey);
 
@@ -160,6 +172,29 @@ describe("profileService", () => {
       });
       expect(profile.rating).toBe(4.8);
       expect(profile.ratingCount).toBe(2);
+      expect(profile.tier).toBe("Rising Talent");
+    });
+  });
+
+  describe("calculateFreelancerTier", () => {
+    it("returns Expert for high volume, rating, and earnings", () => {
+      expect(calculateFreelancerTier({
+        completedJobs: 20,
+        totalJobs: 20,
+        rating: 4.8,
+        totalEarnedXlm: 500,
+        createdAt: "2025-01-01T00:00:00.000Z",
+      })).toBe("Expert");
+    });
+
+    it("returns Top Rated for strong rating and completion rate", () => {
+      expect(calculateFreelancerTier({
+        completedJobs: 9,
+        totalJobs: 10,
+        rating: 4.5,
+        totalEarnedXlm: 300,
+        createdAt: "2025-01-01T00:00:00.000Z",
+      })).toBe("Top Rated");
     });
   });
 
@@ -199,6 +234,50 @@ describe("profileService", () => {
         availableFrom: "2026-07-01T00:00:00.000Z",
         availableUntil: "2026-07-10T00:00:00.000Z",
       });
+    });
+  });
+
+  describe("getProfileStats", () => {
+    it("returns zero stats when no applications exist", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [{ total_applications: 0, accepted_applications: 0 }],
+      });
+
+      const stats = await getProfileStats(publicKey);
+      expect(stats).toEqual({
+        totalApplications: 0,
+        acceptedApplications: 0,
+        successRate: 0,
+      });
+    });
+
+    it("calculates success rate correctly", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [{ total_applications: 4, accepted_applications: 3 }],
+      });
+
+      const stats = await getProfileStats(publicKey);
+      expect(stats.successRate).toBe(75);
+    });
+  });
+
+  describe("getResponseTime", () => {
+    it("returns null when no data is available", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [{ average_days: null }],
+      });
+
+      const result = await getResponseTime(publicKey);
+      expect(result.averageDays).toBeNull();
+    });
+
+    it("returns formatted average days", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [{ average_days: "2.5" }],
+      });
+
+      const result = await getResponseTime(publicKey);
+      expect(result.averageDays).toBe(2.5);
     });
   });
 });
