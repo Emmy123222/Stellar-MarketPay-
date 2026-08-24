@@ -23,7 +23,11 @@
 #![allow(
     clippy::too_many_arguments,
     clippy::manual_range_contains,
-    unused_variables
+    unused_variables,
+    // soroban-sdk 27 deprecates Events::publish in favour of #[contractevent].
+    // Migrating changes the emitted event ABI that the backend indexer parses,
+    // so it is tracked as its own task rather than bundled here.
+    deprecated
 )]
 
 use soroban_sdk::{
@@ -304,6 +308,8 @@ pub enum DataKey {
     FreelancerRatingStats(Address),
     Arbitrator(Address),
     ArbitratorPool,
+    /// Single admin-designated arbitrator (set_arbitrator / get_arbitrator)
+    ArbitratorAddress,
     ArbitrationCase(u32),
     ArbitrationCaseCount,
     DisputeCase(String),
