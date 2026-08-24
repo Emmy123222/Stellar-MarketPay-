@@ -28,10 +28,8 @@
     // Migrating changes the emitted event ABI that the backend indexer parses,
     // so it is tracked as its own task rather than bundled here.
     deprecated,
-    // Style-only lints in test helpers. Left as follow-ups rather than fixed
-    // blind: this environment cannot reach static.crates.io, so no local
-    // compile is possible to verify a change.
-    clippy::needless_borrow,
+    // Test helpers take `&Env` where the signature elides the lifetime;
+    // cosmetic, and changing every helper signature is churn for no benefit.
     mismatched_lifetime_syntaxes
 )]
 
@@ -145,12 +143,12 @@ pub struct DeliverableSubmission {
     pub hashes_match: bool,
 }
 
-/// On-chain dispute-evidence IPFS CID audit trail (Issue #448 --- AC #2).
-///
-/// Per the AC, the contract stores a bare `Vec<Bytes>` of CIDs under
-/// `DataKey::EvidenceCids(job_id)`. Each entry is the raw ASCII bytes of
-/// an IPFS CID string (e.g. bytes of `bafy...`). The per-record
-/// struct (with `kind` and `submitter` fields) has been retired.
+// On-chain dispute-evidence IPFS CID audit trail (Issue #448 --- AC #2).
+//
+// Per the AC, the contract stores a bare `Vec<Bytes>` of CIDs under
+// `DataKey::EvidenceCids(job_id)`. Each entry is the raw ASCII bytes of
+// an IPFS CID string (e.g. bytes of `bafy...`). The per-record
+// struct (with `kind` and `submitter` fields) has been retired.
 
 /// Freelancer sealed-bid commitment entry.
 #[contracttype]
@@ -585,7 +583,8 @@ impl MarketPayContract {
 
         // Transfer funds from client into the contract
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&client, &env.current_contract_address(), &amount);
+        let contract_address = env.current_contract_address();
+        token_client.transfer(&client, &contract_address, &amount);
 
         let current_ledger = env.ledger().sequence();
         let current_timestamp = env.ledger().timestamp() as u32;
@@ -1893,7 +1892,8 @@ impl MarketPayContract {
             // authorised ALL token operations from this caller, so this
             // single transfer call covers the bond lock.
             let bond_token_client = token::Client::new(&env, &bond_cfg.token);
-            bond_token_client.transfer(&caller, &env.current_contract_address(), &bond_cfg.amount);
+            let contract_address = env.current_contract_address();
+            bond_token_client.transfer(&caller, &contract_address, &bond_cfg.amount);
 
             env.events().publish(
                 (symbol_short!("bond_lck"), job_id.clone()),
