@@ -36,19 +36,33 @@ title = "Stellar MarketPay Gitleaks Configuration"
     '''postgresql://postgres:postgres@localhost:\d+/\w+''',
     '''ci-test-[a-z-]*(secret|key)[a-z0-9-]*''',
     '''test-[a-z-]*(secret|key)-with-[a-z-]*''',
+    '''process\.env\.SERVER_PRIVATE_KEY\s*\|\|\s*Keypair\.random\(\)\.secret\(\)''',
   ]
 
   # Allow specific commits or branches if needed
   commits = []
   branches = []
 
-# False positive: Environment variable reference with fallback to random keypair
-# Pattern: process.env.SERVER_PRIVATE_KEY || Keypair.random().secret()
-# This is safe because it either uses an environment variable or generates a random keypair.
-# The random keypair is never a leaked secret — it's generated at runtime.
-files = [
-  '''^backend/src/routes/auth\.js$''',
-]
+  # False positives: Environment variable references and documentation examples
+  # These files contain placeholder values and example patterns (not real secrets):
+  # - backend/src/routes/auth.js: process.env.SERVER_PRIVATE_KEY || Keypair.random().secret()
+  # - .github/SETUP_SECRETS.md: contains placeholder examples like staging.example.com, [contents of ~/.ssh/staging_deploy]
+  # - .github/README.md: references secret names and setup instructions
+  # - docs/ci-secrets.md: complete secrets reference table with examples
+  # - .github/QUICK_REFERENCE.md: setup guide with placeholder values
+  # - .github/workflows/deploy-*.yml.example: documentation for deployment setup
+  # - SECRETS_IMPLEMENTATION_SUMMARY.md: feature summary with example values
+  # Gitleaks patterns like AWS_ACCESS_KEY_ID = [from AWS IAM] or PGPASSWORD = [strong password]
+  # trigger rules because they look like secrets syntactically, but they're clearly documentation.
+  files = [
+    '''backend/src/routes/auth\.js''',
+    '''\.github/SETUP_SECRETS\.md''',
+    '''\.github/README\.md''',
+    '''docs/ci-secrets\.md''',
+    '''\.github/QUICK_REFERENCE\.md''',
+    '''\.github/workflows/deploy-.*\.yml\.example''',
+    '''SECRETS_IMPLEMENTATION_SUMMARY\.md''',
+  ]
 
 # Stellar-specific rule for private keys
 [[rules]]
