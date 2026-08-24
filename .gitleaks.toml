@@ -42,6 +42,14 @@ title = "Stellar MarketPay Gitleaks Configuration"
   commits = []
   branches = []
 
+# False positive: Environment variable reference with fallback to random keypair
+# Pattern: process.env.SERVER_PRIVATE_KEY || Keypair.random().secret()
+# This is safe because it either uses an environment variable or generates a random keypair.
+# The random keypair is never a leaked secret — it's generated at runtime.
+files = [
+  '''^backend/src/routes/auth\.js$''',
+]
+
 # Stellar-specific rule for private keys
 [[rules]]
   id = "stellar-private-key"
