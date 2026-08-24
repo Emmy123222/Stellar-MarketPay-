@@ -275,7 +275,7 @@ function rowToJob(row) {
  *   clientAddress: 'GBX...',
  * });
  */
-async function createJob({ title, description, budget, currency, category, categorySlug, skills, deadline, timezone, clientAddress, screeningQuestions, milestones, visibility = "public" }) {
+let createJob = async function ({ title, description, budget, currency, category, categorySlug, skills, deadline, timezone, clientAddress, screeningQuestions, milestones, visibility = "public" }) {
   validatePublicKey(clientAddress);
 
   if (!title || title.length < 10) {
@@ -428,7 +428,7 @@ async function createJob({ title, description, budget, currency, category, categ
   }
 
   return rowToJob(job);
-}
+};
 
 function tokenize(text) {
   if (!text) return [];
@@ -707,7 +707,7 @@ async function listJobsByClient(clientAddress, { includeDeleted = false } = {}) 
  * @returns {Promise<Object>} The updated job object.
  * @throws {Error} If the status is invalid or the job is not found.
  */
-async function updateJobStatus(id, status) {
+let updateJobStatus = async function (id, status) {
   if (!VALID_STATUSES.includes(status)) {
     const e = new Error("Invalid status");
     e.status = 400;
@@ -752,7 +752,7 @@ async function updateJobStatus(id, status) {
   }
 
   return job;
-}
+};
 
 /**
  * Assign a freelancer to a job and update its status to 'in_progress'.
@@ -762,7 +762,7 @@ async function updateJobStatus(id, status) {
  * @returns {Promise<Object>} The updated job object.
  * @throws {Error} If the freelancerAddress is invalid or the job is not found.
  */
-async function assignFreelancer(jobId, freelancerAddress) {
+let assignFreelancer = async function (jobId, freelancerAddress) {
   validatePublicKey(freelancerAddress);
 
   const { rows } = await pool.query(
@@ -780,7 +780,7 @@ async function assignFreelancer(jobId, freelancerAddress) {
   }
 
   return rowToJob(rows[0]);
-}
+};
 
 /**
  * Update the escrow contract ID associated with a job.
@@ -793,7 +793,7 @@ async function assignFreelancer(jobId, freelancerAddress) {
  * @returns {Promise<Object>} The updated job object.
  * @throws {Error} If the escrowContractId is invalid or the job is not found.
  */
-async function updateJobEscrowId(jobId, escrowContractId, { amount } = {}) {
+let updateJobEscrowId = async function (jobId, escrowContractId, { amount } = {}) {
   if (!escrowContractId || typeof escrowContractId !== "string") {
     const e = new Error("Invalid escrow contract ID");
     e.status = 400;
@@ -827,7 +827,7 @@ async function updateJobEscrowId(jobId, escrowContractId, { amount } = {}) {
   const e = new Error("Job not found");
   e.status = 404;
   throw e;
-}
+};
 
 /**
  * Soft-delete a job by its ID (sets deleted_at instead of removing).
@@ -1524,8 +1524,9 @@ updateJobStatus = async function (id, status) {
 
 // Extend updateJobEscrowId to accept optional txHash for recording escrow_funded event
 const _updateJobEscrowId = updateJobEscrowId;
-updateJobEscrowId = async function (jobId, escrowContractId, txHash = null) {
-  const job = await _updateJobEscrowId(jobId, escrowContractId);
+updateJobEscrowId = async function (jobId, escrowContractId, options = {}) {
+  const { txHash = null, ...escrowOptions } = options;
+  const job = await _updateJobEscrowId(jobId, escrowContractId, escrowOptions);
   try {
     await recordTimelineEvent(jobId, "escrow_funded", txHash);
   } catch (err) {

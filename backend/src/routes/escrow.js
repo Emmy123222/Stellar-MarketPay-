@@ -16,7 +16,7 @@ const escrowActionRateLimiter = createRateLimiter(30, 1);
 const router = express.Router();
 const pool = require("../db/pool");
 const { getJob, updateJobStatus } = require("../services/jobService");
-const { logContractInteraction } = require("../services/contractAuditService");
+const { logContractInteraction, verifyOnChainTransaction } = require("../services/contractAuditService");
 const { insertAuditLog } = require("../services/auditLogService");
 const {
   notifyEscrowEvent,
@@ -24,10 +24,10 @@ const {
 } = require("../services/notificationService");
 const { processReferralPayout } = require("../services/referralService");
 const {
+  timeoutRefund,
   releaseMilestone,
   rejectMilestone,
   disputeMilestone,
-  submitDeliverableHash,
 
   verifyFreelancerAccount,
 } = require("../services/escrowService");
@@ -352,7 +352,7 @@ router.post("/:jobId/timeout-refund", async (req, res, next) => {
     }
 
     // Issue #536: Pass request for IP validation in service key usage
-    const result = await escrowService.timeoutRefund(jobId, clientAddress, contractTxHash, req);
+    const result = await timeoutRefund(jobId, clientAddress, contractTxHash, req);
 
     // DB status is updated asynchronously by the indexer when it processes the on-chain event.
 
@@ -522,53 +522,9 @@ router.post("/verify-freelancer", escrowActionRateLimiter, async (req, res, next
       throw e;
     }
 
-    if (!Number.isInteger(newTimeoutLedger) || newTimeoutLedger <= 0) {
-      const e = new Error("newTimeoutLedger must be a positive integer");
-      e.status = 400;
-      throw e;
-    }
+    await verifyFreelancerAccount(freelancerAddress);
 
-    const result = await requestEscrowExtension(jobId, requestedBy, newTimeoutLedger);
-
-    await logContractInteraction({
-      functionName: "request_extension",
-      callerAddress: requestedBy,
-      jobId,
-      txHash: `offchain-${Date.now()}`,
-    });
-
-    res.status(201).json(result);
-  } catch (e) {
-    next(e);
-  }
-});
-
-/**
- * POST /api/escrow/:jobId/extend/approve
- * Approve a pending escrow timeout extension request.
- * The caller must be the party that did NOT request the extension.
- */
-router.post("/:jobId/extend/approve", escrowActionRateLimiter, async (req, res, next) => {
-  try {
-    const { jobId } = req.params;
-    const { approvedBy } = req.body;
-
-    if (!approvedBy || !/^G[A-Z0-9]{55}$/.test(approvedBy)) {
-      const e = new Error("Invalid wallet address");
-      e.status = 400;
-      throw e;
-    }
-
-    const result = await approveEscrowExtension(jobId, approvedBy);
-
-    await logContractInteraction({
-      functionName: "approve_extension",
-      callerAddress: approvedBy,
-      jobId,
-      txHash: `offchain-${Date.now()}`,
-    });
-
-    res.json(result);
+    res.json({ success: true, data: { freelancerAddress, exists: true } });
   } catch (e) {
     next(e);
   }

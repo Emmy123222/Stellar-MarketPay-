@@ -421,8 +421,8 @@ export default function Navbar({
           {publicKey ? (
             <>
               <NotificationBell publicKey={publicKey} />
-              <WalletAddressDisplay
-                address={publicKey}
+              <button
+                onClick={() => router.push("/dashboard/transactions")}
                 className="flex items-center gap-1 sm:gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity text-xs sm:text-sm px-2 py-2 sm:px-3 sm:py-2 min-h-[44px]"
                 title={t("wallet.balance") as string}
               >

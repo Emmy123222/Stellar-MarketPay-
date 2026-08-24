@@ -99,8 +99,21 @@ try {
   }
 }
 
+/**
+ * Bind each CSRF token to the session it was minted for, so a token issued to
+ * one visitor can never be replayed by another. csrf-csrf requires this.
+ * The refresh-token cookie identifies the session; it and the CSRF token are
+ * rotated together by setAuthCookies(), so they stay in step. Unauthenticated
+ * callers share the anonymous bucket — the only state-mutating routes they can
+ * reach are the CSRF-exempt bootstrap paths in shouldSkipCsrf().
+ */
+function getSessionIdentifier(req) {
+  return (req.cookies && req.cookies.refreshToken) || "";
+}
+
 const { doubleCsrfProtection: csrfProtect, generateCsrfToken: csrfGenerate } = doubleCsrf({
   getSecret: getCsrfSecret,
+  getSessionIdentifier,
   cookieName: CSRF_COOKIE_NAME,
   cookieOptions: {
     secure: isProd(),
@@ -136,6 +149,7 @@ module.exports = {
   doubleCsrfProtection,
   generateCsrfToken,
   getCsrfSecret,
+  getSessionIdentifier,
   isProd,
   shouldSkipCsrf,
 };

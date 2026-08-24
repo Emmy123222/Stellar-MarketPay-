@@ -33,6 +33,14 @@ const jobDraftService = require("../services/jobDraftService");
 const recommendationService = require("../services/recommendationService");
 const invoiceService = require("../services/invoiceService");
 const { validateJsonb } = require("../middleware/jsonbValidator");
+const {
+  validate,
+  createJobSchema,
+  extendJobSchema,
+  inviteJobSchema,
+  reportJobSchema,
+  updateEscrowSchema,
+} = require("../validators/jobValidator");
 const milestonesSchema = require("../schemas/milestones.schema");
 const { Horizon } = require("@stellar/stellar-sdk");
 const horizonClient = require("../utils/horizonClient");
@@ -638,9 +646,6 @@ router.patch(
     try {
       const { days } = validate(extendJobSchema, req.body);
       const daysNum = parseInt(days, 10) || 30;
-      if (!validDays.includes(daysNum)) {
-        return res.status(400).json({ error: "Extension days must be 7, 14, or 30" });
-      }
       const job = await extendJobExpiry(req.params.id, daysNum, req.user.publicKey);
       await cache.invalidateJobListCache();
       res.json({ success: true, data: job });
@@ -687,9 +692,6 @@ router.post("/:id/report", reportJobRateLimiter, (req, res, next) => {
 
     if (!normalizedReporterAddress)
       return res.status(400).json({ error: "Reporter address is required" });
-    if (!isValidReportCategory(category))
-      return res.status(400).json({ error: "Valid report category is required" });
-
     const duplicateKey = `${jobId}:${normalizedReporterAddress}`;
     if (jobReports.has(duplicateKey))
       return res.status(409).json({ error: "You have already reported this job" });

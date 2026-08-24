@@ -2,7 +2,7 @@
 
 const pool = require("../db/pool");
 const { getJob, recordTimelineEvent } = require("./jobService");
-const { logContractInteraction } = require("./contractAuditService");
+const { logContractInteraction, verifyOnChainTransaction } = require("./contractAuditService");
 const {
   notifyEscrowEvent,
   EVENT_TYPES,

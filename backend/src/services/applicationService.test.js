@@ -19,7 +19,9 @@ jest.mock("./notificationService", () => ({
 }));
 
 const pool = require("../db/pool");
-const { isBlocked } = require("./profileService");
+const { isBlocked,
+  calculateFreelancerTier,
+} = require("./profileService");
 const {
   submitApplication,
   getApplicationsForJob,

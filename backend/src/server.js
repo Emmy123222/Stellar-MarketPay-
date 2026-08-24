@@ -14,10 +14,9 @@ const compressionMiddleware = require("./middleware/compression");
 const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
-const { sendEmail, smtpTransport } = require("./utils/email");
+const { sendEmail } = require("./utils/email");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("./middleware/auth");
-const promClient = require("prom-client");
 const metrics = require("./metrics");
 const metricsAuth = require("./middleware/metricsAuth");
 const swaggerUi = require('swagger-ui-express');
@@ -28,6 +27,7 @@ const { idempotencyMiddleware, cleanupExpiredIdempotencyKeys } = require('./midd
 const { getRateLimitScale, rateLimitLogger } = require("./middleware/rateLimiter");
 const { requireChoice } = require("./config/env");
 const { createCorsOptions } = require("./config/cors");
+const cookieParser = require("cookie-parser");
 const { doubleCsrfProtection } = require("./middleware/csrf");
 const { structuredErrorHandler } = require("./utils/errors");
 const { jsonDepthLimitMiddleware } = require("./middleware/jsonbValidator");
@@ -69,7 +69,12 @@ const nftRoutes            = require("./routes/nft");
 
 const pool            = require("./db/pool");
 const { connectWithRetry } = require("./db/pool");
-const { migrate } = require("./db/migrate");
+const {
+  migrate,
+  getCurrentMigrationVersion,
+  getExpectedMigrationVersion,
+  validateMigrationVersion,
+} = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
@@ -316,6 +321,8 @@ app.use(compressionMiddleware());
 // "Request started" log line can capture the request body (sanitized).
 app.use(createRequestSizeLimitMiddleware(REQUEST_BODY_LIMIT));
 app.use(express.json({ limit: REQUEST_BODY_LIMIT }));
+// Reject pathologically nested JSON before it reaches any handler.
+app.use(jsonDepthLimitMiddleware);
 app.use(express.urlencoded({ extended: true, limit: REQUEST_BODY_LIMIT }));
 app.use(sanitizeMiddleware({ strict: false }));
 app.use(idempotencyMiddleware());
@@ -333,6 +340,9 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
 
 
 app.use(cors(createCorsOptions()));
+// csrf-csrf reads the signed double-submit cookie off req.cookies, so the
+// cookie parser must run before the CSRF check.
+app.use(cookieParser());
 app.use(doubleCsrfProtection);
 
 // ─── HTTP request instrumentation ─────────────────────────────────────────────
@@ -457,6 +467,7 @@ app.use("/api/dao",            daoRoutes);
 app.use("/api/proposal-templates", proposalTemplateRoutes);
 app.use("/api/price-alerts",      priceAlertRoutes);
 app.use("/api/ai",                aiScorerRoutes);
+app.use("/api/nft",               nftRoutes);
 
 // 404 handler — must come after all routes
 app.use((req, res) => {
@@ -505,13 +516,22 @@ wsServer.on("connection", async (ws, request) => {
     let userAddress = null;
     if (token) {
       try {
-        const jwt = require("jsonwebtoken");
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.verify(token, JWT_SECRET);
         userAddress = decoded.publicKey;
       } catch { /* token is optional, e.g. anonymous tab */ }
     }
+    if (userAddress) {
+      const existing = userClients.get(userAddress);
+      if (existing && existing.size >= MAX_WS_CONNECTIONS_PER_USER) {
+        sendJson(ws, "error", {
+          error: `Connection limit of ${MAX_WS_CONNECTIONS_PER_USER} reached for this account`,
+        });
+        ws.close(1013, "Too many connections");
+        return;
+      }
+    }
     realtimeClients.add(ws);
-    wsConnectionsActive.set(realtimeClients.size);
+    setWebsocketConnections("realtime", realtimeClients.size);
     if (userAddress) {
       if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
       userClients.get(userAddress).add(ws);
@@ -547,7 +567,7 @@ wsServer.on("connection", async (ws, request) => {
 
     ws.on("close", () => {
       realtimeClients.delete(ws);
-      wsConnectionsActive.set(realtimeClients.size);
+      setWebsocketConnections("realtime", realtimeClients.size);
       if (userAddress) {
         const sockets = userClients.get(userAddress);
         if (sockets) {
@@ -634,7 +654,7 @@ wsServer.on("connection", async (ws, request) => {
             });
           }
         }
-      } catch (error) {
+      } catch {
         sendJson(ws, "scope:error", { error: "Invalid message payload" });
       }
     });
@@ -705,6 +725,7 @@ async function bootstrap() {
 
   // Start saved search alert checker - run every 10 minutes
   startSavedSearchAlertChecker();
+  startApiKeyRotationFinalizer();
 
   server.listen(PORT, () => {
     serviceLogger.info({

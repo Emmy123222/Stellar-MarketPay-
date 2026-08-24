@@ -3,6 +3,16 @@
 const { Pool } = require("pg");
 const { requireEnv } = require("../config/env");
 const { createServiceLogger } = require("../utils/logger");
+// Metrics live in ../metrics so low-level modules can record into the shared
+// registry without importing the server (which would create a require cycle).
+const {
+  dbConnections,
+  pgPoolTotal,
+  pgPoolIdle,
+  pgPoolWaiting,
+  observePoolQuery,
+  sqlOperation,
+} = require("../metrics");
 
 const DATABASE_URL = requireEnv("DATABASE_URL");
 

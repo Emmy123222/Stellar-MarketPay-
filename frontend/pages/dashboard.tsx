@@ -843,6 +843,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
               }
             }}
           />
+          </>
         ) : tab === "price_alerts" ? (
           (!minPrice && !maxPrice && !emailEnabled) ? (
             <StateMessage
@@ -939,6 +940,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
               onCta={() => router.push("/jobs")}
             />
           ) : (
+            <>
             <div className="space-y-3">
               {savedSearches.map((s) => (
                 <div key={s.id} className="card flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1014,7 +1016,9 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
               }}
               onCancel={() => setConfirmDeleteSearch(null)}
             />
-          )
+            </>
+          )}
+          </>
         ) : tab === "referrals" ? (
           <ReferralDashboard publicKey={publicKey} />
         ) : (
