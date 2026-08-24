@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { api } from "@/lib/api/client";
 import { getApiErrorMessage } from "@/lib/api/client";
+import { useToast } from "@/components/Toast";
 
 type QuestionType = "multiple_choice" | "short_answer";
 
@@ -26,6 +27,7 @@ const emptyQuestion = (): Question => ({
 
 export default function CreateAssessment({ publicKey }: CreateAssessmentProps) {
   const router = useRouter();
+  const toast = useToast();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(15);
@@ -73,7 +75,7 @@ export default function CreateAssessment({ publicKey }: CreateAssessmentProps) {
       });
 
       if (response.data.success) {
-        alert('Assessment created successfully!');
+        toast.success('Assessment created successfully!');
         router.push(`/assessments/project/${response.data.data.id}/results`);
       } else {
         setError('Failed to create assessment.');

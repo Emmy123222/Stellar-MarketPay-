@@ -22,7 +22,7 @@ import {
   logout,
   registerReferral,
 } from "@/lib/api";
-import { useToast } from "@/components/Toast";
+import { toast } from "@/components/Toast";
 import WalletAccountMonitor from "@/components/WalletAccountMonitor";
 import PWAInstall from "@/components/PWAInstall";
 import "@/styles/globals.css";
@@ -350,10 +350,10 @@ function App({ Component, pageProps }: AppProps) {
         persistPublicKey(pk);
         await maybeRegisterReferral(pk);
       } else {
-        alert("Wallet connected, but authentication failed.");
+        toast.error("Wallet connected, but authentication failed.");
       }
     } else if (error) {
-      alert(error);
+      toast.error(error);
     }
   };
 
