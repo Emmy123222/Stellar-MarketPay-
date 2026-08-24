@@ -403,7 +403,10 @@ function App({ Component, pageProps }: AppProps) {
             </Head>
             <OfflineBanner />
             <div className="min-h-screen bg-lines" style={{ backgroundColor: "var(--bg)" }}>
-              <Navbar publicKey={publicKey} onConnect={handleConnect} onDisconnect={() => setPublicKey(null)} />
+              {/* handleWalletDisconnect clears the persisted key; a bare
+                  setPublicKey(null) lets the storage-rehydration effect below
+                  instantly restore the session, so Disconnect appears dead. */}
+              <Navbar publicKey={publicKey} onConnect={handleConnect} onDisconnect={handleWalletDisconnect} />
               <MobileTabBar publicKey={publicKey} />
               <main id="main-content">
                 <Component {...pageProps} publicKey={publicKey} onConnect={handleConnect} />

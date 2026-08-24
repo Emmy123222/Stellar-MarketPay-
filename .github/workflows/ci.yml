@@ -219,6 +219,40 @@ jobs:
       - name: Build
         run: npm run build
 
+  e2e-wallet:
+    name: Frontend E2E — Wallet Connection
+    runs-on: ubuntu-latest
+    needs: secrets-scan
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      # Scoped to the wallet-connection flow (issue: e2e coverage for Freighter
+      # connect / unavailable / disconnect). The older suites are not gated yet.
+      - name: Run wallet connection e2e tests
+        run: npx playwright test wallet-connection --project=chromium
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
   contracts:
     name: Soroban Contracts — marketpay-contract
     runs-on: ubuntu-latest
