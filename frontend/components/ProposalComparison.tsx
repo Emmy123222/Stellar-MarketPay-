@@ -61,7 +61,9 @@ export default function ProposalComparison({ myJobs, jobApplications, publicKey 
   }, [selectedJobId, jobApplications]);
 
   const syncUrl = (jobId: string, ids: Set<string>) => {
-    const query: Record<string, string | undefined> = { ...router.query };
+    const query: Record<string, string | undefined> = Object.fromEntries(
+      Object.entries(router.query).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v]),
+    );
     if (jobId) query.job = jobId;
     else delete query.job;
     if (ids.size >= 2) query.compare = [...ids].join(",");

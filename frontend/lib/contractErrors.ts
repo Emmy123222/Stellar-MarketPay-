@@ -135,6 +135,7 @@ export type ContractErrorCode = (typeof CONTRACT_ERROR_CODES)[keyof typeof CONTR
 const GENERIC_CONTRACT_ERROR_EN = "The contract rejected this operation. Please check your inputs and try again.";
 
 const CONTRACT_ERROR_MESSAGES_EN: Record<ContractErrorCode, string> = {
+  [CONTRACT_ERROR_CODES.UNKNOWN]: GENERIC_CONTRACT_ERROR_EN,
   // 1xxx
   [CONTRACT_ERROR_CODES.ALREADY_INITIALIZED]: "Contract has already been initialized.",
   [CONTRACT_ERROR_CODES.NOT_INITIALIZED]: "Contract has not been initialized yet.",
@@ -251,6 +252,7 @@ const CONTRACT_ERROR_MESSAGES_EN: Record<ContractErrorCode, string> = {
 // ─── Spanish messages ─────────────────────────────────────────────────────────
 
 const CONTRACT_ERROR_MESSAGES_ES: Record<ContractErrorCode, string> = {
+  [CONTRACT_ERROR_CODES.UNKNOWN]: GENERIC_CONTRACT_ERROR_EN,
   // 1xxx
   [CONTRACT_ERROR_CODES.ALREADY_INITIALIZED]: "El contrato ya ha sido inicializado.",
   [CONTRACT_ERROR_CODES.NOT_INITIALIZED]: "El contrato aún no ha sido inicializado.",
@@ -367,6 +369,7 @@ const CONTRACT_ERROR_MESSAGES_ES: Record<ContractErrorCode, string> = {
 // ─── French messages ──────────────────────────────────────────────────────────
 
 const CONTRACT_ERROR_MESSAGES_FR: Record<ContractErrorCode, string> = {
+  [CONTRACT_ERROR_CODES.UNKNOWN]: GENERIC_CONTRACT_ERROR_EN,
   // 1xxx
   [CONTRACT_ERROR_CODES.ALREADY_INITIALIZED]: "Le contrat a déjà été initialisé.",
   [CONTRACT_ERROR_CODES.NOT_INITIALIZED]: "Le contrat n'a pas encore été initialisé.",

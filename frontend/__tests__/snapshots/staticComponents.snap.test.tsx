@@ -324,7 +324,11 @@ describe("static component snapshots", () => {
   });
 
   describe("ProposalComparison", () => {
-    it("default", () => snapshotContainer(<ProposalComparison />, "ProposalComparison"));
+    it("default", () =>
+      snapshotContainer(
+        <ProposalComparison myJobs={[]} jobApplications={new Map()} publicKey="GTEST" />,
+        "ProposalComparison",
+      ));
   });
 
   describe("RealtimeBidComparison", () => {

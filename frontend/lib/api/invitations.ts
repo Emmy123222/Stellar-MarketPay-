@@ -1,18 +1,7 @@
 import { api } from "./client";
-import type { Application } from "@/utils/types";
+import type { Application, JobInvitation } from "@/utils/types";
 
-export interface JobInvitation {
-  id: string;
-  jobId: string;
-  jobTitle: string;
-  jobBudget: string;
-  jobCurrency: string;
-  clientAddress: string;
-  clientName?: string;
-  freelancerAddress: string;
-  status: "pending" | "accepted" | "declined";
-  createdAt: string;
-}
+export type { JobInvitation };
 
 /**
  * Fetch all pending invitations for the authenticated freelancer.

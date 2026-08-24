@@ -9,6 +9,7 @@
  */
 import AccessibleModal from "@/components/AccessibleModal";
 import { useEffect, useState } from "react";
+import { stroopsToXlm } from "@/lib/sorobanFees";
 import type { Transaction } from "@stellar/stellar-sdk";
 import {
   estimateSorobanFee,
@@ -153,7 +154,7 @@ export default function FeeEstimationModal({
           Cancel
         </button>
         <button
-          onClick={onConfirm}
+          onClick={() => onConfirm({ maxFeeMultiplier, maxFeeStroops })}
           disabled={!estimate || Boolean(error) || insufficient}
           className="btn-primary flex-1 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >

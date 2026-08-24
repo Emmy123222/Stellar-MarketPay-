@@ -13,7 +13,9 @@ const baseProfile: UserProfile = {
   availability: {
     status: "available",
   },
-  tier: "pro",
+  tier: "Top Rated",
+  role: "freelancer",
+  createdAt: "2026-01-15T00:00:00.000Z",
 };
 
 const meta: Meta<typeof FreelancerCard> = {

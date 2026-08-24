@@ -146,6 +146,36 @@ export async function signTransactionWithWallet(transactionXDR: string, mockPara
  * @param onDisconnect - Callback invoked when Freighter reports disconnected.
  * @returns Stop function that clears the interval.
  */
+/**
+ * Subscribe to Freighter account changes.
+ *
+ * Freighter dispatches a `accountChanged` event on `window` in recent versions.
+ * Where the event is unavailable this returns `undefined`, and callers fall back
+ * to polling `getConnectedPublicKey()`.
+ *
+ * @param onChange Receives the new public key, or null when the wallet locked
+ *                 or disconnected.
+ * @returns An unsubscribe function, or null if the event is unsupported.
+ */
+export function subscribeToAccountChanges(
+  onChange: (publicKey: string | null) => void,
+): (() => void) | null {
+  if (typeof window === "undefined" || !("addEventListener" in window)) return null;
+
+  const handler = (event: Event) => {
+    const detail = (event as CustomEvent<{ publicKey?: string | null }>).detail;
+    if (detail && "publicKey" in detail) {
+      onChange(detail.publicKey ?? null);
+      return;
+    }
+    // Older builds fire the event with no payload — read the key back instead.
+    getConnectedPublicKey().then(onChange).catch(() => onChange(null));
+  };
+
+  window.addEventListener("accountChanged", handler);
+  return () => window.removeEventListener("accountChanged", handler);
+}
+
 export function startWalletDisconnectPolling(
   onDisconnect: () => void
 ): () => void {

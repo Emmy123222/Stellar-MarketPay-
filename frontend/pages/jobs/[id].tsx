@@ -1,7 +1,8 @@
 import TimeTracker from "@/components/TimeTracker";
 import FeeEstimationModal from "@/components/FeeEstimationModal";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRealtimeBids } from "@/hooks/useRealtimeBids";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import Head from "next/head";
@@ -100,7 +101,7 @@ function truncate(text: string, max = 200): string {
  * branches canonicalize to themselves instead of leaking production URLs.
  */
 export const getServerSideProps: GetServerSideProps<
-  JobDetailProps & { ogBaseUrl: string }
+  Pick<JobDetailProps, "ssrJob" | "ogBaseUrl">
 > = async ({ params, req }) => {
   const jobId = typeof params?.id === "string" ? params.id : "";
   const host =
@@ -135,14 +136,14 @@ export const getServerSideProps: GetServerSideProps<
       return { props: { ssrJob: null, ogBaseUrl } };
     }
     // Whitelist fields we actually need in meta tags to keep payload tiny.
-    const ssrJob = {
+    const ssrJob: JobDetailProps["ssrJob"] = {
       id: String(data.id),
       title: String(data.title || ""),
       description: String(data.description || ""),
       category: String(data.category || ""),
       budget: String(data.budget || ""),
-      currency: String(data.currency || "XLM"),
-      status: String(data.status || "open"),
+      currency: String(data.currency || "XLM") as Job["currency"],
+      status: String(data.status || "open") as Job["status"],
       skills: Array.isArray(data.skills) ? data.skills.map(String) : [],
       clientAddress: String(data.clientAddress || ""),
       createdAt: String(data.createdAt || ""),
@@ -183,6 +184,9 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const [actionError, setActionError] = useState<string | null>(null);
   const [releasingEscrow, setReleasingEscrow] = useState(false);
   const [releaseSuccess, setReleaseSuccess] = useState(false);
+  const [mintingCertificate, setMintingCertificate] = useState(false);
+  const [certificateMinted, setCertificateMinted] = useState(false);
+  const [certificateError, setCertificateError] = useState<string | null>(null);
   const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [prefillData, setPrefillData] = useState<any>(null);
   const [showDisputeModal, setShowDisputeModal] = useState(false);

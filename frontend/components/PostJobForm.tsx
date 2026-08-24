@@ -11,7 +11,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft, updateDraft, fetchSkillSuggestions } from "@/lib/api";
+import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft, updateDraft, fetchSkillSuggestions, fetchMyJobs } from "@/lib/api";
 import { performSEP0010Auth } from "@/lib/wallet";
 import { createEscrowOnChain } from "@/lib/stellar";
 import { usePriceContext } from "@/contexts/PriceContext";

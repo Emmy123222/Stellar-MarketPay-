@@ -9,6 +9,8 @@ interface AssessmentResult {
   freelancer_address: string;
   status: "started" | "submitted" | "graded";
   score: number | null;
+  started_at: string;
+  submitted_at?: string | null;
 }
 
 interface AssessmentResultsProps {

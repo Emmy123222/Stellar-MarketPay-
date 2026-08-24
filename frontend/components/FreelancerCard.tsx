@@ -4,8 +4,7 @@
  */
 import Link from "next/link";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
-import { availabilityBadgeClass, availabilityStatusLabel, formatXLM } from "@/utils/format";
-import WalletAddressDisplay from "@/components/WalletAddressDisplay";
+import { availabilityBadgeClass, availabilityStatusLabel, formatXLM, shortenAddress } from "@/utils/format";
 import type { UserProfile } from "@/utils/types";
 
 interface FreelancerCardProps {
@@ -23,7 +22,7 @@ export default function FreelancerCard({ profile }: FreelancerCardProps) {
         {profile.displayName || shortenAddress(profile.publicKey)}
       </h3>
       <div className="text-amber-700 text-sm">
-        <WalletAddressDisplay address={profile.publicKey} truncatedChars={4} className="inline-flex" />
+        <span className="inline-flex">{shortenAddress(profile.publicKey, 4)}</span>
       </div>
     </div>
     <div className="flex items-center gap-2">

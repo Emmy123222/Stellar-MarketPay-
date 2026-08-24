@@ -16,7 +16,7 @@ import {
 } from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
 import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV } from "@/utils/format";
-import type { Job, Application, ClientSpendingAnalytics, JobInvitation } from "@/utils/types";
+import type { Job, Application, ClientSpendingAnalytics, JobInvitation, BulkActionResponse } from "@/utils/types";
 import EditProfileForm from "@/components/EditProfileForm";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import { useToast } from "@/components/Toast";
@@ -218,19 +218,31 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setExtendModalJob(null);
   }, []);
 
+  const bulkResult = useCallback(
+    (ids: string[], ok: boolean): BulkActionResponse => ({
+      success: ok,
+      succeeded: ok ? ids.length : 0,
+      failed: ok ? 0 : ids.length,
+      processedCount: ids.length,
+      failedCount: ok ? 0 : ids.length,
+      results: ids.map((id) => ({ id, success: ok })),
+    }),
+    [],
+  );
+
   const handleBulkCancel = useCallback(async () => {
     setBulkLoading(true);
     try {
       const ids = Array.from(selectedJobIds);
       await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/cancel`, { method: "POST" })));
       setSelectedJobIds(new Set());
-      return { success: ids.length, failed: 0 };
+      return bulkResult(ids, true);
     } catch {
-      return { success: 0, failed: selectedJobIds.size };
+      return bulkResult(Array.from(selectedJobIds), false);
     } finally {
       setBulkLoading(false);
     }
-  }, [selectedJobIds]);
+  }, [selectedJobIds, bulkResult]);
 
   const handleBulkExtend = useCallback(async () => {
     setBulkLoading(true);
@@ -238,13 +250,13 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       const ids = Array.from(selectedJobIds);
       await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/extend`, { method: "POST" })));
       setSelectedJobIds(new Set());
-      return { success: ids.length, failed: 0 };
+      return bulkResult(ids, true);
     } catch {
-      return { success: 0, failed: selectedJobIds.size };
+      return bulkResult(Array.from(selectedJobIds), false);
     } finally {
       setBulkLoading(false);
     }
-  }, [selectedJobIds]);
+  }, [selectedJobIds, bulkResult]);
 
   const handleBulkBoost = useCallback(async () => {
     setBulkLoading(true);
@@ -252,13 +264,13 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       const ids = Array.from(selectedJobIds);
       await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/boost`, { method: "POST" })));
       setSelectedJobIds(new Set());
-      return { success: ids.length, failed: 0 };
+      return bulkResult(ids, true);
     } catch {
-      return { success: 0, failed: selectedJobIds.size };
+      return bulkResult(Array.from(selectedJobIds), false);
     } finally {
       setBulkLoading(false);
     }
-  }, [selectedJobIds]);
+  }, [selectedJobIds, bulkResult]);
 
   const handleCopy = async () => {
     if (!publicKey) return;
@@ -279,7 +291,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     const [jobs, apps, invitations, bal, usdc] = await Promise.all([
       fetchMyJobs(publicKey),
       fetchMyApplications(publicKey),
-      fetchMyInvitations().catch(() => []),
+      fetchMyInvitations().catch((): JobInvitation[] => []),
       getXLMBalance(publicKey),
       getUSDCBalance(publicKey),
     ]);

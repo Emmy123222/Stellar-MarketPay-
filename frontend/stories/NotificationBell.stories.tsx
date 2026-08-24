@@ -67,7 +67,7 @@ export const Loading: Story = {
   play: async () => {
     // @ts-ignore
     fetchNotifications.mockImplementation(() => {
-      return new Promise((resolve) => {
+      return new Promise<void>((resolve) => {
         setTimeout(() => {
           // @ts-ignore
           fetchNotifications.mockResolvedValueOnce({ data: { ...mockNotifications } });

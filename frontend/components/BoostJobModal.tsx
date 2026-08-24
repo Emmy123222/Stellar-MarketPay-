@@ -9,6 +9,7 @@
 
 import AccessibleModal from "@/components/AccessibleModal";
 import { useState } from "react";
+import { getApiErrorMessage } from "@/lib/api/client";
 import {
   buildBoostJobTx,
   signAndSubmitSorobanTx,
