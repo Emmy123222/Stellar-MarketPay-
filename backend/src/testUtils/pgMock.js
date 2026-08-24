@@ -109,6 +109,19 @@ function defaultApiKeyRow(overrides = {}) {
   };
 }
 
+function defaultEscrowRow(overrides = {}) {
+  return {
+    id: overrides.id || `escrow-${Date.now()}`,
+    job_id: overrides.job_id || "job-1",
+    client_address: overrides.client_address || "G" + "A".repeat(55),
+    freelancer_address: overrides.freelancer_address || "G" + "B".repeat(55),
+    amount_xlm: overrides.amount_xlm != null ? String(overrides.amount_xlm) : "100.0000000",
+    status: overrides.status || "funded",
+    created_at: overrides.created_at || new Date().toISOString(),
+    updated_at: overrides.updated_at || new Date().toISOString(),
+  };
+}
+
 // Helper: find the last occurrence of a numeric param placeholder like $1, $2, etc.
 // and extract the first non-null param index to use as the id for lookups.
 function findJobIdFromUpdate(text, params) {
@@ -135,6 +148,7 @@ function createPgMock() {
   const daoVotes = new Map();
   const daoArbitrators = new Map();
   const apiKeys = new Map();
+  const escrows = new Map();
 
   const query = jest.fn(async (sql, params = []) => {
     const text = sql.replace(/\s+/g, " ").trim();
@@ -270,9 +284,14 @@ function createPgMock() {
       return { rows };
     }
 
-    // INSERT INTO escrows
+    // escrows queries
     if (text.startsWith("INSERT INTO escrows")) {
       return { rows: [] };
+    }
+
+    if (text.includes("FROM escrows") && text.includes("job_id = $1")) {
+      const escrow = [...escrows.values()].find((e) => e.job_id === params[0]) || escrows.get(params[0]);
+      return { rows: escrow ? [escrow] : [] };
     }
 
     // UPDATE jobs SET applicant_count
@@ -748,6 +767,7 @@ function createPgMock() {
     daoVotes.clear();
     daoArbitrators.clear();
     apiKeys.clear();
+    escrows.clear();
     query.mockClear();
     connect.mockClear();
   }
@@ -762,6 +782,7 @@ function createPgMock() {
     daoVotes,
     daoArbitrators,
     apiKeys,
+    escrows,
     reset,
     end: jest.fn(),
   };
@@ -778,4 +799,5 @@ module.exports = {
   defaultDaoProposalRow,
   defaultDaoArbitratorRow,
   defaultApiKeyRow,
+  defaultEscrowRow,
 };
