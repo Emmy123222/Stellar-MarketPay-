@@ -93,6 +93,22 @@ function defaultDaoArbitratorRow(overrides = {}) {
   };
 }
 
+function defaultApiKeyRow(overrides = {}) {
+  return {
+    id: overrides.id || `key-${Date.now()}`,
+    owner_public_key: overrides.owner_public_key || "G" + "A".repeat(55),
+    label: overrides.label || "Developer key",
+    key_prefix: overrides.key_prefix || "sk_live_test",
+    key_hash: overrides.key_hash || "hash123",
+    previous_key_hash: overrides.previous_key_hash || null,
+    created_at: overrides.created_at || new Date().toISOString(),
+    last_used_at: overrides.last_used_at || null,
+    revoked_at: overrides.revoked_at || null,
+    rotating_at: overrides.rotating_at || null,
+    rotating_key_hash: overrides.rotating_key_hash || null,
+  };
+}
+
 // Helper: find the last occurrence of a numeric param placeholder like $1, $2, etc.
 // and extract the first non-null param index to use as the id for lookups.
 function findJobIdFromUpdate(text, params) {
@@ -118,6 +134,7 @@ function createPgMock() {
   const daoProposals = new Map();
   const daoVotes = new Map();
   const daoArbitrators = new Map();
+  const apiKeys = new Map();
 
   const query = jest.fn(async (sql, params = []) => {
     const text = sql.replace(/\s+/g, " ").trim();
@@ -495,6 +512,73 @@ function createPgMock() {
       return { rows: [] };
     }
 
+    // Developer API Keys Queries
+    if (text.startsWith("INSERT INTO api_keys")) {
+      const row = defaultApiKeyRow({
+        id: `key-${apiKeys.size + 1}`,
+        owner_public_key: params[0],
+        label: params[1],
+        key_prefix: params[2],
+        key_hash: params[3],
+      });
+      apiKeys.set(row.id, row);
+      return { rows: [row] };
+    }
+
+    if (text.includes("FROM api_keys k") && text.includes("k.owner_public_key = $1")) {
+      const rows = [...apiKeys.values()]
+        .filter((k) => k.owner_public_key === params[0])
+        .map((k) => ({
+          id: k.id,
+          label: k.label,
+          key_prefix: k.key_prefix,
+          created_at: k.created_at,
+          last_used_at: k.last_used_at,
+          revoked_at: k.revoked_at,
+          rotating_at: k.rotating_at,
+          rotating_key_hash: k.rotating_key_hash,
+          requests_today: 0,
+        }));
+      return { rows };
+    }
+
+    if (text.startsWith("UPDATE api_keys") && text.includes("SET revoked_at = NOW()")) {
+      const key = apiKeys.get(params[0]);
+      if (key && key.owner_public_key === params[1] && !key.revoked_at) {
+        key.revoked_at = new Date().toISOString();
+        key.rotating_key_hash = null;
+        key.rotating_at = null;
+        apiKeys.set(key.id, key);
+        return { rows: [key], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (text.startsWith("UPDATE api_keys") && text.includes("SET rotating_key_hash")) {
+      const key = apiKeys.get(params[0]);
+      if (key && key.owner_public_key === params[1] && !key.revoked_at && !key.rotating_at) {
+        key.previous_key_hash = key.key_hash;
+        key.rotating_key_hash = params[2];
+        key.key_prefix = params[3];
+        key.rotating_at = new Date().toISOString();
+        apiKeys.set(key.id, key);
+        return {
+          rows: [{
+            id: key.id,
+            label: key.label,
+            created_at: key.created_at,
+            rotating_at: key.rotating_at,
+          }],
+          rowCount: 1,
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (text.startsWith("INSERT INTO audit_logs")) {
+      return { rows: [{ id: 1 }] };
+    }
+
     // Generic SELECT from categories
     if (text.includes("FROM categories")) {
       return { rows: [] };
@@ -663,6 +747,7 @@ function createPgMock() {
     daoProposals.clear();
     daoVotes.clear();
     daoArbitrators.clear();
+    apiKeys.clear();
     query.mockClear();
     connect.mockClear();
   }
@@ -676,6 +761,7 @@ function createPgMock() {
     daoProposals,
     daoVotes,
     daoArbitrators,
+    apiKeys,
     reset,
     end: jest.fn(),
   };
@@ -691,4 +777,5 @@ module.exports = {
   defaultApplicationRow,
   defaultDaoProposalRow,
   defaultDaoArbitratorRow,
+  defaultApiKeyRow,
 };
