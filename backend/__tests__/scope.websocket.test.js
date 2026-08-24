@@ -15,14 +15,26 @@ jest.mock("../src/db/pool", () => {
       const text = sql.replace(/\s+/g, " ").trim();
 
       if (/INSERT INTO scope_sessions/i.test(text)) {
-        const [sessionId, content, cursors, finalized, finalizedHash, finalizedPayload] = params;
+        const [
+          sessionId,
+          content,
+          cursors,
+          finalized,
+          finalizedHash,
+          finalizedPayload,
+        ] = params;
         const row = {
           session_id: sessionId,
           content: content || "",
-          cursors: typeof cursors === "string" ? JSON.parse(cursors) : (cursors || {}),
+          cursors:
+            typeof cursors === "string" ? JSON.parse(cursors) : cursors || {},
           finalized: Boolean(finalized),
           finalized_hash: finalizedHash || null,
-          finalized_payload: finalizedPayload ? (typeof finalizedPayload === "string" ? JSON.parse(finalizedPayload) : finalizedPayload) : null,
+          finalized_payload: finalizedPayload
+            ? typeof finalizedPayload === "string"
+              ? JSON.parse(finalizedPayload)
+              : finalizedPayload
+            : null,
           expires_at: new Date(Date.now() + 86400000).toISOString(),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -53,9 +65,9 @@ jest.mock("../src/services/indexerService", () =>
   jest.fn().mockImplementation(() => ({ start: jest.fn() })),
 );
 
-jest.mock("../src/services/priceAlertService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn() })),
-);
+jest.mock("../src/services/priceAlertService", () => ({
+  PriceAlertService: jest.fn().mockImplementation(() => ({ start: jest.fn() })),
+}));
 
 jest.mock("../src/db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),
@@ -143,13 +155,19 @@ describe("WebSocket scope session", () => {
     await ws2._waitForMessage((m) => m.event === "scope:init", 2000);
 
     const testContent = "# Test Scope\n\nBuild a payment integration.";
-    ws1.send(JSON.stringify({
-      type: "scope:update",
-      content: testContent,
-      cursors: { [TEST_PARTICIPANT_1]: { start: 0, end: 5, updatedAt: Date.now() } },
-    }));
+    ws1.send(
+      JSON.stringify({
+        type: "scope:update",
+        content: testContent,
+        cursors: {
+          [TEST_PARTICIPANT_1]: { start: 0, end: 5, updatedAt: Date.now() },
+        },
+      }),
+    );
 
-    const msgOnWs2 = await ws2._waitForMessage((m) => m.event === "scope:update");
+    const msgOnWs2 = await ws2._waitForMessage(
+      (m) => m.event === "scope:update",
+    );
     expect(msgOnWs2.event).toBe("scope:update");
     expect(msgOnWs2.payload.content).toBe(testContent);
     expect(msgOnWs2.payload.cursors[TEST_PARTICIPANT_1]).toBeDefined();
@@ -166,11 +184,13 @@ describe("WebSocket scope session", () => {
     await ws._waitForMessage((m) => m.event === "scope:init", 2000);
 
     const testContent = "# Finalized Scope\n\nThis document should be locked.";
-    ws.send(JSON.stringify({
-      type: "scope:finalize",
-      content: testContent,
-      payload: { title: "Finalized Scope", category: "Frontend Development" },
-    }));
+    ws.send(
+      JSON.stringify({
+        type: "scope:finalize",
+        content: testContent,
+        payload: { title: "Finalized Scope", category: "Frontend Development" },
+      }),
+    );
 
     const msg = await ws._waitForMessage((m) => m.event === "scope:finalized");
     expect(msg.event).toBe("scope:finalized");
@@ -187,9 +207,12 @@ describe("WebSocket scope session", () => {
     await waitForOpen(ws1);
     await ws1._waitForMessage((m) => m.event === "scope:init", 2000);
 
-    const content = "# Deterministic hash test\n\nSame content should produce the same hash.";
+    const content =
+      "# Deterministic hash test\n\nSame content should produce the same hash.";
     ws1.send(JSON.stringify({ type: "scope:finalize", content }));
-    const msg1 = await ws1._waitForMessage((m) => m.event === "scope:finalized");
+    const msg1 = await ws1._waitForMessage(
+      (m) => m.event === "scope:finalized",
+    );
     ws1.close();
 
     const ws2 = wsConnectScope("session-hash-test-2", TEST_PARTICIPANT_2);
@@ -197,7 +220,9 @@ describe("WebSocket scope session", () => {
     await ws2._waitForMessage((m) => m.event === "scope:init", 2000);
 
     ws2.send(JSON.stringify({ type: "scope:finalize", content }));
-    const msg2 = await ws2._waitForMessage((m) => m.event === "scope:finalized");
+    const msg2 = await ws2._waitForMessage(
+      (m) => m.event === "scope:finalized",
+    );
     ws2.close();
 
     expect(msg1.payload.finalizedHash).toBe(msg2.payload.finalizedHash);
