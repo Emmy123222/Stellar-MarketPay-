@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { api, getApiErrorMessage } from "@/lib/api/client";
+import { useToast } from "@/components/Toast";
 
 interface AssessmentResult {
   id: string;
@@ -19,6 +20,7 @@ interface AssessmentResultsProps {
 
 export default function AssessmentResults({ publicKey }: AssessmentResultsProps) {
   const router = useRouter();
+  const toast = useToast();
   const { id } = router.query;
 
   const [results, setResults] = useState<AssessmentResult[]>([]);
@@ -61,7 +63,7 @@ export default function AssessmentResults({ publicKey }: AssessmentResultsProps)
               // Copy link to clipboard
               const link = `${window.location.origin}/assessments/project/${id}`;
               navigator.clipboard.writeText(link);
-              alert('Assessment link copied to clipboard! Send this to freelancers.');
+              toast.success('Assessment link copied to clipboard! Send this to freelancers.');
             }}
             className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
           >
