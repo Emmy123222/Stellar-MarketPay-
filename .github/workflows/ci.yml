@@ -14,6 +14,26 @@ permissions:
   contents: read
 
 jobs:
+  preflight:
+    name: Preflight Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Document workflow requirements
+        run: |
+          echo "## CI Workflow - Secrets Status"
+          echo ""
+          echo "✓ This workflow (CI) does **not** require secrets."
+          echo ""
+          echo "**For information about other workflows that do require secrets:**"
+          echo "→ See [docs/ci-secrets.md](https://github.com/${{ github.repository }}/blob/main/docs/ci-secrets.md)"
+          echo ""
+          echo "**Workflows that require secrets:**"
+          echo "- Deploy (staging): SSH_HOST, SSH_USER, SSH_KEY, APP_DIR"
+          echo "- Deploy (production): SSH keys + AWS credentials + database credentials"
+          echo "- Security scanning: No additional secrets required"
+
   secrets-scan:
     name: Secrets Scan
     runs-on: ubuntu-latest
