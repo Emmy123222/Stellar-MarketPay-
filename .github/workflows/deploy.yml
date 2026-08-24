@@ -49,8 +49,11 @@ jobs:
         run: |
           TAG="${{ github.event.inputs.image_tag }}"
           if [ -z "$TAG" ]; then TAG="$(git rev-parse --short HEAD)"; fi
-          # GHCR only accepts lowercase repository paths.
-          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          # GHCR needs a lowercase path, and a Docker reference component may
+          # not end in a separator — this repo is named "Stellar-MarketPay-".
+          REPO=$(echo "${{ github.repository }}" \
+                 | tr '[:upper:]' '[:lower:]' \
+                 | sed 's|[^a-z0-9._/-]||g; s|-*/|/|g; s|-*$||')
           echo "tag=$TAG"   >> "$GITHUB_OUTPUT"
           echo "repo=$REPO" >> "$GITHUB_OUTPUT"
           echo "Image: ghcr.io/$REPO/{frontend,backend}:$TAG"
