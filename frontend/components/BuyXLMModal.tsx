@@ -3,7 +3,7 @@
  * SEP-0024 deposit flow — converts fiat to XLM via a Stellar anchor.
  * (Issue #220)
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react"
 import {
   ANCHOR_HOME_DOMAIN,
   fetchAnchorEndpoints,
@@ -13,6 +13,7 @@ import {
 } from "@/lib/anchors";
 import { useToast } from "@/components/Toast";
 import { usePriceContext } from "@/contexts/PriceContext";
+import { readSync } from "node:fs";
 
 interface BuyXLMModalProps {
   publicKey: string;

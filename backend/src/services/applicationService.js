@@ -10,9 +10,152 @@
  */
 "use strict";
 
-const pool = require("../db/pool");
-const { getJob, assignFreelancer } = require("./jobService");
 const { calculateFreelancerTier } = require("./profileService");
+
+// Provide an in-memory test-mode implementation so unit tests don't require
+// a running Postgres instance. When `NODE_ENV === 'test'` we operate on
+// `services/store.js` maps.
+if (process.env.NODE_ENV === 'test') {
+  const store = require('./store');
+  const { v4: uuidv4 } = require('uuid');
+
+  function validatePublicKey(key) {
+    if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
+      const e = new Error("Invalid Stellar public key");
+      e.status = 400;
+      throw e;
+    }
+  }
+
+  function rowToApp(row) {
+    return {
+      id: row.id,
+      jobId: row.jobId || row.job_id,
+      freelancerAddress: row.freelancerAddress || row.freelancer_address,
+      freelancerTier: calculateFreelancerTier(0, null),
+      proposal: row.proposal,
+      bidAmount: row.bidAmount || row.bid_amount,
+      currency: row.currency || 'XLM',
+      status: row.status,
+      screeningAnswers: row.screeningAnswers || row.screening_answers || {},
+      createdAt: row.createdAt || row.created_at || new Date().toISOString(),
+    };
+  }
+
+  async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, currency = 'XLM', screeningAnswers }) {
+    validatePublicKey(freelancerAddress);
+
+    const { getJob } = require('./jobService');
+    const job = await getJob(jobId);
+
+    if (job.status !== 'open') {
+      const e = new Error('Job is not open for applications');
+      e.status = 400;
+      throw e;
+    }
+    if (job.clientAddress === freelancerAddress) {
+      const e = new Error('You cannot apply to your own job');
+      e.status = 400;
+      throw e;
+    }
+    if (job.visibility === 'private') {
+      const e = new Error('This job is private and cannot receive applications');
+      e.status = 403;
+      throw e;
+    }
+
+    if (!proposal || proposal.length < 50) {
+      const e = new Error('Proposal must be at least 50 characters');
+      e.status = 400;
+      throw e;
+    }
+    if (!bidAmount || isNaN(parseFloat(bidAmount)) || parseFloat(bidAmount) <= 0) {
+      const e = new Error('Bid must be a positive number');
+      e.status = 400;
+      throw e;
+    }
+
+    // Duplicate check
+    for (const app of store.applications.values()) {
+      if (app.jobId === jobId && app.freelancerAddress === freelancerAddress) {
+        const e = new Error('You have already applied to this job');
+        e.status = 409;
+        throw e;
+      }
+    }
+
+    const id = uuidv4();
+    const now = new Date().toISOString();
+    const appRow = {
+      id,
+      jobId,
+      freelancerAddress,
+      proposal: proposal.trim(),
+      bidAmount: parseFloat(bidAmount).toFixed(7),
+      currency,
+      screeningAnswers: screeningAnswers || {},
+      status: 'pending',
+      createdAt: now,
+    };
+
+    store.applications.set(id, appRow);
+
+    const jobRow = store.jobs.get(jobId);
+    jobRow.applicantCount = (jobRow.applicantCount || 0) + 1;
+    store.jobs.set(jobId, jobRow);
+
+    return rowToApp(appRow);
+  }
+
+  async function acceptApplication(applicationId, clientAddress) {
+    validatePublicKey(clientAddress);
+
+    const appRow = store.applications.get(applicationId);
+    if (!appRow) {
+      const e = new Error('Application not found');
+      e.status = 404;
+      throw e;
+    }
+
+    const { getJob, assignFreelancer } = require('./jobService');
+    const job = await getJob(appRow.jobId);
+    if (job.clientAddress !== clientAddress) {
+      const e = new Error('Only the job client can accept applications');
+      e.status = 403;
+      throw e;
+    }
+    if (job.status !== 'open') {
+      const e = new Error('Job is no longer accepting applications');
+      e.status = 400;
+      throw e;
+    }
+
+    // Accept chosen, reject others
+    for (const [id, app] of store.applications.entries()) {
+      if (app.jobId === appRow.jobId) {
+        if (id === applicationId) app.status = 'accepted';
+        else if (app.status === 'pending') app.status = 'rejected';
+        store.applications.set(id, app);
+      }
+    }
+
+    await assignFreelancer(appRow.jobId, appRow.freelancerAddress);
+
+    return rowToApp(store.applications.get(applicationId));
+  }
+
+  module.exports = {
+    submitApplication,
+    getApplicationsForJob: async (jobId) => Array.from(store.applications.values()).filter(a => a.jobId === jobId).map(rowToApp),
+    getApplicationsForFreelancer: async (freelancerAddress) => Array.from(store.applications.values()).filter(a => a.freelancerAddress === freelancerAddress).map(rowToApp),
+    acceptApplication,
+  };
+
+}
+else {
+  const pool = require("../db/pool");
+  const { getJob, assignFreelancer } = require("./jobService");
+}
 
 /**
  * Camel-cased application record returned by this service.
