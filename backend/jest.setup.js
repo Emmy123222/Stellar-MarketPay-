@@ -18,11 +18,3 @@ process.env.CONTRACT_ID =
   "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 process.env.STELLAR_NETWORK = process.env.STELLAR_NETWORK || "testnet";
 
-// Mock CSRF protection in tests to allow hardcoded tokens
-jest.mock("./src/middleware/csrf", () => {
-  const actual = jest.requireActual("./src/middleware/csrf");
-  return {
-    ...actual,
-    doubleCsrfProtection: (req, res, next) => next(), // Skip CSRF validation in tests
-  };
-});
