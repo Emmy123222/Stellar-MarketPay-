@@ -13,6 +13,11 @@
  *   const req = request(app).post("/api/ai/score-job").send(body);
  *   const res = await applyCsrf(req, csrf);
  *
+ *   // with auth cookies merged:
+ *   await applyCsrf(request(app).post("/api/foo"), csrf, {
+ *     extraCookies: "token=...; refreshToken=...",
+ *   });
+ *
  *   // or inline:
  *   const res = await applyCsrf(
  *     request(app).post("/api/foo").send({ a: 1 }),
@@ -44,17 +49,29 @@ async function fetchCsrf(app) {
   return { token: res.body.csrfToken, cookie };
 }
 
-function applyCsrf(req, csrf) {
+/**
+ * Attach the csrf-token cookie + x-csrf-token header to a supertest request.
+ *
+ * @param {object} req - A pending supertest request.
+ * @param {{ token?: string, cookie?: string }} csrf - From fetchCsrf(app).
+ * @param {{ extraCookies?: string }} [options] - Optional extra Cookie values
+ *   (e.g. auth cookies) merged with the CSRF cookie.
+ */
+function applyCsrf(req, csrf, options = {}) {
   if (!csrf) {
     throw new Error(
       "applyCsrf: missing csrf argument — call fetchCsrf(app) first"
     );
   }
-  if (csrf.cookie) {
-    req = req.set("Cookie", csrf.cookie);
+  const cookieParts = [];
+  if (csrf.cookie) cookieParts.push(csrf.cookie);
+  if (options.extraCookies) cookieParts.push(options.extraCookies);
+  if (cookieParts.length > 0) {
+    req = req.set("Cookie", cookieParts.join("; "));
   }
   if (csrf.token) {
-    req = req.set("X-CSRF-Token", csrf.token);
+    // Lowercase matches the maintainer bootstrap snippet and CSRF_HEADER_NAME.
+    req = req.set("x-csrf-token", csrf.token);
   }
   return req;
 }
