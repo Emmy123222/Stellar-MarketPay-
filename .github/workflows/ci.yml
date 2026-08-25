@@ -109,10 +109,22 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # The app opens a Bull email queue and a cache client at boot; without a
+      # reachable Redis, queue operations block indefinitely.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     env:
       DATABASE_URL: postgresql://test:test@localhost:5432/marketpay_test
       TEST_DATABASE_URL: postgresql://test:test@localhost:5432/marketpay_test
+      REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-test-jwt-secret-with-sufficient-length
       CSRF_SECRET: ci-test-csrf-secret-with-sufficient-length
       DATABASE_ENCRYPTION_KEY: ci-test-encryption-key-32chars!!

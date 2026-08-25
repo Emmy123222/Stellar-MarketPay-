@@ -55,15 +55,13 @@ const actorAddress = "GAUDITTEST123456789012345678901234567890123456789012345678
 // NOTE: The service queries go through the shared pool, so a BEGIN/ROLLBACK
 // pattern that releases its client between hooks cannot isolate tests —
 // inserts land on arbitrary pooled connections (some outside the open
-// transaction) and leak across tests non-deterministically. Clean the table
-// before each test instead; this is a dedicated test database.
+// transaction) and leak across tests non-deterministically. Other suites
+// hitting the real API also persist audit rows in this shared database
+// (e.g. job creation), so clear the whole table before each test; list
+// filters are not actor-scoped and count exact matches.
 beforeEach(async () => {
   if (!hasPostgres) return;
-  await pool.query("DELETE FROM audit_log WHERE actor_address = $1", [actorAddress]);
-});
-
-afterEach(async () => {
-  if (!hasPostgres) return;
+  await pool.query("DELETE FROM audit_log");
 });
 
 describe("Audit Log Integration Tests", () => {

@@ -10,7 +10,7 @@
         "lint:fix": "eslint src tests __tests__ --fix",
         "test": "jest --coverage",
         "test:unit": "jest",
-        "test:integration": "jest --selectProjects integration --runInBand",
+        "test:integration": "jest --selectProjects integration --runInBand --testTimeout=30000 --forceExit",
         "test:property": "jest --testPathPatterns='\\.property\\.test\\.js$'",
         "generate-openapi": "node scripts/generate-openapi.js",
         "build": "npm run generate-openapi && npm run lint",
