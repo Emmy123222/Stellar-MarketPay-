@@ -10,5 +10,3 @@ DROP INDEX IF EXISTS jobs_open_public_created_idx;
 
 ALTER TABLE jobs
   DROP COLUMN IF EXISTS job_search_vector;
-
-DROP FUNCTION IF EXISTS array_to_string_immutable(TEXT[], TEXT);

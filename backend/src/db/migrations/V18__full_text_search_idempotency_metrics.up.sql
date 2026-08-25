@@ -81,8 +81,6 @@ CREATE TABLE IF NOT EXISTS platform_metrics (
 CREATE INDEX IF NOT EXISTS platform_metrics_lookup_idx
   ON platform_metrics (metric_name, granularity, bucket DESC);
 
--- Partial-index predicates must be IMMUTABLE, so a NOW()-based predicate is not
--- allowed here. A plain index on bucket still serves the purge query
--- (WHERE bucket < NOW() - INTERVAL '1 year') efficiently.
 CREATE INDEX IF NOT EXISTS platform_metrics_cleanup_idx
-  ON platform_metrics (bucket);
+  ON platform_metrics (bucket)
+  WHERE bucket < NOW() - INTERVAL '1 year';
