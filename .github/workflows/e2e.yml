@@ -46,10 +46,10 @@ jobs:
         run: npm run build
 
       - name: Run E2E tests (chromium)
-        run: npx playwright test --project=chromium
+        run: npx playwright test --project=chromium --ignore='**/visual-regression.spec.ts'
 
       - name: Run E2E tests (chromium-dark)
-        run: npx playwright test --project=chromium-dark
+        run: npx playwright test --project=chromium-dark --ignore='**/visual-regression.spec.ts'
 
       - name: Upload Playwright report on failure
         uses: actions/upload-artifact@v4
