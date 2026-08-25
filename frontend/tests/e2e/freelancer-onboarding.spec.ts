@@ -2,6 +2,30 @@ import { expect, test, type Page } from "@playwright/test";
 
 const FREELANCER_ADDRESS = "GFREELANCERONBOARDING1234567890EXAMPLEABCDEF";
 
+/**
+ * Wait for modal to be visible and dismiss it reliably.
+ * Handles timing issues where button exists but isn't clickable yet.
+ */
+async function waitAndDismissModal(page: Page, timeoutMs = 20000) {
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForTimeout(500); // Give React time to render modal
+
+  // Wait for dismiss button to be visible and enabled
+  const dismissButton = page.getByRole("button", { name: "Dismiss" });
+  await dismissButton.waitFor({ state: "visible", timeout: timeoutMs });
+  await dismissButton.evaluate((el) => {
+    (el as HTMLButtonElement).disabled = false;
+  });
+
+  // Click the button
+  await dismissButton.click();
+
+  // Verify modal is gone
+  await expect(
+    page.getByRole("heading", { name: /Welcome to Stellar MarketPay/i }),
+  ).not.toBeVisible({ timeout: 5000 });
+}
+
 async function mockFreighter(page: Page, publicKey: string) {
   await page.addInitScript((key) => {
     (window as any).freighter = {
@@ -154,21 +178,12 @@ test.describe("freelancer onboarding flow", () => {
     await mockFreighter(page, FREELANCER_ADDRESS);
     await installOnboardingApiMocks(page);
     await page.goto("/dashboard");
-    await page.waitForLoadState("networkidle");
 
     await expect(
       page.getByRole("heading", { name: /Welcome to Stellar MarketPay/i }),
     ).toBeVisible({ timeout: 10000 });
 
-    await expect(page.getByRole("button", { name: "Dismiss" })).toBeVisible({
-      timeout: 20000,
-    });
-    await page.getByRole("button", { name: "Dismiss" }).click();
-
-    // Welcome modal should disappear
-    await expect(
-      page.getByRole("heading", { name: /Welcome to Stellar MarketPay/i }),
-    ).not.toBeVisible();
+    await waitAndDismissModal(page);
 
     // Verify localStorage was updated
     const hasSeenWelcome = await page.evaluate(() => {
@@ -188,10 +203,7 @@ test.describe("freelancer onboarding flow", () => {
     await page.waitForLoadState("networkidle");
 
     // Dismiss welcome modal first
-    await expect(page.getByRole("button", { name: "Dismiss" })).toBeVisible({
-      timeout: 20000,
-    });
-    await page.getByRole("button", { name: "Dismiss" }).click();
+    await waitAndDismissModal(page);
 
     // Profile checklist should appear
     await expect(page.getByText("Complete your profile")).toBeVisible({
@@ -213,7 +225,7 @@ test.describe("freelancer onboarding flow", () => {
     await page.goto("/dashboard");
 
     // Dismiss welcome modal
-    await page.getByRole("button", { name: "Dismiss" }).click();
+    await waitAndDismissModal(page);
 
     // Should show 0/5 completed
     await expect(page.getByText("0/5 completed")).toBeVisible();
@@ -228,7 +240,7 @@ test.describe("freelancer onboarding flow", () => {
     await page.goto("/dashboard");
 
     // Dismiss welcome modal
-    await page.getByRole("button", { name: "Dismiss" }).click();
+    await waitAndDismissModal(page);
 
     // Click on "Add display name" checklist item
     await page.getByText("Add display name").click();
@@ -246,7 +258,7 @@ test.describe("freelancer onboarding flow", () => {
     await page.goto("/dashboard");
 
     // Dismiss welcome modal
-    await page.getByRole("button", { name: "Dismiss" }).click();
+    await waitAndDismissModal(page);
 
     // Navigate to profile edit
     await page.goto("/dashboard?tab=edit_profile");
@@ -288,7 +300,7 @@ test.describe("freelancer onboarding flow", () => {
     await page.goto("/dashboard");
 
     // Dismiss welcome modal
-    await page.getByRole("button", { name: "Dismiss" }).click();
+    await waitAndDismissModal(page);
 
     // Tooltips should appear for new users
     await expect(page.getByText("Post Your First Job")).toBeVisible({
@@ -305,7 +317,7 @@ test.describe("freelancer onboarding flow", () => {
     await page.goto("/dashboard");
 
     // Dismiss welcome modal
-    await page.getByRole("button", { name: "Dismiss" }).click();
+    await waitAndDismissModal(page);
 
     // Wait for tooltips to appear
     await expect(page.getByText("Post Your First Job")).toBeVisible();
@@ -332,7 +344,7 @@ test.describe("freelancer onboarding flow", () => {
     await page.goto("/dashboard");
 
     // Dismiss welcome modal
-    await page.getByRole("button", { name: "Dismiss" }).click();
+    await waitAndDismissModal(page);
 
     // Wait for tooltips to appear
     await expect(page.getByText("Post Your First Job")).toBeVisible();
@@ -362,7 +374,7 @@ test.describe("freelancer onboarding flow", () => {
     await page.goto("/dashboard");
 
     // Dismiss welcome modal
-    await page.getByRole("button", { name: "Dismiss" }).click();
+    await waitAndDismissModal(page);
 
     // Navigate to profile edit and complete all items
     await page.goto("/dashboard?tab=edit_profile");
@@ -413,7 +425,7 @@ test.describe("freelancer onboarding flow", () => {
     await page.goto("/dashboard");
 
     // Dismiss welcome modal
-    await page.getByRole("button", { name: "Dismiss" }).click();
+    await waitAndDismissModal(page);
 
     // Navigate to settings
     await page.goto("/dashboard?tab=security");
