@@ -1,4 +1,4 @@
--- V22: Add github_username column to profiles
+-- V38: Add github_username column to profiles
 -- Enables reliable matching between platform profiles and GitHub contributor data
 -- for the contributor leaderboard (Issue #844)
 
