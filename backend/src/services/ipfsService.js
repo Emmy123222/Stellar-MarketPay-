@@ -6,15 +6,18 @@
 
 const FormData = require("form-data");
 const axios = require("axios");
+const jwt = require("jsonwebtoken");
 
 // Configuration
 const PINATA_API_URL = process.env.PINATA_API_URL || "https://api.pinata.cloud";
 const PINATA_API_KEY = process.env.PINATA_API_KEY;
 const PINATA_SECRET_KEY = process.env.PINATA_SECRET_KEY;
+const SIGNED_URL_SECRET = process.env.SIGNED_URL_SECRET || process.env.JWT_SECRET || "change-me-in-production";
+const SIGNED_URL_TTL_SECONDS = 15 * 60; // 15 minutes
 
 // File upload limits
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB in bytes
-const MAX_FILES_PER_PROFILE = 5;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB in bytes
+const MAX_FILES_PER_PROFILE = 10;
 const ALLOWED_MIME_TYPES = [
   "image/jpeg",
   "image/png", 
@@ -35,7 +38,10 @@ const ALLOWED_MIME_TYPES = [
  */
 async function uploadFile(fileBuffer, fileName, mimeType) {
   if (!PINATA_API_KEY || !PINATA_SECRET_KEY) {
-    throw new Error("Pinata credentials not configured");
+    const e = new Error("IPFS upload service is temporarily unavailable. Please try again later.");
+    e.status = 503;
+    e.code = "PINATA_NOT_CONFIGURED";
+    throw e;
   }
 
   // Validate file size
@@ -93,10 +99,33 @@ async function uploadFile(fileBuffer, fileName, mimeType) {
     };
   } catch (error) {
     console.error("IPFS upload error:", error.response?.data || error.message);
+    
+    // Handle specific error cases
     if (error.response?.status === 429) {
-      throw new Error("Rate limit exceeded. Please try again later.");
+      const e = new Error("Upload service rate limit exceeded. Please try again in a few minutes.");
+      e.status = 503;
+      e.code = "RATE_LIMIT_EXCEEDED";
+      throw e;
     }
-    throw new Error(`Failed to upload file to IPFS: ${error.message}`);
+    
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      const e = new Error("IPFS upload service is temporarily unavailable due to authentication issues. Please contact support.");
+      e.status = 503;
+      e.code = "PINATA_AUTH_FAILED";
+      throw e;
+    }
+    
+    if (error.code === "ECONNREFUSED" || error.code === "ETIMEDOUT" || error.code === "ENOTFOUND") {
+      const e = new Error("IPFS upload service is temporarily unavailable. Please try again later.");
+      e.status = 503;
+      e.code = "PINATA_UNAVAILABLE";
+      throw e;
+    }
+    
+    const e = new Error(`Failed to upload file to IPFS: ${error.message}`);
+    e.status = 503;
+    e.code = "IPFS_UPLOAD_FAILED";
+    throw e;
   }
 }
 
@@ -171,6 +200,95 @@ function getGatewayUrl(cid) {
 }
 
 /**
+ * Upload a message payload (JSON) to IPFS via Pinata.
+ * Messages are client-side encrypted before upload; the server just pins the JSON blob.
+ * @param {Object} messagePayload - { jobId, senderAddress, recipientAddress, content, encrypted }
+ * @returns {Promise<Object>} - { cid, size, uploadedAt }
+ */
+async function uploadMessage(messagePayload) {
+  if (!PINATA_API_KEY || !PINATA_SECRET_KEY) {
+    const e = new Error("IPFS upload service is temporarily unavailable. Please try again later.");
+    e.status = 503;
+    e.code = "PINATA_NOT_CONFIGURED";
+    throw e;
+  }
+
+  const jsonStr = JSON.stringify(messagePayload);
+  const buffer = Buffer.from(jsonStr, "utf8");
+
+  try {
+    const formData = new FormData();
+    formData.append("file", buffer, {
+      filename: `msg-${messagePayload.jobId}-${Date.now()}.json`,
+      contentType: "application/json",
+    });
+
+    const metadata = {
+      name: `message-${messagePayload.jobId}`,
+      keyvalues: {
+        app: "stellar-marketpay",
+        type: "message",
+        jobId: messagePayload.jobId,
+        uploadedAt: new Date().toISOString(),
+      },
+    };
+    formData.append("pinataMetadata", JSON.stringify(metadata));
+
+    const response = await axios.post(
+      `${PINATA_API_URL}/pinning/pinFileToIPFS`,
+      formData,
+      {
+        headers: {
+          "pinata_api_key": PINATA_API_KEY,
+          "pinata_secret_api_key": PINATA_SECRET_KEY,
+          ...formData.getHeaders(),
+        },
+        maxContentLength: 1024 * 1024, // 1MB for messages
+        timeout: 15000,
+      },
+    );
+
+    if (!response.data.IpfsHash) {
+      throw new Error("Invalid response from Pinata");
+    }
+
+    return {
+      cid: response.data.IpfsHash,
+      size: buffer.length,
+      uploadedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error("IPFS message upload error:", error.response?.data || error.message);
+    
+    if (error.response?.status === 429) {
+      const e = new Error("Upload service rate limit exceeded. Please try again in a few minutes.");
+      e.status = 503;
+      e.code = "RATE_LIMIT_EXCEEDED";
+      throw e;
+    }
+    
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      const e = new Error("IPFS upload service is temporarily unavailable due to authentication issues.");
+      e.status = 503;
+      e.code = "PINATA_AUTH_FAILED";
+      throw e;
+    }
+    
+    if (error.code === "ECONNREFUSED" || error.code === "ETIMEDOUT" || error.code === "ENOTFOUND") {
+      const e = new Error("IPFS upload service is temporarily unavailable. Please try again later.");
+      e.status = 503;
+      e.code = "PINATA_UNAVAILABLE";
+      throw e;
+    }
+    
+    const e = new Error(`Failed to upload message to IPFS: ${error.message}`);
+    e.status = 503;
+    e.code = "IPFS_UPLOAD_FAILED";
+    throw e;
+  }
+}
+
+/**
  * Check if Pinata is properly configured
  * @returns {boolean} - True if configured
  */
@@ -178,12 +296,70 @@ function isConfigured() {
   return !!(PINATA_API_KEY && PINATA_SECRET_KEY);
 }
 
+/**
+ * Generate a time-limited signed URL token for accessing a specific IPFS CID.
+ * The token is a JWT containing the CID, job ID, and requester address.
+ * Valid for 15 minutes.
+ *
+ * @param {string} cid            - IPFS CID of the evidence file
+ * @param {string} jobId          - Job the evidence belongs to
+ * @param {string} requesterAddress - Stellar address of the requester (client or freelancer)
+ * @returns {string} Signed JWT token
+ */
+function generateSignedUrlToken(cid, jobId, requesterAddress) {
+  return jwt.sign(
+    { cid, jobId, requesterAddress },
+    SIGNED_URL_SECRET,
+    { expiresIn: SIGNED_URL_TTL_SECONDS }
+  );
+}
+
+/**
+ * Verify a signed URL token and return its payload.
+ *
+ * @param {string} token - JWT token from generateSignedUrlToken
+ * @returns {{ cid: string, jobId: string, requesterAddress: string }}
+ * @throws Error with code SIGNED_URL_EXPIRED or SIGNED_URL_INVALID
+ */
+function verifySignedUrlToken(token) {
+  try {
+    return jwt.verify(token, SIGNED_URL_SECRET);
+  } catch (err) {
+    const e = new Error(err.name === "TokenExpiredError" ? "Signed URL has expired" : "Invalid signed URL");
+    e.status = 403;
+    e.code   = err.name === "TokenExpiredError" ? "SIGNED_URL_EXPIRED" : "SIGNED_URL_INVALID";
+    throw e;
+  }
+}
+
+/**
+ * Proxy an IPFS file through the backend after verifying the signed token.
+ * Streams the file content from the Pinata gateway.
+ *
+ * @param {string} cid - IPFS CID
+ * @returns {Promise<{ data: Stream, headers: Object }>}
+ */
+async function proxyIpfsFile(cid) {
+  const url = `https://gateway.pinata.cloud/ipfs/${cid}`;
+  const response = await axios.get(url, {
+    responseType: "stream",
+    timeout: 30000,
+    headers: PINATA_API_KEY ? { "pinata_api_key": PINATA_API_KEY, "pinata_secret_api_key": PINATA_SECRET_KEY } : {},
+  });
+  return { stream: response.data, headers: response.headers };
+}
+
 module.exports = {
   uploadFile,
+  uploadMessage,
   validatePortfolioFiles,
   getGatewayUrl,
   isConfigured,
+  generateSignedUrlToken,
+  verifySignedUrlToken,
+  proxyIpfsFile,
   MAX_FILE_SIZE,
   MAX_FILES_PER_PROFILE,
-  ALLOWED_MIME_TYPES
+  ALLOWED_MIME_TYPES,
+  SIGNED_URL_TTL_SECONDS,
 };

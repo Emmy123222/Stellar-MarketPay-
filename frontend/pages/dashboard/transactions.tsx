@@ -2,13 +2,14 @@
  * pages/dashboard/transactions.tsx
  * Transaction history page with Stellar explorer deep links
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
 import { server, explorerUrl, accountUrl, fetchMarketPayTransactions, type MarketPayTransaction } from "@/lib/stellar";
 import { formatXLM, shortenAddress, timeAgo } from "@/utils/format";
 import clsx from "clsx";
+import { optionalClientEnv } from "@/lib/env";
 
 // Using MarketPayTransaction from stellar.ts
 
@@ -17,6 +18,61 @@ type TransactionFilter = "all" | "sent" | "received" | "escrow";
 interface DashboardProps {
   publicKey: string | null;
   onConnect: (pk: string) => void;
+}
+
+// ── CSV Export helpers ────────────────────────────────────────────────────────
+
+const API_URL = optionalClientEnv("NEXT_PUBLIC_API_URL", "http://localhost:4000");
+
+/**
+ * Download the CSV export using XMLHttpRequest so we can track progress via
+ * the `progress` event.  Returns a cleanup function to abort in-flight requests.
+ */
+function downloadCsv(
+  publicKey: string,
+  filter: TransactionFilter,
+  token: string | null,
+  onProgress: (pct: number | null) => void,
+  onDone: () => void,
+  onError: (msg: string) => void
+): () => void {
+  const xhr = new XMLHttpRequest();
+  const url = `${API_URL}/api/transactions/export?format=csv&account=${encodeURIComponent(publicKey)}&filter=${filter}`;
+
+  xhr.open("GET", url, true);
+  xhr.responseType = "blob";
+  if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+  xhr.withCredentials = true;
+
+  xhr.onprogress = (e) => {
+    // Content-Length is not set for chunked responses — show indeterminate spinner
+    // if lengthComputable is false, or a real percentage when it is.
+    onProgress(e.lengthComputable && e.total > 0 ? Math.round((e.loaded / e.total) * 100) : null);
+  };
+
+  xhr.onload = () => {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      const blob = xhr.response as Blob;
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      const date = new Date().toISOString().split("T")[0];
+      a.download = `transactions-${publicKey.slice(0, 8)}-${date}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+      onDone();
+    } else {
+      onError(`Export failed (HTTP ${xhr.status})`);
+    }
+  };
+
+  xhr.onerror = () => onError("Network error during export");
+  xhr.onabort = () => onDone();
+
+  xhr.send();
+  return () => xhr.abort();
 }
 
 export default function TransactionHistory({ publicKey, onConnect }: DashboardProps) {
@@ -28,9 +84,44 @@ export default function TransactionHistory({ publicKey, onConnect }: DashboardPr
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Export state
+  const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState<number | null>(null); // null = indeterminate
+  const [exportError, setExportError] = useState<string | null>(null);
+  const abortExportRef = useRef<(() => void) | null>(null);
+
+  function handleExport() {
+    if (exporting || !publicKey) return;
+    setExporting(true);
+    setExportProgress(null);
+    setExportError(null);
+
+    // Retrieve stored JWT from cookie / localStorage to pass as Bearer token
+    let token: string | null = null;
+    if (typeof document !== "undefined") {
+      const match = document.cookie.match(/(?:^|;\s*)token=([^;]*)/);
+      token = match ? decodeURIComponent(match[1]) : null;
+    }
+
+    abortExportRef.current = downloadCsv(
+      publicKey,
+      filter,
+      token,
+      (pct) => setExportProgress(pct),
+      () => { setExporting(false); setExportProgress(null); },
+      (msg) => { setExporting(false); setExportProgress(null); setExportError(msg); }
+    );
+  }
+
+  function cancelExport() {
+    abortExportRef.current?.();
+    setExporting(false);
+    setExportProgress(null);
+  }
+
   const ITEMS_PER_PAGE = 20;
 
-  const fetchTransactions = async (reset: boolean = false) => {
+  const fetchTransactions = useCallback(async (reset: boolean = false) => {
     if (!publicKey) return;
     
     setLoading(true);
@@ -61,13 +152,13 @@ export default function TransactionHistory({ publicKey, onConnect }: DashboardPr
     } finally {
       setLoading(false);
     }
-  };
+  }, [publicKey, page, transactions]);
 
   useEffect(() => {
     if (publicKey) {
       fetchTransactions(true);
     }
-  }, [publicKey, filter]);
+  }, [publicKey, filter, fetchTransactions]);
 
   const loadMore = () => {
     setPage(prev => prev + 1);
@@ -149,9 +240,61 @@ export default function TransactionHistory({ publicKey, onConnect }: DashboardPr
             </a>
           </div>
         </div>
-        <Link href="/dashboard" className="btn-secondary text-sm py-2.5 px-5 flex-shrink-0">
-          Back to Dashboard
-        </Link>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {/* Export CSV button */}
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-2">
+              {exporting ? (
+                <button
+                  onClick={cancelExport}
+                  className="btn-secondary text-sm py-2.5 px-4 flex items-center gap-2"
+                  title="Cancel export"
+                >
+                  <svg className="w-4 h-4 animate-spin text-market-400" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
+                  </svg>
+                  {exportProgress !== null ? `${exportProgress}%` : "Exporting…"}
+                  <span className="text-xs text-amber-700">Cancel</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleExport}
+                  disabled={!publicKey || loading}
+                  className="btn-secondary text-sm py-2.5 px-4 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Export transactions as CSV"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Export CSV
+                </button>
+              )}
+            </div>
+
+            {/* Progress bar — shown while exporting */}
+            {exporting && (
+              <div className="w-full h-1.5 bg-market-500/10 rounded-full overflow-hidden" style={{ minWidth: 120 }}>
+                {exportProgress !== null ? (
+                  <div
+                    className="h-full bg-market-400 rounded-full transition-all duration-200"
+                    style={{ width: `${exportProgress}%` }}
+                  />
+                ) : (
+                  <div className="h-full bg-market-400 rounded-full animate-[progress-indeterminate_1.4s_ease-in-out_infinite] w-1/3" />
+                )}
+              </div>
+            )}
+
+            {exportError && (
+              <p className="text-xs text-red-400">{exportError}</p>
+            )}
+          </div>
+
+          <Link href="/dashboard" className="btn-secondary text-sm py-2.5 px-5 flex-shrink-0">
+            Back to Dashboard
+          </Link>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 mb-6">
@@ -174,9 +317,27 @@ export default function TransactionHistory({ publicKey, onConnect }: DashboardPr
       </div>
 
       {loading && transactions.length === 0 ? (
-        <div className="space-y-3">
+        <div className="space-y-3 animate-pulse">
           {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="card animate-pulse h-20" />
+            <div key={i} className="card flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="flex-shrink-0 w-10 h-10 bg-market-500/10 rounded-full" />
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="h-5 w-16 bg-market-500/10 rounded-full" />
+                    <div className="h-4 w-12 bg-market-500/8 rounded" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="h-5 w-20 bg-market-500/10 rounded" />
+                    <div className="h-4 w-24 bg-market-500/8 rounded" />
+                  </div>
+                </div>
+              </div>
+              <div className="flex-shrink-0 text-right space-y-2">
+                <div className="h-5 w-16 bg-market-500/10 rounded ml-auto" />
+                <div className="h-4 w-20 bg-market-500/8 rounded ml-auto" />
+              </div>
+            </div>
           ))}
         </div>
       ) : error ? (

@@ -133,3 +133,85 @@ export async function signTransactionWithWallet(transactionXDR: string, mockPara
     return { signedXDR: null, error: `Signing failed: ${msg}` };
   }
 }
+
+/**
+ * Issue #854 — Polling fallback for Freighter disconnect detection.
+ *
+ * Freighter's `accountChanged` event fires when the account changes or is
+ * disconnected in newer versions, but older builds do not emit it reliably.
+ * This function starts a 30-second polling loop that checks `isConnected()`
+ * each tick. If Freighter reports disconnected, the JWT is cleared and the
+ * user is redirected to the homepage with a toast notification.
+ *
+ * @param onDisconnect - Callback invoked when Freighter reports disconnected.
+ * @returns Stop function that clears the interval.
+ */
+/**
+ * Subscribe to Freighter account changes.
+ *
+ * Freighter dispatches a `accountChanged` event on `window` in recent versions.
+ * Where the event is unavailable this returns `undefined`, and callers fall back
+ * to polling `getConnectedPublicKey()`.
+ *
+ * @param onChange Receives the new public key, or null when the wallet locked
+ *                 or disconnected.
+ * @returns An unsubscribe function, or null if the event is unsupported.
+ */
+export function subscribeToAccountChanges(
+  onChange: (publicKey: string | null) => void,
+): (() => void) | null {
+  if (typeof window === "undefined" || !("addEventListener" in window)) return null;
+
+  const handler = (event: Event) => {
+    const detail = (event as CustomEvent<{ publicKey?: string | null }>).detail;
+    if (detail && "publicKey" in detail) {
+      onChange(detail.publicKey ?? null);
+      return;
+    }
+    // Older builds fire the event with no payload — read the key back instead.
+    getConnectedPublicKey().then(onChange).catch(() => onChange(null));
+  };
+
+  window.addEventListener("accountChanged", handler);
+  return () => window.removeEventListener("accountChanged", handler);
+}
+
+export function startWalletDisconnectPolling(
+  onDisconnect: () => void
+): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  let intervalId: ReturnType<typeof setInterval> | null = null;
+  let stopped = false;
+
+  async function check() {
+    if (stopped) return;
+    try {
+      const installed = await isFreighterInstalled();
+      if (!installed) {
+        localStorage.removeItem("smp_jwt_token");
+        localStorage.removeItem("smp_wallet_public_key");
+        if (typeof window !== "undefined") {
+          window.location.href = "/";
+        }
+        onDisconnect();
+        if (intervalId !== null) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+      }
+    } catch {
+      // Silently ignore polling errors
+    }
+  }
+
+  intervalId = setInterval(check, 30_000);
+
+  return () => {
+    stopped = true;
+    if (intervalId !== null) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+  };
+}

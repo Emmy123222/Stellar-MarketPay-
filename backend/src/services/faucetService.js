@@ -5,7 +5,7 @@
 "use strict";
 
 const axios = require("axios");
-const { Server } = require("@stellar/stellar-sdk");
+const stellarAccountCache = require("./stellarAccountCache");
 
 // Configuration
 const HORIZON_TESTNET_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
@@ -32,8 +32,7 @@ async function fundTestnetWallet(publicKey) {
 
   try {
     // Get current balance before funding
-    const server = new Server(HORIZON_TESTNET_URL);
-    const account = await server.loadAccount(publicKey);
+    const account = await stellarAccountCache.getAccount(publicKey);
     const currentBalance = account.balances.find(b => b.asset_type === "native")?.balance || "0";
 
     // If account already has balance, don't fund it
@@ -53,8 +52,9 @@ async function fundTestnetWallet(publicKey) {
       throw new Error("Invalid response from Friendbot");
     }
 
-    // Get updated balance after funding
-    const updatedAccount = await server.loadAccount(publicKey);
+    // Get updated balance after funding — invalidate cache to fetch fresh data
+    stellarAccountCache.invalidate(publicKey);
+    const updatedAccount = await stellarAccountCache.getAccount(publicKey);
     const newBalance = updatedAccount.balances.find(b => b.asset_type === "native")?.balance || "0";
     const fundedAmount = (parseFloat(newBalance) - parseFloat(currentBalance)).toString();
 
@@ -109,8 +109,7 @@ async function checkAccountNeedsFunding(publicKey) {
   }
 
   try {
-    const server = new Server(HORIZON_TESTNET_URL);
-    const account = await server.loadAccount(publicKey);
+    const account = await stellarAccountCache.getAccount(publicKey);
     const balance = account.balances.find(b => b.asset_type === "native")?.balance || "0";
     
     return {
