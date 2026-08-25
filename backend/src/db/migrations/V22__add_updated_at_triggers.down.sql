@@ -1,4 +1,4 @@
--- V13__add_updated_at_triggers.down.sql
+-- V22__add_updated_at_triggers.down.sql
 
 DO $$
 DECLARE
