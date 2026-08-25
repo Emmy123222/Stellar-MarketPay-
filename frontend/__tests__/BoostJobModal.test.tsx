@@ -79,7 +79,7 @@ describe("BoostJobModal", () => {
     });
 
     expect(global.fetch).toHaveBeenCalledWith("/api/jobs/job-1/boost", expect.objectContaining({
-      method: "POST"
+      method: "PATCH"
     }));
     expect(mockOnSuccess).toHaveBeenCalled();
   });
@@ -114,7 +114,7 @@ describe("BoostJobModal", () => {
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith("/api/jobs/job-1/boost", expect.objectContaining({
-        method: "POST"
+        method: "PATCH"
       }));
     });
     

@@ -260,6 +260,7 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
         </p>
       </div>
       <button
+        aria-label="Close boost job modal"
         class="text-amber-700 hover:text-amber-400 text-xl leading-none ml-4"
       >
         ✕

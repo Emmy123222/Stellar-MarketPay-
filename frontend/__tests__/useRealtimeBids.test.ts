@@ -60,10 +60,10 @@ class MockWebSocket {
     this.closeCalls++;
     this.readyState = MockWebSocket.CLOSED;
     // A real WebSocket's close handshake is asynchronous — onclose does not
-    // fire synchronously from calling close(). Deferring via a microtask
-    // reproduces the exact race this hook's fix is guarding against: a
-    // remount can run (and reassign wsRef.current) before this fires.
-    queueMicrotask(() => this.onclose?.());
+    // fire synchronously from calling close(). Deferring via Promise.resolve
+    // reproduces the race this hook guards against, and is flushable by
+    // React Testing Library's act().
+    Promise.resolve().then(() => this.onclose?.());
   }
 }
 
