@@ -1,4 +1,4 @@
--- V22: Admin user moderation & admin audit log
+-- V39: Admin user moderation & admin audit log
 -- Adds tables/columns for admin user management (ban/unban/flagged/remove)
 
 -- ── admin_audit_log — dedicated audit log for admin actions ──────────────

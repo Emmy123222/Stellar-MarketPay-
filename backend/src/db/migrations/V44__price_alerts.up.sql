@@ -1,4 +1,4 @@
--- V22__price_alerts.up.sql
+-- V44__price_alerts.up.sql
 -- New table for price alerts with condition (above/below) and threshold model.
 -- Allows multiple alerts per user and supports one-time auto-delete after trigger.
 
