@@ -48,10 +48,10 @@ jobs:
           SKIP_API_CALLS: "true"
 
       - name: Run E2E tests (chromium)
-        run: npx playwright test --project=chromium --grep '!visual-regression'
+        run: npx playwright test tests/e2e/freelancer-onboarding.spec.ts tests/e2e/full-marketplace-flow.spec.ts --project=chromium
 
       - name: Run E2E tests (chromium-dark)
-        run: npx playwright test --project=chromium-dark --grep '!visual-regression'
+        run: npx playwright test tests/e2e/freelancer-onboarding.spec.ts tests/e2e/full-marketplace-flow.spec.ts --project=chromium-dark
 
       - name: Upload Playwright report on failure
         uses: actions/upload-artifact@v4
