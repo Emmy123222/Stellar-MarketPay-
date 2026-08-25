@@ -154,7 +154,6 @@
                     "<rootDir>/jest.setup.js"
                 ],
                 "testTimeout": 30000,
-                "runInBand": true,
                 "transformIgnorePatterns": [
                     "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
                 ],
