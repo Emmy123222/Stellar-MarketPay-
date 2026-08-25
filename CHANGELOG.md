@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WebSocket Double-Connect**: Fixed an issue causing duplicate WebSocket connection attempts. (#894)
 - **Pagination Cursor**: Resolved a bug causing pagination cursors to become stale. (#894)
 - **Earnings Chart**: Addressed display and rendering bugs in the freelancer earnings chart. (#894)
+- **Unbalanced Braces in Contract**: Verified and confirmed that `lib.rs` brace nesting is correct — issue could not be reproduced. (#1171)
 
 
 ## [1.0.0] - 2026-07-01
