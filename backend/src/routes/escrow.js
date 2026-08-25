@@ -30,6 +30,7 @@ const {
   disputeMilestone,
 
   verifyFreelancerAccount,
+  submitDeliverableHash,
 } = require("../services/escrowService");
 const {
   createRecurringEscrow,
@@ -361,6 +362,41 @@ router.post("/:jobId/timeout-refund", async (req, res, next) => {
     next(e);
   }
 });
+
+/**
+ * POST /api/escrow/:jobId/deliverable-hash
+ */
+router.post(
+  "/:jobId/deliverable-hash",
+  escrowActionRateLimiter,
+  async (req, res, next) => {
+    try {
+      const { jobId } = req.params;
+      const { freelancerAddress, hashHex } = req.body;
+
+      if (!freelancerAddress || !/^G[A-Z0-9]{55}$/.test(freelancerAddress)) {
+        const e = new Error("Invalid freelancer address");
+        e.status = 400;
+        throw e;
+      }
+
+      if (!hashHex) {
+        const e = new Error("hashHex is required");
+        e.status = 400;
+        throw e;
+      }
+
+      const result = await submitDeliverableHash(
+        jobId,
+        freelancerAddress,
+        hashHex
+      );
+      res.json(result);
+    } catch (e) {
+      next(e);
+    }
+  }
+);
 
 /**
  * GET /api/escrow/:jobId

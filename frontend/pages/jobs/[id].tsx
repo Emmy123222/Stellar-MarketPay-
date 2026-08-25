@@ -21,6 +21,7 @@ import {
   inviteFreelancer,
   mintCompletionCertificate,
   fetchNftCertificateByJob,
+  submitDeliverableHash,
 } from "@/lib/api";
 import {
   formatXLM,
@@ -821,6 +822,47 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
             {releaseSuccess && (
               <p className="mt-3 text-emerald-400 text-sm">Escrow released successfully.</p>
             )}
+          </div>
+        )}
+
+        {/* ── Submit Deliverable Hash (freelancer, in_progress) ── */}
+        {isFreelancer && job.status === "in_progress" && (
+          <div className="card mb-6">
+            <h2 className="font-display text-lg sm:text-xl font-bold text-amber-100 mb-3">
+              Submit Deliverable
+            </h2>
+            <p className="text-sm text-amber-700 mb-4">
+              Submit the SHA-256 hash of your completed deliverable.
+            </p>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const hash = formData.get("deliverableHash") as string;
+                if (!hash || !publicKey) return;
+                try {
+                  setActionError(null);
+                  await submitDeliverableHash(job.id, publicKey, hash);
+                  alert("Deliverable hash submitted successfully.");
+                  (e.target as HTMLFormElement).reset();
+                } catch (err: any) {
+                  setActionError(err.response?.data?.error || err.message || "Failed to submit hash.");
+                }
+              }}
+              className="flex gap-2"
+            >
+              <input
+                type="text"
+                name="deliverableHash"
+                placeholder="64-character hex string (SHA-256)"
+                className="input-field flex-1"
+                pattern="^[0-9a-fA-F]{64}$"
+                required
+              />
+              <button type="submit" className="btn-primary">
+                Submit
+              </button>
+            </form>
           </div>
         )}
 
