@@ -676,4 +676,233 @@ mod tests {
         let uri = String::from_str(&env, "ipfs://QmProfile");
         client.register(&arbitrator, &uri);
     }
+
+    // ─── Additional coverage: unauthorised-caller rejection ──────────────────
+
+    #[test]
+    #[should_panic(expected = "Only admin can perform this action")]
+    fn test_non_admin_cannot_set_minimum_stake() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _token_id) = setup(&env);
+
+        let impostor = Address::generate(&env);
+        // impostor is not the admin — must panic
+        client.set_minimum_stake(&impostor, &200_000_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only admin can perform this action")]
+    fn test_non_admin_cannot_remove_arbitrator() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, token_id) = setup(&env);
+
+        let arbitrator = Address::generate(&env);
+        let token_admin = token::StellarAssetClient::new(&env, &token_id);
+        token_admin.mint(&arbitrator, &1_000_000_000);
+
+        let uri = String::from_str(&env, "ipfs://QmProfile");
+        client.register(&arbitrator, &uri);
+
+        let impostor = Address::generate(&env);
+        client.remove_arbitrator(&impostor, &arbitrator);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only admin can perform this action")]
+    fn test_non_admin_cannot_dao_register() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _token_id) = setup(&env);
+
+        let impostor = Address::generate(&env);
+        let arbitrator = Address::generate(&env);
+        let uri = String::from_str(&env, "ipfs://QmProfile");
+        client.dao_register_arbitrator(&impostor, &arbitrator, &uri);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only admin can perform this action")]
+    fn test_non_admin_cannot_dao_remove() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, token_id) = setup(&env);
+
+        let arbitrator = Address::generate(&env);
+        let token_admin = token::StellarAssetClient::new(&env, &token_id);
+        token_admin.mint(&arbitrator, &1_000_000_000);
+
+        let uri = String::from_str(&env, "ipfs://QmProfile");
+        client.register(&arbitrator, &uri);
+
+        let impostor = Address::generate(&env);
+        // Make sure impostor is not accidentally the admin
+        assert_ne!(impostor, admin);
+        client.dao_remove_arbitrator(&impostor, &arbitrator);
+    }
+
+    // ─── Additional coverage: DAO-authorised updates ─────────────────────────
+
+    #[test]
+    fn test_set_minimum_stake_affects_subsequent_registrations() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, token_id) = setup(&env);
+
+        // Raise the minimum stake
+        let new_stake: i128 = 200_000_000;
+        client.set_minimum_stake(&admin, &new_stake);
+        assert_eq!(client.get_minimum_stake(), new_stake);
+
+        // Mint enough for new stake and register
+        let arbitrator = Address::generate(&env);
+        let token_admin = token::StellarAssetClient::new(&env, &token_id);
+        token_admin.mint(&arbitrator, &new_stake);
+
+        let uri = String::from_str(&env, "ipfs://QmProfile");
+        client.register(&arbitrator, &uri);
+
+        let info = client.get_arbitrator(&arbitrator);
+        assert_eq!(info.staked_amount, new_stake);
+    }
+
+    #[test]
+    fn test_dao_register_then_dao_remove_stake_goes_to_admin() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, token_id) = setup(&env);
+
+        let arbitrator = Address::generate(&env);
+        let uri = String::from_str(&env, "ipfs://QmDaoProfile");
+        client.dao_register_arbitrator(&admin, &arbitrator, &uri);
+
+        assert_eq!(client.get_arbitrator_count(), 1);
+        assert!(client.is_arbitrator(&arbitrator));
+
+        // DAO votes to remove — stake returns to admin treasury (penalty)
+        client.dao_remove_arbitrator(&admin, &arbitrator);
+
+        assert_eq!(client.get_arbitrator_count(), 0);
+        assert!(!client.is_arbitrator(&arbitrator));
+
+        // Arbitrator info reflects inactive state
+        let info = client.get_arbitrator(&arbitrator);
+        assert!(!info.active);
+        assert_eq!(info.staked_amount, 0);
+    }
+
+    #[test]
+    fn test_admin_update_then_register_uses_new_stake() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, token_id) = setup(&env);
+
+        let updated_stake: i128 = 300_000_000;
+        client.set_minimum_stake(&admin, &updated_stake);
+
+        let arbitrator = Address::generate(&env);
+        let token_admin = token::StellarAssetClient::new(&env, &token_id);
+        token_admin.mint(&arbitrator, &updated_stake);
+
+        let uri = String::from_str(&env, "ipfs://QmUpdated");
+        client.register(&arbitrator, &uri);
+
+        assert_eq!(client.get_arbitrator(&arbitrator).staked_amount, updated_stake);
+    }
+
+    // ─── Additional coverage: removal and deregistration edge cases ──────────
+
+    #[test]
+    #[should_panic(expected = "Not registered")]
+    fn test_remove_nonexistent_arbitrator_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, _token_id) = setup(&env);
+
+        let ghost = Address::generate(&env);
+        client.remove_arbitrator(&admin, &ghost);
+    }
+
+    #[test]
+    #[should_panic(expected = "Arbitrator is not active")]
+    fn test_deregister_already_inactive_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, token_id) = setup(&env);
+
+        let arbitrator = Address::generate(&env);
+        let token_admin = token::StellarAssetClient::new(&env, &token_id);
+        token_admin.mint(&arbitrator, &1_000_000_000);
+
+        let uri = String::from_str(&env, "ipfs://QmProfile");
+        client.register(&arbitrator, &uri);
+        client.deregister(&arbitrator);
+
+        // Second deregister must panic
+        client.deregister(&arbitrator);
+    }
+
+    #[test]
+    #[should_panic(expected = "Already initialized")]
+    fn test_double_initialize_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, token_id) = setup(&env);
+
+        // Second initialize call must panic
+        client.initialize(&admin, &token_id, &0i128);
+    }
+
+    #[test]
+    fn test_is_arbitrator_returns_false_for_unknown_address() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _token_id) = setup(&env);
+
+        let stranger = Address::generate(&env);
+        assert!(!client.is_arbitrator(&stranger));
+    }
+
+    #[test]
+    fn test_get_arbitrator_count_is_zero_after_all_deregister() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, token_id) = setup(&env);
+
+        let a1 = Address::generate(&env);
+        let a2 = Address::generate(&env);
+        let token_admin = token::StellarAssetClient::new(&env, &token_id);
+        token_admin.mint(&a1, &1_000_000_000);
+        token_admin.mint(&a2, &1_000_000_000);
+
+        let uri = String::from_str(&env, "ipfs://QmProfile");
+        client.register(&a1, &uri.clone());
+        client.register(&a2, &uri.clone());
+
+        assert_eq!(client.get_arbitrator_count(), 2);
+
+        client.deregister(&a1);
+        client.deregister(&a2);
+
+        assert_eq!(client.get_arbitrator_count(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Minimum stake must be positive")]
+    fn test_set_minimum_stake_rejects_zero() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, _token_id) = setup(&env);
+        client.set_minimum_stake(&admin, &0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Minimum stake must be positive")]
+    fn test_set_minimum_stake_rejects_negative() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, _token_id) = setup(&env);
+        client.set_minimum_stake(&admin, &-1);
+    }
 }
