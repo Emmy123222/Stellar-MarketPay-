@@ -857,6 +857,23 @@ router.get("/metrics/time-series", verifyJWT, requireAdminRole, requireAdmin2FA,
   }
 });
 
+// ── GET /api/admin/api-keys/usage — API key usage stats (Issue #452) ─────────
+router.get(
+  "/api-keys/usage",
+  verifyJWT,
+  requireAdminRole,
+  requireAdmin2FA,
+  async (req, res, next) => {
+    try {
+      const lookbackDays = Number(req.query.days) || 7;
+      const stats = await getApiKeyUsageStats(lookbackDays);
+      res.json({ success: true, data: stats });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 // ── GET /api/admin/reports/latest — download the most recent weekly PDF ───────
 router.get("/reports/latest", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
