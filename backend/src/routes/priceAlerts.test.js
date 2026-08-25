@@ -9,6 +9,11 @@
  *   - Authentication rejection (401) on guarded routes
  *   - Validation failure (400) for malformed POST bodies
  *   - Not-found paths (404) for DELETE on unknown or unowned alerts
+ *
+ * Note: CSRF protection is enforced by doubleCsrfProtection in src/server.js,
+ * not inside this router-only test harness — see src/routes/auth.test.js for
+ * full-app CSRF coverage. Mutating requests include an X-CSRF-Token header
+ * for compatibility with the production middleware contract.
  */
 
 jest.mock("../db/pool", () => {
@@ -19,21 +24,13 @@ jest.mock("../db/pool", () => {
 const pool = require("../db/pool");
 const { defaultPriceAlertRow } = require("../testUtils/pgMock");
 
-const cookieParser = require("cookie-parser");
 const express = require("express");
 const request = require("supertest");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("../middleware/auth");
-const { doubleCsrfProtection, generateCsrfToken } = require("../middleware/csrf");
-const { fetchCsrf, applyCsrf } = require("../testUtils/csrfTestHelpers");
 const priceAlertRoutes = require("./priceAlerts");
 
 const app = express();
-app.use(cookieParser());
-app.get("/api/auth/csrf-token", (req, res) => {
-  res.json({ csrfToken: generateCsrfToken(req, res) });
-});
-app.use(doubleCsrfProtection);
 app.use(express.json());
 app.use("/api/price-alerts", priceAlertRoutes);
 
@@ -52,25 +49,19 @@ function makeToken(publicKey = USER_ADDRESS) {
   return jwt.sign({ publicKey, role: "freelancer" }, JWT_SECRET, { expiresIn: "1h" });
 }
 
-async function authedPost(path, body, publicKey = USER_ADDRESS) {
-  const csrf = await fetchCsrf(app);
-  return applyCsrf(
-    request(app)
-      .post(path)
-      .set("Authorization", `Bearer ${makeToken(publicKey)}`)
-      .send(body),
-    csrf,
-  );
+function authedPost(path, body, publicKey = USER_ADDRESS) {
+  return request(app)
+    .post(path)
+    .set("Authorization", `Bearer ${makeToken(publicKey)}`)
+    .set("X-CSRF-Token", "dummy-csrf-token")
+    .send(body);
 }
 
-async function authedDelete(path, publicKey = USER_ADDRESS) {
-  const csrf = await fetchCsrf(app);
-  return applyCsrf(
-    request(app)
-      .delete(path)
-      .set("Authorization", `Bearer ${makeToken(publicKey)}`),
-    csrf,
-  );
+function authedDelete(path, publicKey = USER_ADDRESS) {
+  return request(app)
+    .delete(path)
+    .set("Authorization", `Bearer ${makeToken(publicKey)}`)
+    .set("X-CSRF-Token", "dummy-csrf-token");
 }
 
 describe("Price Alerts Route Suite (/api/price-alerts)", () => {
@@ -99,28 +90,24 @@ describe("Price Alerts Route Suite (/api/price-alerts)", () => {
     });
 
     it("401 — rejects unauthenticated create requests", async () => {
-      const csrf = await fetchCsrf(app);
-      const res = await applyCsrf(
-        request(app).post("/api/price-alerts").send({
+      const res = await request(app)
+        .post("/api/price-alerts")
+        .set("X-CSRF-Token", "dummy-csrf-token")
+        .send({
           condition: "above",
           threshold: 0.15,
-        }),
-        csrf,
-      );
+        });
 
       expect(res.status).toBe(401);
       expect(res.body.error).toMatch(/Unauthorized/);
     });
 
     it("401 — rejects create requests with an invalid token", async () => {
-      const csrf = await fetchCsrf(app);
-      const res = await applyCsrf(
-        request(app)
-          .post("/api/price-alerts")
-          .set("Authorization", "Bearer not-a-valid-token")
-          .send({ condition: "above", threshold: 0.15 }),
-        csrf,
-      );
+      const res = await request(app)
+        .post("/api/price-alerts")
+        .set("Authorization", "Bearer not-a-valid-token")
+        .set("X-CSRF-Token", "dummy-csrf-token")
+        .send({ condition: "above", threshold: 0.15 });
 
       expect(res.status).toBe(401);
       expect(res.body.error).toMatch(/Unauthorized/);
@@ -224,11 +211,9 @@ describe("Price Alerts Route Suite (/api/price-alerts)", () => {
     });
 
     it("401 — rejects unauthenticated delete requests", async () => {
-      const csrf = await fetchCsrf(app);
-      const res = await applyCsrf(
-        request(app).delete("/api/price-alerts/alert-missing"),
-        csrf,
-      );
+      const res = await request(app)
+        .delete("/api/price-alerts/alert-missing")
+        .set("X-CSRF-Token", "dummy-csrf-token");
 
       expect(res.status).toBe(401);
       expect(res.body.error).toMatch(/Unauthorized/);
