@@ -313,11 +313,7 @@ impl ArbitratorRegistry {
             .get(&DataKey::Token)
             .expect("Not initialized");
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &admin,
-            &info.staked_amount,
-        );
+        token_client.transfer(&env.current_contract_address(), &admin, &info.staked_amount);
 
         info.active = false;
         info.staked_amount = 0;
@@ -327,10 +323,8 @@ impl ArbitratorRegistry {
 
         Self::remove_from_list(&env, &arbitrator);
 
-        env.events().publish(
-            (symbol_short!("dao_rm"), arbitrator),
-            admin,
-        );
+        env.events()
+            .publish((symbol_short!("dao_rm"), arbitrator), admin);
     }
 
     // ─── Getters ─────────────────────────────────────────────────────────────
@@ -808,7 +802,10 @@ mod tests {
         let uri = String::from_str(&env, "ipfs://QmUpdated");
         client.register(&arbitrator, &uri);
 
-        assert_eq!(client.get_arbitrator(&arbitrator).staked_amount, updated_stake);
+        assert_eq!(
+            client.get_arbitrator(&arbitrator).staked_amount,
+            updated_stake
+        );
     }
 
     // ─── Additional coverage: removal and deregistration edge cases ──────────
