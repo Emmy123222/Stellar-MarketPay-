@@ -1,4 +1,12 @@
 #![no_std]
+#![allow(
+    // soroban-sdk 27 deprecates Events::publish in favour of #[contractevent].
+    // Migrating changes the emitted event ABI; tracked as a separate task.
+    deprecated,
+    // Test helpers take `&Env` where the return type elides the lifetime;
+    // cosmetic — changing every helper is churn for no benefit.
+    mismatched_lifetime_syntaxes
+)]
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, token, Address, Env, String, Vec,
@@ -110,7 +118,7 @@ impl ArbitratorRegistry {
             .get(&DataKey::Token)
             .expect("Not initialized");
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&caller, &env.current_contract_address(), &min_stake);
+        token_client.transfer(&caller, env.current_contract_address(), &min_stake);
 
         let info = ArbitratorInfo {
             active: true,
@@ -251,7 +259,7 @@ impl ArbitratorRegistry {
             .get(&DataKey::Token)
             .expect("Not initialized");
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&admin, &env.current_contract_address(), &min_stake);
+        token_client.transfer(&admin, env.current_contract_address(), &min_stake);
 
         let info = ArbitratorInfo {
             active: true,
@@ -394,7 +402,7 @@ impl ArbitratorRegistry {
                 .storage()
                 .instance()
                 .get::<_, ArbitratorInfo>(&DataKey::ArbitratorInfo(address.clone()))
-                .map_or(false, |info| info.active)
+                .is_some_and(|info| info.active)
     }
 
     fn remove_from_list(env: &Env, address: &Address) {
@@ -487,7 +495,7 @@ mod tests {
         assert_eq!(arbitrators.get(0).unwrap(), arbitrator);
 
         let info = client.get_arbitrator(&arbitrator);
-        assert_eq!(info.active, true);
+        assert!(info.active);
         assert_eq!(info.staked_amount, DEFAULT_MIN_STAKE);
         assert_eq!(info.metadata_uri, uri);
 
@@ -497,7 +505,7 @@ mod tests {
         let arbitrators = client.get_arbitrators();
         assert_eq!(arbitrators.len(), 0);
 
-        assert_eq!(client.is_arbitrator(&arbitrator), false);
+        assert!(!client.is_arbitrator(&arbitrator));
     }
 
     #[test]
@@ -558,7 +566,7 @@ mod tests {
         client.remove_arbitrator(&admin, &arbitrator);
 
         assert_eq!(client.get_arbitrators().len(), 0);
-        assert_eq!(client.is_arbitrator(&arbitrator), false);
+        assert!(!client.is_arbitrator(&arbitrator));
     }
 
     #[test]
@@ -599,7 +607,7 @@ mod tests {
         client.dao_remove_arbitrator(&admin, &arbitrator);
 
         assert_eq!(client.get_arbitrators().len(), 0);
-        assert_eq!(client.is_arbitrator(&arbitrator), false);
+        assert!(!client.is_arbitrator(&arbitrator));
     }
 
     #[test]
@@ -670,7 +678,6 @@ mod tests {
         let (client, _admin, _token_id) = setup(&env);
 
         let impostor = Address::generate(&env);
-        // impostor is not the admin — must panic
         client.set_minimum_stake(&impostor, &200_000_000);
     }
 
@@ -720,7 +727,6 @@ mod tests {
         client.register(&arbitrator, &uri);
 
         let impostor = Address::generate(&env);
-        // Make sure impostor is not accidentally the admin
         assert_ne!(impostor, admin);
         client.dao_remove_arbitrator(&impostor, &arbitrator);
     }
@@ -733,12 +739,10 @@ mod tests {
         env.mock_all_auths();
         let (client, admin, token_id) = setup(&env);
 
-        // Raise the minimum stake
         let new_stake: i128 = 200_000_000;
         client.set_minimum_stake(&admin, &new_stake);
         assert_eq!(client.get_minimum_stake(), new_stake);
 
-        // Mint enough for new stake and register
         let arbitrator = Address::generate(&env);
         let token_admin = token::StellarAssetClient::new(&env, &token_id);
         token_admin.mint(&arbitrator, &new_stake);
@@ -754,7 +758,7 @@ mod tests {
     fn test_dao_register_then_dao_remove_stake_goes_to_admin() {
         let env = Env::default();
         env.mock_all_auths();
-        let (client, admin, token_id) = setup(&env);
+        let (client, admin, _token_id) = setup(&env);
 
         let arbitrator = Address::generate(&env);
         let uri = String::from_str(&env, "ipfs://QmDaoProfile");
@@ -763,13 +767,11 @@ mod tests {
         assert_eq!(client.get_arbitrator_count(), 1);
         assert!(client.is_arbitrator(&arbitrator));
 
-        // DAO votes to remove — stake returns to admin treasury (penalty)
         client.dao_remove_arbitrator(&admin, &arbitrator);
 
         assert_eq!(client.get_arbitrator_count(), 0);
         assert!(!client.is_arbitrator(&arbitrator));
 
-        // Arbitrator info reflects inactive state
         let info = client.get_arbitrator(&arbitrator);
         assert!(!info.active);
         assert_eq!(info.staked_amount, 0);
