@@ -51,6 +51,19 @@ WHERE status = 'completed'
     SELECT 1 FROM job_timeline jt WHERE jt.job_id = jobs.id AND jt.event_type = 'work_completed'
   );
 
+-- escrow_releases is referenced by escrowService/nft routes and by the
+-- backfill below, but no prior migration created it. Create it here (guarded)
+-- so fresh databases are consistent. Columns match escrowService usage:
+-- (job_id, released_by, tx_hash, status, released_at).
+CREATE TABLE IF NOT EXISTS escrow_releases (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id      UUID        NOT NULL UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,
+  released_by TEXT,
+  tx_hash     TEXT,
+  status      TEXT        NOT NULL DEFAULT 'released',
+  released_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Backfill 'escrow_released' events from escrow_releases table
 INSERT INTO job_timeline (job_id, event_type, tx_hash, created_at)
 SELECT er.job_id, 'escrow_released', er.tx_hash, er.released_at

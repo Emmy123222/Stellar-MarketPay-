@@ -116,6 +116,9 @@ jobs:
       JWT_SECRET: ci-test-jwt-secret-with-sufficient-length
       CSRF_SECRET: ci-test-csrf-secret-with-sufficient-length
       DATABASE_ENCRYPTION_KEY: ci-test-encryption-key-32chars!!
+      # indexerService requires a contract id at boot; use the same mock id as
+      # the frontend job since integration tests never touch the chain.
+      CONTRACT_ID: CMOCKCONTRACTID
       PORT: "0"
 
     steps:

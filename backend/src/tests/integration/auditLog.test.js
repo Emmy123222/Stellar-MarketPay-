@@ -50,18 +50,20 @@ afterAll(async () => {
   if (hasPostgres && pool) await pool.end();
 });
 
+const actorAddress = "GAUDITTEST123456789012345678901234567890123456789012345678901234";
+
+// NOTE: The service queries go through the shared pool, so a BEGIN/ROLLBACK
+// pattern that releases its client between hooks cannot isolate tests —
+// inserts land on arbitrary pooled connections (some outside the open
+// transaction) and leak across tests non-deterministically. Clean the table
+// before each test instead; this is a dedicated test database.
 beforeEach(async () => {
   if (!hasPostgres) return;
-  const client = await pool.connect();
-  await client.query("BEGIN");
-  client.release();
+  await pool.query("DELETE FROM audit_log WHERE actor_address = $1", [actorAddress]);
 });
 
 afterEach(async () => {
   if (!hasPostgres) return;
-  const client = await pool.connect();
-  await client.query("ROLLBACK");
-  client.release();
 });
 
 describe("Audit Log Integration Tests", () => {
@@ -70,7 +72,6 @@ describe("Audit Log Integration Tests", () => {
       console.log("Skipping audit log integration tests — no Postgres instance.");
     }
   });
-  const actorAddress = "GAUDITTEST123456789012345678901234567890123456789012345678901234";
   const entityId = "00000000-0000-0000-0000-000000000001";
 
   test("insertAuditLog creates a row with correct fields", async () => {
