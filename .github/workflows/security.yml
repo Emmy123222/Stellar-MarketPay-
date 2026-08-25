@@ -1,0 +1,124 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * 1"   # weekly, Monday 04:00 UTC — catches newly disclosed CVEs
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: CodeQL (JS/TS)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-and-quality
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:javascript-typescript
+
+  npm-audit:
+    name: npm audit (${{ matrix.workspace }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: [backend, frontend]
+    defaults:
+      run:
+        working-directory: ${{ matrix.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ${{ matrix.workspace }}/package-lock.json
+
+      - run: npm ci
+
+      # backend gates at `high`. The frontend gates at `critical` only because
+      # next@14.2.35 is the newest 14.x and still carries 21 high advisories
+      # that are fixed only by the breaking upgrade to Next 16 — tracked in
+      # https://github.com/Emmy123222/Stellar-MarketPay-/issues/1212
+      # Restore `high` here as part of that upgrade.
+      - name: Audit production dependencies
+        run: |
+          LEVEL=high
+          if [ "${{ matrix.workspace }}" = "frontend" ]; then LEVEL=critical; fi
+          echo "Auditing ${{ matrix.workspace }} production deps at level: $LEVEL"
+          npm audit --omit=dev --audit-level="$LEVEL"
+
+      - name: Audit all dependencies (advisory)
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [marketpay-contract, arbitrator-registry]
+    defaults:
+      run:
+        working-directory: contracts/${{ matrix.crate }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('contracts/**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-audit-
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked || true
+
+      # RUSTSEC-2020-0071 (time 0.1 segfault) is unreachable here: it arrives
+      # only as a transitive dev-dependency and never runs in the contract.
+      - name: Audit
+        run: cargo audit --ignore RUSTSEC-2020-0071
+
+  filesystem-scan:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          # HIGH is dominated by the Next 14 advisories above; see issue #1212.
+          # Raise back to HIGH,CRITICAL once the Next 16 upgrade lands.
+          severity: CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          exit-code: "1"
+          format: table

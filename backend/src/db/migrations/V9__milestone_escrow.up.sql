@@ -1,0 +1,5 @@
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS milestones JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE escrows
+  ADD COLUMN IF NOT EXISTS milestones JSONB NOT NULL DEFAULT '[]'::jsonb;

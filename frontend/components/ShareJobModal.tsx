@@ -2,7 +2,7 @@
  * components/ShareJobModal.tsx
  * Modal for sharing job listings with pre-filled application forms
  */
-import { useState } from "react";
+import { useState, useEffect, useRef, KeyboardEvent } from "react";
 import type { Job } from "@/utils/types";
 
 interface ShareJobModalProps {
@@ -21,6 +21,30 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
     jobId: job.id,
   });
   const [showQR, setShowQR] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Focus trap (#287): keep focus inside modal
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const focusable = dialog.querySelectorAll<HTMLElement>(
+      'a[href],button:not([disabled]),input,select,textarea,[tabindex]:not([tabindex="-1"])'
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    first?.focus();
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") { onClose(); return; }
+      if (e.key !== "Tab") return;
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first?.focus(); }
+      }
+    };
+    dialog.addEventListener("keydown", handleKeyDown);
+    return () => dialog.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   // Generate canonical job URL
   const jobUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/jobs/${job.id}`;
@@ -58,14 +82,26 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-ink-900/90 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-ink-800 rounded-xl border border-market-500/20 shadow-xl">
+    <div
+      role="presentation"
+      className="fixed inset-0 z-50 bg-ink-900/90 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Share job: ${job.title}`}
+        className="w-full max-w-md bg-ink-800 rounded-xl border border-market-500/20 shadow-xl"
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-market-500/10">
           <h3 className="font-display text-lg font-semibold text-amber-100">Share Job</h3>
           <button
+            type="button"
             onClick={onClose}
             className="text-amber-800 hover:text-amber-600 transition-colors"
+            aria-label="Close share job modal"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -80,14 +116,21 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
             <p className="text-amber-800 text-sm">
               {job.category} • {job.currency} {job.budget}
             </p>
+            <p className="text-amber-800/80 text-xs mt-2 leading-relaxed">
+              <span aria-hidden="true" className="mr-1">🪪</span>
+              Shared on Discord, X, LinkedIn, Slack, or iMessage this link
+              renders a rich preview card with the job title, budget, and
+              category — generated automatically by{" "}
+              <code className="font-mono text-[11px] text-amber-700">/api/og/[jobId]</code>.
+            </p>
           </div>
 
           {/* Share Options */}
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-amber-200 mb-2">Share Job URL</label>
+              <label htmlFor="share-job-url" className="block text-sm font-medium text-amber-200 mb-2">Share Job URL</label>
               <div className="flex gap-2">
-                <input
+                <input id="share-job-url"
                   type="text"
                   value={jobUrl}
                   readOnly
@@ -103,9 +146,9 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-amber-200 mb-2">
+              <span className="block text-sm font-medium text-amber-200 mb-2">
                 Create Invite Link (Pre-filled Application)
-              </label>
+              </span>
               
               {/* Pre-fill Options */}
               <div className="space-y-3 mb-4">
@@ -121,8 +164,8 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
                 </div>
                 
                 <div>
-                  <label className="block text-xs text-amber-800 mb-1">Personal Message (optional)</label>
-                  <textarea
+                  <label htmlFor="personal-message-optional" className="block text-xs text-amber-800 mb-1">Personal Message (optional)</label>
+                  <textarea id="personal-message-optional"
                     placeholder="Add a personal note for the freelancer..."
                     value={inviteData.message || ''}
                     onChange={(e) => setInviteData(prev => ({ ...prev, message: e.target.value }))}

@@ -123,6 +123,19 @@ export function availabilitySummary(availability?: Availability | null): string 
   return availabilityStatusLabel(availability.status);
 }
 
+export function availabilityBadgeClass(status?: Availability["status"] | null): string {
+  if (status === "available") {
+    return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+  }
+  if (status === "busy") {
+    return "bg-amber-500/10 text-amber-300 border-amber-500/20";
+  }
+  if (status === "unavailable") {
+    return "bg-red-500/10 text-red-400 border-red-500/20";
+  }
+  return "bg-market-500/10 text-market-300 border-market-500/20";
+}
+
 export async function copyToClipboard(text: string): Promise<boolean> {
   try { await navigator.clipboard.writeText(text); return true; }
   catch { return false; }
@@ -136,29 +149,49 @@ export function statusClass(status: JobStatus): string {
   return { open: "badge-open", in_progress: "badge-progress", completed: "badge-complete", cancelled: "badge-cancelled", disputed: "badge-disputed" }[status];
 }
 
+/** Static fallback list — used when the /api/categories endpoint hasn't loaded yet. */
 export const JOB_CATEGORIES = [
   "Smart Contracts", "Frontend Development", "Backend Development",
   "UI/UX Design", "Technical Writing", "DevOps", "Security Audit",
   "Data Analysis", "Mobile Development", "Other",
 ];
 
+/** Slug equivalents of JOB_CATEGORIES for filter chips and URL params. */
+export const JOB_CATEGORY_SLUGS = [
+  "smart-contracts", "frontend-development", "backend-development",
+  "ui-ux-design", "technical-writing", "devops", "security-audit",
+  "data-analysis", "mobile-development", "other",
+];
+
 export const CATEGORY_ICONS: Record<string, string> = {
   "Smart Contracts": "📜",
+  "smart-contracts": "📜",
   "Frontend Development": "🎨",
+  "frontend-development": "🎨",
   "Backend Development": "⚙️",
+  "backend-development": "⚙️",
   "UI/UX Design": "🖌️",
+  "ui-ux-design": "🖌️",
   "Technical Writing": "✍️",
+  "technical-writing": "✍️",
   "DevOps": "🚀",
+  "devops": "🚀",
   "Security Audit": "🔒",
+  "security-audit": "🔒",
   "Data Analysis": "📊",
+  "data-analysis": "📊",
   "Mobile Development": "📱",
+  "mobile-development": "📱",
   "Other": "📦",
+  "other": "📦",
 };
 
+/** Convert a display name to a URL-safe slug. */
 export function categoryToSlug(category: string): string {
   return category.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
+/** Reverse-lookup a display name from a slug using the static fallback list. */
 export function slugToCategory(slug: string): string | undefined {
   return JOB_CATEGORIES.find(cat => categoryToSlug(cat) === slug);
 }
@@ -191,22 +224,82 @@ export const SKILL_SUGGESTIONS = [
  * Converts an XLM amount to a USD equivalent string.
  * Returns null if price is unavailable.
  */
-export function formatUSDEquivalent(xlmAmount: string | number, xlmPriceUsd: number | null): string | null {
-  if (xlmPriceUsd === null) return null;
-  const num = typeof xlmAmount === "string" ? parseFloat(xlmAmount) : xlmAmount;
+export function formatMoney(
+  amount: string | number,
+  currency: string = "XLM",
+): string {
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  if (isNaN(num)) return `0 ${currency}`;
+  const formatted = num.toLocaleString("en-US", { maximumFractionDigits: 4 });
+  return `${formatted} ${currency}`;
+}
+
+export function formatUSDEquivalent(
+  amount: string | number,
+  xlmPriceUsd: number | null,
+  currency: string = "XLM",
+): string | null {
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
   if (isNaN(num)) return null;
+  if (currency.toUpperCase() === "USDC") {
+    return `≈ $${num.toFixed(2)} USD`;
+  }
+  if (xlmPriceUsd === null) return null;
   const usd = (num * xlmPriceUsd).toFixed(2);
   return `≈ $${usd} USD`;
+}
+
+/**
+ * Formats a price based on the active currency mode.
+ * Returns the formatted string and optionally the USD equivalent.
+ */
+export function formatPrice(
+  amount: string | number,
+  xlmPriceUsd: number | null,
+  currencyMode: "XLM" | "USD",
+  jobCurrency: string = "XLM",
+): { display: string; usdEquiv: string | null } {
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  if (isNaN(num)) return { display: `0 ${jobCurrency}`, usdEquiv: null };
+
+  if (jobCurrency.toUpperCase() === "USDC") {
+    return {
+      display: `${num.toLocaleString("en-US", { maximumFractionDigits: 4 })} USDC`,
+      usdEquiv: `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    };
+  }
+
+  const usdEquiv = xlmPriceUsd !== null
+    ? `$${(num * xlmPriceUsd).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : null;
+
+  if (currencyMode === "USD" && xlmPriceUsd !== null) {
+    const usd = num * xlmPriceUsd;
+    return {
+      display: `$${usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      usdEquiv: null,
+    };
+  }
+
+  return {
+    display: `${num.toLocaleString("en-US", { maximumFractionDigits: 4 })} XLM`,
+    usdEquiv,
+  };
 }
 
 /**
  * Calculates a monthly equivalent estimate for a given budget.
  * If no duration is provided, it assumes the budget is for a month of work.
  */
-export function getMonthlyEstimate(xlmAmount: string | number, xlmPriceUsd: number | null): string | null {
-  if (xlmPriceUsd === null) return null;
-  const num = typeof xlmAmount === "string" ? parseFloat(xlmAmount) : xlmAmount;
+export function getMonthlyEstimate(amount: string | number, xlmPriceUsd: number | null, jobCurrency: string = "XLM"): string | null {
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
   if (isNaN(num)) return null;
+
+  if (jobCurrency.toUpperCase() === "USDC") {
+    return `$${num.toFixed(2)}/mo est.`;
+  }
+
+  if (xlmPriceUsd === null) return null;
   const monthlyUsd = (num * xlmPriceUsd).toFixed(2);
   return `$${monthlyUsd}/mo est.`;
 }
@@ -251,3 +344,11 @@ export function calculateJobProgress(job: Job): ProgressData | null {
 
   return { percentage, daysRemaining, colorClass };
 }
+
+export const POPULAR_SKILLS: string[] = [
+  "JavaScript", "TypeScript", "Python", "React", "Node.js",
+  "Solidity", "Rust", "Go", "AWS", "Docker",
+  "Stellar", "Soroban", "Smart Contracts", "DeFi", "Web3",
+  "PostgreSQL", "MongoDB", "GraphQL", "Next.js", "Tailwind CSS",
+  "UI/UX Design", "Full Stack", "Smart Contract",
+];
