@@ -143,6 +143,28 @@ export default function FeeEstimationModal({
         </dl>
       )}
 
+      {estimate && (
+        <div className="mb-4">
+          <label className="text-xs text-amber-700 block mb-1">
+            Max fee multiplier: {maxFeeMultiplier.toFixed(1)}×
+          </label>
+          <input
+            type="range"
+            min={1}
+            max={3}
+            step={0.5}
+            value={maxFeeMultiplier}
+            onChange={(e) => setMaxFeeMultiplier(Number(e.target.value))}
+            className="w-full accent-amber-500"
+          />
+          {maxFeeUsd != null && (
+            <p className="text-xs text-amber-700 mt-1">
+              Max fee: {maxFeeXlm} XLM ≈ \ USD
+            </p>
+          )}
+        </div>
+      )}
+
       {insufficient && (
         <p className="text-red-400 text-xs mb-3">
           Insufficient balance — top up XLM and try again.
