@@ -1,13 +1,115 @@
+import withPWAInit from "@ducanh2912/next-pwa";
+
+const withPWA = withPWAInit({
+  dest: "public",
+  swSrc: "public/sw.src.js",
+  sw: "sw.js",
+  disable: process.env.NODE_ENV === "development",
+});
+
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https:",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "media-src 'self'",
+  "object-src 'none'",
+  "frame-src 'none'",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "upgrade-insecure-requests",
+].join('; ');
+
+const securityHeaders = [
+  { key: "Content-Security-Policy", value: contentSecurityPolicy },
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=31536000; includeSubDomains; preload",
+  },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "SAMEORIGIN" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  {
+    key: "Permissions-Policy",
+    value:
+      "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), interest-cohort=()",
+  },
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
   reactStrictMode: true,
+  assetPrefix: process.env.NEXT_PUBLIC_CDN_URL || '',
   i18n: {
-    defaultLocale: 'en',
-    locales: ['en', 'es'],
+    defaultLocale: "en",
+    locales: ["en", "es", "fr", "pt"],
   },
-  webpack: (config) => {
+  images: {
+    loader: 'custom',
+    path: process.env.IMAGE_CDN_URL || '',
+    formats: ['image/webp', 'image/avif'],
+    remotePatterns: [
+      { protocol: 'https', hostname: 'ipfs.io' },
+      { protocol: 'https', hostname: 'gateway.pinata.cloud' },
+      { protocol: 'https', hostname: 'cloudflare-ipfs.com' },
+      { protocol: 'https', hostname: 'nftstorage.link' },
+      { protocol: 'https', hostname: 'w3s.link' },
+    ],
+  },
+  webpack: (config, { isServer }) => {
     config.resolve.fallback = { ...config.resolve.fallback, fs: false, net: false, tls: false };
+
+    if (process.env.ANALYZE === 'true') {
+      const { BundleAnalyzerPlugin } = require('@next/bundle-analyzer')({
+        openAnalyzer: false,
+      });
+      config.plugins.push(
+        new BundleAnalyzerPlugin({
+          analyzerMode: 'static',
+          reportFilename: isServer ? '../analyze/server.html' : '../analyze/client.html',
+          generateStatsFile: true,
+          statsFilename: isServer ? '../analyze/server-stats.json' : '../analyze/client-stats.json',
+        })
+      );
+    }
+
     return config;
   },
+  env: {
+    SKIP_API_CALLS: process.env.SKIP_API_CALLS || "false",
+  },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          ...securityHeaders,
+          {
+            key: 'Link',
+            value: '</_next/static/css/app/layout.css>; rel=preload; as=style, </_next/static/chunks/webpack.js>; rel=preload; as=script, </_next/static/chunks/framework.js>; rel=preload; as=script',
+          },
+        ],
+      },
+      {
+        source: '/_next/static/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
+      {
+        source: '/profile/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=3600' },
+        ],
+      },
+    ];
+  },
+  swcMinify: true,
+  compress: true,
 };
-export default nextConfig;
+
+export default withPWA(nextConfig);

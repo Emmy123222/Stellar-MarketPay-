@@ -1,0 +1,49 @@
+groups:
+  - name: horizon_api
+    rules:
+      # ──────────────────────────────────────────────────────────────────────
+      # Alert: Horizon p95 request latency exceeds 2 seconds
+      # Fires when the 95th‑percentile latency of any Horizon API method
+      # stays above 2 s for more than 2 minutes.
+      # ──────────────────────────────────────────────────────────────────────
+      - alert: HorizonHighLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(
+              rate(stellar_marketpay_horizon_request_duration_seconds_bucket[5m])
+            ) by (le, method)
+          ) > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Horizon API p95 latency > 2 s (method={{ $labels.method }})"
+          description: >
+            The 95th-percentile latency for Horizon method '{{ $labels.method }}'
+            has exceeded 2 seconds for more than 2 minutes. This may indicate
+            upstream rate-limiting, network degradation, or Horizon overload.
+            Current p95: {{ $value | humanizeDuration }}.
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Alert: High rate of Horizon errors (non-success responses)
+      # ──────────────────────────────────────────────────────────────────────
+      - alert: HorizonHighErrorRate
+        expr: |
+          sum(
+            rate(stellar_marketpay_horizon_request_duration_seconds_count{status="error"}[5m])
+          ) by (method)
+          /
+          sum(
+            rate(stellar_marketpay_horizon_request_duration_seconds_count[5m])
+          ) by (method)
+          > 0.10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Horizon API error rate > 10 % (method={{ $labels.method }})"
+          description: >
+            More than 10 % of Horizon '{{ $labels.method }}' requests are
+            failing. Check Horizon connectivity and rate-limit status.
+            Current error rate: {{ $value | humanizePercentage }}.

@@ -22,5 +22,29 @@ Thumbs.db
 .idea/
 *.swp
 
+# Coverage
+coverage/
+backend/coverage/
+frontend/coverage/
+
+# Storybook
+frontend/storybook-static/
+frontend/.storybook-temp/
+
+# Stryker mutation testing
+backend/stryker-tmp/
+backend/reports/mutation/
+backend/.stryker-tmp/
+
 # Cargo
 Cargo.lock
+.opencode
+
+# Generated test/coverage artifacts
+contracts/marketpay-contract/coverage/
+frontend/test-results/
+frontend/playwright-report/
+
+# Python
+__pycache__/
+*.pyc

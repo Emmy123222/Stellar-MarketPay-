@@ -3,25 +3,75 @@
  */
 "use strict";
 const express = require("express");
-const jwt = require("jsonwebtoken");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
-const { JWT_SECRET } = require("../middleware/auth");
+const {
+  ensureAdminProfile,
+  get2FAStatus,
+} = require("../services/twoFactorService");
+const pool = require("../db/pool");
+const {
+  clearAuthCookies,
+  getRefreshTokenFromRequest,
+  issueTokenPair,
+  revokeRefreshToken,
+  rotateRefreshToken,
+  setAuthCookies,
+} = require("../services/authTokens");
+const { generateCsrfToken } = require("../middleware/csrf");
+const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const router = express.Router();
+
+// Strict limit on authentication attempts: 10 per 15 minutes per IP
+const authWriteRateLimiter = createRateLimiter(10, 15, { name: "auth-write" });
+// Looser limit on read-only auth endpoints: 100 per minute per IP
+const authReadRateLimiter = createRateLimiter(100, 1, { name: "auth-read" });
 
 let cachedServerKeypair = null;
 function getServerKeypair() {
   if (!cachedServerKeypair) {
-    const serverPrivateKey = process.env.SERVER_PRIVATE_KEY || Keypair.random().secret();
+    const serverPrivateKey =
+      process.env.SERVER_PRIVATE_KEY || Keypair.random().secret();
     cachedServerKeypair = Keypair.fromSecret(serverPrivateKey);
   }
   return cachedServerKeypair;
 }
 
 const HOME_DOMAIN = process.env.HOME_DOMAIN || "localhost:4000";
-const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK === "mainnet" 
-  ? "Public Global Stellar Network ; September 2015" 
-  : "Test SDF Network ; September 2015";
+const MAINNET_PASSPHRASE = "Public Global Stellar Network ; September 2015";
+const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
+
+function resolvePassphrase(network) {
+  return network === "mainnet" ? MAINNET_PASSPHRASE : TESTNET_PASSPHRASE;
+}
+
+/**
+ * @swagger
+ * /api/auth/csrf-token:
+ *   get:
+ *     summary: Issue a CSRF token for double-submit protection
+ *     description: |
+ *       Generates a fresh CSRF token, sets it as a non-HttpOnly `csrf-token`
+ *       cookie, and returns it in the response body. The frontend Axios
+ *       instance attaches this token in the `X-CSRF-Token` header on every
+ *       subsequent state-mutating request (`POST`, `PUT`, `PATCH`, `DELETE`).
+ *     tags: [Authentication]
+ *     responses:
+ *       200:
+ *         description: CSRF token issued
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 csrfToken:
+ *                   type: string
+ *                   description: Token the client must echo in `X-CSRF-Token`
+ */
+router.get("/csrf-token", authReadRateLimiter, (req, res) => {
+  const csrfToken = generateCsrfToken(req, res);
+  res.json({ csrfToken });
+});
 
 /**
  * @swagger
@@ -55,12 +105,14 @@ const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK === "mainnet"
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get("/", (req, res) => {
+router.get("/", (req, res, next) => {
   try {
     const accountId = req.query.account;
     if (!accountId) {
       return res.status(400).json({ error: "Missing account parameter" });
     }
+    const network = req.query.network === "mainnet" ? "mainnet" : "testnet";
+    const networkPassphrase = resolvePassphrase(network);
 
     const serverKeypair = getServerKeypair();
     const challenge = Utils.buildChallengeTx(
@@ -68,12 +120,12 @@ router.get("/", (req, res) => {
       accountId,
       HOME_DOMAIN,
       300, // 5 minutes timeout
-      NETWORK_PASSPHRASE
+      networkPassphrase,
     );
 
-    res.json({ transaction: challenge });
+    res.json({ transaction: challenge, network });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    next(e);
   }
 });
 
@@ -123,33 +175,87 @@ router.get("/", (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post("/", (req, res) => {
+router.post("/", async (req, res, next) => {
   try {
-    const { transaction } = req.body;
+    const { transaction, network: reqNetwork } = req.body;
     if (!transaction) {
-      return res.status(400).json({ error: "Missing transaction in request body" });
+      return res
+        .status(400)
+        .json({ error: "Missing transaction in request body" });
     }
+    const network = reqNetwork === "mainnet" ? "mainnet" : "testnet";
+    const networkPassphrase = resolvePassphrase(network);
 
     const serverKeypair = getServerKeypair();
     const accountId = Utils.verifyChallengeTx(
       transaction,
       serverKeypair.publicKey(),
-      NETWORK_PASSPHRASE,
+      networkPassphrase,
       HOME_DOMAIN,
-      "" // webAuthEndpoint is optional or typically HOME_DOMAIN if not specified differently
+      "",
     );
 
-    const token = jwt.sign({ publicKey: accountId }, JWT_SECRET, { expiresIn: "24h" });
-    res.cookie("jwt", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 24 * 60 * 60 * 1000,
-    });
-    res.json({ success: true, token });
+    const adminAddresses = (process.env.ADMIN_WALLET_ADDRESSES || "")
+      .split(",")
+      .map((a) => a.trim())
+      .filter(Boolean);
+    const isAdmin = adminAddresses.includes(accountId);
+
+    const payload = { publicKey: accountId, network };
+    if (isAdmin) {
+      await ensureAdminProfile(accountId);
+      payload.role = "admin";
+      const status = await get2FAStatus(accountId);
+      payload["2fa_verified"] = !status.totp_enabled;
+    }
+
+    // Stamp last_login_at so the weekly digest knows this user is active.
+    // Uses ON CONFLICT to handle the case where the profile row may not yet
+    // exist (it will be created by profileService on first access).
+    try {
+      await pool.query(
+        `UPDATE profiles SET last_login_at = NOW() WHERE public_key = $1`,
+        [accountId],
+      );
+    } catch (stampErr) {
+      // Non-fatal: log and continue issuing the token
+      console.warn("[auth] Could not stamp last_login_at:", stampErr.message);
+    }
+
+    const { accessToken, refreshToken, csrfToken } = issueTokenPair(payload);
+    setAuthCookies(res, accessToken, refreshToken);
+    res.json({ success: true, token: accessToken, csrfToken });
   } catch (e) {
-    res.status(401).json({ error: "Unauthorized: " + e.message });
+    const err = Object.assign(new Error("Unauthorized: " + e.message), {
+      status: 401,
+    });
+    next(err);
   }
+});
+
+router.post("/refresh", authWriteRateLimiter, (req, res) => {
+  const refreshToken = getRefreshTokenFromRequest(req);
+  const rotated = rotateRefreshToken(refreshToken);
+
+  if (!rotated) {
+    clearAuthCookies(res);
+    return res
+      .status(401)
+      .json({ error: "Unauthorized: Invalid refresh token" });
+  }
+
+  setAuthCookies(res, rotated.accessToken, rotated.refreshToken);
+  return res.json({
+    success: true,
+    token: rotated.accessToken,
+    csrfToken: rotated.csrfToken,
+  });
+});
+
+router.post("/logout", authWriteRateLimiter, (req, res) => {
+  revokeRefreshToken(getRefreshTokenFromRequest(req));
+  clearAuthCookies(res);
+  res.json({ success: true });
 });
 
 module.exports = router;

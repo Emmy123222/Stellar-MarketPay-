@@ -1,0 +1,184 @@
+/**
+ * components/post-job-steps/BudgetEscrowStep.tsx
+ * Step 2: Budget & Escrow - amount, currency, milestones
+ */
+import { JobFormData, Milestone } from "@/components/PostJobFormtypes";
+
+interface Props {
+  form: JobFormData;
+  touched: Record<string, boolean>;
+  errors: { budget?: string; milestones?: string };
+  budgetValue: number;
+  milestoneSum: number;
+  xlmPriceUsd: number | null;
+  onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
+  updateMilestone: (index: number, field: "description" | "amount", value: string) => void;
+  addMilestone: () => void;
+  removeMilestone: (index: number) => void;
+}
+
+export default function BudgetEscrowStep({ 
+  form, 
+  touched, 
+  errors, 
+  budgetValue, 
+  milestoneSum, 
+  xlmPriceUsd,
+  onChange,
+  updateMilestone,
+  addMilestone,
+  removeMilestone 
+}: Props) {
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label htmlFor="budget" className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Budget</label>
+          <div className="relative">
+            <input id="budget"
+              name="budget"
+              type="number"
+              step="0.0000001"
+              min="0"
+              value={form.budget}
+              onChange={onChange}
+              className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-4 py-2.5 text-sm text-gray-900 dark:text-amber-100 focus:outline-none focus:ring-2 focus:ring-market-400/40 focus:border-transparent"
+            />
+          </div>
+          {touched.budget && errors.budget && <p className="text-red-400 text-xs mt-1">{errors.budget}</p>}
+        </div>
+        <div>
+          <label htmlFor="currency" className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Currency</label>
+          <select id="currency"
+            name="currency"
+            value={form.currency}
+            onChange={onChange}
+            className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-4 py-2.5 text-sm text-gray-900 dark:text-amber-100 focus:outline-none focus:ring-2 focus:ring-market-400/40 focus:border-transparent"
+          >
+            <option value="XLM">XLM</option>
+            <option value="USDC">USDC</option>
+          </select>
+        </div>
+      </div>
+
+      {budgetValue > 0 && (
+        form.currency === "USDC" ? (
+          <p className="text-xs text-amber-700">≈ ${budgetValue.toFixed(2)} USD</p>
+        ) : (
+          xlmPriceUsd && <p className="text-xs text-amber-700">≈ ${(budgetValue * xlmPriceUsd).toFixed(2)} USD at current rate</p>
+        )
+      )}
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label htmlFor="milestones" className="text-sm font-medium text-gray-700 dark:text-amber-300">Milestones</label>
+          <button type="button" onClick={addMilestone} disabled={form.milestones.length >= 10} className="btn-secondary text-xs px-2 py-1">+ Add</button>
+        </div>
+        <div className="space-y-2">
+          {form.milestones.map((m: Milestone, i: number) => (
+            <div key={i} className="flex gap-2 items-start">
+              <input id="milestones"
+                value={m.description}
+                onChange={(e) => updateMilestone(i, "description", e.target.value)}
+                placeholder="Milestone description"
+                className="flex-1 rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-3 py-2 text-xs text-gray-900 dark:text-amber-100 placeholder-gray-400 dark:placeholder-amber-900/50 focus:outline-none focus:ring-2 focus:ring-market-400/40"
+              />
+              <input
+                type="number"
+                value={m.amount}
+                onChange={(e) => updateMilestone(i, "amount", e.target.value)}
+                placeholder="Amount"
+                className="w-24 rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-3 py-2 text-xs text-gray-900 dark:text-amber-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-market-400/40"
+              />
+              {form.milestones.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeMilestone(i)}
+                  className="text-red-400 hover:text-red-300 text-lg leading-none mt-1.5 flex-shrink-0"
+                  aria-label={`Remove milestone ${i + 1}`}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className={`mt-2 text-xs flex justify-between ${Math.abs(milestoneSum - budgetValue) > 0.000001 ? "text-red-400" : "text-amber-700"}`}>
+          <span>{touched.milestones && errors.milestones ? errors.milestones : "Milestones must sum to total budget"}</span>
+          <span>{milestoneSum.toFixed(2)} / {budgetValue.toFixed(2)} {form.currency}</span>
+        </div>
+      </div>
+
+      <div>
+        <label htmlFor="visibility" className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Visibility</label>
+        <select id="visibility"
+          name="visibility"
+          value={form.visibility}
+          onChange={onChange}
+          className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-4 py-2.5 text-sm text-gray-900 dark:text-amber-100 focus:outline-none focus:ring-2 focus:ring-market-400/40 focus:border-transparent"
+        >
+          <option value="public">Public</option>
+          <option value="private">Private</option>
+          <option value="invite_only">Invite Only</option>
+        </select>
+      </div>
+
+      {/* Issue #450: Recurring Escrow for Retainer Contracts */}
+      <div className="border-t border-gray-200 dark:border-market-500/20 pt-4">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            name="isRecurring"
+            checked={form.isRecurring}
+            onChange={onChange}
+            className="w-4 h-4 rounded border-gray-300 text-market-400 focus:ring-market-400/40"
+          />
+          <span className="text-sm font-medium text-gray-700 dark:text-amber-300">
+            Make this a recurring/retainer contract
+          </span>
+        </label>
+        <p className="text-xs text-amber-700 mt-1 ml-6">
+          Automatically release payments on a schedule (e.g., monthly retainers)
+        </p>
+
+        {form.isRecurring && (
+          <div className="mt-3 ml-6 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="interval-days" className="block text-xs font-medium text-gray-700 dark:text-amber-300 mb-1">
+                  Interval (days)
+                </label>
+                <input id="interval-days"
+                  type="number"
+                  name="intervalDays"
+                  value={form.intervalDays}
+                  onChange={onChange}
+                  min="1"
+                  placeholder="30"
+                  className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-3 py-2 text-xs text-gray-900 dark:text-amber-100 focus:outline-none focus:ring-2 focus:ring-market-400/40"
+                />
+              </div>
+              <div>
+                <label htmlFor="total-releases" className="block text-xs font-medium text-gray-700 dark:text-amber-300 mb-1">
+                  Total releases
+                </label>
+                <input id="total-releases"
+                  type="number"
+                  name="totalReleases"
+                  value={form.totalReleases}
+                  onChange={onChange}
+                  min="1"
+                  placeholder="12"
+                  className="w-full rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-3 py-2 text-xs text-gray-900 dark:text-amber-100 focus:outline-none focus:ring-2 focus:ring-market-400/40"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-amber-700">
+              Total budget: {(budgetValue * parseInt(form.totalReleases || "0")).toFixed(2)} {form.currency} will be locked in escrow
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
