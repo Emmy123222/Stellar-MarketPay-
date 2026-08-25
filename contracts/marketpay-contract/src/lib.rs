@@ -21,7 +21,6 @@
 
 #![no_std]
 #![allow(
-    deprecated,
     clippy::too_many_arguments,
     clippy::manual_range_contains,
     unused_variables,
