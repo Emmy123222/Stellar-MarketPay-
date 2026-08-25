@@ -189,6 +189,7 @@ jobs:
       NEXT_PUBLIC_STELLAR_NETWORK: testnet
       NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
       NEXT_PUBLIC_CONTRACT_ID: CMOCKCONTRACTID
+      NODE_OPTIONS: "--max-old-space-size=4096"
 
     steps:
       - uses: actions/checkout@v7
@@ -207,11 +208,8 @@ jobs:
       - name: Type check
         run: npm run type-check
 
-      # Reports but does not block: 31 failures remain, dominated by components
-      # rendered without <ToastProvider> in the test harness.
       - name: Unit and accessibility tests
         run: npm test
-        continue-on-error: true
 
       - name: Translation completeness
         run: npm run i18n:check
