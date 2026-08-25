@@ -23,17 +23,21 @@ jest.mock("../db/pool", () => {
 
 // axios may or may not be in node_modules, so use { virtual: true } to
 // avoid module-resolution failures.
-jest.mock("axios", () => ({
-  get: jest.fn(),
-}), { virtual: true });
+jest.mock(
+  "axios",
+  () => ({
+    get: jest.fn(),
+  }),
+  { virtual: true },
+);
 const axios = require("axios");
 
 jest.mock("../services/indexerService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn() }))
+  jest.fn().mockImplementation(() => ({ start: jest.fn() })),
 );
-jest.mock("../services/priceAlertService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn() }))
-);
+jest.mock("../services/priceAlertService", () => ({
+  PriceAlertService: jest.fn().mockImplementation(() => ({ start: jest.fn() })),
+}));
 jest.mock("../db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),
 }));
@@ -53,7 +57,8 @@ const app = require("../server");
 function ghUser(overrides = {}) {
   return {
     login: overrides.login || "testuser",
-    avatar_url: overrides.avatar_url || "https://avatars.githubusercontent.com/u/1",
+    avatar_url:
+      overrides.avatar_url || "https://avatars.githubusercontent.com/u/1",
     html_url: `https://github.com/${overrides.login || "testuser"}`,
     contributions: overrides.contributions ?? 5,
     id: overrides.id ?? 1,
@@ -64,7 +69,9 @@ function ghUser(overrides = {}) {
 /** Factory for mock DB profile rows */
 function profile(overrides = {}) {
   return {
-    public_key: overrides.public_key || "GABCDEF1234567890123456789012345678901234567890123",
+    public_key:
+      overrides.public_key ||
+      "GABCDEF1234567890123456789012345678901234567890123",
     display_name: overrides.display_name || null,
     github_username: overrides.github_username || null,
     completed_jobs: overrides.completed_jobs ?? 0,
@@ -176,7 +183,7 @@ describe("GET /api/contributors", () => {
             display_name: login,
             completed_jobs: 13 - i,
             total_earned_xlm: "0.0000000",
-          })
+          }),
         );
       }
 
@@ -441,7 +448,7 @@ describe("GET /api/contributors", () => {
             display_name: login,
             completed_jobs: 1,
             total_earned_xlm: "0.0000000",
-          })
+          }),
         );
       }
 

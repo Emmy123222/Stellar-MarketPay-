@@ -11,7 +11,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft, updateDraft, fetchSkillSuggestions } from "@/lib/api";
+import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft, updateDraft, fetchSkillSuggestions, fetchMyJobs } from "@/lib/api";
 import { performSEP0010Auth } from "@/lib/wallet";
 import { createEscrowOnChain } from "@/lib/stellar";
 import { usePriceContext } from "@/contexts/PriceContext";
@@ -62,10 +62,6 @@ function StepIndicator({
     <nav
       aria-label="Form progress"
       className="w-full mb-8"
-      role="progressbar"
-      aria-valuenow={currentStep}
-      aria-valuemin={1}
-      aria-valuemax={FORM_STEPS.length}
     >
       <ol className="flex items-center">
         {FORM_STEPS.map((step, i) => {

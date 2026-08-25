@@ -76,7 +76,7 @@ const {
   validateMigrationVersion,
 } = require("./db/migrate");
 const IndexerService  = require("./services/indexerService");
-const PriceAlertService = require("./services/priceAlertService");
+const { PriceAlertService } = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
 const { startSavedSearchAlertChecker } = require("./services/savedSearchAlertService");
 const { startWsEventCleanup } = require("./services/wsEventCleanupService");
@@ -526,7 +526,7 @@ wsServer.on("connection", async (ws, request) => {
         sendJson(ws, "error", {
           error: `Connection limit of ${MAX_WS_CONNECTIONS_PER_USER} reached for this account`,
         });
-        ws.close(1013, "Too many connections");
+        ws.close(1008, "Too many connections");
         return;
       }
     }

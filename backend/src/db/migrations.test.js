@@ -8,7 +8,7 @@ const {
   getExpectedMigrationVersion,
 } = require("./migrate");
 
-describe("Database Migrations (V1–V22)", () => {
+describe("Database Migrations (V1–V49)", () => {
   let hasPostgres = false;
 
   beforeAll(async () => {
@@ -29,10 +29,19 @@ describe("Database Migrations (V1–V22)", () => {
     }
   });
 
-  it("loads all migration pairs correctly", () => {
+  it("loads all migration pairs correctly with unique, increasing versions", () => {
     const migrations = loadMigrationPairs();
     expect(migrations.length).toBeGreaterThan(0);
     expect(migrations[0].version).toBe(1);
+
+    const versions = migrations.map((m) => m.version);
+    // No two migrations may share a version number (issue #1062).
+    expect(new Set(versions).size).toBe(versions.length);
+    // Versions must be strictly increasing so ordering is deterministic.
+    for (let i = 1; i < versions.length; i++) {
+      expect(versions[i]).toBeGreaterThan(versions[i - 1]);
+    }
+
     expect(migrations[migrations.length - 1].version).toBeGreaterThanOrEqual(22);
   });
 
@@ -125,7 +134,7 @@ describe("Database Migrations (V1–V22)", () => {
         expect(remaining.length).toBe(count);
       }
 
-      // After rolling back everything (V23 -> V1), public schema should have no core tables left
+      // After rolling back everything (V49 -> V1), public schema should have no core tables left
       const { rows: remainingTables } = await client.query(`
         SELECT table_name 
         FROM information_schema.tables 

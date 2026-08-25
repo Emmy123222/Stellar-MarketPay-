@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connected, data pending): Dashboard — wallet connected, initial load 1`] = `
 <div
@@ -127,6 +127,11 @@ exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connec
       <button
         class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
       >
+        Proposals (0)
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
         Invitations
       </button>
       <button
@@ -197,6 +202,11 @@ exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connec
           value="applied"
         >
           Applications (0)
+        </option>
+        <option
+          value="proposals"
+        >
+          Proposals (0)
         </option>
         <option
           value="invitations"

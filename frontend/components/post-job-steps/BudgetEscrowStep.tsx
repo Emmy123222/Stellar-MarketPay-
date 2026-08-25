@@ -33,9 +33,9 @@ export default function BudgetEscrowStep({
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Budget</label>
+          <label htmlFor="budget" className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Budget</label>
           <div className="relative">
-            <input
+            <input id="budget"
               name="budget"
               type="number"
               step="0.0000001"
@@ -48,8 +48,8 @@ export default function BudgetEscrowStep({
           {touched.budget && errors.budget && <p className="text-red-400 text-xs mt-1">{errors.budget}</p>}
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Currency</label>
-          <select
+          <label htmlFor="currency" className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Currency</label>
+          <select id="currency"
             name="currency"
             value={form.currency}
             onChange={onChange}
@@ -71,13 +71,13 @@ export default function BudgetEscrowStep({
 
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className="text-sm font-medium text-gray-700 dark:text-amber-300">Milestones</label>
+          <label htmlFor="milestones" className="text-sm font-medium text-gray-700 dark:text-amber-300">Milestones</label>
           <button type="button" onClick={addMilestone} disabled={form.milestones.length >= 10} className="btn-secondary text-xs px-2 py-1">+ Add</button>
         </div>
         <div className="space-y-2">
           {form.milestones.map((m: Milestone, i: number) => (
             <div key={i} className="flex gap-2 items-start">
-              <input
+              <input id="milestones"
                 value={m.description}
                 onChange={(e) => updateMilestone(i, "description", e.target.value)}
                 placeholder="Milestone description"
@@ -110,8 +110,8 @@ export default function BudgetEscrowStep({
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Visibility</label>
-        <select
+        <label htmlFor="visibility" className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Visibility</label>
+        <select id="visibility"
           name="visibility"
           value={form.visibility}
           onChange={onChange}
@@ -145,10 +145,10 @@ export default function BudgetEscrowStep({
           <div className="mt-3 ml-6 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-amber-300 mb-1">
+                <label htmlFor="interval-days" className="block text-xs font-medium text-gray-700 dark:text-amber-300 mb-1">
                   Interval (days)
                 </label>
-                <input
+                <input id="interval-days"
                   type="number"
                   name="intervalDays"
                   value={form.intervalDays}
@@ -159,10 +159,10 @@ export default function BudgetEscrowStep({
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-amber-300 mb-1">
+                <label htmlFor="total-releases" className="block text-xs font-medium text-gray-700 dark:text-amber-300 mb-1">
                   Total releases
                 </label>
-                <input
+                <input id="total-releases"
                   type="number"
                   name="totalReleases"
                   value={form.totalReleases}

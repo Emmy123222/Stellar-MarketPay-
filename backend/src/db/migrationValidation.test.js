@@ -15,6 +15,7 @@ const pool = require("./pool");
 const {
   migrate,
   loadMigrationPairs,
+  assertUniqueVersions,
   ensureMigrationsTable,
   getCurrentMigrationVersion,
   getExpectedMigrationVersion,
@@ -67,6 +68,27 @@ describe("getExpectedMigrationVersion()", () => {
       ? migrations[migrations.length - 1].version
       : null;
     expect(getExpectedMigrationVersion()).toBe(expected);
+  });
+});
+
+describe("assertUniqueVersions()", () => {
+  it("does not throw when all versions are unique", () => {
+    expect(() =>
+      assertUniqueVersions([
+        { version: 1, name: "V1__a" },
+        { version: 2, name: "V2__b" },
+        { version: 3, name: "V3__c" },
+      ])
+    ).not.toThrow();
+  });
+
+  it("throws when two migrations share a version number", () => {
+    expect(() =>
+      assertUniqueVersions([
+        { version: 1, name: "V1__a" },
+        { version: 1, name: "V1__b" },
+      ])
+    ).toThrow(/Duplicate migration version V1/);
   });
 });
 

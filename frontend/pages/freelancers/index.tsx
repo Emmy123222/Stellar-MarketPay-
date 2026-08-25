@@ -64,8 +64,8 @@ export default function FreelancersBrowsePage() {
             </div>
 
             <div className="space-y-4">
-              <label className="block text-sm font-medium text-amber-100">Availability</label>
-              <select
+              <label htmlFor="availability" className="block text-sm font-medium text-amber-100">Availability</label>
+              <select id="availability"
                 value={availability}
                 onChange={(event) => setAvailability(event.target.value as AvailabilityStatus | "")}
                 className="input-field w-full"
@@ -79,8 +79,8 @@ export default function FreelancersBrowsePage() {
             </div>
 
             <div className="space-y-4">
-              <label className="block text-sm font-medium text-amber-100">Search</label>
-              <input
+              <label htmlFor="search" className="block text-sm font-medium text-amber-100">Search</label>
+              <input id="search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search by skills, name, or address"

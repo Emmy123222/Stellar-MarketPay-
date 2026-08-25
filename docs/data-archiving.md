@@ -222,7 +222,7 @@ COMMIT;
 To drop the archiving infrastructure entirely, run the down-migration:
 
 ```bash
-psql $DATABASE_URL -f backend/src/db/migrations/V12__job_archiving.down.sql
+psql $DATABASE_URL -f backend/src/db/migrations/V19__job_archiving.down.sql
 ```
 
 ---
@@ -246,4 +246,4 @@ psql $DATABASE_URL -f backend/src/db/migrations/V12__job_archiving.down.sql
 
 ---
 
-*Migration files: `backend/src/db/migrations/V12__job_archiving.up.sql` / `V12__job_archiving.down.sql`*
+*Migration files: `backend/src/db/migrations/V19__job_archiving.up.sql` / `V19__job_archiving.down.sql`*

@@ -74,7 +74,7 @@ export default function NotificationPreferencesPanel() {
       <div className="text-xs text-amber-800 p-3 bg-amber-500/10 rounded-lg border border-amber-500/20">
         <p className="font-medium text-amber-100 mb-1">About push notifications:</p>
         <ul className="space-y-1 list-disc list-inside">
-          <li>You'll receive notifications for new applications</li>
+          <li>You&apos;ll receive notifications for new applications</li>
           <li>Important updates like escrow releases and disputes</li>
           <li>Messages from other users</li>
           <li>Notifications work even when the browser is closed</li>

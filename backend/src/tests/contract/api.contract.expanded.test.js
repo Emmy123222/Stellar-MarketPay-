@@ -62,12 +62,12 @@ jest.mock("../../services/indexerService", () =>
   jest.fn().mockImplementation(() => ({
     start: jest.fn(),
     getHealth: jest.fn().mockReturnValue({ running: false, synced: false }),
-  }))
+  })),
 );
 
-jest.mock("../../services/priceAlertService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn() }))
-);
+jest.mock("../../services/priceAlertService", () => ({
+  PriceAlertService: jest.fn().mockImplementation(() => ({ start: jest.fn() })),
+}));
 
 jest.mock("../../db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),
@@ -112,12 +112,16 @@ jest.mock("../../services/notificationService", () => ({
     link_path: "/jobs/11111111-1111-1111-1111-111111111111",
     created_at: new Date().toISOString(),
   }),
-  markAllInAppNotificationsRead: jest.fn().mockResolvedValue({ updatedCount: 2 }),
+  markAllInAppNotificationsRead: jest
+    .fn()
+    .mockResolvedValue({ updatedCount: 2 }),
   setBroadcastToUser: jest.fn(),
   notifyEscrowEvent: jest.fn().mockResolvedValue(undefined),
   EVENT_TYPES: { APPLICATION_ACCEPTED: "application_accepted" },
   getUserPreferences: jest.fn().mockResolvedValue(null),
-  processPendingNotifications: jest.fn().mockResolvedValue({ total: 0, sent: 0, failed: 0 }),
+  processPendingNotifications: jest
+    .fn()
+    .mockResolvedValue({ total: 0, sent: 0, failed: 0 }),
 }));
 
 // Profile service
@@ -128,14 +132,21 @@ jest.mock("../../services/profileService", () => ({
   getSkillEndorsements: jest.fn().mockResolvedValue([]),
   endorseSkill: jest.fn(),
   getClientSpendingAnalytics: jest.fn().mockResolvedValue(null),
-  listProfiles: jest.fn().mockResolvedValue({ profiles: [], nextCursor: null, hasMore: false }),
+  listProfiles: jest
+    .fn()
+    .mockResolvedValue({ profiles: [], nextCursor: null, hasMore: false }),
   getClientReputation: jest.fn().mockResolvedValue({ score: null }),
   getProfileStats: jest.fn().mockResolvedValue(null),
   getResponseTime: jest.fn().mockResolvedValue(null),
   blockFreelancer: jest.fn(),
   unblockFreelancer: jest.fn(),
   markProfileForDeletion: jest.fn(),
-  FREELANCER_TIERS: { NEWCOMER: "Newcomer", RISING: "Rising Talent", TOP_RATED: "Top Rated", EXPERT: "Expert" },
+  FREELANCER_TIERS: {
+    NEWCOMER: "Newcomer",
+    RISING: "Rising Talent",
+    TOP_RATED: "Top Rated",
+    EXPERT: "Expert",
+  },
 }));
 
 // Application service — accept route is tested directly
@@ -162,46 +173,50 @@ jest.mock("../../services/ipfsService", () => ({
 }));
 
 // Price alert service used inside profiles route
-jest.mock("../../services/priceAlertService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn() }))
-);
 jest.mock("../../services/priceAlertService", () => ({
+  PriceAlertService: jest.fn().mockImplementation(() => ({ start: jest.fn() })),
   upsertPriceAlertPreference: jest.fn(),
   getPriceAlertPreference: jest.fn().mockResolvedValue(null),
-  start: jest.fn(),
-}), { virtual: false });
+}));
 
 // ─── Imports ──────────────────────────────────────────────────────────────────
 
 const request = require("supertest");
 const jwt = require("jsonwebtoken");
-const { assertContract, validateContract } = require("../../testUtils/contractValidator");
+const {
+  assertContract,
+  validateContract,
+} = require("../../testUtils/contractValidator");
 
 const app = require("../../server");
 const pool = require("../../db/pool");
-const { listInAppNotifications, markInAppNotificationRead, markAllInAppNotificationsRead } = require("../../services/notificationService");
+const {
+  listInAppNotifications,
+  markInAppNotificationRead,
+  markAllInAppNotificationsRead,
+} = require("../../services/notificationService");
 const { getProfile, upsertProfile } = require("../../services/profileService");
 const { acceptApplication } = require("../../services/applicationService");
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const FAKE_CLIENT_KEY    = "G" + "B".repeat(55);
+const FAKE_CLIENT_KEY = "G" + "B".repeat(55);
 const FAKE_FREELANCER_KEY = "G" + "A".repeat(55);
-const FAKE_JOB_ID        = "11111111-1111-1111-1111-111111111111";
-const FAKE_APP_ID        = "22222222-2222-2222-2222-222222222222";
-const LONG_PROPOSAL      =
+const FAKE_JOB_ID = "11111111-1111-1111-1111-111111111111";
+const FAKE_APP_ID = "22222222-2222-2222-2222-222222222222";
+const LONG_PROPOSAL =
   "I am an experienced Stellar developer ready to build this project efficiently and on time.";
 
 const VALID_TOKEN = jwt.sign(
   { publicKey: FAKE_CLIENT_KEY },
   process.env.JWT_SECRET,
-  { expiresIn: "1h" }
+  { expiresIn: "1h" },
 );
 
 const FREELANCER_TOKEN = jwt.sign(
   { publicKey: FAKE_FREELANCER_KEY },
   process.env.JWT_SECRET,
-  { expiresIn: "1h" }
+  { expiresIn: "1h" },
 );
 
 // ─── Row builders ─────────────────────────────────────────────────────────────
@@ -327,7 +342,9 @@ describe("GET /api/jobs/:id — get single job", () => {
   it("404 — error shape when job not found", async () => {
     pool.query.mockResolvedValue({ rows: [] });
 
-    const res = await request(app).get("/api/jobs/00000000-0000-0000-0000-000000000000");
+    const res = await request(app).get(
+      "/api/jobs/00000000-0000-0000-0000-000000000000",
+    );
 
     expect([404, 500]).toContain(res.status);
     assert4xxErrorShape(res.body);
@@ -337,7 +354,8 @@ describe("GET /api/jobs/:id — get single job", () => {
 // ─── PATCH /api/jobs/:id/escrow ───────────────────────────────────────────────
 
 describe("PATCH /api/jobs/:id/escrow — store escrow contract ID", () => {
-  const FAKE_ESCROW_ID = "CESCROWCONTRACT1234567890123456789012345678901234567890";
+  const FAKE_ESCROW_ID =
+    "CESCROWCONTRACT1234567890123456789012345678901234567890";
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -406,11 +424,13 @@ describe("GET /api/applications/freelancer/:publicKey — list freelancer applic
   });
 
   it("200 — response shape matches OpenAPI contract (/api/applications/job/{jobId} GET 200)", async () => {
-    const { getApplicationsForFreelancer } = require("../../services/applicationService");
+    const {
+      getApplicationsForFreelancer,
+    } = require("../../services/applicationService");
     getApplicationsForFreelancer.mockResolvedValueOnce([buildApplicationRow()]);
 
     const res = await request(app).get(
-      `/api/applications/freelancer/${FAKE_FREELANCER_KEY}`
+      `/api/applications/freelancer/${FAKE_FREELANCER_KEY}`,
     );
 
     expect(res.status).toBe(200);
@@ -420,11 +440,13 @@ describe("GET /api/applications/freelancer/:publicKey — list freelancer applic
   });
 
   it("200 — returns empty array when freelancer has no applications", async () => {
-    const { getApplicationsForFreelancer } = require("../../services/applicationService");
+    const {
+      getApplicationsForFreelancer,
+    } = require("../../services/applicationService");
     getApplicationsForFreelancer.mockResolvedValueOnce([]);
 
     const res = await request(app).get(
-      `/api/applications/freelancer/${FAKE_FREELANCER_KEY}`
+      `/api/applications/freelancer/${FAKE_FREELANCER_KEY}`,
     );
 
     expect(res.status).toBe(200);
@@ -462,7 +484,7 @@ describe("POST /api/applications/:id/accept — client accepts application", () 
 
   it("404/500 — error shape when application not found", async () => {
     acceptApplication.mockRejectedValueOnce(
-      Object.assign(new Error("Application not found"), { status: 404 })
+      Object.assign(new Error("Application not found"), { status: 404 }),
     );
 
     const res = await request(app)
@@ -495,7 +517,7 @@ describe("GET /api/profiles/:address — get a user profile", () => {
     getProfile.mockResolvedValueOnce(null);
 
     const res = await request(app).get(
-      `/api/profiles/GNEWPROFILE${"X".repeat(46)}`
+      `/api/profiles/GNEWPROFILE${"X".repeat(46)}`,
     );
 
     expect(res.status).toBe(200);
@@ -521,9 +543,7 @@ describe("POST /api/profiles — upsert user profile", () => {
   it("200 — response shape matches OpenAPI contract (/api/profiles POST 200)", async () => {
     upsertProfile.mockResolvedValueOnce(buildProfileRow());
 
-    const res = await request(app)
-      .post("/api/profiles")
-      .send(PROFILE_BODY);
+    const res = await request(app).post("/api/profiles").send(PROFILE_BODY);
 
     expect(res.status).toBe(200);
     assertContract("/api/profiles", "post", 200, res.body);
@@ -531,7 +551,7 @@ describe("POST /api/profiles — upsert user profile", () => {
 
   it("200 — minimal body (publicKey only) passes contract", async () => {
     upsertProfile.mockResolvedValueOnce(
-      buildProfileRow({ display_name: null, bio: null, skills: [] })
+      buildProfileRow({ display_name: null, bio: null, skills: [] }),
     );
 
     const res = await request(app)
@@ -617,7 +637,7 @@ describe("PATCH /api/notifications/:id/read — mark single notification read", 
 
   it("200 — response shape matches OpenAPI contract (/api/notifications/{id}/read PATCH 200)", async () => {
     markInAppNotificationRead.mockResolvedValueOnce(
-      buildNotificationRow({ read: true })
+      buildNotificationRow({ read: true }),
     );
 
     const res = await request(app)
@@ -668,7 +688,10 @@ describe("PATCH /api/notifications/read-all — mark all notifications read", ()
 
 describe("Tampered shape guard — expanded endpoints", () => {
   it("GET /api/jobs/{id}: fails when data.id is a number instead of UUID string", () => {
-    const tampered = { success: true, data: { id: 123, title: "Test", status: "open", budget: 500 } };
+    const tampered = {
+      success: true,
+      data: { id: 123, title: "Test", status: "open", budget: 500 },
+    };
     const { valid } = validateContract("/api/jobs/{id}", "get", 200, tampered);
     expect(valid).toBe(false);
   });
@@ -684,7 +707,12 @@ describe("Tampered shape guard — expanded endpoints", () => {
         createdAt: new Date().toISOString(),
       },
     };
-    const { valid } = validateContract("/api/jobs/{id}", "get", 200, conformant);
+    const { valid } = validateContract(
+      "/api/jobs/{id}",
+      "get",
+      200,
+      conformant,
+    );
     expect(valid).toBe(true);
   });
 
@@ -699,7 +727,12 @@ describe("Tampered shape guard — expanded endpoints", () => {
         bidAmount: 450,
       },
     };
-    const { valid } = validateContract("/api/applications/{id}/accept", "post", 200, tampered);
+    const { valid } = validateContract(
+      "/api/applications/{id}/accept",
+      "post",
+      200,
+      tampered,
+    );
     expect(valid).toBe(false);
   });
 
@@ -708,30 +741,50 @@ describe("Tampered shape guard — expanded endpoints", () => {
       success: true,
       data: {
         notifications: [],
-        unreadCount: "five",   // spec: integer
+        unreadCount: "five", // spec: integer
         next_cursor: null,
         has_more: false,
       },
     };
-    const { valid } = validateContract("/api/notifications", "get", 200, tampered);
+    const { valid } = validateContract(
+      "/api/notifications",
+      "get",
+      200,
+      tampered,
+    );
     expect(valid).toBe(false);
   });
 
   it("PATCH /api/notifications/read-all: fails when updatedCount is missing", () => {
     const tampered = { success: true, data: {} }; // updatedCount required
-    const { valid } = validateContract("/api/notifications/read-all", "patch", 200, tampered);
+    const { valid } = validateContract(
+      "/api/notifications/read-all",
+      "patch",
+      200,
+      tampered,
+    );
     expect(valid).toBe(false);
   });
 
   it("GET /api/profiles/{address}: passes when data is null (new address)", () => {
     const conformant = { success: true, data: null };
-    const { valid } = validateContract("/api/profiles/{address}", "get", 200, conformant);
+    const { valid } = validateContract(
+      "/api/profiles/{address}",
+      "get",
+      200,
+      conformant,
+    );
     expect(valid).toBe(true);
   });
 
   it("DELETE /api/jobs/{id}: fails when success is missing", () => {
     const tampered = { message: "deleted" }; // no success field
-    const { valid } = validateContract("/api/jobs/{id}", "delete", 200, tampered);
+    const { valid } = validateContract(
+      "/api/jobs/{id}",
+      "delete",
+      200,
+      tampered,
+    );
     expect(valid).toBe(false);
   });
 });

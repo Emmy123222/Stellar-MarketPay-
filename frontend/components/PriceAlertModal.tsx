@@ -91,8 +91,10 @@ export default function PriceAlertModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+      <button
+        type="button"
+        aria-label="Close dialog"
+        className="absolute inset-0 w-full bg-black/60 backdrop-blur-sm cursor-default"
         onClick={onClose}
       />
 
@@ -123,10 +125,10 @@ export default function PriceAlertModal({
         {/* Create Alert Form */}
         <div className="px-6 py-5 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-amber-200 mb-2">
+            <span id="alert-direction" className="block text-sm font-medium text-amber-200 mb-2">
               Notify me when XLM goes…
-            </label>
-            <div className="flex gap-2">
+            </span>
+            <div className="flex gap-2" role="group" aria-labelledby="alert-direction">
               <button
                 type="button"
                 onClick={() => setCondition("above")}

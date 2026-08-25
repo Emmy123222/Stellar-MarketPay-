@@ -1,6 +1,7 @@
 "use strict";
 
 const request = require("supertest");
+const { fetchCsrf, applyCsrf } = require("../testUtils/csrfTestHelpers");
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -27,11 +28,11 @@ jest.mock("../services/indexerService", () => {
   }));
 });
 
-jest.mock("../services/priceAlertService", () => {
-  return jest.fn().mockImplementation(() => ({
+jest.mock("../services/priceAlertService", () => ({
+  PriceAlertService: jest.fn().mockImplementation(() => ({
     start: jest.fn(),
-  }));
-});
+  })),
+}));
 
 jest.mock("../db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),
@@ -72,18 +73,22 @@ describe("POST /api/ai/score-job", () => {
   });
 
   it("returns 400 when description is missing", async () => {
-    const res = await request(app)
-      .post("/api/ai/score-job")
-      .send({});
+    const csrf = await fetchCsrf(app);
+    const res = await applyCsrf(
+      request(app).post("/api/ai/score-job").send({}),
+      csrf
+    );
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("Job description required");
   });
 
   it("returns 400 when description is empty string", async () => {
-    const res = await request(app)
-      .post("/api/ai/score-job")
-      .send({ description: "   " });
+    const csrf = await fetchCsrf(app);
+    const res = await applyCsrf(
+      request(app).post("/api/ai/score-job").send({ description: "   " }),
+      csrf
+    );
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("Job description required");
@@ -110,9 +115,13 @@ describe("POST /api/ai/score-job", () => {
       }),
     });
 
-    const res = await request(app)
-      .post("/api/ai/score-job")
-      .send({ description: "Build a Soroban smart contract for escrow with milestone-based payments" });
+    const csrf = await fetchCsrf(app);
+    const res = await applyCsrf(
+      request(app)
+        .post("/api/ai/score-job")
+        .send({ description: "Build a Soroban smart contract for escrow with milestone-based payments" }),
+      csrf
+    );
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -126,9 +135,13 @@ describe("POST /api/ai/score-job", () => {
   it("falls back to default score when fetch throws a network error", async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error("ECONNREFUSED"));
 
-    const res = await request(app)
-      .post("/api/ai/score-job")
-      .send({ description: "We need a website built with React and Node.js" });
+    const csrf = await fetchCsrf(app);
+    const res = await applyCsrf(
+      request(app)
+        .post("/api/ai/score-job")
+        .send({ description: "We need a website built with React and Node.js" }),
+      csrf
+    );
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -150,9 +163,13 @@ describe("POST /api/ai/score-job", () => {
       text: jest.fn().mockResolvedValue("Internal Server Error"),
     });
 
-    const res = await request(app)
-      .post("/api/ai/score-job")
-      .send({ description: "We need a website built with React and Node.js" });
+    const csrf = await fetchCsrf(app);
+    const res = await applyCsrf(
+      request(app)
+        .post("/api/ai/score-job")
+        .send({ description: "We need a website built with React and Node.js" }),
+      csrf
+    );
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -167,9 +184,13 @@ describe("POST /api/ai/score-job", () => {
       }),
     });
 
-    const res = await request(app)
-      .post("/api/ai/score-job")
-      .send({ description: "Build a Soroban DEX with AMM functionality and integrated wallet" });
+    const csrf = await fetchCsrf(app);
+    const res = await applyCsrf(
+      request(app)
+        .post("/api/ai/score-job")
+        .send({ description: "Build a Soroban DEX with AMM functionality and integrated wallet" }),
+      csrf
+    );
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);

@@ -16,7 +16,7 @@ import {
 } from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
 import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV } from "@/utils/format";
-import type { Job, Application, ClientSpendingAnalytics, JobInvitation } from "@/utils/types";
+import type { Job, Application, ClientSpendingAnalytics, JobInvitation, BulkActionResponse } from "@/utils/types";
 import EditProfileForm from "@/components/EditProfileForm";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import { useToast } from "@/components/Toast";
@@ -138,10 +138,97 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [confirmDeleteTemplate, setConfirmDeleteTemplate] = useState<string | null>(null);
   const [confirmDeleteSearch, setConfirmDeleteSearch] = useState<string | null>(null);
 
+  // ── Missing state declarations (referenced throughout component) ──────────
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [showBuyXLM, setShowBuyXLM] = useState(false);
+  const [withdrawHistory, setWithdrawHistory] = useState<Array<{ id: string; amount: string; asset: string; fiatCurrency: string }>>([]);
+  const [spendingAnalytics, setSpendingAnalytics] = useState<ClientSpendingAnalytics | null>(null);
+  const [spendingLoading, setSpendingLoading] = useState(false);
+  const [savedSearches, setSavedSearches] = useState<Array<{ id: string; query_params: Record<string, string>; notify_in_app: boolean; notify_email: boolean; created_at: string }>>([]);
+  const [savedSearchesLoading, setSavedSearchesLoading] = useState(false);
+  const [templates, setTemplates] = useState<Array<{ id: string; name: string; content: string }>>([]);
+  const [templateName, setTemplateName] = useState("");
+  const [templateContent, setTemplateContent] = useState("");
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [emailEnabled, setEmailEnabled] = useState(false);
+  const [alertEmail, setAlertEmail] = useState("");
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [alertMatchesDismissed, setAlertMatchesDismissed] = useState(false);
+  const [alertMatches, setAlertMatches] = useState<Job[]>([]);
+  const [extendingJob, setExtendingJob] = useState<string | null>(null);
+
+  // ── Destructure onboarding progress ──────────────────────────────────────
+  const { checklistItems, progress } = useOnboarding(publicKey);
+
+  // ── Derived values ────────────────────────────────────────────────────────
+  const { xlmPriceUsd } = usePriceContext();
+  const { success } = toast;
+  const router = useRouter();
+
+  // ── Missing local helpers ─────────────────────────────────────────────────
+  function loadWithdrawHistory(): Array<{ id: string; amount: string; asset: string; fiatCurrency: string }> {
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem("marketpay_withdraw_history") : null;
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  const refreshBalances = useCallback(async () => {
+    if (!publicKey) return;
+    try {
+      const [xlm, usdc] = await Promise.all([
+        getXLMBalance(publicKey),
+        getUSDCBalance(publicKey),
+      ]);
+      setBalance(xlm);
+      setUsdcBalance(usdc);
+    } catch {
+      // ignore
+    }
+  }, [publicKey]);
+
+  const handleExtendJob = useCallback((jobId: string) => {
+    setExtendingJob(jobId);
+    const job = myJobs.find((j) => j.id === jobId) ?? null;
+    setExtendModalJob(job);
+  }, [myJobs]);
+
+  const handleRepost = useCallback((job: Job) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(REPOST_JOB_PREFILL_STORAGE_KEY, JSON.stringify(job));
+    }
+    router.push("/post-job");
+  }, [router]);
+
+  const handleResetContractMock = useCallback(() => {
+    if (typeof window !== "undefined") {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith("mock_escrow_"))
+        .forEach((k) => localStorage.removeItem(k));
+    }
+  }, []);
+
+
   const handleJobExtended = useCallback((updated: Job) => {
     setMyJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
     setExtendModalJob(null);
   }, []);
+
+  const bulkResult = useCallback(
+    (ids: string[], ok: boolean): BulkActionResponse => ({
+      success: ok,
+      succeeded: ok ? ids.length : 0,
+      failed: ok ? 0 : ids.length,
+      processedCount: ids.length,
+      failedCount: ok ? 0 : ids.length,
+      results: ids.map((id) => ({ id, success: ok })),
+    }),
+    [],
+  );
 
   const handleBulkCancel = useCallback(async () => {
     setBulkLoading(true);
@@ -149,13 +236,13 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       const ids = Array.from(selectedJobIds);
       await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/cancel`, { method: "POST" })));
       setSelectedJobIds(new Set());
-      return { success: ids.length, failed: 0 };
+      return bulkResult(ids, true);
     } catch {
-      return { success: 0, failed: selectedJobIds.size };
+      return bulkResult(Array.from(selectedJobIds), false);
     } finally {
       setBulkLoading(false);
     }
-  }, [selectedJobIds]);
+  }, [selectedJobIds, bulkResult]);
 
   const handleBulkExtend = useCallback(async () => {
     setBulkLoading(true);
@@ -163,13 +250,13 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       const ids = Array.from(selectedJobIds);
       await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/extend`, { method: "POST" })));
       setSelectedJobIds(new Set());
-      return { success: ids.length, failed: 0 };
+      return bulkResult(ids, true);
     } catch {
-      return { success: 0, failed: selectedJobIds.size };
+      return bulkResult(Array.from(selectedJobIds), false);
     } finally {
       setBulkLoading(false);
     }
-  }, [selectedJobIds]);
+  }, [selectedJobIds, bulkResult]);
 
   const handleBulkBoost = useCallback(async () => {
     setBulkLoading(true);
@@ -177,13 +264,13 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       const ids = Array.from(selectedJobIds);
       await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/boost`, { method: "POST" })));
       setSelectedJobIds(new Set());
-      return { success: ids.length, failed: 0 };
+      return bulkResult(ids, true);
     } catch {
-      return { success: 0, failed: selectedJobIds.size };
+      return bulkResult(Array.from(selectedJobIds), false);
     } finally {
       setBulkLoading(false);
     }
-  }, [selectedJobIds]);
+  }, [selectedJobIds, bulkResult]);
 
   const handleCopy = async () => {
     if (!publicKey) return;
@@ -204,7 +291,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     const [jobs, apps, invitations, bal, usdc] = await Promise.all([
       fetchMyJobs(publicKey),
       fetchMyApplications(publicKey),
-      fetchMyInvitations().catch(() => []),
+      fetchMyInvitations().catch((): JobInvitation[] => []),
       getXLMBalance(publicKey),
       getUSDCBalance(publicKey),
     ]);

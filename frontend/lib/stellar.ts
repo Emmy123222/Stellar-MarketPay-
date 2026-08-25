@@ -14,6 +14,7 @@ import {
 import { SorobanRpc } from "@stellar/stellar-sdk";
 import { fetchGasEstimateSafe, tierToTransactionFee } from "./sorobanFees";
 import { parseContractError } from "./contractErrors";
+import { getUsdcContractId } from "./config/tokens";
 
 const NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as
   | "testnet"

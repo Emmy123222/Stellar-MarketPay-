@@ -59,42 +59,6 @@ interface Suggestion {
   value: string;
 }
 
-// Intersection Observer hook for infinite scroll
-function useInfiniteScroll(callback: () => void, hasNextPage: boolean, isLoading: boolean) {
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const lastElementRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (isLoading || !hasNextPage) return;
-
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          callback();
-        }
-      },
-      { threshold: 0.1, rootMargin: "100px" }
-    );
-
-    if (lastElementRef.current) {
-      observerRef.current.observe(lastElementRef.current);
-    }
-
-    return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-      }
-    };
-  }, [callback, hasNextPage, isLoading]);
-
-  return lastElementRef;
-}
-
-interface Suggestion {
-  type: string;
-  value: string;
-}
-
 // ── Job Alert localStorage helpers ──────────────────────────────────────────
 const ALERT_KEY = "marketpay_job_alerts";
 
@@ -833,7 +797,16 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
                     return (
                       <div
                         key={`${s.type}-${s.value}`}
+                        role="option"
+                        tabIndex={-1}
+                        aria-selected={globalIdx === activeSuggestion}
                         onClick={() => handleSuggestionClick(s)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            handleSuggestionClick(s);
+                          }
+                        }}
                         className={clsx(
                           "px-4 py-2 text-sm cursor-pointer flex items-center gap-2",
                           globalIdx === activeSuggestion ? "bg-market-500/20 text-market-300" : "text-amber-100 hover:bg-market-500/10"
@@ -871,7 +844,12 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
       {/* Mobile filter overlay */}
       {showMobileFilters && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-ink-950/80 backdrop-blur-sm" onClick={() => setShowMobileFilters(false)} />
+          <button
+            type="button"
+            aria-label="Close filters"
+            className="absolute inset-0 w-full bg-ink-950/80 backdrop-blur-sm cursor-default"
+            onClick={() => setShowMobileFilters(false)}
+          />
           <div className="absolute bottom-0 left-0 right-0 max-h-[80vh] overflow-y-auto bg-ink-900 border-t border-market-500/20 rounded-t-2xl p-6 space-y-6 animate-slide-up">
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-display text-lg font-bold text-amber-100">Filters</h3>
