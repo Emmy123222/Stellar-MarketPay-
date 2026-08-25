@@ -151,11 +151,6 @@ pub struct DeliverableSubmission {
 // an IPFS CID string (e.g. bytes of `bafy...`). The per-record
 // struct (with `kind` and `submitter` fields) has been retired.
 
-Per the AC, the contract stores a bare `Vec<Bytes>` of CIDs under
-`DataKey::EvidenceCids(job_id)`. Each entry is the raw ASCII bytes of
-an IPFS CID string (e.g. bytes of `bafy...`). The per-record
-struct (with `kind` and `submitter` fields) has been retired.
-*/
 /// Freelancer sealed-bid commitment entry.
 #[contracttype]
 #[derive(Clone, Debug)]
