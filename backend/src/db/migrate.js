@@ -16,7 +16,7 @@ function loadMigrationPairs() {
   const files = fs.readdirSync(migrationsDir);
   const upFiles = files.filter((f) => f.endsWith(".up.sql"));
 
-  return upFiles
+  const migrations = upFiles
     .map((upFile) => {
       const version = parseVersion(upFile);
       const downFile = upFile.replace(/\.up\.sql$/, ".down.sql");
@@ -30,6 +30,29 @@ function loadMigrationPairs() {
     })
     .filter(Boolean)
     .sort((a, b) => a.version - b.version || a.name.localeCompare(b.name));
+
+  assertUniqueVersions(migrations);
+  return migrations;
+}
+
+/**
+ * Ensure no two migrations share the same version number. A collision makes the
+ * `MAX(version)` progress check and the `version`-then-`name` sort
+ * non-deterministic, so this must fail fast before any migration runs.
+ *
+ * @param {Array<{version: number, name: string}>} migrations
+ */
+function assertUniqueVersions(migrations) {
+  const versionToName = new Map();
+  for (const migration of migrations) {
+    const existing = versionToName.get(migration.version);
+    if (existing) {
+      throw new Error(
+        `Duplicate migration version V${migration.version}: "${existing}" and "${migration.name}"`
+      );
+    }
+    versionToName.set(migration.version, migration.name);
+  }
 }
 
 async function ensureMigrationsTable(client) {
@@ -168,4 +191,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { migrate, rollbackLastMigration, loadMigrationPairs, ensureMigrationsTable, getAppliedMigrations, getCurrentMigrationVersion, getExpectedMigrationVersion, validateMigrationVersion };
+module.exports = { migrate, rollbackLastMigration, loadMigrationPairs, assertUniqueVersions, ensureMigrationsTable, getAppliedMigrations, getCurrentMigrationVersion, getExpectedMigrationVersion, validateMigrationVersion };

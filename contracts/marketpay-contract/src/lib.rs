@@ -23,7 +23,14 @@
 #![allow(
     clippy::too_many_arguments,
     clippy::manual_range_contains,
-    unused_variables
+    unused_variables,
+    // soroban-sdk 27 deprecates Events::publish in favour of #[contractevent].
+    // Migrating changes the emitted event ABI that the backend indexer parses,
+    // so it is tracked as its own task rather than bundled here.
+    deprecated,
+    // Test helpers take `&Env` where the signature elides the lifetime;
+    // cosmetic, and changing every helper signature is churn for no benefit.
+    mismatched_lifetime_syntaxes
 )]
 
 use soroban_sdk::{
@@ -136,12 +143,12 @@ pub struct DeliverableSubmission {
     pub hashes_match: bool,
 }
 
-/// On-chain dispute-evidence IPFS CID audit trail (Issue #448 --- AC #2).
-///
-/// Per the AC, the contract stores a bare `Vec<Bytes>` of CIDs under
-/// `DataKey::EvidenceCids(job_id)`. Each entry is the raw ASCII bytes of
-/// an IPFS CID string (e.g. bytes of `bafy...`). The per-record
-/// struct (with `kind` and `submitter` fields) has been retired.
+// On-chain dispute-evidence IPFS CID audit trail (Issue #448 --- AC #2).
+//
+// Per the AC, the contract stores a bare `Vec<Bytes>` of CIDs under
+// `DataKey::EvidenceCids(job_id)`. Each entry is the raw ASCII bytes of
+// an IPFS CID string (e.g. bytes of `bafy...`). The per-record
+// struct (with `kind` and `submitter` fields) has been retired.
 
 /// Freelancer sealed-bid commitment entry.
 #[contracttype]
@@ -271,24 +278,6 @@ pub struct RecurringEscrow {
     pub status: EscrowStatus,
 }
 
-/// Global dispute bond configuration (Issue #437).
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct DisputeBondConfig {
-    pub token: Address,
-    pub amount: i128,
-}
-
-/// Per-job locked dispute bond record (Issue #437).
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct DisputeBond {
-    pub caller: Address,
-    pub token: Address,
-    pub amount: i128,
-    pub raised_at_ledger: u32,
-}
-
 /// Storage key per job
 #[contracttype]
 pub enum DataKey {
@@ -322,6 +311,8 @@ pub enum DataKey {
     FreelancerRatingStats(Address),
     Arbitrator(Address),
     ArbitratorPool,
+    /// Single admin-designated arbitrator (set_arbitrator / get_arbitrator)
+    ArbitratorAddress,
     ArbitrationCase(u32),
     ArbitrationCaseCount,
     DisputeCase(String),
@@ -334,12 +325,6 @@ pub enum DataKey {
     TreasuryAddress,
     /// Platform fee in basis points (e.g. 100 = 1%)
     PlatformFeeBps,
-    /// List of admin addresses for multi-sig
-    Admins,
-    /// Whether the contract is globally frozen
-    Frozen,
-    /// M-of-N unfreeze threshold
-    UnfreezeThreshold,
     /// Maximum referrer bonus cap in token stroops
     MaxReferrerBonusXlm,
     /// Pending escrow timeout extension request
@@ -598,7 +583,8 @@ impl MarketPayContract {
 
         // Transfer funds from client into the contract
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&client, &env.current_contract_address(), &amount);
+        let contract_address = env.current_contract_address();
+        token_client.transfer(&client, &contract_address, &amount);
 
         let current_ledger = env.ledger().sequence();
         let current_timestamp = env.ledger().timestamp() as u32;
@@ -1906,7 +1892,8 @@ impl MarketPayContract {
             // authorised ALL token operations from this caller, so this
             // single transfer call covers the bond lock.
             let bond_token_client = token::Client::new(&env, &bond_cfg.token);
-            bond_token_client.transfer(&caller, &env.current_contract_address(), &bond_cfg.amount);
+            let contract_address = env.current_contract_address();
+            bond_token_client.transfer(&caller, &contract_address, &bond_cfg.amount);
 
             env.events().publish(
                 (symbol_short!("bond_lck"), job_id.clone()),
@@ -3167,8 +3154,8 @@ mod tests {
         client.resolve_proposal(&pid);
 
         let final_prop = client.get_proposal(&pid);
-        assert_eq!(final_prop.resolved, true);
-        assert_eq!(final_prop.result, false); // 1 to 1 is not majority
+        assert!(final_prop.resolved);
+        assert!(!final_prop.result); // 1 to 1 is not majority
     }
 
     #[test]
@@ -3753,8 +3740,8 @@ mod regression_tests {
         assert_eq!(escrow.status, EscrowStatus::Disputed);
         // Milestone 0 = 40% = 400. Fee = 400 * 1% = 4. Freelancer gets 396.
         assert_eq!(token_client.balance(&freelancer), 396);
-        assert_eq!(escrow.milestones.get(0).unwrap().released, true);
-        assert_eq!(escrow.milestones.get(1).unwrap().released, false);
+        assert!(escrow.milestones.get(0).unwrap().released);
+        assert!(!escrow.milestones.get(1).unwrap().released);
 
         // Release final milestone
         contract_client.release_milestone(&job_id, &1u32, &client.clone());
@@ -3954,7 +3941,7 @@ mod upgrade_tests {
         let client = MarketPayContractClient::new(&env, &id);
         let admin = Address::generate(&env);
         client.initialize(&admin, &admin);
-        assert_eq!(client.is_frozen(), false);
+        assert!(!client.is_frozen());
     }
 }
 
@@ -4261,7 +4248,7 @@ mod milestone_pct_tests {
 
         let escrow = contract.get_escrow(&job_id);
         assert_eq!(escrow.status, EscrowStatus::InProgress);
-        assert_eq!(escrow.milestones.get(0).unwrap().released, true);
+        assert!(escrow.milestones.get(0).unwrap().released);
     }
 
     #[test]

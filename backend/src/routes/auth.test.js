@@ -1,10 +1,15 @@
 "use strict";
 
 beforeAll(() => {
-  process.env.CONTRACT_ID = process.env.CONTRACT_ID || "CCONTRACTID123456789012345678901234567890123456789012";
+  process.env.CONTRACT_ID =
+    process.env.CONTRACT_ID ||
+    "CCONTRACTID123456789012345678901234567890123456789012";
   process.env.STELLAR_NETWORK = process.env.STELLAR_NETWORK || "testnet";
-  process.env.HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
-  process.env.PLATFORM_WALLET_ADDRESS = process.env.PLATFORM_WALLET_ADDRESS || "GPLATFORMWALLET1234567890123456789012345678901234567890";
+  process.env.HORIZON_URL =
+    process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
+  process.env.PLATFORM_WALLET_ADDRESS =
+    process.env.PLATFORM_WALLET_ADDRESS ||
+    "GPLATFORMWALLET1234567890123456789012345678901234567890";
 });
 
 jest.mock("../db/pool", () => {
@@ -301,17 +306,21 @@ describe("SEP-10 Authentication Flow", () => {
       // CSRF-protected mutations still require a token even from an expired JWT.
       const csrf = await fetchCsrfContext();
       // Create a short-lived token and let it expire
-      const shortLived = jwt.sign({ publicKey: TEST_KEYPAIR.publicKey() }, process.env.JWT_SECRET, {
-        expiresIn: "1s",
-      });
+      const shortLived = jwt.sign(
+        { publicKey: TEST_KEYPAIR.publicKey() },
+        process.env.JWT_SECRET,
+        {
+          expiresIn: "1s",
+        },
+      );
       // Wait for expiration
       await new Promise((r) => setTimeout(r, 1100));
 
       const res = await request(app)
         .post("/api/disputes/job-123/evidence")
         .set("Authorization", `Bearer ${shortLived}`)
-        .set("Cookie", "XSRF-TOKEN=test-csrf-token")
-        .set("X-XSRF-Token", "test-csrf-token");
+        .set("Cookie", "csrf-token=test-csrf-token")
+        .set("X-CSRF-Token", "test-csrf-token");
 
       expect(res.status).toBe(401);
       expect(res.body.error).toContain("Invalid or expired token");
@@ -329,18 +338,24 @@ describe("SEP-10 Authentication Flow", () => {
       expect(res.status).toBe(200);
 
       // HttpOnly token + refresh cookies
-      const tokenCookie = res.headers["set-cookie"].find(c => c.startsWith("token="));
+      const tokenCookie = res.headers["set-cookie"].find((c) =>
+        c.startsWith("token="),
+      );
       expect(tokenCookie).toBeTruthy();
       expect(tokenCookie).toContain("HttpOnly");
       expect(tokenCookie).toContain("SameSite=Strict");
 
-      const refreshCookie = res.headers["set-cookie"].find(c => c.startsWith("refreshToken="));
+      const refreshCookie = res.headers["set-cookie"].find((c) =>
+        c.startsWith("refreshToken="),
+      );
       expect(refreshCookie).toBeTruthy();
       expect(refreshCookie).toContain("HttpOnly");
 
       // /api/auth itself does NOT set a CSRF cookie — that's /api/auth/csrf-token's job
       // so we don't surprise clients with stale pre-login CSRF state.
-      const csrfOnLogin = res.headers["set-cookie"].find(c => c.startsWith("csrf-token="));
+      const csrfOnLogin = res.headers["set-cookie"].find((c) =>
+        c.startsWith("csrf-token="),
+      );
       expect(csrfOnLogin).toBeUndefined();
     });
 
@@ -351,7 +366,9 @@ describe("SEP-10 Authentication Flow", () => {
       expect(typeof res.body.csrfToken).toBe("string");
       expect(res.body.csrfToken.length).toBeGreaterThan(8);
 
-      const cookie = res.headers["set-cookie"].find(c => c.startsWith("csrf-token="));
+      const cookie = res.headers["set-cookie"].find((c) =>
+        c.startsWith("csrf-token="),
+      );
       expect(cookie).toBeTruthy();
       // XSRF cookie must be JS-readable so refresh-from-other-tab logic can echo it
       expect(cookie).not.toContain("HttpOnly");
@@ -359,8 +376,7 @@ describe("SEP-10 Authentication Flow", () => {
     });
 
     it("rejects write requests with 403 when CSRF token is missing", async () => {
-      const res = await request(app)
-        .post("/api/disputes/job-123/evidence");
+      const res = await request(app).post("/api/disputes/job-123/evidence");
 
       expect(res.status).toBe(403);
       expect(res.body.error).toBeTruthy();
@@ -402,10 +418,12 @@ describe("SEP-10 Authentication Flow", () => {
         .send({ transaction: SIGNED_XDR });
 
       const authCookies = loginRes.headers["set-cookie"]
-        .map(c => c.split(";")[0])
+        .map((c) => c.split(";")[0])
         .join("; ");
       // Preserve any CSRF cookies we already had on the jar before login.
-      const mergedCookies = [csrf.cookie, authCookies].filter(Boolean).join("; ");
+      const mergedCookies = [csrf.cookie, authCookies]
+        .filter(Boolean)
+        .join("; ");
 
       // 3. Perform protected action — must pass CSRF AND the JWT auth gate.
       const res = await request(app)
@@ -433,9 +451,13 @@ describe("SEP-10 Authentication Flow", () => {
       expect(logoutRes.status).toBe(200);
 
       // Verify cookies are cleared
-      const tokenCookie = logoutRes.headers["set-cookie"].find(c => c.startsWith("token="));
-      const xsrfCookie = logoutRes.headers["set-cookie"].find(c => c.startsWith("XSRF-TOKEN="));
-      
+      const tokenCookie = logoutRes.headers["set-cookie"].find((c) =>
+        c.startsWith("token="),
+      );
+      const xsrfCookie = logoutRes.headers["set-cookie"].find((c) =>
+        c.startsWith("csrf-token="),
+      );
+
       // Browsers accept either Max-Age=0 or Expires=epoch to clear a cookie
       expect(tokenCookie).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/);
       expect(xsrfCookie).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/);

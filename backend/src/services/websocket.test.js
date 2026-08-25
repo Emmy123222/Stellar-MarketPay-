@@ -38,12 +38,17 @@ jest.mock("../db/pool", () => {
       if (/^SELECT \* FROM notifications WHERE user_address/i.test(text)) {
         let rows = notifications.filter((n) => n.user_address === params[0]);
         rows.sort(
-          (a, b) => new Date(b.created_at) - new Date(a.created_at) || b.id - a.id,
+          (a, b) =>
+            new Date(b.created_at) - new Date(a.created_at) || b.id - a.id,
         );
         const limit = params[params.length - 1] || 20;
         return { rows: rows.slice(0, limit) };
       }
-      if (/SELECT COUNT\(\*\)::int AS count FROM notifications WHERE user_address/i.test(text)) {
+      if (
+        /SELECT COUNT\(\*\)::int AS count FROM notifications WHERE user_address/i.test(
+          text,
+        )
+      ) {
         const count = notifications.filter(
           (n) => n.user_address === params[0] && !n.read,
         ).length;
@@ -69,9 +74,9 @@ jest.mock("../services/indexerService", () =>
   jest.fn().mockImplementation(() => ({ start: jest.fn() })),
 );
 
-jest.mock("../services/priceAlertService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn() })),
-);
+jest.mock("../services/priceAlertService", () => ({
+  PriceAlertService: jest.fn().mockImplementation(() => ({ start: jest.fn() })),
+}));
 
 jest.mock("../db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),
@@ -185,7 +190,10 @@ describe("WebSocket real-time notification delivery", () => {
     // Connect and immediately close
     const ws1 = wsConnect(TEST_USER_1);
     await waitForOpen(ws1);
-    const connectedMsg = await ws1._waitForMessage((m) => m.event === "connected", 1000);
+    const connectedMsg = await ws1._waitForMessage(
+      (m) => m.event === "connected",
+      1000,
+    );
     expect(connectedMsg.event).toBe("connected");
     ws1.close();
 
@@ -263,7 +271,7 @@ describe("WebSocket real-time notification delivery", () => {
   // ───────────────────────────────────────────────────────────────────────────
   test("TC4: rejects connection with close code 1008 if user has > 5 active connections", async () => {
     const connections = [];
-    
+
     // Open 5 connections (should succeed)
     for (let i = 0; i < 5; i++) {
       const ws = wsConnect(TEST_USER_1);
@@ -274,7 +282,7 @@ describe("WebSocket real-time notification delivery", () => {
 
     // Try to open a 6th connection (should be rejected)
     const ws6 = wsConnect(TEST_USER_1);
-    
+
     // Wait for the connection to be closed
     const closePromise = new Promise((resolve) => {
       ws6.on("close", (code, reason) => {

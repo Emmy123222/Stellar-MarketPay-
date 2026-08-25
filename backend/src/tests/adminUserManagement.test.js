@@ -49,12 +49,12 @@ jest.mock("../services/indexerService", () =>
   jest.fn().mockImplementation(() => ({
     start: jest.fn(),
     getHealth: jest.fn().mockReturnValue({ running: false, synced: false }),
-  }))
+  })),
 );
 
-jest.mock("../services/priceAlertService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn() }))
-);
+jest.mock("../services/priceAlertService", () => ({
+  PriceAlertService: jest.fn().mockImplementation(() => ({ start: jest.fn() })),
+}));
 
 jest.mock("../db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),
@@ -98,14 +98,14 @@ const INVALID_ADDRESS = "not-a-stellar-address";
 const ADMIN_TOKEN = jwt.sign(
   { publicKey: ADMIN_KEY, role: "admin" },
   process.env.JWT_SECRET,
-  { expiresIn: "1h" }
+  { expiresIn: "1h" },
 );
 
 // Non-admin JWT for 403 tests
 const USER_TOKEN = jwt.sign(
   { publicKey: USER_KEY, role: "user" },
   process.env.JWT_SECRET,
-  { expiresIn: "1h" }
+  { expiresIn: "1h" },
 );
 
 // ─── Helper: build mock profile row ──────────────────────────────────────────
@@ -319,7 +319,7 @@ describe("Admin User Management — POST /api/admin/users/:address/ban", () => {
 
     // Verify admin audit log was written
     const auditCalls = pool.query.mock.calls.filter(
-      ([sql]) => sql.includes("admin_audit_log") && sql.includes("INSERT")
+      ([sql]) => sql.includes("admin_audit_log") && sql.includes("INSERT"),
     );
     expect(auditCalls.length).toBeGreaterThan(0);
     expect(auditCalls[0][1]).toContain("ban_user");
@@ -408,7 +408,7 @@ describe("Admin User Management — POST /api/admin/users/:address/unban", () =>
 
     // Verify admin audit log was written
     const auditCalls = pool.query.mock.calls.filter(
-      ([sql]) => sql.includes("admin_audit_log") && sql.includes("INSERT")
+      ([sql]) => sql.includes("admin_audit_log") && sql.includes("INSERT"),
     );
     expect(auditCalls.length).toBeGreaterThan(0);
     expect(auditCalls[0][1]).toContain("unban_user");
@@ -486,7 +486,7 @@ describe("Admin User Management — POST /api/admin/jobs/:id/remove", () => {
 
     // Verify admin audit log was written
     const auditCalls = pool.query.mock.calls.filter(
-      ([sql]) => sql.includes("admin_audit_log") && sql.includes("INSERT")
+      ([sql]) => sql.includes("admin_audit_log") && sql.includes("INSERT"),
     );
     expect(auditCalls.length).toBeGreaterThan(0);
     expect(auditCalls[0][1]).toContain("remove_job");
