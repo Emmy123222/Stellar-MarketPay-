@@ -1,4 +1,2 @@
-DROP TABLE IF EXISTS api_key_usage_daily;
-DROP TABLE IF EXISTS api_keys;
-DROP TABLE IF EXISTS frozen_wallets;
-DROP TABLE IF EXISTS audit_logs;
+-- These tables are owned by V5 and may be referenced by later migrations.
+-- V50 only repeats their IF NOT EXISTS definitions for compatibility.
