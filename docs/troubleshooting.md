@@ -4,6 +4,8 @@ This guide covers common issues you may encounter when developing, deploying, or
 
 ## Table of Contents
 
+- [Local Setup Issues](#local-setup-issues)
+  - [npm ci Peer-Dependency Errors](#npm-ci-peer-dependency-errors)
 - [Frontend Issues](#frontend-issues)
   - [Freighter Not Detected](#freighter-not-detected)
   - [NEXT_PUBLIC_CONTRACT_ID Not Set](#next_public_contract_id-not-set)
@@ -11,17 +13,84 @@ This guide covers common issues you may encounter when developing, deploying, or
   - [WebSocket Disconnects](#websocket-disconnects)
 - [Backend Issues](#backend-issues)
   - [PostgreSQL Migration Failure](#postgresql-migration-failure)
-  - [Migration Version Collision](#migration-version-collision)
-  - [CSRF 403 From Scripts](#csrf-403-from-scripts)
+  - [Migration Version Collisions](#migration-version-collisions)
   - [Redis Connection Refused](#redis-connection-refused)
   - [Soroban RPC Timeout](#soroban-rpc-timeout)
   - [IPFS Upload Failure](#ipfs-upload-failure)
+  - [CSRF 403 Errors When Calling the API From a Script](#csrf-403-errors-when-calling-the-api-from-a-script)
 - [CI/CD Issues](#cicd-issues)
   - [npm ci Peer Dependency Conflict](#npm-ci-peer-dependency-conflict)
   - [Workflow Failures (Missing Secrets)](#workflow-failures-missing-secrets)
 - [Network Issues](#network-issues)
   - [Wrong Stellar Network](#wrong-stellar-network)
   - [Transaction Submission Failed](#transaction-submission-failed)
+
+---
+
+## Local Setup Issues
+
+### npm ci Peer-Dependency Errors
+
+**Symptom**:
+```
+npm error code ERESOLVE
+npm error ERESOLVE could not resolve
+npm error While resolving: frontend@1.0.0
+npm error Found: react@18.3.1
+npm error Could not resolve dependency:
+npm error peer react@">=19.0.0" from some-package@x.y.z
+```
+
+**Cause**:
+
+This repo is a set of independent npm workspaces (root, `frontend/`, `backend/`) that are **not** locked together by a single top-level `package-lock.json` with workspace resolution — each directory has its own lockfile. `npm ci` (used in `.github/workflows/ci.yml` and `.github/workflows/security.yml`) installs strictly from the lockfile and fails hard on any peer-dependency mismatch, unlike `npm install`, which will sometimes paper over it.
+
+The most common source of this is a partial dependency bump: `frontend/package.json` pins `react`/`react-dom` at `^18.3.1` and the whole Storybook toolchain (`storybook`, `@storybook/react`, `@storybook/react-vite`, `@storybook/nextjs`, `@storybook/addon-*`) at `^8.6.18`. If any one of those packages gets bumped independently (e.g. `react-dom` to `19.x`, or a single `@storybook/*` package to `10.x` while the rest stay on `8.x`), `npm ci` fails because the peer ranges no longer line up.
+
+**Fix**:
+
+#### 1. Reproduce with a clean install
+
+```bash
+cd frontend   # or backend, or repo root
+rm -rf node_modules
+npm ci
+```
+
+#### 2. Identify the mismatched pair
+
+Read the `npm error` block — it names the package that declared the peer requirement and the version that's actually installed. Cross-check `frontend/package.json` for `react`, `react-dom`, `storybook`, and every `@storybook/*` entry: they should all share the same major version.
+
+#### 3. Align the versions
+
+```bash
+cd frontend
+npm install react@18.3.1 react-dom@18.3.1
+npm install --save-dev storybook@8.6.18 @storybook/react@8.6.18 \
+  @storybook/react-vite@8.6.18 @storybook/nextjs@8.6.18 \
+  @storybook/addon-essentials@8.6.18 @storybook/addon-interactions@8.6.18 \
+  @storybook/addon-links@8.6.18
+npm install
+```
+
+#### 4. Do not reach for `--legacy-peer-deps` as a permanent fix
+
+`npm install --legacy-peer-deps` will unblock a local install, but CI runs plain `npm ci`, which does **not** accept that flag mid-lockfile — you'd have to change the workflow too, and that just hides the real version drift instead of fixing it. Prefer aligning versions (step 3) so the committed lockfile is consistent for everyone, including CI.
+
+#### 5. Regenerate the lockfile if it's out of sync
+
+```bash
+cd frontend
+rm -f package-lock.json
+npm install
+git diff package-lock.json   # review before committing
+```
+
+**Related Files**:
+- `frontend/package.json`
+- `backend/package.json`
+- `.github/workflows/ci.yml`
+- `.github/dependabot.yml` (groups minor/patch updates per ecosystem to reduce the chance of a lone package drifting ahead of its peers)
 
 ---
 
@@ -461,96 +530,53 @@ npm run migrate:rollback
 
 ---
 
-### Migration Version Collision
+### Migration Version Collisions
 
 **Symptom**:
 ```
-Error: duplicate key value violates unique constraint "schema_migrations_pkey"
-Migration failed: version V12 has already been applied
-Error: migration version collision: V12__*.sql
+error: relation "some_table" already exists
+error: column "some_column" of relation "some_table" already exists
+Migration version mismatch: expected 22, got 22   (but the wrong V22__* files are applied)
 ```
 
 **Cause**:
-Two branches introduced migrations with the same numeric prefix, or a local database already recorded a migration version whose file was renamed on the current branch.
+
+`backend/src/db/migrate.js` parses each file's version from its `V<N>__name.up.sql` prefix (`parseVersion()`), then sorts migrations with `sort((a, b) => a.version - b.version || a.name.localeCompare(b.name))` — ties on the numeric version are broken **alphabetically by filename**, not by intent or dependency order.
+
+This repo's migration history has accumulated many files that share the same version number, e.g. `backend/src/db/migrations/` currently has **ten** different `V22__*.up.sql` files (`V22__add_github_username`, `V22__admin_user_moderation`, `V22__app_level_encryption`, `V22__audit_log_table`, `V22__contract_audit_log_enrichment`, `V22__escrow_webhooks`, `V22__price_alerts`, `V22__project_assessments`, `V22__soft_delete_jobs`, `V22__time_entry_milestone_index`), plus smaller collisions at V3, V5, V6, V10, V12, V13, V17, V19, V20, and V21. This happens when two feature branches are cut from the same base around the same time and each contributor picks "the next number" independently — both land with the same `V<N>` prefix.
+
+Because ordering within a tied version number is alphabetical rather than dependency-aware, a newly added migration that happens to sort before another already-applied `V<N>` migration can run against a database that doesn't yet have the schema it depends on, producing "relation/column already exists" or "does not exist" errors depending on which side of the collision you hit. `validateMigrationVersion()` (also in `migrate.js`) only compares the **max** version in `schema_migrations` against the **max** version on disk — it will not catch a collision as long as the highest version number still matches, so a colliding migration can pass that check and still fail during `migrate()` itself.
 
 **Fix**:
 
-#### 1. Compare Files and Applied Versions
+#### 1. Check for existing collisions before adding a new migration
 
 ```bash
-cd backend
-ls src/db/migrations
-psql "$DATABASE_URL" -c "select version, name, applied_at from schema_migrations order by version;"
+cd backend/src/db/migrations
+ls | sed -E 's/\.(up|down)\.sql$//' | sed -E 's/^(V[0-9]+)__.*/\1/' | sort | uniq -c | sort -rn | awk '$1>1'
 ```
 
-#### 2. Rename the Newer Migration
-
-Use the next unused version number:
+#### 2. Always pick the next unused number
 
 ```bash
-git mv src/db/migrations/V12__new_feature.up.sql src/db/migrations/V13__new_feature.up.sql
-git mv src/db/migrations/V12__new_feature.down.sql src/db/migrations/V13__new_feature.down.sql
+ls backend/src/db/migrations/*.up.sql | sed -E 's#.*/V([0-9]+)__.*#\1#' | sort -n | tail -1
 ```
+Use that number **+ 1** for your new migration, and re-run this check immediately before opening your PR — someone else's migration may have landed on `main` in the meantime.
 
-Update any tests or documentation that reference the old filename.
+#### 3. If your PR collides with one already merged to `main`
 
-#### 3. Reset Only Disposable Local Databases
+Rebase and rename your migration files (both `.up.sql` and `.down.sql`) to the next free version number rather than keeping the duplicate — do not rely on alphabetical tie-breaking to "sort it out".
 
-If the collision exists only in a throwaway local database:
+#### 4. If a collision has already been applied to a shared database
 
+Inspect `schema_migrations` to see which of the colliding files actually ran and in what order, then reconcile manually:
 ```bash
-dropdb stellarwork_dev
-createdb stellarwork_dev
-npm run migrate
+psql "$DATABASE_URL" -c "SELECT name, version, applied_at FROM schema_migrations ORDER BY applied_at;"
 ```
-
-Do not delete rows from `schema_migrations` in shared, staging, or production databases. Add a forward migration that repairs state instead.
 
 **Related Files**:
 - `backend/src/db/migrate.js`
-- `backend/src/db/migrations/*.sql`
-
----
-
-### CSRF 403 From Scripts
-
-**Symptom**:
-```
-HTTP/1.1 403 Forbidden
-ForbiddenError: invalid csrf token
-Error: CSRF token missing or invalid
-```
-
-**Cause**:
-State-changing API routes require the CSRF cookie and matching token header. Browser flows obtain both automatically, but `curl`, one-off Node scripts, and API clients often post JSON directly without first fetching the CSRF token.
-
-**Fix**:
-
-#### 1. Fetch a CSRF Token and Keep Cookies
-
-```bash
-curl -c cookies.txt http://localhost:4000/api/csrf-token
-```
-
-#### 2. Send the Token on the Write Request
-
-```bash
-TOKEN="$(curl -s -b cookies.txt -c cookies.txt http://localhost:4000/api/csrf-token | jq -r .csrfToken)"
-curl -b cookies.txt \
-  -H "Content-Type: application/json" \
-  -H "x-csrf-token: $TOKEN" \
-  -X POST http://localhost:4000/api/jobs \
-  -d '{"title":"Test job"}'
-```
-
-#### 3. Use the Test Helper in Backend Tests
-
-For integration tests, use the shared test app/helper so cookies and CSRF headers are set consistently instead of hand-building each request.
-
-**Related Files**:
-- `backend/src/middleware/csrf.js`
-- `backend/src/server.js`
-- `backend/tests/`
+- `backend/src/db/migrations/`
 
 ---
 
@@ -858,6 +884,77 @@ curl -X POST https://api.pinata.cloud/pinning/pinFileToIPFS \
 
 ---
 
+### CSRF 403 Errors When Calling the API From a Script
+
+**Symptom**:
+```
+403 Forbidden
+{"error":"invalid csrf token"}
+```
+Happens when calling a state-mutating endpoint (`POST`/`PUT`/`PATCH`/`DELETE`) with `curl`, Postman, or a Node script against a cookie-authenticated session, but never when the same call is made from the actual frontend in a browser.
+
+**Cause**:
+
+`backend/src/middleware/csrf.js` implements the double-submit cookie pattern via the `csrf-csrf` package:
+
+1. The client must first call `GET /api/auth/csrf-token`, which sets an HMAC-signed, non-`HttpOnly` `csrf-token` cookie and also returns the token in the JSON body.
+2. Every subsequent state-mutating request must echo that token back in the `X-CSRF-Token` header (checked case-insensitively as `x-csrf-token`, with `x-xsrf-token` accepted as a legacy alias).
+3. `shouldSkipCsrf()` only bypasses this for: safe methods (`GET`/`HEAD`/`OPTIONS`), the `/api/auth/*` bootstrap routes, health/metrics/docs endpoints, `/api/public/*` and `/api/developer/*` (which authenticate via `X-API-Key` instead of cookies), and `Authorization: Bearer` requests that carry **no** `token`/`refreshToken` cookie.
+
+A script that logs in via `POST /api/auth/login` (which sets `token`/`refreshToken` cookies) and then replays that cookie jar against a plain endpoint like `POST /api/jobs` — without also fetching and forwarding the CSRF token — is exactly the case this middleware is designed to reject. That is a legitimate 403, not a bug.
+
+**Fix**:
+
+#### 1. Fetch a CSRF token and keep the cookie jar
+
+```bash
+# Persist cookies across requests
+curl -c cookies.txt -b cookies.txt http://localhost:4000/api/auth/csrf-token
+```
+Note the `csrfToken` field in the JSON response.
+
+#### 2. Send the token back on every mutating request
+
+```bash
+curl -c cookies.txt -b cookies.txt \
+  -X POST http://localhost:4000/api/jobs \
+  -H "X-CSRF-Token: <token from step 1>" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "..."}'
+```
+
+#### 3. In a Node/JS script
+
+```javascript
+const { token } = await fetch(`${API_URL}/api/auth/csrf-token`, { credentials: 'include' })
+  .then(r => r.json());
+
+await fetch(`${API_URL}/api/jobs`, {
+  method: 'POST',
+  credentials: 'include', // send the cookie jar
+  headers: {
+    'Content-Type': 'application/json',
+    'X-CSRF-Token': token,
+  },
+  body: JSON.stringify({ title: '...' }),
+});
+```
+
+#### 4. Prefer API-key auth for pure scripting/integration use cases
+
+If you're writing a script or service integration rather than driving the cookie-based session a browser would use, use the `/api/developer/*` or `/api/public/*` endpoints with an `X-API-Key` header instead — `shouldSkipCsrf()` exempts these paths entirely since API keys aren't vulnerable to cross-site request forgery the way cookies are.
+
+#### 5. Re-fetch the token after login/logout
+
+The CSRF token is bound to the session via `getSessionIdentifier()` (keyed off the `refreshToken` cookie), so a token fetched before login (or before a token refresh rotates `refreshToken`) will be rejected afterward. Always fetch a fresh CSRF token immediately before the mutating call, or immediately after any auth state change.
+
+**Related Files**:
+- `backend/src/middleware/csrf.js`
+- `backend/src/testUtils/csrfTestHelpers.js` (reference implementation used by the backend's own integration tests)
+- `docs/auth-flow.md`
+
+---
+
 ## CI/CD Issues
 
 ### npm ci Peer Dependency Conflict
@@ -1147,4 +1244,4 @@ If this guide doesn't resolve your issue:
 
 ---
 
-**Last Updated**: 2026-05-28
+**Last Updated**: 2026-08-24

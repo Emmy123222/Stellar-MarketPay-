@@ -1,3 +1,4 @@
+-- V31__api_key_usage_minute.up.sql
 -- Per-minute API key usage breakdown for the issue #452 sliding window rate
 -- limiter. The daily aggregate table (`api_key_usage_daily` from V4) is kept
 -- untouched so existing admin dashboard widgets continue to work. The new

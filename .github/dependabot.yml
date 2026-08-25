@@ -1,95 +1,163 @@
 version: 2
+
 updates:
-  - package-ecosystem: npm
-    directory: /
+  # ---------------------------------------------------------------------
+  # Frontend (Next.js app) — npm
+  # ---------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/frontend"
     schedule:
-      interval: weekly
-      day: monday
-      time: "09:00"
-    open-pull-requests-limit: 3
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "frontend"
+    assignees:
+      - "Emmy123222"
     groups:
-      root-minor-patch:
+      npm-minor-patch:
+        applies-to: version-updates
         update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: npm
-    directory: /backend
-    schedule:
-      interval: weekly
-      day: monday
-      time: "09:15"
-    open-pull-requests-limit: 3
-    groups:
-      backend-runtime:
+          - "minor"
+          - "patch"
+      npm-security:
+        applies-to: security-updates
         patterns:
-          - express
-          - helmet
-          - cors
-          - pg
-          - zod
-          - jsonwebtoken
-        update-types:
-          - minor
-          - patch
-      backend-tooling:
-        dependency-type: development
-        update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: npm
-    directory: /frontend
-    schedule:
-      interval: weekly
-      day: monday
-      time: "09:30"
-    open-pull-requests-limit: 3
+          - "*"
     ignore:
-      - dependency-name: react
-        update-types:
-          - version-update:semver-major
-      - dependency-name: react-dom
-        update-types:
-          - version-update:semver-major
-      - dependency-name: storybook
-        update-types:
-          - version-update:semver-major
-      - dependency-name: "@storybook/*"
-        update-types:
-          - version-update:semver-major
-    groups:
-      react-18-minor-patch:
-        patterns:
-          - react
-          - react-dom
-          - "@types/react"
-          - "@types/react-dom"
-        update-types:
-          - minor
-          - patch
-      storybook-8-minor-patch:
-        patterns:
-          - storybook
-          - "@storybook/*"
-        update-types:
-          - minor
-          - patch
-      frontend-tooling:
-        dependency-type: development
-        update-types:
-          - minor
-          - patch
+      # Major bumps are reviewed manually, one at a time, so they don't
+      # get silently bundled into an automated PR.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
-  - package-ecosystem: github-actions
-    directory: /
+  # ---------------------------------------------------------------------
+  # Backend (API service) — npm
+  # ---------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/backend"
     schedule:
-      interval: weekly
-      day: monday
-      time: "09:45"
-    open-pull-requests-limit: 2
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "backend"
+    assignees:
+      - "Emmy123222"
     groups:
-      actions-minor-patch:
+      npm-minor-patch:
+        applies-to: version-updates
         update-types:
-          - minor
-          - patch
+          - "minor"
+          - "patch"
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # ---------------------------------------------------------------------
+  # Repo-root tooling (husky, lint-staged, eslint, prettier) — npm
+  # ---------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "tooling"
+    assignees:
+      - "Emmy123222"
+    groups:
+      npm-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # ---------------------------------------------------------------------
+  # Soroban escrow contract — cargo
+  # ---------------------------------------------------------------------
+  - package-ecosystem: "cargo"
+    directory: "/contracts/marketpay-contract"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "contracts"
+    assignees:
+      - "Emmy123222"
+    groups:
+      cargo-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+      cargo-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # ---------------------------------------------------------------------
+  # Arbitrator registry contract — cargo
+  # ---------------------------------------------------------------------
+  - package-ecosystem: "cargo"
+    directory: "/contracts/arbitrator-registry"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "contracts"
+    assignees:
+      - "Emmy123222"
+    groups:
+      cargo-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+      cargo-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # ---------------------------------------------------------------------
+  # GitHub Actions workflows
+  # ---------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+    assignees:
+      - "Emmy123222"
+    groups:
+      github-actions:
+        patterns:
+          - "*"

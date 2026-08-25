@@ -6,12 +6,17 @@
 "use strict";
 
 const crypto = require("crypto");
-const { readPool, writePool } = require("../db/pool");
+const poolModule = require("../db/pool");
+const pool = poolModule.writePool || poolModule;
+const readPool = poolModule.readPool || poolModule;
 const { findApplicationsByJob } = require("../db/queries/applications");
-const pool = writePool; // default to write; SELECTs below use readPool
 const { getJob, assignFreelancer } = require("./jobService");
 const { calculateFreelancerTier, isBlocked } = require("./profileService");
-const { createJobNotification, queueNotification, EVENT_TYPES } = require("./notificationService");
+const {
+  createJobNotification,
+  queueNotification,
+  EVENT_TYPES,
+} = require("./notificationService");
 
 /**
  * Camel-cased application record returned by this service.
@@ -265,8 +270,8 @@ async function submitApplication({
     payload: {
       jobTitle: job.title,
       clientName: job.clientAddress,
-      freelancerName: freelancerAddress
-    }
+      freelancerName: freelancerAddress,
+    },
   });
 
   return rowToApp(appRow);
@@ -305,20 +310,32 @@ function hashBidReveal(bidAmount, nonce) {
     .digest("hex");
 }
 
-async function revealApplicationBid(applicationId, freelancerAddress, bidAmount, nonce) {
+async function revealApplicationBid(
+  applicationId,
+  freelancerAddress,
+  bidAmount,
+  nonce,
+) {
   validatePublicKey(freelancerAddress);
   if (!nonce || typeof nonce !== "string") {
     const e = new Error("Reveal nonce is required");
     e.status = 400;
     throw e;
   }
-  if (!bidAmount || isNaN(parseFloat(bidAmount)) || parseFloat(bidAmount) <= 0) {
+  if (
+    !bidAmount ||
+    isNaN(parseFloat(bidAmount)) ||
+    parseFloat(bidAmount) <= 0
+  ) {
     const e = new Error("Reveal bid amount must be positive");
     e.status = 400;
     throw e;
   }
 
-  const { rows } = await pool.query("SELECT * FROM applications WHERE id = $1", [applicationId]);
+  const { rows } = await pool.query(
+    "SELECT * FROM applications WHERE id = $1",
+    [applicationId],
+  );
   if (!rows.length) {
     const e = new Error("Application not found");
     e.status = 404;
@@ -347,7 +364,8 @@ async function revealApplicationBid(applicationId, freelancerAddress, bidAmount,
     e.status = 400;
     throw e;
   }
-  const revealDeadline = new Date(job.biddingClosedAt).getTime() + 24 * 60 * 60 * 1000;
+  const revealDeadline =
+    new Date(job.biddingClosedAt).getTime() + 24 * 60 * 60 * 1000;
   if (Date.now() > revealDeadline) {
     const e = new Error("Reveal deadline has passed");
     e.status = 400;
@@ -383,7 +401,9 @@ async function getApplicationsForJob(jobId, filters = {}) {
   const rows = await findApplicationsByJob(readPool, { jobId });
   const applications = rows.map(rowToApp);
   if (!filters.tier) return applications;
-  return applications.filter((application) => application.freelancerTier === filters.tier);
+  return applications.filter(
+    (application) => application.freelancerTier === filters.tier,
+  );
 }
 
 /**
@@ -486,8 +506,8 @@ async function acceptApplication(applicationId, clientAddress) {
       jobId: app.job_id,
       payload: {
         jobTitle: job.title,
-        freelancerName: app.freelancer_address
-      }
+        freelancerName: app.freelancer_address,
+      },
     });
 
     for (const rejected of rejectedApplications) {
