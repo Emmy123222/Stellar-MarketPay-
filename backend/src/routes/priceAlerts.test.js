@@ -24,7 +24,7 @@ const express = require("express");
 const request = require("supertest");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("../middleware/auth");
-const { generateCsrfToken } = require("../middleware/csrf");
+const { doubleCsrfProtection, generateCsrfToken } = require("../middleware/csrf");
 const { fetchCsrf, applyCsrf } = require("../testUtils/csrfTestHelpers");
 const priceAlertRoutes = require("./priceAlerts");
 
@@ -33,6 +33,7 @@ app.use(cookieParser());
 app.get("/api/auth/csrf-token", (req, res) => {
   res.json({ csrfToken: generateCsrfToken(req, res) });
 });
+app.use(doubleCsrfProtection);
 app.use(express.json());
 app.use("/api/price-alerts", priceAlertRoutes);
 
