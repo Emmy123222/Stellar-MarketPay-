@@ -1,6 +1,6 @@
--- V12__job_archiving.down.sql
+-- V19__job_archiving.down.sql
 --
--- Reverses V12__job_archiving.up.sql.
+-- Reverses V19__job_archiving.up.sql.
 --
 -- WARNING: This rollback does NOT restore rows that have already been moved to
 -- the archive tables. It only drops the archiving infrastructure. If you need
