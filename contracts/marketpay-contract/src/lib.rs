@@ -21,6 +21,7 @@
 
 #![no_std]
 #![allow(
+    deprecated,
     clippy::too_many_arguments,
     clippy::manual_range_contains,
     unused_variables
@@ -137,13 +138,14 @@ pub struct DeliverableSubmission {
     pub hashes_match: bool,
 }
 
-/// On-chain dispute-evidence IPFS CID audit trail (Issue #448 --- AC #2).
-///
-/// Per the AC, the contract stores a bare `Vec<Bytes>` of CIDs under
-/// `DataKey::EvidenceCids(job_id)`. Each entry is the raw ASCII bytes of
-/// an IPFS CID string (e.g. bytes of `bafy...`). The per-record
-/// struct (with `kind` and `submitter` fields) has been retired.
+/*
+On-chain dispute-evidence IPFS CID audit trail (Issue #448 --- AC #2).
 
+Per the AC, the contract stores a bare `Vec<Bytes>` of CIDs under
+`DataKey::EvidenceCids(job_id)`. Each entry is the raw ASCII bytes of
+an IPFS CID string (e.g. bytes of `bafy...`). The per-record
+struct (with `kind` and `submitter` fields) has been retired.
+*/
 /// Freelancer sealed-bid commitment entry.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -272,23 +274,6 @@ pub struct RecurringEscrow {
     pub status: EscrowStatus,
 }
 
-/// Global dispute bond configuration (Issue #437).
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct DisputeBondConfig {
-    pub token: Address,
-    pub amount: i128,
-}
-
-/// Per-job locked dispute bond record (Issue #437).
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct DisputeBond {
-    pub caller: Address,
-    pub token: Address,
-    pub amount: i128,
-    pub raised_at_ledger: u32,
-}
 
 /// Storage key per job
 #[contracttype]
@@ -335,12 +320,7 @@ pub enum DataKey {
     TreasuryAddress,
     /// Platform fee in basis points (e.g. 100 = 1%)
     PlatformFeeBps,
-    /// List of admin addresses for multi-sig
-    Admins,
-    /// Whether the contract is globally frozen
-    Frozen,
-    /// M-of-N unfreeze threshold
-    UnfreezeThreshold,
+    ArbitratorAddress,
     /// Maximum referrer bonus cap in token stroops
     MaxReferrerBonusXlm,
     /// Pending escrow timeout extension request

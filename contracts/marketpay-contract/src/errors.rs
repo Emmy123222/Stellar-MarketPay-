@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn every_error_has_unique_code() {
-        let mut codes: Vec<u32> = vec![];
+        let mut codes: std::vec::Vec<u32> = std::vec![];
         let variants = [
             ContractError::AlreadyInitialized,
             ContractError::NotInitialized,
