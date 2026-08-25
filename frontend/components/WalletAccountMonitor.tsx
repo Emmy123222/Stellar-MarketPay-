@@ -3,7 +3,7 @@
  * Monitors Freighter wallet account changes and disconnections.
  * Listens for accountChanged event, polls isConnected(), and polls getConnectedPublicKey.
  */
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import { subscribeToAccountChanges, isFreighterInstalled } from "@/lib/wallet";
 import { setJwtToken } from "@/lib/api";
 import { useToast } from "@/components/Toast";
@@ -23,7 +23,7 @@ export default function WalletAccountMonitor({
   const { info } = useToast();
   const router = useRouter();
 
-  function handleDisconnect() {
+  const handleDisconnect = useCallback(() => {
     setJwtToken(null);
     if (typeof window !== "undefined") {
       localStorage.removeItem(WALLET_PUBLIC_KEY_STORAGE_KEY);
@@ -31,7 +31,7 @@ export default function WalletAccountMonitor({
     onDisconnect();
     info("Your wallet was disconnected");
     router.push("/");
-  }
+  }, [onDisconnect, info, router]);
 
   useEffect(() => {
     if (!currentPublicKey) return;
@@ -83,7 +83,7 @@ export default function WalletAccountMonitor({
       unsubscribe?.();
       clearInterval(connectionCheck);
     };
-  }, [currentPublicKey, onDisconnect, info, router]);
+  }, [currentPublicKey, onDisconnect, info, router, handleDisconnect]);
 
   return null;
 }
