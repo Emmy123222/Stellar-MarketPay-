@@ -46,88 +46,68 @@ async function clearOnboardingStorage(page: Page) {
 }
 
 async function installOnboardingApiMocks(page: Page) {
-  await page.addInitScript((publicKey) => {
-    let profile = {
-      publicKey,
-      displayName: "",
-      bio: "",
-      skills: [],
-      portfolioItems: [],
-      portfolioFiles: [],
-      availability: { status: "" },
-    };
+  // Local state kept on the test side so PATCH updates persist across calls
+  let profile = {
+    publicKey: FREELANCER_ADDRESS,
+    displayName: "",
+    bio: "",
+    skills: [],
+    portfolioItems: [],
+    portfolioFiles: [],
+    availability: { status: "" },
+  };
 
-    const origOpen = XMLHttpRequest.prototype.open;
-    const origSend = XMLHttpRequest.prototype.send;
+  // Intercept any /api/** calls and return deterministic responses
+  await page.route("**/api/**", async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    const pathname = url.pathname;
+    const method = req.method();
+    let status = 200;
+    let responseData: any = { success: true, data: null };
 
-    XMLHttpRequest.prototype.open = function (method, url) {
-      (this as any).__url = typeof url === "string" ? url : (url as any).href;
-      (this as any).__method = method;
-      return origOpen.apply(this, arguments as any);
-    };
-
-    XMLHttpRequest.prototype.send = function (body) {
-      const url = (this as any).__url || "";
-      const method = (this as any).__method || "GET";
-      const xhr = this;
-
-      if (url.includes("/api/")) {
-        const pathname = new URL(url, window.location.origin).pathname;
-        let responseData: any = { success: true, data: null };
-        let status = 200;
-
-        if (pathname.includes("/api/auth")) {
-          if (method === "POST")
-            responseData = { success: true, token: "jwt-token" };
-          else responseData = { success: true, transaction: "challenge-xdr" };
-        } else if (pathname.includes("/api/profiles/")) {
-          const pk = pathname.split("/").pop();
-          if (method === "GET") {
-            responseData = {
-              success: true,
-              data: { ...profile, publicKey: pk },
-            };
-          } else if (method === "PATCH") {
-            const updates = JSON.parse(body as string);
-            profile = { ...profile, ...updates };
-            responseData = {
-              success: true,
-              data: { ...profile, publicKey: pk },
-            };
-          }
-        } else if (pathname.includes("/api/jobs")) {
-          responseData = { success: true, data: [] };
-        } else if (pathname.includes("/api/applications")) {
-          responseData = { success: true, data: [] };
+    try {
+      if (pathname.includes("/api/auth")) {
+        if (method === "POST") {
+          responseData = { success: true, token: "jwt-token" };
+        } else {
+          responseData = { success: true, transaction: "challenge-xdr" };
         }
-
-        setTimeout(() => {
-          Object.defineProperty(xhr, "readyState", {
-            value: 4,
-            configurable: true,
-          });
-          Object.defineProperty(xhr, "status", {
-            value: status,
-            configurable: true,
-          });
-          Object.defineProperty(xhr, "responseText", {
-            value: JSON.stringify(responseData),
-            configurable: true,
-          });
-          xhr.dispatchEvent(new Event("readystatechange"));
-          xhr.dispatchEvent(new Event("load"));
-          xhr.dispatchEvent(new Event("loadend"));
-        }, 5);
-        return;
+      } else if (/\/api\/profiles\/[^/]+$/.test(pathname)) {
+        const pk = pathname.split("/").pop() || "";
+        if (method === "GET") {
+          responseData = { success: true, data: { ...profile, publicKey: pk } };
+        } else if (method === "PATCH") {
+          const body = await req.postData();
+          const updates = body ? JSON.parse(body) : {};
+          profile = { ...profile, ...updates };
+          responseData = { success: true, data: { ...profile, publicKey: pk } };
+        }
+      } else if (pathname.includes("/api/jobs")) {
+        responseData = { success: true, data: [] };
+      } else if (pathname.includes("/api/applications")) {
+        responseData = { success: true, data: [] };
+      } else {
+        // Default fallback for other api routes
+        responseData = { success: true, data: null };
       }
+    } catch (err) {
+      status = 500;
+      responseData = { success: false, error: String(err) };
+    }
 
-      return origSend.apply(this, arguments as any);
-    };
-  }, FREELANCER_ADDRESS);
+    await route.fulfill({
+      status,
+      contentType: "application/json",
+      body: JSON.stringify(responseData),
+    });
+  });
 
+  // Keep the coingecko mock
   await page.route("https://api.coingecko.com/**", async (route) => {
     await route.fulfill({
       status: 200,
+      contentType: "application/json",
       body: JSON.stringify({ stellar: { usd: 0.12 } }),
     });
   });
@@ -143,6 +123,7 @@ test.describe("freelancer onboarding flow", () => {
     await mockFreighter(page, FREELANCER_ADDRESS);
     await installOnboardingApiMocks(page);
     await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle");
 
     // Welcome modal should be visible
     await expect(
@@ -160,6 +141,7 @@ test.describe("freelancer onboarding flow", () => {
     await mockFreighter(page, FREELANCER_ADDRESS);
     await installOnboardingApiMocks(page);
     await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle");
 
     await expect(
       page.getByRole("heading", { name: /Welcome to Stellar MarketPay/i }),
@@ -178,6 +160,7 @@ test.describe("freelancer onboarding flow", () => {
     await mockFreighter(page, FREELANCER_ADDRESS);
     await installOnboardingApiMocks(page);
     await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle");
 
     await expect(
       page.getByRole("heading", { name: /Welcome to Stellar MarketPay/i }),
@@ -479,9 +462,16 @@ test.describe("freelancer onboarding flow", () => {
     await mockFreighter(page, FREELANCER_ADDRESS);
 
     // Mock API to return complete profile
-    await page.addInitScript((publicKey) => {
-      let profile = {
-        publicKey,
+    await page.route("**/api/**", async (route) => {
+      const req = route.request();
+      const url = new URL(req.url());
+      const pathname = url.pathname;
+      const method = req.method();
+      let status = 200;
+      let responseData: any = { success: true, data: null };
+
+      const completeProfile = {
+        publicKey: FREELANCER_ADDRESS,
         displayName: "Complete User",
         bio: "This is a complete bio with more than 10 characters",
         skills: ["JavaScript", "TypeScript"],
@@ -490,70 +480,39 @@ test.describe("freelancer onboarding flow", () => {
         availability: { status: "available" },
       };
 
-      const origOpen = XMLHttpRequest.prototype.open;
-      const origSend = XMLHttpRequest.prototype.send;
-
-      XMLHttpRequest.prototype.open = function (method, url) {
-        (this as any).__url = typeof url === "string" ? url : (url as any).href;
-        (this as any).__method = method;
-        return origOpen.apply(this, arguments as any);
-      };
-
-      XMLHttpRequest.prototype.send = function (body) {
-        const url = (this as any).__url || "";
-        const method = (this as any).__method || "GET";
-        const xhr = this;
-
-        if (url.includes("/api/")) {
-          const pathname = new URL(url, window.location.origin).pathname;
-          let responseData: any = { success: true, data: null };
-
-          if (pathname.includes("/api/auth")) {
-            if (method === "POST")
-              responseData = { success: true, token: "jwt-token" };
-            else responseData = { success: true, transaction: "challenge-xdr" };
-          } else if (pathname.includes("/api/profiles/")) {
-            const pk = pathname.split("/").pop();
-            responseData = {
-              success: true,
-              data: { ...profile, publicKey: pk },
-            };
-          } else if (pathname.includes("/api/jobs")) {
-            responseData = { success: true, data: [] };
-          }
-
-          setTimeout(() => {
-            Object.defineProperty(xhr, "readyState", {
-              value: 4,
-              configurable: true,
-            });
-            Object.defineProperty(xhr, "status", {
-              value: 200,
-              configurable: true,
-            });
-            Object.defineProperty(xhr, "responseText", {
-              value: JSON.stringify(responseData),
-              configurable: true,
-            });
-            xhr.dispatchEvent(new Event("readystatechange"));
-            xhr.dispatchEvent(new Event("load"));
-            xhr.dispatchEvent(new Event("loadend"));
-          }, 10);
-          return;
+      if (pathname.includes("/api/auth")) {
+        if (method === "POST") {
+          responseData = { success: true, token: "jwt-token" };
+        } else {
+          responseData = { success: true, transaction: "challenge-xdr" };
         }
+      } else if (/\/api\/profiles\/[^/]+$/.test(pathname)) {
+        const pk = pathname.split("/").pop() || "";
+        responseData = {
+          success: true,
+          data: { ...completeProfile, publicKey: pk },
+        };
+      } else if (pathname.includes("/api/jobs")) {
+        responseData = { success: true, data: [] };
+      }
 
-        return origSend.apply(this, arguments as any);
-      };
-    }, FREELANCER_ADDRESS);
+      await route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(responseData),
+      });
+    });
 
     await page.route("https://api.coingecko.com/**", async (route) => {
       await route.fulfill({
         status: 200,
+        contentType: "application/json",
         body: JSON.stringify({ stellar: { usd: 0.12 } }),
       });
     });
 
     await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle");
 
     // Welcome modal should not appear for users with complete profiles
     await expect(
