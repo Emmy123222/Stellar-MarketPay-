@@ -345,6 +345,11 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
         </p>
       </button>
     </div>
+    <p
+      class="text-xs text-amber-700 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-4"
+    >
+      Mock mode — no real XLM will be charged.
+    </p>
     <div
       class="flex gap-3"
     >
