@@ -1,5 +1,6 @@
 /**
  * components/Navbar.tsx
+ * Top navigation bar with wallet connection, network indicator, theme/language controls, and search.
  */
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
