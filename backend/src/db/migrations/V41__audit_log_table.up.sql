@@ -1,4 +1,4 @@
--- V22: Append-only audit log for tracking all state-changing operations
+-- V41: Append-only audit log for tracking all state-changing operations
 -- Financial applications need an immutable audit trail. Every state-changing
 -- operation (job status change, escrow release, dispute filing, etc.) should
 -- be logged with before/after snapshots so that any change can be traced.
