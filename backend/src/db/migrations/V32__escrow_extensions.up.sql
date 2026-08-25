@@ -1,4 +1,4 @@
--- V19: Escrow timeout extension by mutual consent
+-- V32: Escrow timeout extension by mutual consent
 -- Tracks pending and approved on-chain extension requests
 -- so the DB stays consistent with the Soroban contract state.
 
