@@ -2,6 +2,8 @@
 
 const { WebSocket: WsClient } = require("ws");
 const jwt = require("jsonwebtoken");
+const request = require("supertest");
+const { fetchCsrf, applyCsrf } = require("../testUtils/csrfTestHelpers");
 
 const TEST_USER_1 = "GAXJ4S6F7W2K3H5N8D9P0Q2R4T6V8W1Z3X5C7V9B2N4M6P8R0T2V4X6Z8";
 const TEST_USER_2 = "GBYJ4S6F7W2K3H5N8D9P0Q2R4T6V8W1Z3X5C7V9B2N4M6P8R0T2V4X6Z9";
@@ -38,16 +40,31 @@ jest.mock("../db/pool", () => {
       if (/^SELECT \* FROM notifications WHERE user_address/i.test(text)) {
         let rows = notifications.filter((n) => n.user_address === params[0]);
         rows.sort(
-          (a, b) => new Date(b.created_at) - new Date(a.created_at) || b.id - a.id,
+          (a, b) =>
+            new Date(b.created_at) - new Date(a.created_at) || b.id - a.id,
         );
         const limit = params[params.length - 1] || 20;
         return { rows: rows.slice(0, limit) };
       }
-      if (/SELECT COUNT\(\*\)::int AS count FROM notifications WHERE user_address/i.test(text)) {
+      if (
+        /SELECT COUNT\(\*\)::int AS count FROM notifications WHERE user_address/i.test(
+          text,
+        )
+      ) {
         const count = notifications.filter(
           (n) => n.user_address === params[0] && !n.read,
         ).length;
         return { rows: [{ count }] };
+      }
+      if (/^UPDATE notifications/i.test(text)) {
+        const id = Number(params[0]);
+        const userAddress = params[1];
+        const row = notifications.find(
+          (n) => n.id === id && n.user_address === userAddress,
+        );
+        if (!row) return { rows: [] };
+        row.read = true;
+        return { rows: [{ ...row }] };
       }
       return { rows: [] };
     }),
@@ -69,9 +86,9 @@ jest.mock("../services/indexerService", () =>
   jest.fn().mockImplementation(() => ({ start: jest.fn() })),
 );
 
-jest.mock("../services/priceAlertService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn() })),
-);
+jest.mock("../services/priceAlertService", () => ({
+  PriceAlertService: jest.fn().mockImplementation(() => ({ start: jest.fn() })),
+}));
 
 jest.mock("../db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),
@@ -90,11 +107,10 @@ describe("WebSocket real-time notification delivery", () => {
 
   beforeAll(async () => {
     server = app._ws.server;
-    // bootstrap() already called server.listen() — just wait for readiness
-    await new Promise((resolve) => {
-      if (server.listening) return resolve();
-      server.once("listening", resolve);
-    });
+    // bootstrap() is skipped in NODE_ENV=test — bind an ephemeral port ourselves.
+    if (!server.listening) {
+      await new Promise((resolve) => server.listen(0, resolve));
+    }
     port = server.address().port;
   }, 10_000);
 
@@ -185,7 +201,10 @@ describe("WebSocket real-time notification delivery", () => {
     // Connect and immediately close
     const ws1 = wsConnect(TEST_USER_1);
     await waitForOpen(ws1);
-    const connectedMsg = await ws1._waitForMessage((m) => m.event === "connected", 1000);
+    const connectedMsg = await ws1._waitForMessage(
+      (m) => m.event === "connected",
+      1000,
+    );
     expect(connectedMsg.event).toBe("connected");
     ws1.close();
 
@@ -263,7 +282,7 @@ describe("WebSocket real-time notification delivery", () => {
   // ───────────────────────────────────────────────────────────────────────────
   test("TC4: rejects connection with close code 1008 if user has > 5 active connections", async () => {
     const connections = [];
-    
+
     // Open 5 connections (should succeed)
     for (let i = 0; i < 5; i++) {
       const ws = wsConnect(TEST_USER_1);
@@ -274,7 +293,7 @@ describe("WebSocket real-time notification delivery", () => {
 
     // Try to open a 6th connection (should be rejected)
     const ws6 = wsConnect(TEST_USER_1);
-    
+
     // Wait for the connection to be closed
     const closePromise = new Promise((resolve) => {
       ws6.on("close", (code, reason) => {
@@ -288,5 +307,32 @@ describe("WebSocket real-time notification delivery", () => {
 
     // Clean up all connections
     connections.forEach((ws) => ws.close());
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // CSRF + REST integration (notification read after real-time delivery)
+  // ───────────────────────────────────────────────────────────────────────────
+  test("TC5: PATCH /api/notifications/:id/read passes CSRF with JWT bearer", async () => {
+    const notification = await createInAppNotification({
+      userAddress: TEST_USER_1,
+      type: "escrow_created",
+      title: "Read via HTTP",
+      body: "Should be markable read through the REST API",
+      jobId: "job-read-1",
+      sendPush: false,
+    });
+    expect(notification).toBeTruthy();
+
+    const csrf = await fetchCsrf(app);
+    const res = await applyCsrf(
+      request(app)
+        .patch(`/api/notifications/${notification.id}/read`)
+        .set("Authorization", `Bearer ${userToken(TEST_USER_1)}`),
+      csrf,
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.read).toBe(true);
   });
 });

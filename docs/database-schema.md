@@ -718,16 +718,53 @@ Migrations follow a Flyway-style `V{n}__{description}.{up|down}.sql` naming conv
 |---------|-------------|
 | V1 | Initial schema — profiles, jobs, applications, escrows, ratings, messages |
 | V2 | Admin 2FA, job drafts |
-| V3 | Contract events, indexer state, skill certificates |
-| V4 | Developer API keys, audit trail, frozen wallets |
-| V5 | Weekly digest fields on profiles |
-| V6 | Job recommendations index, on-chain message fields |
-| V7 | Job search filter composite indexes |
-| V9 | Milestone escrow JSONB columns |
-| V10 | In-app notifications table, sealed-bid commitment columns |
-| V11 | Query optimization composite indexes |
-| V12 | Profile field encryption (pgp_sym_encrypt), full-text search, idempotency metrics |
-| V13 | `updated_at` triggers on all tables, API key rotation |
-| V14 | Normalized `job_skills` table |
+| V3 | Contract events and indexer state |
+| V4 | Skill certificates |
+| V5 | Developer API keys and audit trail |
+| V6 | Private message nonce uniqueness |
+| V7 | Weekly digest fields |
+| V8 | Job recommendations index |
+| V9 | On-chain message fields |
+| V10 | Saved searches |
+| V11 | Job search filter indexes |
+| V12 | DAO governance |
+| V13 | Milestone escrow |
+| V14 | In-app notifications |
+| V15 | Sealed bid commitments |
+| V16 | Query optimization indexes |
+| V17 | Add idempotency keys |
+| V18 | Full-text search and idempotency metrics |
+| V19 | Data archiving strategy and stored procedures |
+| V20 | Profile field encryption |
+| V21 | Full-text search additions |
+| V22 | `updated_at` triggers on all tables |
+| V23 | API key rotation |
+| V24 | Normalized `job_skills` table |
+| V25 | `jobs_skills` GIN index |
+| V26 | Status subscriptions |
+| V27 | Message attachments |
+| V28 | GDPR deletion support |
+| V29 | WebSocket event queue |
+| V30 | Job category taxonomy |
+| V31 | API key usage minute rate tracking |
+| V32 | Escrow extensions |
+| V33 | TF-IDF vocabulary |
+| V34 | Deliverable submissions |
+| V35 | Recurring escrow |
+| V36 | Job timeline |
+| V37 | Proposal templates |
+| V38 | Add GitHub username to profiles |
+| V39 | Admin user moderation and audit log |
+| V40 | App-level encryption |
+| V41 | Audit log table |
+| V42 | Contract audit log enrichment |
+| V43 | Escrow webhooks |
+| V44 | Price alerts |
+| V45 | Project assessments |
+| V46 | Soft delete jobs |
+| V47 | Time entry milestone index |
+| V48 | Missing foreign key and index optimizations |
+| V49 | NFT certificates |
 
 The schema is applied idempotently (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`). No destructive changes are made to existing data by default.
+

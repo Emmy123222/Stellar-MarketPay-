@@ -77,10 +77,10 @@ function App({ Component, pageProps }: AppProps) {
       if (authenticated) {
         setPublicKey(pk);
       } else {
-        alert("Wallet connected, but authentication failed.");
+        toast.error("Wallet connected, but authentication failed.");
       }
     } else if (error) {
-      alert(error);
+      toast.error(error);
     }
   };
 

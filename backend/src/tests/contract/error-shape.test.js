@@ -8,7 +8,8 @@
 
 beforeAll(() => {
   process.env.STELLAR_NETWORK = process.env.STELLAR_NETWORK || "testnet";
-  process.env.HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
+  process.env.HORIZON_URL =
+    process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
   process.env.PLATFORM_WALLET_ADDRESS =
     process.env.PLATFORM_WALLET_ADDRESS ||
     "GPLATFORMWALLET1234567890123456789012345678901234567890";
@@ -16,15 +17,24 @@ beforeAll(() => {
 
 jest.mock("../../db/pool", () => ({
   query: jest.fn().mockResolvedValue({ rows: [] }),
-  connect: jest.fn().mockResolvedValue({ query: jest.fn(), release: jest.fn() }),
+  connect: jest
+    .fn()
+    .mockResolvedValue({ query: jest.fn(), release: jest.fn() }),
 }));
-jest.mock("../../db/migrate", () => ({ migrate: jest.fn().mockResolvedValue(undefined) }));
+jest.mock("../../db/migrate", () => ({
+  migrate: jest.fn().mockResolvedValue(undefined),
+}));
 jest.mock("../../services/indexerService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn(), getHealth: jest.fn().mockReturnValue({ running: false }) }))
+  jest
+    .fn()
+    .mockImplementation(() => ({
+      start: jest.fn(),
+      getHealth: jest.fn().mockReturnValue({ running: false }),
+    })),
 );
-jest.mock("../../services/priceAlertService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn() }))
-);
+jest.mock("../../services/priceAlertService", () => ({
+  PriceAlertService: jest.fn().mockImplementation(() => ({ start: jest.fn() })),
+}));
 jest.mock("../../routes/notifications", () => {
   const { Router } = require("express");
   const r = Router();
@@ -83,7 +93,10 @@ describe("Error response shape", () => {
   });
 
   it("structuredErrorHandler produces flat shape", () => {
-    const { structuredErrorHandler, ErrorCodes } = require("../../utils/errors");
+    const {
+      structuredErrorHandler,
+      ErrorCodes,
+    } = require("../../utils/errors");
     const err = Object.assign(new Error("something broke"), {
       status: 422,
       code: ErrorCodes.VALIDATION_ERROR,

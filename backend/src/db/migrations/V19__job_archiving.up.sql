@@ -1,4 +1,4 @@
--- V12__job_archiving.up.sql
+-- V19__job_archiving.up.sql
 --
 -- Data Archiving Strategy for Old Completed Jobs
 --

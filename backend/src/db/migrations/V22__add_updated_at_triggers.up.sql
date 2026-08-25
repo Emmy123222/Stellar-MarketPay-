@@ -1,4 +1,4 @@
--- V13__add_updated_at_triggers.up.sql
+-- V22__add_updated_at_triggers.up.sql
 
 -- 1. Create the trigger function
 CREATE OR REPLACE FUNCTION set_updated_at()
