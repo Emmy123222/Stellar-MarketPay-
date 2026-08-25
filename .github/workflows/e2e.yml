@@ -44,6 +44,8 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+        env:
+          SKIP_API_CALLS: "true"
 
       - name: Run E2E tests (chromium)
         run: npx playwright test --project=chromium --ignore '**/visual-regression.spec.ts'
