@@ -22,8 +22,9 @@ import {
   logout,
   registerReferral,
 } from "@/lib/api";
-import { useToast } from "@/components/Toast";
+import { toast } from "@/components/Toast";
 import WalletAccountMonitor from "@/components/WalletAccountMonitor";
+import PWAInstall from "@/components/PWAInstall";
 import "@/styles/globals.css";
 import { ToastProvider } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
@@ -32,7 +33,8 @@ import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
 import OfflineBanner from "@/components/OfflineBanner";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useBackgroundSync } from "@/hooks/useBackgroundSync";
-import "../lib/i18n";
+import { appWithTranslation } from "next-i18next";
+import nextI18NextConfig from "../next-i18next.config.js";
 
 const WALLET_PUBLIC_KEY_STORAGE_KEY = "smp_wallet_public_key";
 const REF_STORAGE_KEY = "smp_referrer";
@@ -44,28 +46,147 @@ function loadStoredPublicKey(): string | null {
 
 
 function ThemeToggle() {
-  const { theme, toggleTheme } = useTheme();
+  const { theme, setTheme, toggleTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  
   useEffect(() => setMounted(true), []);
+  
+  // Listen for keyboard shortcut
+  useEffect(() => {
+    const handleThemeToggle = () => {
+      toggleTheme();
+      setShowMenu(false);
+    };
+    
+    window.addEventListener("shortcut-toggle-theme", handleThemeToggle);
+    return () => window.removeEventListener("shortcut-toggle-theme", handleThemeToggle);
+  }, [toggleTheme]);
+  
+  // Close menu when clicking outside
+  useEffect(() => {
+    if (!showMenu) return;
+    
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[role="menu"]') && !target.closest('[aria-haspopup="menu"]')) {
+        setShowMenu(false);
+      }
+    };
+    
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, [showMenu]);
+  
   if (!mounted) return null;
-  return (
-    <button
-      onClick={toggleTheme}
-      aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-      className="fixed bottom-6 left-6 z-50 w-11 h-11 rounded-full flex items-center justify-center shadow-lg border transition-colors duration-200 bg-white dark:bg-ink-800 border-gray-200 dark:border-market-500/20 text-gray-600 dark:text-amber-400 hover:border-gray-400 dark:hover:border-market-500/50"
-    >
-      {theme === "dark" ? (
+  
+  const getThemeIcon = () => {
+    if (theme === "high-contrast") {
+      return (
+        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <circle cx="12" cy="12" r="9" />
+          <path strokeLinecap="round" d="M12 3v18M3 12h18M6 6l12 12M6 18L18 6" />
+        </svg>
+      );
+    }
+    if (theme === "dark") {
+      return (
         <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
           <circle cx="12" cy="12" r="4" />
           <path strokeLinecap="round" d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
         </svg>
-      ) : (
-        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
-        </svg>
+      );
+    }
+    return (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+      </svg>
+    );
+  };
+
+  const getThemeLabel = () => {
+    if (theme === "high-contrast") return "High Contrast";
+    if (theme === "dark") return "Dark Mode";
+    return "Light Mode";
+  };
+
+  return (
+    <div className="fixed bottom-6 left-6 z-50">
+      <button
+        onClick={() => setShowMenu(!showMenu)}
+        aria-label={`Current theme: ${getThemeLabel()}. Click to change theme.`}
+        aria-expanded={showMenu}
+        aria-haspopup="menu"
+        title={`Theme: ${getThemeLabel()}`}
+        className="w-11 h-11 rounded-full flex items-center justify-center shadow-lg border-2 transition-all duration-200 bg-white dark:bg-ink-800 border-gray-300 dark:border-market-500/30 text-gray-700 dark:text-amber-400 hover:border-gray-500 dark:hover:border-market-500/60 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-market-500 focus:ring-offset-2"
+      >
+        {getThemeIcon()}
+      </button>
+
+      {showMenu && (
+        <div
+          role="menu"
+          className="absolute bottom-14 left-0 bg-white dark:bg-ink-800 border-2 border-gray-300 dark:border-market-500/30 rounded-xl shadow-xl overflow-hidden animate-scale-in min-w-[180px]"
+        >
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTheme("light");
+              setShowMenu(false);
+            }}
+            className={`w-full px-4 py-3 text-left text-sm font-medium transition-colors flex items-center gap-3 hover:bg-gray-100 dark:hover:bg-ink-700 ${
+              theme === "light" ? "bg-gray-100 dark:bg-ink-700 text-market-600 dark:text-market-400" : "text-gray-700 dark:text-amber-200"
+            }`}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+            </svg>
+            Light Mode
+            {theme === "light" && <span className="ml-auto text-xs">✓</span>}
+          </button>
+
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTheme("dark");
+              setShowMenu(false);
+            }}
+            className={`w-full px-4 py-3 text-left text-sm font-medium transition-colors flex items-center gap-3 hover:bg-gray-100 dark:hover:bg-ink-700 ${
+              theme === "dark" ? "bg-gray-100 dark:bg-ink-700 text-market-600 dark:text-market-400" : "text-gray-700 dark:text-amber-200"
+            }`}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+              <circle cx="12" cy="12" r="4" />
+              <path strokeLinecap="round" d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+            </svg>
+            Dark Mode
+            {theme === "dark" && <span className="ml-auto text-xs">✓</span>}
+          </button>
+
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTheme("high-contrast");
+              setShowMenu(false);
+            }}
+            className={`w-full px-4 py-3 text-left text-sm font-medium transition-colors flex items-center gap-3 hover:bg-gray-100 dark:hover:bg-ink-700 ${
+              theme === "high-contrast" ? "bg-gray-100 dark:bg-ink-700 text-market-600 dark:text-market-400" : "text-gray-700 dark:text-amber-200"
+            }`}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <circle cx="12" cy="12" r="9" />
+              <path strokeLinecap="round" d="M12 3v18M3 12h18" />
+            </svg>
+            High Contrast
+            {theme === "high-contrast" && <span className="ml-auto text-xs">✓</span>}
+          </button>
+
+          <div className="px-4 py-2 text-xs text-gray-500 dark:text-amber-900 border-t border-gray-200 dark:border-market-500/20">
+            <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-ink-700 rounded text-xs">Shift</kbd> + <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-ink-700 rounded text-xs">T</kbd> to cycle
+          </div>
+        </div>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -114,6 +235,11 @@ function App({ Component, pageProps }: AppProps) {
     setShortcutsModalOpen((current) => !current);
   }, []);
 
+  const handleToggleTheme = useCallback(() => {
+    // This will be called from keyboard shortcut - we need to access ThemeContext
+    window.dispatchEvent(new CustomEvent("shortcut-toggle-theme"));
+  }, []);
+
   useKeyboardShortcuts({
     onGoToJobs: () => router.push("/jobs"),
     onGoToDashboard: () => router.push("/dashboard"),
@@ -124,6 +250,7 @@ function App({ Component, pageProps }: AppProps) {
     onToggleBookmark: () =>
       window.dispatchEvent(new CustomEvent("shortcut-toggle-bookmark")),
     onOpenCommandPalette: () => setCommandPaletteOpen(true),
+    onToggleTheme: handleToggleTheme,
     shortcutsModalOpen,
   });
 
@@ -223,10 +350,10 @@ function App({ Component, pageProps }: AppProps) {
         persistPublicKey(pk);
         await maybeRegisterReferral(pk);
       } else {
-        alert("Wallet connected, but authentication failed.");
+        toast.error("Wallet connected, but authentication failed.");
       }
     } else if (error) {
-      alert(error);
+      toast.error(error);
     }
   };
 
@@ -236,6 +363,12 @@ function App({ Component, pageProps }: AppProps) {
 
   return (
     <>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[100] focus:rounded-lg focus:bg-market-500 focus:px-4 focus:py-2 focus:font-semibold focus:text-ink-900 focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
       {/*
        * Non-critical third-party scripts — loaded after the page is interactive
        * so they don't block TTI. Add any analytics, widgets, or tracking scripts
@@ -272,7 +405,7 @@ function App({ Component, pageProps }: AppProps) {
             <div className="min-h-screen bg-lines" style={{ backgroundColor: "var(--bg)" }}>
               <Navbar publicKey={publicKey} onConnect={handleConnect} onDisconnect={() => setPublicKey(null)} />
               <MobileTabBar publicKey={publicKey} />
-              <main>
+              <main id="main-content">
                 <Component {...pageProps} publicKey={publicKey} onConnect={handleConnect} />
               </main>
               {publicKey && <FaucetButton publicKey={publicKey} />}
@@ -284,6 +417,7 @@ function App({ Component, pageProps }: AppProps) {
                 onClose={() => setShortcutsModalOpen(false)}
                 showJobDetailShortcuts={isJobDetailPage}
               />
+              <PWAInstall />
             </div>
           </PriceProvider>
         </ToastProvider>
@@ -292,4 +426,4 @@ function App({ Component, pageProps }: AppProps) {
   );
 }
 
-export default App;
+export default appWithTranslation(App, nextI18NextConfig);

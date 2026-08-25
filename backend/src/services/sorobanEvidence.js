@@ -26,6 +26,7 @@ const {
   Address,
   Networks,
   rpc,
+  xdr,
 } = require("@stellar/stellar-sdk");
 const pool = require("../db/pool");
 

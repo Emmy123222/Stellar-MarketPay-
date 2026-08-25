@@ -33,24 +33,27 @@ beforeAll(() => {
 
 jest.mock("../../db/pool", () => {
   const mockQuery = jest.fn().mockResolvedValue({ rows: [] });
-  return {
+  const mock = {
     query: mockQuery,
     connect: jest.fn().mockResolvedValue({
       query: mockQuery,
       release: jest.fn(),
     }),
   };
+  mock.readPool = { query: mockQuery };
+  mock.writePool = mock;
+  return mock;
 });
 
 jest.mock("../../services/indexerService", () =>
   jest.fn().mockImplementation(() => ({
     start: jest.fn(),
     getHealth: jest.fn().mockReturnValue({ running: false, synced: false }),
-  }))
+  })),
 );
 
 jest.mock("../../services/priceAlertService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn() }))
+  jest.fn().mockImplementation(() => ({ start: jest.fn() })),
 );
 
 jest.mock("../../db/migrate", () => ({
@@ -81,7 +84,10 @@ const express = require("express");
 const request = require("supertest");
 const jwt = require("jsonwebtoken");
 const { Utils } = require("@stellar/stellar-sdk");
-const { assertContract, validateContract } = require("../../testUtils/contractValidator");
+const {
+  assertContract,
+  validateContract,
+} = require("../../testUtils/contractValidator");
 
 const app = require("../../server");
 const pool = require("../../db/pool");
@@ -94,6 +100,11 @@ const FAKE_CLIENT_KEY = "G" + "B".repeat(55);
 const FAKE_JOB_ID = "11111111-1111-1111-1111-111111111111";
 const FAKE_APP_ID = "22222222-2222-2222-2222-222222222222";
 const FAKE_CHALLENGE_XDR = "AAAAAFakeChallengeTransactionXDRBase64Encoded==";
+const CSRF_TOKEN = "test-csrf-token";
+const CSRF_HEADERS = {
+  Cookie: `csrf-token=${CSRF_TOKEN}`,
+  "X-CSRF-Token": CSRF_TOKEN,
+};
 const FAKE_SIGNED_XDR = "AAAAAFakeSignedChallengeTransactionXDRBase64Signed==";
 // Proposal must be at least 50 characters per application service validation
 const LONG_PROPOSAL =
@@ -107,11 +118,11 @@ function buildJobRow(overrides = {}) {
     title: "Build a Smart Contract on Stellar Network",
     description:
       "Looking for an experienced developer to build a dApp on Stellar with Soroban contracts.",
-    budget: 500,          // number — matches spec: { type: number }
+    budget: 500, // number — matches spec: { type: number }
     currency: "XLM",
     category: "Smart Contracts",
     skills: [],
-    status: "open",       // valid spec enum value
+    status: "open", // valid spec enum value
     client_address: undefined, // undefined → omitted from JSON → enrichJobsWithClientReputation skips reputation lookup
     freelancer_address: null,
     escrow_contract_id: null,
@@ -136,9 +147,9 @@ function buildApplicationRow(overrides = {}) {
     job_id: FAKE_JOB_ID,
     freelancer_address: FAKE_FREELANCER_KEY,
     proposal: LONG_PROPOSAL,
-    bid_amount: 450,      // number — matches spec: { type: number }
+    bid_amount: 450, // number — matches spec: { type: number }
     currency: "XLM",
-    status: "pending",    // valid spec enum value
+    status: "pending", // valid spec enum value
     screening_answers: {},
     bid_commitment: null,
     bid_revealed: false,
@@ -175,23 +186,28 @@ describe("Contract Validator — self-check", () => {
   it("throws on unknown path", () => {
     const { getResponseSchema } = require("../../testUtils/contractValidator");
     expect(() => getResponseSchema("/api/nonexistent", "get", 200)).toThrow(
-      /No OpenAPI spec for path/
+      /No OpenAPI spec for path/,
     );
   });
 
   it("throws on unknown method", () => {
     const { getResponseSchema } = require("../../testUtils/contractValidator");
     expect(() => getResponseSchema("/api/jobs", "delete", 200)).toThrow(
-      /No spec for DELETE/
+      /No spec for DELETE/,
     );
   });
 
   it("detects a tampered response shape — validates contract violation", () => {
     const tamperedBody = {
       success: "yes-this-is-a-string-not-a-boolean", // spec: boolean
-      data: "not-an-array",                           // spec: array
+      data: "not-an-array", // spec: array
     };
-    const { valid, errors } = validateContract("/api/jobs", "get", 200, tamperedBody);
+    const { valid, errors } = validateContract(
+      "/api/jobs",
+      "get",
+      200,
+      tamperedBody,
+    );
     expect(valid).toBe(false);
     expect(errors.length).toBeGreaterThan(0);
   });
@@ -350,13 +366,14 @@ describe("POST /api/jobs — create job", () => {
   const VALID_TOKEN = jwt.sign(
     { publicKey: FAKE_CLIENT_KEY },
     process.env.JWT_SECRET,
-    { expiresIn: "1h" }
+    { expiresIn: "1h" },
   );
 
   const VALID_JOB_BODY = {
-    clientAddress: FAKE_CLIENT_KEY,   // must match JWT publicKey
+    clientAddress: FAKE_CLIENT_KEY, // must match JWT publicKey
     title: "Build a Soroban Smart Contract",
-    description: "Looking for an experienced Stellar developer to build Soroban contracts for a DeFi project.",
+    description:
+      "Looking for an experienced Stellar developer to build Soroban contracts for a DeFi project.",
     budget: 500,
     currency: "XLM",
     category: "Smart Contracts",
@@ -378,6 +395,7 @@ describe("POST /api/jobs — create job", () => {
     const res = await request(app)
       .post("/api/jobs")
       .set("Authorization", `Bearer ${VALID_TOKEN}`)
+      .set(CSRF_HEADERS)
       .send(VALID_JOB_BODY);
 
     expect(res.status).toBe(201);
@@ -389,6 +407,7 @@ describe("POST /api/jobs — create job", () => {
     const res = await request(app)
       .post("/api/jobs")
       .set("Authorization", `Bearer ${VALID_TOKEN}`)
+      .set(CSRF_HEADERS)
       .send({ ...VALID_JOB_BODY, title: "Short" }); // < 10 chars → 400
 
     expect(res.status).toBe(400);
@@ -399,6 +418,7 @@ describe("POST /api/jobs — create job", () => {
   it("401 — error shape matches OpenAPI contract (no Authorization header)", async () => {
     const res = await request(app)
       .post("/api/jobs")
+      .set(CSRF_HEADERS)
       .send(VALID_JOB_BODY);
 
     expect(res.status).toBe(401);
@@ -410,6 +430,7 @@ describe("POST /api/jobs — create job", () => {
     const res = await request(app)
       .post("/api/jobs")
       .set("Authorization", "Bearer invalid.jwt.token")
+      .set(CSRF_HEADERS)
       .send(VALID_JOB_BODY);
 
     expect(res.status).toBe(401);
@@ -433,9 +454,7 @@ describe("GET /api/applications/job/:jobId", () => {
   });
 
   it("200 — response shape matches OpenAPI contract", async () => {
-    const res = await request(app).get(
-      `/api/applications/job/${FAKE_JOB_ID}`
-    );
+    const res = await request(app).get(`/api/applications/job/${FAKE_JOB_ID}`);
 
     expect(res.status).toBe(200);
     assertContract("/api/applications/job/{jobId}", "get", 200, res.body);
@@ -450,7 +469,7 @@ describe("GET /api/applications/job/:jobId", () => {
       "/api/applications/job/{jobId}",
       "get",
       404,
-      { error: "Job not found" }
+      { error: "Job not found" },
     );
     expect(valid).toBe(true);
   });
@@ -467,7 +486,7 @@ describe("POST /api/applications — submit application", () => {
   //  5. notification    → INSERT INTO notifications … RETURNING *
   function mockSubmitApplicationQueries() {
     pool.query.mockImplementation(async (sql) => {
-      if (sql === "SELECT * FROM jobs WHERE id = $1") {
+      if (sql.includes("FROM jobs WHERE id = $1")) {
         return { rows: [buildJobRow({ client_address: FAKE_CLIENT_KEY })] };
       }
       if (sql.includes("blocked_addresses")) {
@@ -494,6 +513,7 @@ describe("POST /api/applications — submit application", () => {
   it("201 — response shape matches OpenAPI contract", async () => {
     const res = await request(app)
       .post("/api/applications")
+      .set(CSRF_HEADERS)
       .send({
         jobId: FAKE_JOB_ID,
         freelancerAddress: FAKE_FREELANCER_KEY, // implementation uses freelancerAddress (not freelancerId)
@@ -509,6 +529,7 @@ describe("POST /api/applications — submit application", () => {
   it("400 — error shape matches OpenAPI contract (missing required fields)", async () => {
     const res = await request(app)
       .post("/api/applications")
+      .set(CSRF_HEADERS)
       .send({ jobId: FAKE_JOB_ID }); // missing freelancerAddress, proposal, bidAmount
 
     expect(res.status).toBe(400);
@@ -519,10 +540,11 @@ describe("POST /api/applications — submit application", () => {
   it("400 — error shape matches OpenAPI contract (proposal too short)", async () => {
     const res = await request(app)
       .post("/api/applications")
+      .set(CSRF_HEADERS)
       .send({
         jobId: FAKE_JOB_ID,
         freelancerAddress: FAKE_FREELANCER_KEY,
-        proposal: "Too short.",    // < 50 chars → service returns 400
+        proposal: "Too short.", // < 50 chars → service returns 400
         bidAmount: 450,
       });
 
@@ -532,7 +554,7 @@ describe("POST /api/applications — submit application", () => {
 
   it("409 — error shape matches OpenAPI contract (duplicate application)", async () => {
     pool.query.mockImplementation(async (sql) => {
-      if (sql === "SELECT * FROM jobs WHERE id = $1") {
+      if (sql.includes("FROM jobs WHERE id = $1")) {
         return { rows: [buildJobRow({ client_address: FAKE_CLIENT_KEY })] };
       }
       if (sql.includes("blocked_addresses")) {
@@ -548,6 +570,7 @@ describe("POST /api/applications — submit application", () => {
 
     const res = await request(app)
       .post("/api/applications")
+      .set(CSRF_HEADERS)
       .send({
         jobId: FAKE_JOB_ID,
         freelancerAddress: FAKE_FREELANCER_KEY,
@@ -566,11 +589,16 @@ describe("POST /api/applications — submit application", () => {
 describe("Tampered shape — CI failure guard", () => {
   it("fails validation when required fields have the wrong types", () => {
     const tampered = {
-      success: 42,        // spec: boolean
-      data: "not-array",  // spec: array
-      nextCursor: 999,    // spec: string | null
+      success: 42, // spec: boolean
+      data: "not-array", // spec: array
+      nextCursor: 999, // spec: string | null
     };
-    const { valid, errors } = validateContract("/api/jobs", "get", 200, tampered);
+    const { valid, errors } = validateContract(
+      "/api/jobs",
+      "get",
+      200,
+      tampered,
+    );
     expect(valid).toBe(false);
     expect(errors.length).toBeGreaterThan(0);
   });
@@ -587,7 +615,10 @@ describe("Tampered shape — CI failure guard", () => {
 
   it("assertContract throws a descriptive Contract violation message", () => {
     expect(() =>
-      assertContract("/api/jobs", "get", 200, { success: "wrong-type", data: [] })
+      assertContract("/api/jobs", "get", 200, {
+        success: "wrong-type",
+        data: [],
+      }),
     ).toThrow(/Contract violation/);
   });
 
@@ -600,7 +631,9 @@ describe("Tampered shape — CI failure guard", () => {
     }
     expect(caughtError).not.toBeNull();
     // Endpoint identity must appear in the header line
-    expect(caughtError.message).toMatch(/Contract violation \[GET \/api\/jobs\] status 200/);
+    expect(caughtError.message).toMatch(
+      /Contract violation \[GET \/api\/jobs\] status 200/,
+    );
     // Field-level detail: instancePath + AJV message for the offending property
     expect(caughtError.message).toMatch(/\/success.*boolean/);
   });
@@ -612,7 +645,7 @@ describe("Tampered shape — CI failure guard", () => {
       nextCursor: null,
     };
     expect(() =>
-      assertContract("/api/jobs", "get", 200, conformant)
+      assertContract("/api/jobs", "get", 200, conformant),
     ).not.toThrow();
   });
 });

@@ -4,7 +4,10 @@
 "use strict";
 const express = require("express");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
-const { ensureAdminProfile, get2FAStatus } = require("../services/twoFactorService");
+const {
+  ensureAdminProfile,
+  get2FAStatus,
+} = require("../services/twoFactorService");
 const pool = require("../db/pool");
 const {
   clearAuthCookies,
@@ -15,13 +18,20 @@ const {
   setAuthCookies,
 } = require("../services/authTokens");
 const { generateCsrfToken } = require("../middleware/csrf");
+const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const router = express.Router();
+
+// Strict limit on authentication attempts: 10 per 15 minutes per IP
+const authWriteRateLimiter = createRateLimiter(10, 15, { name: "auth-write" });
+// Looser limit on read-only auth endpoints: 100 per minute per IP
+const authReadRateLimiter = createRateLimiter(100, 1, { name: "auth-read" });
 
 let cachedServerKeypair = null;
 function getServerKeypair() {
   if (!cachedServerKeypair) {
-    const serverPrivateKey = process.env.SERVER_PRIVATE_KEY || Keypair.random().secret();
+    const serverPrivateKey =
+      process.env.SERVER_PRIVATE_KEY || Keypair.random().secret();
     cachedServerKeypair = Keypair.fromSecret(serverPrivateKey);
   }
   return cachedServerKeypair;
@@ -58,7 +68,7 @@ function resolvePassphrase(network) {
  *                   type: string
  *                   description: Token the client must echo in `X-CSRF-Token`
  */
-router.get("/csrf-token", (req, res) => {
+router.get("/csrf-token", authReadRateLimiter, (req, res) => {
   const csrfToken = generateCsrfToken(req, res);
   res.json({ csrfToken });
 });
@@ -95,7 +105,7 @@ router.get("/csrf-token", (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get("/", (req, res) => {
+router.get("/", (req, res, next) => {
   try {
     const accountId = req.query.account;
     if (!accountId) {
@@ -110,12 +120,12 @@ router.get("/", (req, res) => {
       accountId,
       HOME_DOMAIN,
       300, // 5 minutes timeout
-      networkPassphrase
+      networkPassphrase,
     );
 
     res.json({ transaction: challenge, network });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    next(e);
   }
 });
 
@@ -165,11 +175,13 @@ router.get("/", (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post("/", async (req, res) => {
+router.post("/", async (req, res, next) => {
   try {
     const { transaction, network: reqNetwork } = req.body;
     if (!transaction) {
-      return res.status(400).json({ error: "Missing transaction in request body" });
+      return res
+        .status(400)
+        .json({ error: "Missing transaction in request body" });
     }
     const network = reqNetwork === "mainnet" ? "mainnet" : "testnet";
     const networkPassphrase = resolvePassphrase(network);
@@ -180,7 +192,7 @@ router.post("/", async (req, res) => {
       serverKeypair.publicKey(),
       networkPassphrase,
       HOME_DOMAIN,
-      ""
+      "",
     );
 
     const adminAddresses = (process.env.ADMIN_WALLET_ADDRESSES || "")
@@ -203,7 +215,7 @@ router.post("/", async (req, res) => {
     try {
       await pool.query(
         `UPDATE profiles SET last_login_at = NOW() WHERE public_key = $1`,
-        [accountId]
+        [accountId],
       );
     } catch (stampErr) {
       // Non-fatal: log and continue issuing the token
@@ -211,27 +223,36 @@ router.post("/", async (req, res) => {
     }
 
     const { accessToken, refreshToken, csrfToken } = issueTokenPair(payload);
-    setAuthCookies(res, accessToken, refreshToken, csrfToken);
+    setAuthCookies(res, accessToken, refreshToken);
     res.json({ success: true, token: accessToken, csrfToken });
   } catch (e) {
-    res.status(401).json({ error: "Unauthorized: " + e.message });
+    const err = Object.assign(new Error("Unauthorized: " + e.message), {
+      status: 401,
+    });
+    next(err);
   }
 });
 
-router.post("/refresh", (req, res) => {
+router.post("/refresh", authWriteRateLimiter, (req, res) => {
   const refreshToken = getRefreshTokenFromRequest(req);
   const rotated = rotateRefreshToken(refreshToken);
 
   if (!rotated) {
     clearAuthCookies(res);
-    return res.status(401).json({ error: "Unauthorized: Invalid refresh token" });
+    return res
+      .status(401)
+      .json({ error: "Unauthorized: Invalid refresh token" });
   }
 
-  setAuthCookies(res, rotated.accessToken, rotated.refreshToken, rotated.csrfToken);
-  return res.json({ success: true, token: rotated.accessToken, csrfToken: rotated.csrfToken });
+  setAuthCookies(res, rotated.accessToken, rotated.refreshToken);
+  return res.json({
+    success: true,
+    token: rotated.accessToken,
+    csrfToken: rotated.csrfToken,
+  });
 });
 
-router.post("/logout", (req, res) => {
+router.post("/logout", authWriteRateLimiter, (req, res) => {
   revokeRefreshToken(getRefreshTokenFromRequest(req));
   clearAuthCookies(res);
   res.json({ success: true });

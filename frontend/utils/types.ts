@@ -63,6 +63,8 @@ export interface Job {
   visibility?: JobVisibility;
   skills: string[];
   status: JobStatus;
+  /** URL-safe category slug, used for category filter links. */
+  categorySlug?: string;
   clientAddress: string;
   freelancerAddress?: string;
   escrowContractId?: string;
@@ -193,6 +195,17 @@ export interface PriceAlertPreference {
   last_max_alert_at?: string | null;
 }
 
+export interface PriceAlert {
+  id: string;
+  userAddress: string;
+  condition: "above" | "below";
+  threshold: number;
+  oneTime: boolean;
+  triggered: boolean;
+  triggeredAt: string | null;
+  createdAt: string;
+}
+
 export interface ClientSpendingFreelancer {
   freelancerAddress: string;
   jobsCount: number;
@@ -249,6 +262,8 @@ export interface Message {
 
 export interface PortfolioFile {
   cid: string;
+  /** Gateway URL for the pinned file, when the API supplies one. */
+  url?: string;
   fileName: string;
   mimeType: string;
   size: number;
@@ -330,6 +345,7 @@ export interface TimeEntry {
   jobId: string;
   durationMinutes: number;
   description?: string;
+  milestoneIndex?: number | null;
   startedAt?: string;
   createdAt: string;
 }
@@ -368,6 +384,23 @@ export interface JobAnalytics {
   timeToHire?: number | null;
 }
 
+// ─── Job Timeline (Issue #876) ────────────────────────────────────────────────
+
+export type TimelineEventType =
+  | "job_posted"
+  | "bid_accepted"
+  | "escrow_funded"
+  | "work_completed"
+  | "escrow_released";
+
+export interface TimelineEvent {
+  id: string;
+  jobId: string;
+  eventType: TimelineEventType;
+  txHash: string | null;
+  createdAt: string;
+}
+
 // ─── Bulk Actions ────────────────────────────────────────────────────────────
 
 export interface BulkActionResponse {
@@ -402,5 +435,13 @@ export interface AuditLogEntry {
   resource: string;
   timestamp: string;
   changesDiff?: Record<string, any>;
+}
+
+// ─── Passkeys (WebAuthn) ────────────────────────────────────────────────────
+
+export interface PasskeyCredential {
+  id: string;
+  credential_name: string;
+  created_at: string;
 }
 

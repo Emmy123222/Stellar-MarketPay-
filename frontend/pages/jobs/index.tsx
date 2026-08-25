@@ -101,6 +101,14 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+
+  // Sync search state from URL when JobFiltersPanel updates the search query param
+  useEffect(() => {
+    if (router.isReady) {
+      const urlSearch = (router.query.search as string) || "";
+      setSearch(urlSearch);
+    }
+  }, [router.query.search, router.isReady]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   // Mirrors `nextCursor` synchronously (state updates are async/batched, so a
   // value read from `nextCursor` inside a callback that resumes after an
@@ -247,6 +255,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
 
   const pageFromQuery = Math.max(1, Number(router.query.page) || 1);
   const filterQuery: JobFilterQuery = {
+    search: (router.query.search as string) || undefined,
     minBudget: minBudget || undefined,
     maxBudget: maxBudget || undefined,
     skills: (router.query.skills as string) || undefined,
@@ -788,7 +797,16 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
                     return (
                       <div
                         key={`${s.type}-${s.value}`}
+                        role="option"
+                        tabIndex={-1}
+                        aria-selected={globalIdx === activeSuggestion}
                         onClick={() => handleSuggestionClick(s)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            handleSuggestionClick(s);
+                          }
+                        }}
                         className={clsx(
                           "px-4 py-2 text-sm cursor-pointer flex items-center gap-2",
                           globalIdx === activeSuggestion ? "bg-market-500/20 text-market-300" : "text-amber-100 hover:bg-market-500/10"
@@ -826,7 +844,12 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
       {/* Mobile filter overlay */}
       {showMobileFilters && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-ink-950/80 backdrop-blur-sm" onClick={() => setShowMobileFilters(false)} />
+          <button
+            type="button"
+            aria-label="Close filters"
+            className="absolute inset-0 w-full bg-ink-950/80 backdrop-blur-sm cursor-default"
+            onClick={() => setShowMobileFilters(false)}
+          />
           <div className="absolute bottom-0 left-0 right-0 max-h-[80vh] overflow-y-auto bg-ink-900 border-t border-market-500/20 rounded-t-2xl p-6 space-y-6 animate-slide-up">
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-display text-lg font-bold text-amber-100">Filters</h3>
@@ -1165,11 +1188,14 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
               onCta={() => window.location.reload()}
             />
           ) : filtered.length === 0 ? (
-            <div className="card text-center py-16 border border-amber-500 bg-amber-500/10">
-              <h2 className="font-display text-xl mb-2 text-amber-100">No jobs found</h2>
-              <p className="text-sm text-amber-800 mb-6 max-w-xs mx-auto">No jobs are currently available.</p>
-              <Link href="/post-job" className="btn-primary text-sm">Post the first job</Link>
-            </div>
+            <StateMessage
+              type="empty"
+              illustration="no-jobs"
+              title="No jobs found"
+              description="No jobs are currently available. Be the first to post one."
+              ctaLabel="Post the first job"
+              onCta={() => router.push('/post-job')}
+            />
           ) : (
             <div ref={parentRef} className="w-full">
               <div

@@ -8,6 +8,7 @@ import {
 } from "@/lib/api";
 import { timeAgo } from "@/utils/format";
 import type { NotificationItem } from "@/utils/types";
+import { mutate } from "swr";
 
 interface NotificationBellProps {
   publicKey: string;
@@ -78,9 +79,10 @@ export default function NotificationBell({ publicKey }: NotificationBellProps) {
   }
 
   async function handleMarkAllRead() {
-    await markAllNotificationsRead();
     setNotifications((items) => items.map((item) => ({ ...item, read: true })));
     setUnreadCount(0);
+    mutate("/api/notifications/unread-count", { unreadCount: 0 }, { revalidate: true });
+    await markAllNotificationsRead();
   }
 
   return (

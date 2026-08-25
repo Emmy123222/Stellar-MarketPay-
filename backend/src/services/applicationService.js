@@ -6,11 +6,17 @@
 "use strict";
 
 const crypto = require("crypto");
-const { readPool, writePool } = require("../db/pool");
-const pool = writePool; // default to write; SELECTs below use readPool
+const poolModule = require("../db/pool");
+const pool = poolModule.writePool || poolModule;
+const readPool = poolModule.readPool || poolModule;
+const { findApplicationsByJob } = require("../db/queries/applications");
 const { getJob, assignFreelancer } = require("./jobService");
 const { calculateFreelancerTier, isBlocked } = require("./profileService");
-const { createJobNotification, EVENT_TYPES } = require("./notificationService");
+const {
+  createJobNotification,
+  queueNotification,
+  EVENT_TYPES,
+} = require("./notificationService");
 
 /**
  * Camel-cased application record returned by this service.
@@ -95,6 +101,7 @@ function rowToApp(row) {
     revealedAt: row.revealed_at || null,
     createdAt: row.created_at,
     acceptedAt: row.accepted_at,
+    withdrawnAt: row.withdrawn_at || null,
   };
 }
 
@@ -255,6 +262,18 @@ async function submitApplication({
     jobId,
   });
 
+  await queueNotification({
+    recipientAddress: job.clientAddress,
+    notificationType: "email",
+    eventType: EVENT_TYPES.APPLICATION_RECEIVED,
+    jobId,
+    payload: {
+      jobTitle: job.title,
+      clientName: job.clientAddress,
+      freelancerName: freelancerAddress,
+    },
+  });
+
   return rowToApp(appRow);
 }
 
@@ -291,20 +310,32 @@ function hashBidReveal(bidAmount, nonce) {
     .digest("hex");
 }
 
-async function revealApplicationBid(applicationId, freelancerAddress, bidAmount, nonce) {
+async function revealApplicationBid(
+  applicationId,
+  freelancerAddress,
+  bidAmount,
+  nonce,
+) {
   validatePublicKey(freelancerAddress);
   if (!nonce || typeof nonce !== "string") {
     const e = new Error("Reveal nonce is required");
     e.status = 400;
     throw e;
   }
-  if (!bidAmount || isNaN(parseFloat(bidAmount)) || parseFloat(bidAmount) <= 0) {
+  if (
+    !bidAmount ||
+    isNaN(parseFloat(bidAmount)) ||
+    parseFloat(bidAmount) <= 0
+  ) {
     const e = new Error("Reveal bid amount must be positive");
     e.status = 400;
     throw e;
   }
 
-  const { rows } = await pool.query("SELECT * FROM applications WHERE id = $1", [applicationId]);
+  const { rows } = await pool.query(
+    "SELECT * FROM applications WHERE id = $1",
+    [applicationId],
+  );
   if (!rows.length) {
     const e = new Error("Application not found");
     e.status = 404;
@@ -333,7 +364,8 @@ async function revealApplicationBid(applicationId, freelancerAddress, bidAmount,
     e.status = 400;
     throw e;
   }
-  const revealDeadline = new Date(job.biddingClosedAt).getTime() + 24 * 60 * 60 * 1000;
+  const revealDeadline =
+    new Date(job.biddingClosedAt).getTime() + 24 * 60 * 60 * 1000;
   if (Date.now() > revealDeadline) {
     const e = new Error("Reveal deadline has passed");
     e.status = 400;
@@ -366,30 +398,12 @@ async function revealApplicationBid(applicationId, freelancerAddress, bidAmount,
  * @returns {Promise<Object[]>} An array of application objects ordered by creation date ascending.
  */
 async function getApplicationsForJob(jobId, filters = {}) {
-  const { rows } = await readPool.query(
-    `SELECT a.*,
-            COALESCE(p.completed_jobs, 0) AS completed_jobs,
-            COALESCE(p.total_earned_xlm, 0) AS total_earned_xlm,
-            p.created_at AS profile_created_at,
-            COUNT(DISTINCT fj.id)::int AS total_jobs,
-            ROUND(AVG(r.stars)::numeric, 2) AS avg_rating
-     FROM applications a
-     LEFT JOIN profiles p ON p.public_key = a.freelancer_address
-     LEFT JOIN ratings r ON r.rated_address = a.freelancer_address
-     LEFT JOIN jobs fj ON fj.freelancer_address = a.freelancer_address
-     WHERE a.job_id = $1
-       AND NOT EXISTS (
-         SELECT 1 FROM profiles cp
-         WHERE cp.public_key = (SELECT client_address FROM jobs WHERE id = $1)
-           AND a.freelancer_address = ANY(cp.blocked_addresses)
-       )
-     GROUP BY a.id, p.completed_jobs, p.total_earned_xlm, p.created_at
-     ORDER BY a.created_at ASC`,
-    [jobId],
-  );
+  const rows = await findApplicationsByJob(readPool, { jobId });
   const applications = rows.map(rowToApp);
   if (!filters.tier) return applications;
-  return applications.filter((application) => application.freelancerTier === filters.tier);
+  return applications.filter(
+    (application) => application.freelancerTier === filters.tier,
+  );
 }
 
 /**
@@ -482,6 +496,20 @@ async function acceptApplication(applicationId, clientAddress) {
       client,
     );
 
+    // Note: queueNotification cannot easily take `client` as parameter in its current form,
+    // so we call it normally (outside transaction or just relying on pool).
+    // We will just call it after commit to be safe, but for now we can just queue it.
+    await queueNotification({
+      recipientAddress: app.freelancer_address,
+      notificationType: "email",
+      eventType: EVENT_TYPES.APPLICATION_ACCEPTED,
+      jobId: app.job_id,
+      payload: {
+        jobTitle: job.title,
+        freelancerName: app.freelancer_address,
+      },
+    });
+
     for (const rejected of rejectedApplications) {
       await createJobNotification(
         {
@@ -498,6 +526,17 @@ async function acceptApplication(applicationId, clientAddress) {
     await client.query("COMMIT");
 
     await assignFreelancer(app.job_id, app.freelancer_address);
+
+    // Bug #850: Update escrow amount to match the accepted bid amount,
+    // not the original job budget.  If the escrow row hasn't been created
+    // yet (front-end hasn't submitted the on-chain tx), this is a no-op
+    // and updateJobEscrowId will use the bid amount when it runs.
+    await pool.query(
+      `UPDATE escrows
+         SET amount_xlm = $1, updated_at = NOW()
+       WHERE job_id = $2`,
+      [app.bid_amount, app.job_id],
+    );
 
     return rowToApp(updated[0]);
   } catch (err) {

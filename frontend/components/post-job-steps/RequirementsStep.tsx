@@ -28,8 +28,8 @@ export default function RequirementsStep({
   return (
     <div className="space-y-5">
       <div className="relative">
-        <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Required Skills</label>
-        <input
+        <label htmlFor="required-skills" className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Required Skills</label>
+        <input id="required-skills"
           name="skills"
           value={form.skills}
           onChange={onChange}
@@ -40,15 +40,28 @@ export default function RequirementsStep({
         {showSuggestions && suggestions.length > 0 && (
           <ul className="absolute z-10 w-full mt-1 bg-white dark:bg-ink-800 border border-gray-200 dark:border-market-500/20 rounded-xl shadow-lg max-h-40 overflow-y-auto">
             {suggestions.map((s) => (
-              <li key={s} onClick={() => onSelectSkill(s)} className="px-4 py-2 text-sm text-gray-900 dark:text-amber-100 cursor-pointer hover:bg-market-500/10">{s}</li>
+              <li
+                key={s}
+                role="option"
+                tabIndex={-1}
+                aria-selected={false}
+                onClick={() => onSelectSkill(s)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelectSkill(s);
+                  }
+                }}
+                className="px-4 py-2 text-sm text-gray-900 dark:text-amber-100 cursor-pointer hover:bg-market-500/10"
+              >{s}</li>
             ))}
           </ul>
         )}
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Deadline</label>
-        <input
+        <label htmlFor="deadline" className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Deadline</label>
+        <input id="deadline"
           name="deadline"
           type="date"
           value={form.deadline}
@@ -60,20 +73,27 @@ export default function RequirementsStep({
 
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className="text-sm font-medium text-gray-700 dark:text-amber-300">Screening Questions</label>
+          <label htmlFor="screening-questions" className="text-sm font-medium text-gray-700 dark:text-amber-300">Screening Questions</label>
           <button type="button" onClick={addScreeningQuestion} disabled={form.screeningQuestions.length >= 5} className="btn-secondary text-xs px-2 py-1">+ Add</button>
         </div>
         <div className="space-y-2">
           {form.screeningQuestions.map((q, i) => (
             <div key={i} className="flex gap-2 items-center">
-              <input
+              <input id="screening-questions"
                 value={q}
                 onChange={(e) => updateScreeningQuestion(i, e.target.value)}
                 placeholder={`Question ${i + 1}`}
                 className="flex-1 rounded-xl border border-gray-200 dark:border-market-500/20 bg-gray-50 dark:bg-ink-700 px-3 py-2 text-xs text-gray-900 dark:text-amber-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-market-400/40"
               />
               {form.screeningQuestions.length > 1 && (
-                <button type="button" onClick={() => removeScreeningQuestion(i)} className="text-red-400 hover:text-red-300 text-lg leading-none flex-shrink-0">✕</button>
+                <button
+                  type="button"
+                  onClick={() => removeScreeningQuestion(i)}
+                  className="text-red-400 hover:text-red-300 text-lg leading-none flex-shrink-0"
+                  aria-label={`Remove screening question ${i + 1}`}
+                >
+                  ✕
+                </button>
               )}
             </div>
           ))}

@@ -3,6 +3,7 @@
 const pool = require("../db/pool");
 const ipfsService = require("./ipfsService");
 const sorobanArbitratorRegistry = require("./sorobanArbitratorRegistry");
+const sorobanEvidence = require("./sorobanEvidence");
 
 const MAX_EVIDENCE_FILES = 10;
 const MAX_FILE_SIZE = 5 * 1024 * 1024;

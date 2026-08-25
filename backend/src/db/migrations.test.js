@@ -5,9 +5,10 @@ const {
   loadMigrationPairs,
   ensureMigrationsTable,
   rollbackLastMigration,
+  getExpectedMigrationVersion,
 } = require("./migrate");
 
-describe("Database Migrations (V1–V11)", () => {
+describe("Database Migrations (V1–V49)", () => {
   let hasPostgres = false;
 
   beforeAll(async () => {
@@ -28,12 +29,20 @@ describe("Database Migrations (V1–V11)", () => {
     }
   });
 
-  it("loads all migration pairs correctly", () => {
+  it("loads all migration pairs correctly with unique, increasing versions", () => {
     const migrations = loadMigrationPairs();
     expect(migrations.length).toBeGreaterThan(0);
-    // Ensure V1 to V11 are present
     expect(migrations[0].version).toBe(1);
-    expect(migrations[migrations.length - 1].version).toBe(11);
+
+    const versions = migrations.map((m) => m.version);
+    // No two migrations may share a version number (issue #1062).
+    expect(new Set(versions).size).toBe(versions.length);
+    // Versions must be strictly increasing so ordering is deterministic.
+    for (let i = 1; i < versions.length; i++) {
+      expect(versions[i]).toBeGreaterThan(versions[i - 1]);
+    }
+
+    expect(migrations[migrations.length - 1].version).toBeGreaterThanOrEqual(22);
   });
 
   it("applies migrations sequentially and validates schema, foreign keys, and unique indexes after each", async () => {
@@ -104,7 +113,7 @@ describe("Database Migrations (V1–V11)", () => {
     }
   });
 
-  it("verifies rollback scripts (V11 → V10 → ... → V1) execute cleanly if down migrations added", async () => {
+  it("verifies rollback scripts execute cleanly for all migrations", async () => {
     if (!hasPostgres) {
       console.log("Skipping live rollback test due to no Postgres instance.");
       return;
@@ -125,7 +134,7 @@ describe("Database Migrations (V1–V11)", () => {
         expect(remaining.length).toBe(count);
       }
 
-      // After rolling back everything (V11 -> V1), public schema should have no core tables left
+      // After rolling back everything (V49 -> V1), public schema should have no core tables left
       const { rows: remainingTables } = await client.query(`
         SELECT table_name 
         FROM information_schema.tables 

@@ -4,6 +4,10 @@
  *
  * Features:
  *  - Live timer per job with start / stop
+ *  - Milestone-aware: associate timer/manual entries with a specific milestone
+ *  - Per-milestone accumulated time display
+ *  - Summary card showing total hours logged per job
+ *  - Timer state persisted across page refreshes via localStorage
  *  - Manual time entry for offline work
  *  - Accumulated hours → billable XLM amount (hours × rate)
  *  - Submit time entries as an invoice
@@ -13,7 +17,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { TimeEntry, TimeInvoice, Job } from "@/utils/types";
+import type { TimeEntry, TimeInvoice, Job, JobMilestone } from "@/utils/types";
 import {
   logTimeEntry,
   fetchTimeEntries,
@@ -24,6 +28,46 @@ import {
 } from "@/lib/api";
 import { usePDFDownload } from "@/hooks/usePDFDownload";
 import { InvoicePDF } from "@/components/InvoicePDF";
+
+// ─── localStorage persistence ─────────────────────────────────────────────────
+
+const STORAGE_PREFIX = "mp_timeTracker_";
+
+interface PersistedTimerState {
+  running: boolean;
+  startTime: number | null; // Date.now() when timer started
+  accumulatedSeconds: number; // seconds already elapsed (for restore after refresh)
+  milestoneIndex: number | null;
+  timerDesc: string;
+}
+
+function loadTimerState(jobId: string): PersistedTimerState | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_PREFIX + jobId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedTimerState;
+    if (typeof parsed !== "object" || parsed === null) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveTimerState(jobId: string, state: PersistedTimerState) {
+  try {
+    localStorage.setItem(STORAGE_PREFIX + jobId, JSON.stringify(state));
+  } catch {
+    // Storage full or unavailable — silently ignore
+  }
+}
+
+function clearTimerState(jobId: string) {
+  try {
+    localStorage.removeItem(STORAGE_PREFIX + jobId);
+  } catch {
+    // ignore
+  }
+}
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,11 +89,11 @@ function xlmAmount(totalMinutes: number, rateXlm: number): string {
 }
 
 function exportCsv(entries: TimeEntry[], jobId: string) {
-  const header = "id,started_at,duration_minutes,description,created_at\n";
+  const header = "id,started_at,duration_minutes,milestone_index,description,created_at\n";
   const rows = entries
     .map(
       (e) =>
-        `${e.id},${e.startedAt ?? ""},${e.durationMinutes},"${(e.description ?? "").replace(/"/g, '""')}",${e.createdAt}`,
+        `${e.id},${e.startedAt ?? ""},${e.durationMinutes},${e.milestoneIndex ?? ""},"${(e.description ?? "").replace(/"/g, '""')}",${e.createdAt}`,
     )
     .join("\n");
   const blob = new Blob([header + rows], { type: "text/csv" });
@@ -81,8 +125,9 @@ export default function TimeTracker({
 }: TimeTrackerProps) {
   // ── timer state ──────────────────────────────────────────────────────────
   const [running, setRunning] = useState(false);
-  const [elapsed, setElapsed] = useState(0); // seconds
+  const [elapsed, setElapsed] = useState(0); // seconds displayed in the live timer
   const startRef = useRef<number | null>(null);
+  const accumulatedBaseRef = useRef(0); // seconds accumulated before this session (for localStorage restore)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── data state ───────────────────────────────────────────────────────────
@@ -95,11 +140,13 @@ export default function TimeTracker({
   // ── form state ───────────────────────────────────────────────────────────
   const [hourlyRate, setHourlyRate] = useState<number>(0);
   const [timerDesc, setTimerDesc] = useState("");
+  const [selectedMilestoneIndex, setSelectedMilestoneIndex] = useState<number | null>(null);
 
   // manual entry
   const [showManual, setShowManual] = useState(false);
   const [manualMinutes, setManualMinutes] = useState("");
   const [manualDesc, setManualDesc] = useState("");
+  const [manualMilestoneIndex, setManualMilestoneIndex] = useState<number | null>(null);
   const [manualStartedAt, setManualStartedAt] = useState("");
   const [submittingManual, setSubmittingManual] = useState(false);
 
@@ -110,8 +157,39 @@ export default function TimeTracker({
 
   // job and user data for PDF
   const [job, setJob] = useState<Job | null>(null);
-  const [userPublicKey, setUserPublicKey] = useState<string | null>(null);
   const { downloadPDF } = usePDFDownload();
+
+  const milestones: JobMilestone[] = job?.milestones ?? [];
+
+  // ── restore timer state from localStorage on mount ───────────────────────
+  useEffect(() => {
+    const saved = loadTimerState(jobId);
+    if (!saved) return;
+
+    setSelectedMilestoneIndex(saved.milestoneIndex ?? null);
+    setTimerDesc(saved.timerDesc ?? "");
+
+    if (saved.running && saved.startTime) {
+      startRef.current = saved.startTime;
+      accumulatedBaseRef.current = saved.accumulatedSeconds;
+      const now = Date.now();
+      const computed = saved.accumulatedSeconds + Math.floor((now - saved.startTime) / 1000);
+      setElapsed(computed);
+      setRunning(true);
+      // Persist the running state so reloading again works
+      saveTimerState(jobId, {
+        running: true,
+        startTime: saved.startTime,
+        accumulatedSeconds: saved.accumulatedSeconds,
+        milestoneIndex: saved.milestoneIndex ?? null,
+        timerDesc: saved.timerDesc ?? "",
+      });
+    } else if (saved.accumulatedSeconds) {
+      setElapsed(saved.accumulatedSeconds);
+      accumulatedBaseRef.current = saved.accumulatedSeconds;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── load data ────────────────────────────────────────────────────────────
   const reload = useCallback(async () => {
@@ -149,12 +227,38 @@ export default function TimeTracker({
     };
   }, [running]);
 
+  // ── persist timer state to localStorage on changes ──────────────────────
+  useEffect(() => {
+    if (running && startRef.current) {
+      saveTimerState(jobId, {
+        running: true,
+        startTime: startRef.current,
+        accumulatedSeconds: accumulatedBaseRef.current,
+        milestoneIndex: selectedMilestoneIndex,
+        timerDesc,
+      });
+    } else if (!running && startRef.current === null) {
+      // Stopped and saved — clear persisted state
+      clearTimerState(jobId);
+    }
+  }, [running, selectedMilestoneIndex, timerDesc, jobId]);
+
   // ── timer controls ───────────────────────────────────────────────────────
   const handleStart = () => {
-    startRef.current = Date.now();
+    const now = Date.now();
+    startRef.current = now;
+    accumulatedBaseRef.current = 0;
     setElapsed(0);
     setRunning(true);
     setError(null);
+
+    saveTimerState(jobId, {
+      running: true,
+      startTime: now,
+      accumulatedSeconds: 0,
+      milestoneIndex: selectedMilestoneIndex,
+      timerDesc,
+    });
   };
 
   const handleStop = async () => {
@@ -164,12 +268,14 @@ export default function TimeTracker({
     const startedAt = new Date(startRef.current).toISOString();
     startRef.current = null;
     setElapsed(0);
+    clearTimerState(jobId);
 
     try {
       await logTimeEntry({
         jobId,
         durationMinutes,
         description: timerDesc.trim() || undefined,
+        milestoneIndex: selectedMilestoneIndex ?? undefined,
         startedAt,
       });
       setTimerDesc("");
@@ -194,10 +300,12 @@ export default function TimeTracker({
         jobId,
         durationMinutes: mins,
         description: manualDesc.trim() || undefined,
+        milestoneIndex: manualMilestoneIndex ?? undefined,
         startedAt: manualStartedAt || undefined,
       });
       setManualMinutes("");
       setManualDesc("");
+      setManualMilestoneIndex(null);
       setManualStartedAt("");
       setShowManual(false);
       flash("Manual entry saved.");
@@ -288,6 +396,19 @@ export default function TimeTracker({
   const pendingInvoice = (invoices || []).find((i) => i.status === "pending");
   const hasPendingInvoice = Boolean(pendingInvoice);
 
+  // ── per-milestone totals ─────────────────────────────────────────────────
+  function milestoneMinutes(milestoneIndex: number): number {
+    return entries
+      .filter((e) => e.milestoneIndex === milestoneIndex)
+      .reduce((s, e) => s + e.durationMinutes, 0);
+  }
+
+  function unassignedMinutes(): number {
+    return entries
+      .filter((e) => e.milestoneIndex == null)
+      .reduce((s, e) => s + e.durationMinutes, 0);
+  }
+
   // ── flash helper ─────────────────────────────────────────────────────────
   function flash(msg: string) {
     setSuccessMsg(msg);
@@ -331,15 +452,108 @@ export default function TimeTracker({
         </p>
       )}
 
+      {/* ── Summary Card ────────────────────────────────────────────────── */}
+      {entries.length > 0 && (
+        <div className="bg-gradient-to-br from-ink-800 to-ink-900 rounded-xl p-4 border border-market-500/20">
+          <h3 className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-3">
+            📊 Summary
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-ink-950/60 rounded-lg p-3 text-center">
+              <p className="text-2xl font-mono font-bold text-market-400">
+                {minutesToHHMM(totalMinutes)}
+              </p>
+              <p className="text-xs text-amber-700 mt-1">Total hours</p>
+            </div>
+            <div className="bg-ink-950/60 rounded-lg p-3 text-center">
+              <p className="text-2xl font-mono font-bold text-amber-100">
+                {entries.length}
+              </p>
+              <p className="text-xs text-amber-700 mt-1">Entries</p>
+            </div>
+            {milestones.length > 0 && (
+              <div className="bg-ink-950/60 rounded-lg p-3 text-center">
+                <p className="text-2xl font-mono font-bold text-amber-100">
+                  {milestones.filter((m) =>
+                    entries.some((e) => e.milestoneIndex === milestones.indexOf(m))
+                  ).length}
+                  /{milestones.length}
+                </p>
+                <p className="text-xs text-amber-700 mt-1">Milestones tracked</p>
+              </div>
+            )}
+            {hourlyRate > 0 && (
+              <div className="bg-ink-950/60 rounded-lg p-3 text-center">
+                <p className="text-2xl font-mono font-bold text-emerald-400">
+                  {xlmAmount(totalMinutes, hourlyRate)}
+                </p>
+                <p className="text-xs text-amber-700 mt-1">XLM billable</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Per-Milestone Breakdown ──────────────────────────────────────── */}
+      {milestones.length > 0 && entries.length > 0 && (
+        <div className="bg-ink-800 rounded-xl border border-market-500/15 overflow-hidden">
+          <h3 className="text-xs font-semibold text-amber-700 uppercase tracking-wide px-4 pt-3 pb-2">
+            Milestone Breakdown
+          </h3>
+          <div className="divide-y divide-market-500/10">
+            {milestones.map((m, idx) => {
+              const mins = milestoneMinutes(idx);
+              if (mins === 0) return null;
+              const pct = totalMinutes > 0 ? Math.round((mins / totalMinutes) * 100) : 0;
+              return (
+                <div key={idx} className="px-4 py-3 flex items-center gap-3">
+                  <span className="text-xs font-mono text-amber-500 w-6 shrink-0">
+                    M{idx + 1}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm text-amber-100 truncate">
+                        {m.description}
+                      </span>
+                      <span className="text-xs font-mono text-market-400 ml-2 shrink-0">
+                        {minutesToHHMM(mins)}
+                      </span>
+                    </div>
+                    <div className="w-full h-1.5 bg-ink-900 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-market-500 to-market-400 rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="text-xs text-amber-700 w-10 text-right shrink-0">
+                    {pct}%
+                  </span>
+                </div>
+              );
+            })}
+            {unassignedMinutes() > 0 && (
+              <div className="px-4 py-3 flex items-center gap-3 bg-market-500/5">
+                <span className="text-xs font-mono text-amber-800 w-6 shrink-0">—</span>
+                <span className="text-sm text-amber-700">Unassigned</span>
+                <span className="text-xs font-mono text-amber-600 ml-auto">
+                  {minutesToHHMM(unassignedMinutes())}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Freelancer panel */}
       {isFreelancer && (
         <>
           {/* Hourly rate */}
           <div>
-            <label className="text-xs text-amber-700 block mb-1">
+            <label htmlFor="hourly-rate-xlm" className="text-xs text-amber-700 block mb-1">
               Hourly Rate (XLM)
             </label>
-            <input
+            <input id="hourly-rate-xlm"
               type="number"
               min="0"
               step="0.01"
@@ -350,9 +564,47 @@ export default function TimeTracker({
             />
           </div>
 
+          {/* Milestone selector */}
+          {milestones.length > 0 && (
+            <div>
+              <label htmlFor="track-time-against-milestone" className="text-xs text-amber-700 block mb-1">
+                Track time against milestone
+              </label>
+              <select id="track-time-against-milestone"
+                value={selectedMilestoneIndex ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedMilestoneIndex(val === "" ? null : parseInt(val, 10));
+                }}
+                className="w-full p-2 rounded-lg bg-ink-800 border border-market-500/20 text-amber-100 text-sm focus:outline-none focus:border-market-500/50"
+              >
+                <option value="">— No specific milestone —</option>
+                {milestones.map((m, idx) => {
+                  const label = m.status === "released"
+                    ? "✅"
+                    : m.status === "disputed"
+                    ? "⚠️"
+                    : m.status === "rejected"
+                    ? "❌"
+                    : "○";
+                  return (
+                    <option key={idx} value={idx}>
+                      {label} {idx + 1}. {m.description} ({m.amount} XLM)
+                    </option>
+                  );
+                })}
+              </select>
+              {selectedMilestoneIndex != null && milestones[selectedMilestoneIndex] && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Logged so far: {minutesToHHMM(milestoneMinutes(selectedMilestoneIndex))}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Live timer */}
           <div className="bg-ink-800 rounded-xl p-4 border border-market-500/15">
-            <div className="font-mono text-3xl text-market-400 mb-3 text-center">
+            <div className="font-mono text-3xl text-market-400 mb-3 text-center tabular-nums">
               {secondsToHHMMSS(elapsed)}
             </div>
 
@@ -396,10 +648,10 @@ export default function TimeTracker({
               <div className="mt-3 space-y-2 bg-ink-800 rounded-xl p-4 border border-market-500/15">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-xs text-amber-700 block mb-1">
+                    <label htmlFor="duration-minutes" className="text-xs text-amber-700 block mb-1">
                       Duration (minutes)
                     </label>
-                    <input
+                    <input id="duration-minutes"
                       type="number"
                       min="1"
                       max="1440"
@@ -410,10 +662,10 @@ export default function TimeTracker({
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-amber-700 block mb-1">
+                    <label htmlFor="started-at-optional" className="text-xs text-amber-700 block mb-1">
                       Started at (optional)
                     </label>
-                    <input
+                    <input id="started-at-optional"
                       type="datetime-local"
                       value={manualStartedAt}
                       onChange={(e) => setManualStartedAt(e.target.value)}
@@ -421,11 +673,33 @@ export default function TimeTracker({
                     />
                   </div>
                 </div>
+                {milestones.length > 0 && (
+                  <div>
+                    <label htmlFor="milestone-optional" className="text-xs text-amber-700 block mb-1">
+                      Milestone (optional)
+                    </label>
+                    <select id="milestone-optional"
+                      value={manualMilestoneIndex ?? ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setManualMilestoneIndex(val === "" ? null : parseInt(val, 10));
+                      }}
+                      className="w-full p-2 rounded-lg bg-ink-700 border border-market-500/15 text-amber-100 text-sm focus:outline-none focus:border-market-500/40"
+                    >
+                      <option value="">— No specific milestone —</option>
+                      {milestones.map((m, idx) => (
+                        <option key={idx} value={idx}>
+                          {idx + 1}. {m.description}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
-                  <label className="text-xs text-amber-700 block mb-1">
+                  <label htmlFor="description-optional" className="text-xs text-amber-700 block mb-1">
                     Description (optional)
                   </label>
-                  <input
+                  <input id="description-optional"
                     type="text"
                     value={manualDesc}
                     onChange={(e) => setManualDesc(e.target.value)}
@@ -573,19 +847,32 @@ export default function TimeTracker({
             Time Log
           </h3>
           <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
-            {entries.map((entry) => (
-              <div
-                key={entry.id}
-                className="flex items-start justify-between text-xs text-amber-700 bg-ink-800/50 rounded-lg px-3 py-2"
-              >
-                <span className="flex-1 mr-2 truncate">
-                  {entry.description ?? <em className="opacity-50">No description</em>}
-                </span>
-                <span className="font-mono shrink-0 text-amber-500">
-                  {minutesToHHMM(entry.durationMinutes)}
-                </span>
-              </div>
-            ))}
+            {entries.map((entry) => {
+              const msLabel =
+                entry.milestoneIndex != null && milestones[entry.milestoneIndex]
+                  ? `M${entry.milestoneIndex + 1}`
+                  : null;
+              return (
+                <div
+                  key={entry.id}
+                  className="flex items-start justify-between text-xs text-amber-700 bg-ink-800/50 rounded-lg px-3 py-2"
+                >
+                  <span className="flex-1 mr-2 min-w-0">
+                    {msLabel && (
+                      <span className="inline-block mr-1.5 text-market-500 font-mono text-[10px] bg-market-500/10 px-1 py-0.5 rounded">
+                        {msLabel}
+                      </span>
+                    )}
+                    <span className="truncate inline align-middle">
+                      {entry.description ?? <em className="opacity-50">No description</em>}
+                    </span>
+                  </span>
+                  <span className="font-mono shrink-0 text-amber-500 ml-2">
+                    {minutesToHHMM(entry.durationMinutes)}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

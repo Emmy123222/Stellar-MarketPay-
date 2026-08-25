@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+require("dotenv").config();
 const pool = require("./pool");
 
 const migrationsDir = path.join(__dirname, "migrations");
@@ -15,7 +16,7 @@ function loadMigrationPairs() {
   const files = fs.readdirSync(migrationsDir);
   const upFiles = files.filter((f) => f.endsWith(".up.sql"));
 
-  return upFiles
+  const migrations = upFiles
     .map((upFile) => {
       const version = parseVersion(upFile);
       const downFile = upFile.replace(/\.up\.sql$/, ".down.sql");
@@ -29,6 +30,29 @@ function loadMigrationPairs() {
     })
     .filter(Boolean)
     .sort((a, b) => a.version - b.version || a.name.localeCompare(b.name));
+
+  assertUniqueVersions(migrations);
+  return migrations;
+}
+
+/**
+ * Ensure no two migrations share the same version number. A collision makes the
+ * `MAX(version)` progress check and the `version`-then-`name` sort
+ * non-deterministic, so this must fail fast before any migration runs.
+ *
+ * @param {Array<{version: number, name: string}>} migrations
+ */
+function assertUniqueVersions(migrations) {
+  const versionToName = new Map();
+  for (const migration of migrations) {
+    const existing = versionToName.get(migration.version);
+    if (existing) {
+      throw new Error(
+        `Duplicate migration version V${migration.version}: "${existing}" and "${migration.name}"`
+      );
+    }
+    versionToName.set(migration.version, migration.name);
+  }
 }
 
 async function ensureMigrationsTable(client) {
@@ -44,6 +68,46 @@ async function ensureMigrationsTable(client) {
 async function getAppliedMigrations(client) {
   const { rows } = await client.query("SELECT name FROM schema_migrations");
   return new Set(rows.map((r) => r.name));
+}
+
+/**
+ * Query the current (highest) migration version applied in the database.
+ * @returns {Promise<number|null>} The max version from schema_migrations, or null if none applied.
+ */
+async function getCurrentMigrationVersion() {
+  const { rows } = await pool.query("SELECT MAX(version)::int AS version FROM schema_migrations");
+  return rows[0]?.version ?? null;
+}
+
+/**
+ * Determine the expected (highest) migration version from the files on disk.
+ * @returns {number|null} The max version among migration files, or null if none exist.
+ */
+function getExpectedMigrationVersion() {
+  const migrations = loadMigrationPairs();
+  if (migrations.length === 0) return null;
+  return migrations[migrations.length - 1].version;
+}
+
+/**
+ * Validate that the database migration version matches the expected version.
+ * Logs the current version at INFO level. If versions differ, logs a FATAL
+ * error and calls process.exit(1).
+ *
+ * @param {number|null} currentVersion - Version from schema_migrations
+ * @param {number|null} expectedVersion - Highest version found on disk
+ * @param {object} logger - A service logger (e.g. from createServiceLogger)
+ */
+function validateMigrationVersion(currentVersion, expectedVersion, logger) {
+  logger.info({ migrationVersion: currentVersion, expectedVersion }, 'Migration version check');
+
+  if (expectedVersion !== null && currentVersion !== expectedVersion) {
+    logger.fatal({
+      migrationVersion: currentVersion,
+      expectedVersion,
+    }, `Migration version mismatch: expected ${expectedVersion}, got ${currentVersion}. Exiting.`);
+    process.exit(1);
+  }
 }
 
 async function migrate() {
@@ -127,4 +191,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { migrate, rollbackLastMigration, loadMigrationPairs, ensureMigrationsTable, getAppliedMigrations };
+module.exports = { migrate, rollbackLastMigration, loadMigrationPairs, assertUniqueVersions, ensureMigrationsTable, getAppliedMigrations, getCurrentMigrationVersion, getExpectedMigrationVersion, validateMigrationVersion };

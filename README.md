@@ -6,7 +6,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Stellar](https://img.shields.io/badge/Stellar-Testnet-blue)](https://stellar.org)
 [![Soroban](https://img.shields.io/badge/Soroban-Smart%20Contracts-purple)](https://soroban.stellar.org)
-[![Backend Coverage](https://img.shields.io/badge/backend%20coverage-60%25%2B-brightgreen)](#testing)
+[![Backend Coverage](https://img.shields.io/badge/backend%20coverage-80%25%2B-brightgreen)](#testing)
 
 Stellar MarketPay is an open-source decentralised freelance marketplace where clients post jobs, freelancers apply, and payments are secured in **Soroban smart contract escrow** — released automatically when work is approved. No middlemen. No payment delays. No platform fees eating your earnings..
 
@@ -20,6 +20,13 @@ Stellar MarketPay is an open-source decentralised freelance marketplace where cl
 - 🔒 **Escrow Payments** — Funds held in Soroban contract until work approved
 - ✅ **Release & Complete** — Client approves → funds released to freelancer instantly
 - 📜 **Job History** — Track all your jobs and earnings on-chain
+
+---
+
+## 🎥 Demo
+
+> 🎥 **Demo video coming soon** — follow the [recording script](docs/video-walkthrough-script.md) to capture the 3‑minute happy path: post a job → receive bids → accept proposal → release escrow.  
+> 📝 [Subtitled captions (.srt)](docs/demo-walkthrough-captions.srt) included for accessibility.
 
 ---
 
@@ -54,7 +61,7 @@ stellar-marketpay/
 ### 1. Clone
 
 ```bash
-git clone https://github.com/your-org/stellar-marketpay.git
+git clone https://github.com/Emmy123222/Stellar-MarketPay-.git
 cd stellar-marketpay
 ```
 
@@ -81,6 +88,19 @@ npm run dev
 # → http://localhost:4000
 ```
 
+### 5. Database Migrations
+
+Run and rollback database migrations sequentially (`V1` to `V49`):
+
+```bash
+cd backend
+# Apply all pending migrations sequentially
+npm run migrate
+
+# Roll back the most recently applied migration
+npm run migrate:rollback
+```
+
 ---
 
 ## 🔑 Environment Variables
@@ -95,7 +115,7 @@ NEXT_PUBLIC_API_URL=http://localhost:4000
 NEXT_PUBLIC_STELLAR_NETWORK=testnet
 NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
 NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
-NEXT_PUBLIC_CONTRACT_ID=CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+NEXT_PUBLIC_CONTRACT_ID=CBFJNX67NYYRZPLH4YYT77ZUULRJ5NI2LPEYRRLFHBTEACZOZUUYLOGG
 NEXT_PUBLIC_USE_CONTRACT_MOCK=false
 ```
 
@@ -106,7 +126,7 @@ DATABASE_URL=postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork
 JWT_SECRET=replace-with-a-long-random-secret
 STELLAR_NETWORK=testnet
 HORIZON_URL=https://horizon-testnet.stellar.org
-CONTRACT_ID=CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+CONTRACT_ID=CBFJNX67NYYRZPLH4YYT77ZUULRJ5NI2LPEYRRLFHBTEACZOZUUYLOGG
 ALLOWED_ORIGINS=http://localhost:3000
 ```
 

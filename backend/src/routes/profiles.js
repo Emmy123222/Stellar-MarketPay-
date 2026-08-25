@@ -1,5 +1,10 @@
 /**
  * src/routes/profiles.js
+ *
+ * @swagger
+ * tags:
+ *   name: Profiles
+ *   description: User profile management
  */
 "use strict";
 const express = require("express");
@@ -20,6 +25,16 @@ const { sendEmail } = require("../utils/email");
 const { createError, ErrorCodes } = require("../utils/errors");
 const { validateJsonb } = require("../middleware/jsonbValidator");
 const portfolioItemsSchema = require("../schemas/portfolioItems.schema");
+const {
+  validate,
+  upsertProfileSchema,
+  notificationPreferencesSchema,
+  availabilitySchema,
+  priceAlertSchema,
+  endorseSkillSchema,
+  blockFreelancerSchema,
+  encryptionKeySchema,
+} = require("../validators/profileValidator");
 
 const {
   getProfile,
@@ -41,6 +56,80 @@ const {
   getPriceAlertPreference,
 } = require("../services/priceAlertService");
 
+/**
+ * @swagger
+ * /api/profiles:
+ *   get:
+ *     summary: List profiles
+ *     tags: [Profiles]
+ *     parameters:
+ *       - in: query
+ *         name: role
+ *         schema:
+ *           type: string
+ *           enum: [freelancer, client, both]
+ *       - in: query
+ *         name: availability
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: after
+ *         schema:
+ *           type: string
+ *         description: Cursor for next page
+ *     responses:
+ *       200:
+ *         description: Profile list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Profile'
+ *                 next_cursor:
+ *                   type: string
+ *                   nullable: true
+ *                 has_more:
+ *                   type: boolean
+ *   post:
+ *     summary: Create or update a profile
+ *     tags: [Profiles]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               publicKey:
+ *                 type: string
+ *               displayName:
+ *                 type: string
+ *               bio:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *               skills:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       200:
+ *         description: Profile upserted
+ */
 router.get("/", generalProfileRateLimiter, async (req, res, next) => {
   try {
     const { role, availability, search, limit, after, page } = req.query;
@@ -72,6 +161,47 @@ router.get("/", generalProfileRateLimiter, async (req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/profiles/{publicKey}:
+ *   get:
+ *     summary: Get a profile by public key
+ *     tags: [Profiles]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Profile data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/Profile'
+ *   put:
+ *     summary: Update own profile
+ *     tags: [Profiles]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Profile updated
+ *       403:
+ *         description: Can only update own profile
+ */
 router.get("/:publicKey", generalProfileRateLimiter, async (req, res, next) => {
   try {
     const key = cache.profileKey(req.params.publicKey);
@@ -90,11 +220,43 @@ router.get("/:publicKey", generalProfileRateLimiter, async (req, res, next) => {
   catch (e) { next(e); }
 });
 
+/**
+ * @swagger
+ * /api/profiles/{publicKey}/stats:
+ *   get:
+ *     summary: Get profile stats
+ *     tags: [Profiles]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Profile stats
+ */
 router.get("/:publicKey/stats", generalProfileRateLimiter, async (req, res, next) => {
   try { res.json({ success: true, data: await getProfileStats(req.params.publicKey) }); }
   catch (e) { next(e); }
 });
 
+/**
+ * @swagger
+ * /api/profiles/{publicKey}/response-time:
+ *   get:
+ *     summary: Get freelancer response time
+ *     tags: [Profiles]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Response time data
+ */
 router.get("/:publicKey/response-time", generalProfileRateLimiter, async (req, res, next) => {
   try { res.json({ success: true, data: await getResponseTime(req.params.publicKey) }); }
   catch (e) { next(e); }
@@ -102,11 +264,12 @@ router.get("/:publicKey/response-time", generalProfileRateLimiter, async (req, r
 
 router.post("/", profileUpdateRateLimiter, validateJsonb({ portfolio_items: portfolioItemsSchema }), async (req, res, next) => {
   try {
-    const data = await upsertProfile(req.body);
-    if (req.body.publicKey) {
-      const key = cache.profileKey(req.body.publicKey);
+    const body = validate(upsertProfileSchema, req.body);
+    const data = await upsertProfile(body);
+    if (body.publicKey) {
+      const key = cache.profileKey(body.publicKey);
       await cache.del(key);
-      profileLogger.debug({ publicKey: req.body.publicKey, cacheKey: key }, "Cache invalidated after POST profile");
+      profileLogger.debug({ publicKey: body.publicKey, cacheKey: key }, "Cache invalidated after POST profile");
     }
     res.json({ success: true, data });
   }
@@ -120,7 +283,8 @@ router.put("/:publicKey", profileUpdateRateLimiter, verifyJWT, async (req, res, 
     if (req.user.publicKey !== publicKey) {
       return res.status(403).json({ error: "You can only update your own profile" });
     }
-    const data = await upsertProfile({ ...req.body, publicKey });
+    const body = validate(upsertProfileSchema, req.body);
+    const data = await upsertProfile({ ...body, publicKey });
     const key = cache.profileKey(publicKey);
     await cache.del(key);
     profileLogger.debug({ publicKey, cacheKey: key }, "Cache invalidated after PUT profile");
@@ -136,7 +300,7 @@ router.get("/:publicKey/notifications", generalProfileRateLimiter, async (req, r
     const prefs = await getUserPreferences(req.params.publicKey);
     
     if (!prefs) {
-      return res.status(404).json({ error: { code: ErrorCodes.PROFILE_NOT_FOUND, message: "Profile not found" } });
+      return res.status(404).json({ error: "Profile not found", code: ErrorCodes.PROFILE_NOT_FOUND });
     }
 
     res.json({
@@ -157,7 +321,7 @@ router.get("/:publicKey/notifications", generalProfileRateLimiter, async (req, r
 router.post("/:publicKey/notifications", profileUpdateRateLimiter, async (req, res, next) => {
   try {
     const { publicKey } = req.params;
-    const { email, emailNotificationsEnabled, webhookUrl, webhookSecret } = req.body;
+    const { email, emailNotificationsEnabled, webhookUrl, webhookSecret } = validate(notificationPreferencesSchema, req.body);
 
     // Update profile with notification preferences
     const updated = await upsertProfile({
@@ -182,16 +346,90 @@ router.post("/:publicKey/notifications", profileUpdateRateLimiter, async (req, r
   }
 });
 
+/**
+ * @swagger
+ * /api/profiles/{publicKey}/availability:
+ *   post:
+ *     summary: Update availability status
+ *     tags: [Profiles]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               availability:
+ *                 type: string
+ *                 enum: [available, busy, unavailable]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Availability updated
+ */
+// PATCH /api/profiles/:publicKey/notificationPreferences - Update detailed preferences
+router.patch("/:publicKey/notificationPreferences", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+    if (req.user.publicKey !== publicKey) {
+      return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "Unauthorized" } });
+    }
+    const notificationPreferencesService = require("../services/notificationPreferencesService");
+    const { preferences } = req.body;
+    if (!preferences || typeof preferences !== "object") {
+      return res.status(400).json({ error: { code: ErrorCodes.BAD_REQUEST, message: "Invalid preferences format" } });
+    }
+    await notificationPreferencesService.updatePreferences(publicKey, preferences);
+    const updated = await notificationPreferencesService.getPreferences(publicKey);
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post("/:publicKey/availability", profileUpdateRateLimiter, async (req, res, next) => {
   try {
+    const body = validate(availabilitySchema, req.body);
     res.json({
       success: true,
-      data: await updateAvailability(req.params.publicKey, req.body),
+      data: await updateAvailability(req.params.publicKey, body),
     });
   }
   catch (e) { next(e); }
 });
 
+/**
+ * @swagger
+ * /api/profiles/{publicKey}/price-alerts:
+ *   get:
+ *     summary: Get price alert preferences
+ *     tags: [Profiles]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Price alert prefs
+ *   post:
+ *     summary: Update price alert preferences
+ *     tags: [Profiles]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Price alert prefs updated
+ */
 router.get("/:publicKey/price-alerts", generalProfileRateLimiter, async (req, res, next) => {
   try {
     const pref = await getPriceAlertPreference(req.params.publicKey);
@@ -203,12 +441,13 @@ router.get("/:publicKey/price-alerts", generalProfileRateLimiter, async (req, re
 
 router.post("/:publicKey/price-alerts", profileUpdateRateLimiter, async (req, res, next) => {
   try {
+    const body = validate(priceAlertSchema, req.body);
     const pref = await upsertPriceAlertPreference({
       freelancerAddress: req.params.publicKey,
-      minXlmPriceUsd: req.body.minXlmPriceUsd,
-      maxXlmPriceUsd: req.body.maxXlmPriceUsd,
-      emailNotificationsEnabled: req.body.emailNotificationsEnabled,
-      email: req.body.email,
+      minXlmPriceUsd: body.minXlmPriceUsd,
+      maxXlmPriceUsd: body.maxXlmPriceUsd,
+      emailNotificationsEnabled: body.emailNotificationsEnabled,
+      email: body.email,
     });
     res.json({ success: true, data: pref });
   } catch (e) {
@@ -225,9 +464,41 @@ router.get("/:publicKey/endorsements", generalProfileRateLimiter, async (req, re
   }
 });
 
+/**
+ * @swagger
+ * /api/profiles/{publicKey}/endorse:
+ *   post:
+ *     summary: Endorse a skill
+ *     tags: [Profiles]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - skill
+ *               - endorserAddress
+ *             properties:
+ *               skill:
+ *                 type: string
+ *               endorserAddress:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Skill endorsed
+ */
 router.post("/:publicKey/endorse", profileUpdateRateLimiter, async (req, res, next) => {
   try {
-    const { skill, endorserAddress } = req.body;
+    const { skill, endorserAddress } = validate(endorseSkillSchema, req.body);
     await endorseSkill({
       skill,
       endorserAddress,
@@ -239,6 +510,22 @@ router.post("/:publicKey/endorse", profileUpdateRateLimiter, async (req, res, ne
   }
 });
 
+/**
+ * @swagger
+ * /api/profiles/{publicKey}/spending:
+ *   get:
+ *     summary: Get client spending analytics
+ *     tags: [Profiles]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Spending analytics
+ */
 router.get("/:publicKey/spending", generalProfileRateLimiter, async (req, res, next) => {
   try {
     const data = await getClientSpendingAnalytics(req.params.publicKey);
@@ -248,6 +535,22 @@ router.get("/:publicKey/spending", generalProfileRateLimiter, async (req, res, n
   }
 });
 
+/**
+ * @swagger
+ * /api/profiles/{publicKey}/client-reputation:
+ *   get:
+ *     summary: Get client reputation
+ *     tags: [Profiles]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Client reputation data
+ */
 router.get("/:publicKey/client-reputation", generalProfileRateLimiter, async (req, res, next) => {
   try {
     const data = await getClientReputation(req.params.publicKey);
@@ -261,9 +564,9 @@ router.get("/:publicKey/client-reputation", generalProfileRateLimiter, async (re
 router.post("/:publicKey/block", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
   try {
     if (req.user.publicKey !== req.params.publicKey) {
-      return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "You can only manage your own block list" } });
+      return res.status(403).json({ error: "You can only manage your own block list", code: ErrorCodes.FORBIDDEN });
     }
-    const { address } = req.body;
+    const { address } = validate(blockFreelancerSchema, req.body);
     const profile = await blockFreelancer(req.params.publicKey, address);
     res.json({ success: true, data: profile });
   } catch (e) { next(e); }
@@ -273,7 +576,7 @@ router.post("/:publicKey/block", verifyJWT, profileUpdateRateLimiter, async (req
 router.delete("/:publicKey/block/:address", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
   try {
     if (req.user.publicKey !== req.params.publicKey) {
-      return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "You can only manage your own block list" } });
+      return res.status(403).json({ error: "You can only manage your own block list", code: ErrorCodes.FORBIDDEN });
     }
     const profile = await unblockFreelancer(req.params.publicKey, req.params.address);
     res.json({ success: true, data: profile });
@@ -281,6 +584,22 @@ router.delete("/:publicKey/block/:address", verifyJWT, profileUpdateRateLimiter,
 });
 
 // GET /api/profiles/:publicKey/earnings — freelancer earnings history (Issue #181)
+/**
+ * @swagger
+ * /api/profiles/{publicKey}/earnings:
+ *   get:
+ *     summary: Get freelancer earnings history
+ *     tags: [Profiles]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Earnings breakdown with monthly totals
+ */
 router.get("/:publicKey/earnings", generalProfileRateLimiter, async (req, res, next) => {
   try {
     const { publicKey } = req.params;
@@ -364,12 +683,12 @@ const uploadMultiple = multer({
 router.post("/:publicKey/portfolio", verifyJWT, upload.single("file"), async (req, res, next) => {
   try {
     const { publicKey } = req.params;
-    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "Unauthorized" } });
-    if (!req.file) return res.status(400).json({ error: { code: ErrorCodes.BAD_REQUEST, message: "File is required" } });
+    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: "Unauthorized", code: ErrorCodes.FORBIDDEN });
+    if (!req.file) return res.status(400).json({ error: "File is required", code: ErrorCodes.BAD_REQUEST });
 
     const { rows } = await pool.query("SELECT portfolio_items FROM profiles WHERE public_key = $1", [publicKey]);
     const current = rows[0]?.portfolio_items || [];
-    if (current.length >= 10) return res.status(400).json({ error: { code: ErrorCodes.PORTFOLIO_LIMIT_REACHED, message: "Maximum 10 portfolio items allowed" } });
+    if (current.length >= 10) return res.status(400).json({ error: "Maximum 10 portfolio items allowed", code: ErrorCodes.PORTFOLIO_LIMIT_REACHED });
 
     const uploaded = await uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype);
     const item = {
@@ -394,13 +713,13 @@ router.post("/:publicKey/portfolio", verifyJWT, upload.single("file"), async (re
 router.post("/:publicKey/portfolio-files", verifyJWT, uploadMultiple.array("files", 10), async (req, res, next) => {
   try {
     const { publicKey } = req.params;
-    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "Unauthorized" } });
-    if (!req.files || req.files.length === 0) return res.status(400).json({ error: { code: ErrorCodes.BAD_REQUEST, message: "At least one file is required" } });
+    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: "Unauthorized", code: ErrorCodes.FORBIDDEN });
+    if (!req.files || req.files.length === 0) return res.status(400).json({ error: "At least one file is required", code: ErrorCodes.BAD_REQUEST });
 
     const { rows } = await pool.query("SELECT portfolio_items FROM profiles WHERE public_key = $1", [publicKey]);
     const current = rows[0]?.portfolio_items || [];
     if (current.length + req.files.length > 10) {
-      return res.status(400).json({ error: { code: ErrorCodes.PORTFOLIO_LIMIT_REACHED, message: `Maximum 10 portfolio items allowed. You have ${current.length} and are trying to add ${req.files.length}.` } });
+      return res.status(400).json({ error: `Maximum 10 portfolio items allowed. You have ${current.length} and are trying to add ${req.files.length}.`, code: ErrorCodes.PORTFOLIO_LIMIT_REACHED });
     }
 
     const uploadedFiles = [];
@@ -429,7 +748,23 @@ router.post("/:publicKey/portfolio-files", verifyJWT, uploadMultiple.array("file
   } catch (e) { next(e); }
 });
 
-// GET /api/profiles/:publicKey/endorsements — get skill endorsements
+// GET /api/profiles/:publicKey/endorsements — get skill endorsements (documented above)
+/**
+ * @swagger
+ * /api/profiles/{publicKey}/endorsements:
+ *   get:
+ *     summary: Get skill endorsements
+ *     tags: [Profiles]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Endorsements list
+ */
 router.get("/:publicKey/endorsements", generalProfileRateLimiter, async (req, res, next) => {
   try {
     const data = await getSkillEndorsements(req.params.publicKey);
@@ -441,11 +776,11 @@ router.get("/:publicKey/endorsements", generalProfileRateLimiter, async (req, re
 router.post("/:publicKey/endorse", verifyJWT, async (req, res, next) => {
   try {
     const { publicKey } = req.params;
-    const { skill } = req.body;
+    const { skill } = validate(endorseSkillSchema, req.body);
     const endorserAddress = req.user.publicKey;
 
     if (!skill || typeof skill !== "string" || !skill.trim()) {
-      return res.status(400).json({ error: { code: ErrorCodes.VALIDATION_ERROR, message: "Skill name is required" } });
+      return res.status(400).json({ error: "Skill name is required", code: ErrorCodes.VALIDATION_ERROR });
     }
 
     const { rows: profileRows } = await pool.query(
@@ -453,10 +788,10 @@ router.post("/:publicKey/endorse", verifyJWT, async (req, res, next) => {
       [publicKey]
     );
     if (!profileRows.length) {
-      return res.status(404).json({ error: { code: ErrorCodes.PROFILE_NOT_FOUND, message: "Profile not found" } });
+      return res.status(404).json({ error: "Profile not found", code: ErrorCodes.PROFILE_NOT_FOUND });
     }
     if (!profileRows[0].skills || !profileRows[0].skills.includes(skill.trim())) {
-      return res.status(400).json({ error: { code: ErrorCodes.VALIDATION_ERROR, message: "Skill not found in freelancer's profile" } });
+      return res.status(400).json({ error: "Skill not found in freelancer's profile", code: ErrorCodes.VALIDATION_ERROR });
     }
 
     const { rows: jobRows } = await pool.query(
@@ -468,7 +803,7 @@ router.post("/:publicKey/endorse", verifyJWT, async (req, res, next) => {
       [endorserAddress, publicKey]
     );
     if (!jobRows.length) {
-      return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "Only past clients with completed jobs can endorse" } });
+      return res.status(403).json({ error: "Only past clients with completed jobs can endorse", code: ErrorCodes.FORBIDDEN });
     }
 
     await endorseSkill({ skill: skill.trim(), endorserAddress, recipientAddress: publicKey });
@@ -480,13 +815,13 @@ router.post("/:publicKey/endorse", verifyJWT, async (req, res, next) => {
 router.delete("/:publicKey/portfolio/:itemId", verifyJWT, async (req, res, next) => {
   try {
     const { publicKey, itemId } = req.params;
-    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "Unauthorized" } });
+    if (req.user.publicKey !== publicKey) return res.status(403).json({ error: "Unauthorized", code: ErrorCodes.FORBIDDEN });
 
     const { rows } = await pool.query("SELECT portfolio_items FROM profiles WHERE public_key = $1", [publicKey]);
     const current = rows[0]?.portfolio_items || [];
     const nextItems = current.filter((item) => item.id !== itemId);
 
-    if (nextItems.length === current.length) return res.status(404).json({ error: { code: ErrorCodes.NOT_FOUND, message: "Portfolio item not found" } });
+    if (nextItems.length === current.length) return res.status(404).json({ error: "Portfolio item not found", code: ErrorCodes.NOT_FOUND });
 
     await pool.query("UPDATE profiles SET portfolio_items = $2::jsonb, updated_at = NOW() WHERE public_key = $1", [publicKey, JSON.stringify(nextItems)]);
 
@@ -494,14 +829,59 @@ router.delete("/:publicKey/portfolio/:itemId", verifyJWT, async (req, res, next)
   } catch (e) { next(e); }
 });
 
-  // GET /api/profiles/:publicKey/encryption-key — NaCl public key lookup (no auth required)
+/**
+ * @swagger
+ * /api/profiles/{publicKey}/encryption-key:
+ *   get:
+ *     summary: Get NaCl encryption public key (public lookup)
+ *     tags: [Profiles]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Encryption public key
+ *       404:
+ *         description: Profile not found
+ *   put:
+ *     summary: Store X25519 encryption public key
+ *     tags: [Profiles]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - encryptionPublicKey
+ *             properties:
+ *               encryptionPublicKey:
+ *                 type: string
+ *                 description: Base64-encoded 32-byte X25519 key
+ *     responses:
+ *       200:
+ *         description: Key stored
+ *       403:
+ *         description: Can only update own key
+ */
 router.get("/:publicKey/encryption-key", generalProfileRateLimiter, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT encryption_public_key FROM profiles WHERE public_key = $1`,
       [req.params.publicKey],
     );
-    if (!rows.length) return res.status(404).json({ error: { code: ErrorCodes.PROFILE_NOT_FOUND, message: "Profile not found" } });
+    if (!rows.length) return res.status(404).json({ error: "Profile not found", code: ErrorCodes.PROFILE_NOT_FOUND });
     res.json({ success: true, data: { encryptionPublicKey: rows[0].encryption_public_key || null } });
   } catch (e) { next(e); }
 });
@@ -515,23 +895,7 @@ router.put("/:publicKey/encryption-key", verifyJWT, profileUpdateRateLimiter, as
       return next(createError(ErrorCodes.FORBIDDEN, "You can only update your own encryption key", 403));
     }
 
-    const { encryptionPublicKey } = req.body;
-
-    if (!encryptionPublicKey || typeof encryptionPublicKey !== "string") {
-      return next(createError(ErrorCodes.VALIDATION_ERROR, "encryptionPublicKey is required", 400));
-    }
-
-    // Validate: must be a base64-encoded 32-byte X25519 key
-    let keyBytes;
-    try {
-      keyBytes = Buffer.from(encryptionPublicKey, "base64");
-    } catch {
-      return next(createError(ErrorCodes.ENCRYPTION_KEY_INVALID, "encryptionPublicKey must be base64-encoded", 400));
-    }
-
-    if (keyBytes.length !== 32) {
-      return next(createError(ErrorCodes.ENCRYPTION_KEY_INVALID, "encryptionPublicKey must be a 32-byte X25519 key (base64)", 400));
-    }
+    const { encryptionPublicKey } = validate(encryptionKeySchema, req.body);
 
     const { rows } = await pool.query(
       `UPDATE profiles
@@ -551,12 +915,32 @@ router.put("/:publicKey/encryption-key", verifyJWT, profileUpdateRateLimiter, as
   } catch (e) { next(e); }
 });
 
+/**
+ * @swagger
+ * /api/profiles/{publicKey}/data:
+ *   delete:
+ *     summary: GDPR deletion request (30-day grace period)
+ *     tags: [Profiles]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Profile marked for deletion
+ *       403:
+ *         description: Can only delete own profile
+ */
 // DELETE /api/profiles/:publicKey/data — GDPR deletion request
 router.delete("/:publicKey/data", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
   try {
     const { publicKey } = req.params;
     if (req.user.publicKey !== publicKey) {
-      return res.status(403).json({ error: { code: ErrorCodes.FORBIDDEN, message: "You can only delete your own profile data" } });
+      return res.status(403).json({ error: "You can only delete your own profile data", code: ErrorCodes.FORBIDDEN });
     }
     
     const profile = await markProfileForDeletion(publicKey);
