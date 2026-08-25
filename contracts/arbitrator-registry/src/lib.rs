@@ -47,10 +47,12 @@ impl ArbitratorRegistry {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Token, &token);
 
-        let stake = if min_stake > 0 { min_stake } else { DEFAULT_MIN_STAKE };
-        env.storage()
-            .instance()
-            .set(&DataKey::MinimumStake, &stake);
+        let stake = if min_stake > 0 {
+            min_stake
+        } else {
+            DEFAULT_MIN_STAKE
+        };
+        env.storage().instance().set(&DataKey::MinimumStake, &stake);
 
         env.storage()
             .instance()
@@ -88,11 +90,7 @@ impl ArbitratorRegistry {
     ///
     /// `metadata_uri` is an optional IPFS URI pointing to the arbitrator's
     /// profile metadata (display name, bio, etc.).
-    pub fn register(
-        env: Env,
-        caller: Address,
-        metadata_uri: String,
-    ) {
+    pub fn register(env: Env, caller: Address, metadata_uri: String) {
         caller.require_auth();
 
         if Self::is_registered(&env, &caller) {
