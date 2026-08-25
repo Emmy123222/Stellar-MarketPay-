@@ -156,7 +156,7 @@ test.describe("Wallet connection (Freighter)", () => {
     // Disconnect action appears. The key renders twice (desktop + mobile
     // spans), so match the pill button instead of the raw text.
     await expect(
-      page.getByRole("button", { name: new RegExp(SHORTENED_KEY.replace(/\./g, "\\.")) })
+      page.getByRole("button", { name: SHORTENED_KEY }),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Disconnect" })).toBeVisible();
     await expect(connectButton).not.toBeVisible();
