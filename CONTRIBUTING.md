@@ -83,3 +83,58 @@ stellar-marketpay/
 ```
 
 Look for `good first issue` labels to find beginner-friendly tasks!
+
+---
+
+## 🧪 Running the Tests
+
+### Backend Tests (Node.js + Jest)
+
+```bash
+cd backend
+npm test                 # Run Jest unit tests
+npm run lint             # Run ESLint
+```
+
+> **Integration tests require PostgreSQL.** The backend uses `pg` for database access. Integration tests that hit real DB routes expect a running Postgres instance. Set `DATABASE_URL` in `backend/.env` pointing to your local or Docker Postgres before running tests that require a database connection.
+
+```bash
+# Example: spin up Postgres via Docker
+docker run -d --name marketpay-pg -e POSTGRES_PASSWORD=dev -p 5432:5432 postgres:16
+```
+
+### Frontend Tests (TypeScript + Playwright)
+
+```bash
+cd frontend
+npm run type-check       # TypeScript compilation check (tsc --noEmit)
+npm run lint             # ESLint
+npm run test:e2e         # Playwright end-to-end tests
+```
+
+Playwright E2E tests mock wallet and API responses so no backend or wallet extension is required. The first run may need:
+```bash
+npx playwright install --with-deps chromium
+```
+
+### Visual Regression Tests
+
+Snapshots live in `frontend/tests/e2e/snapshots/`. To generate or update baselines:
+```bash
+cd frontend
+npx playwright test --update-snapshots
+```
+
+### Contract Tests (Rust / Soroban)
+
+```bash
+cd contracts/marketpay-contract
+cargo check --target wasm32-unknown-unknown   # Fast compilation check
+cargo clippy -- -D warnings                   # Lint
+cargo test                                     # Unit tests
+cargo build --target wasm32-unknown-unknown --release  # Release build
+```
+
+### CSRF Protection
+
+All mutating API calls (`POST`, `PUT`, `PATCH`, `DELETE`) to the backend require a CSRF token in the `x-csrf-token` header. The token is set via a cookie by the backend on first request. In development, you can retrieve it from the `csrf-token` cookie after loading any page.
