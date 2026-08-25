@@ -56,10 +56,8 @@ impl ArbitratorRegistry {
             .instance()
             .set(&DataKey::ArbitratorList, &Vec::<Address>::new(&env));
 
-        env.events().publish(
-            (symbol_short!("init"), admin),
-            (token, stake),
-        );
+        env.events()
+            .publish((symbol_short!("init"), admin), (token, stake));
     }
 
     // ─── Admin configuration ─────────────────────────────────────────────────
@@ -138,10 +136,8 @@ impl ArbitratorRegistry {
             .instance()
             .set(&DataKey::ArbitratorList, &list);
 
-        env.events().publish(
-            (symbol_short!("reg"), caller),
-            min_stake,
-        );
+        env.events()
+            .publish((symbol_short!("reg"), caller), min_stake);
     }
 
     /// Deregister as an arbitrator and receive the staked tokens back.
@@ -180,8 +176,7 @@ impl ArbitratorRegistry {
         // Remove from the active list
         Self::remove_from_list(&env, &caller);
 
-        env.events()
-            .publish((symbol_short!("dereg"), caller), ());
+        env.events().publish((symbol_short!("dereg"), caller), ());
     }
 
     /// Admin force-removes an arbitrator. The stake is returned to the
@@ -223,10 +218,8 @@ impl ArbitratorRegistry {
         // Remove from the active list
         Self::remove_from_list(&env, &arbitrator);
 
-        env.events().publish(
-            (symbol_short!("rm_arb"), admin),
-            arbitrator,
-        );
+        env.events()
+            .publish((symbol_short!("rm_arb"), admin), arbitrator);
     }
 
     /// DAO-triggered action: called by the admin (or DAO multisig) to register
@@ -283,10 +276,8 @@ impl ArbitratorRegistry {
             .instance()
             .set(&DataKey::ArbitratorList, &list);
 
-        env.events().publish(
-            (symbol_short!("dao_reg"), arbitrator),
-            (admin, min_stake),
-        );
+        env.events()
+            .publish((symbol_short!("dao_reg"), arbitrator), (admin, min_stake));
     }
 
     /// DAO-triggered removal: called by admin to remove an arbitrator when a
