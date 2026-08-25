@@ -1,4 +1,4 @@
--- Rollback V12: #553, #559, #561
+-- Rollback V18: #553, #559, #561
 
 -- Issue #561: platform_metrics
 DROP TABLE IF EXISTS platform_metrics CASCADE;
