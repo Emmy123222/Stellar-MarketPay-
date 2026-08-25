@@ -2,8 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  snapshotDir: "./test-results/snapshots",
-  snapshotPathTemplate: "{snapshotDir}/{arg}{ext}",
+  snapshotDir: "./tests/e2e/snapshots",
   timeout: 60_000,
   expect: {
     timeout: 10_000,
@@ -12,7 +11,6 @@ export default defineConfig({
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 2 : undefined,
-  snapshotDir: "./tests/e2e/snapshots",
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: "http://127.0.0.1:3000",
