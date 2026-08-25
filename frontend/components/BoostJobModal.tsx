@@ -9,12 +9,16 @@
 
 import AccessibleModal from "@/components/AccessibleModal";
 import { useState } from "react";
+<<<<<<< Updated upstream
 import { getApiErrorMessage } from "@/lib/api/client";
 import {
   buildBoostJobTx,
   signAndSubmitSorobanTx,
   XLM_SAC_ADDRESS,
 } from "@/lib/stellar";
+=======
+import { buildBoostJobTx, signAndSubmitSorobanTx } from "@/lib/stellar";
+>>>>>>> Stashed changes
 import { formatDate } from "@/utils/format";
 
 // ─── Boost tiers ─────────────────────────────────────────────────────────────
