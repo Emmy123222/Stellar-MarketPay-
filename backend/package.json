@@ -92,6 +92,9 @@
         "setupFiles": [
             "<rootDir>/jest.setup.js"
         ],
+        "setupFilesAfterEnv": [
+            "<rootDir>/jest.mocks.js"
+        ],
         "testPathIgnorePatterns": [
             "/node_modules/",
             "src/tests/integration"
@@ -134,6 +137,9 @@
                 "setupFiles": [
                     "<rootDir>/jest.setup.js"
                 ],
+                "setupFilesAfterEnv": [
+                    "<rootDir>/jest.mocks.js"
+                ],
                 "testPathIgnorePatterns": [
                     "/node_modules/",
                     "src/tests/integration"
@@ -153,6 +159,9 @@
                 ],
                 "setupFiles": [
                     "<rootDir>/jest.setup.js"
+                ],
+                "setupFilesAfterEnv": [
+                    "<rootDir>/jest.mocks.js"
                 ],
                 "testTimeout": 30000,
                 "runInBand": true,
