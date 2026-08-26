@@ -59,7 +59,7 @@ export default function OfflineBanner() {
       <div className="fixed top-0 left-0 right-0 z-50 border-b border-emerald-500/30 bg-emerald-500/10 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto flex items-center gap-3 px-4 py-3">
           <p className="flex-1 text-sm font-medium text-emerald-300">
-            You're back online!
+            You&apos;re back online!
           </p>
         </div>
       </div>
