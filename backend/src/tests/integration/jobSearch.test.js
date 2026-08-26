@@ -19,6 +19,16 @@ const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_
 let pool;
 let testClient;
 
+// Seeded inside a transaction that the app's pool could never see (different
+// connection = uncommitted). Seed with auto-commit instead and clean up by
+// title so every request observes deterministic data.
+const SEED_TITLES = [
+  "Senior Rust Developer for Blockchain Project",
+  "React Frontend Engineer Needed",
+  "Build a Soroban Smart Contract",
+  "Full Stack Developer for API Integration",
+];
+
 beforeAll(async () => {
   pool = new Pool({ connectionString: TEST_DATABASE_URL });
   testClient = await pool.connect();
@@ -27,14 +37,6 @@ beforeAll(async () => {
 afterAll(async () => {
   if (testClient) await testClient.release();
   if (pool) await pool.end();
-});
-
-beforeEach(async () => {
-  await testClient.query("BEGIN");
-});
-
-afterEach(async () => {
-  await testClient.query("ROLLBACK");
 });
 
 describe("GET /api/jobs?search= — full-text search", () => {
@@ -51,8 +53,8 @@ describe("GET /api/jobs?search= — full-text search", () => {
   });
 
   beforeEach(async () => {
-    // Insert test jobs directly into the DB within the transaction
-    await testClient.query(
+    // Insert test jobs (auto-commit) so the app's connections can see them
+    await pool.query(
       `INSERT INTO jobs (title, description, budget, currency, category, status, client_address, search_vector)
        VALUES
          ($1, $2, 100, 'XLM', 'Backend Development', 'open', $3,
@@ -64,20 +66,22 @@ describe("GET /api/jobs?search= — full-text search", () => {
          ($8, $9, 400, 'XLM', 'Backend Development', 'open', $3,
           to_tsvector('english', $8 || ' ' || $9))`,
       [
-        "Senior Rust Developer for Blockchain Project",
+        // $1-$9: $3 (clientAddress) is shared by all four rows
+        SEED_TITLES[0],
         "We need an experienced Rust developer to build a high-performance blockchain indexing service using Soroban and PostgreSQL.",
         clientAddress,
         "React Frontend Engineer Needed",
         "Looking for a skilled React developer to build a responsive dashboard with real-time data visualizations using D3.js.",
-        clientAddress,
         "Build a Soroban Smart Contract",
         "Develop and audit a Soroban smart contract for an escrow system with milestone-based payment release.",
-        clientAddress,
-        "Full Stack Developer for API Integration",
+        SEED_TITLES[3],
         "Need a developer to integrate REST APIs and build backend services with Node.js and PostgreSQL.",
-        clientAddress,
       ]
     );
+  });
+
+  afterEach(async () => {
+    await pool.query("DELETE FROM jobs WHERE title = ANY($1)", [SEED_TITLES]);
   });
 
   test("returns jobs matching a single search term", async () => {
