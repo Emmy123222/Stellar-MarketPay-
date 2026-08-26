@@ -1129,6 +1129,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
               )}
 
               <select
+                aria-label="Filter by timezone"
                 value={manualTimezone}
                 onChange={(e) => {
                   setManualTimezone(e.target.value);

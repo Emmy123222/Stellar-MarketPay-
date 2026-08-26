@@ -20,6 +20,15 @@ jest.mock("chart.js", () => ({
   Filler: {},
 }));
 
+jest.mock("@/components/Toast", () => ({
+  ToastProvider: ({ children }: { children: React.ReactNode }) => children,
+  useToast: () => ({
+    success: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+  }),
+}));
+
 // Mock useApi to return controlled data
 jest.mock("@/hooks/useApi", () => ({
   useApi: jest.fn(() => ({

@@ -19,11 +19,6 @@ jest.mock("@/components/WalletConnect", () => ({
   default: () => <div data-testid="wallet-connect-stub" />,
 }));
 
-jest.mock("@/components/EditProfileForm", () => ({
-  __esModule: true,
-  default: () => <div data-testid="edit-profile-form-stub" />,
-}));
-
 jest.mock("@/components/SendPaymentForm", () => ({
   __esModule: true,
   default: () => <div data-testid="send-payment-form-stub" />,
@@ -61,11 +56,6 @@ jest.mock("@/components/ClientSpendingTab", () => ({
   default: () => <div data-testid="client-spending-tab-stub" />,
 }));
 
-jest.mock("@/components/EarningsChart", () => ({
-  __esModule: true,
-  default: () => <div data-testid="earnings-chart-stub" />,
-}));
-
 jest.mock("@/components/dashboard-tabs/PostedJobsTab", () => ({
   __esModule: true,
   default: () => <div data-testid="posted-jobs-tab-stub" />,
@@ -84,11 +74,6 @@ jest.mock("@/components/dashboard-tabs/InvitationsTab", () => ({
 jest.mock("@/components/ProfileCompletenessWidget", () => ({
   __esModule: true,
   default: () => <div data-testid="profile-completeness-widget-stub" />,
-}));
-
-jest.mock("@/components/XlmPriceWidget", () => ({
-  __esModule: true,
-  default: () => <div data-testid="xlm-price-widget-stub" />,
 }));
 
 jest.mock("@/components/StateMessage", () => ({
@@ -139,8 +124,10 @@ jest.mock("@/lib/i18n", () => ({
 jest.mock("recharts", () => ({
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div data-testid="recharts-container">{children}</div>,
   BarChart: ({ children }: { children: React.ReactNode }) => <div data-testid="bar-chart">{children}</div>,
+  LineChart: ({ children }: { children: React.ReactNode }) => <div data-testid="line-chart">{children}</div>,
   PieChart: ({ children }: { children: React.ReactNode }) => <div data-testid="pie-chart">{children}</div>,
   Bar: () => null,
+  Line: () => null,
   XAxis: () => null,
   YAxis: () => null,
   Tooltip: () => null,

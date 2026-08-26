@@ -16,8 +16,8 @@ describe("stroopsToXlm", () => {
     expect(stroopsToXlm(BigInt(0))).toBe("0");
   });
 
-  it("converts 100 stroops to 0.0000100", () => {
-    expect(stroopsToXlm(BigInt(100))).toBe("0.0000100");
+  it("converts 100 stroops to 0.00001", () => {
+    expect(stroopsToXlm(BigInt(100))).toBe("0.00001");
   });
 
   it("converts 10_000_000 stroops (1 XLM) to '1'", () => {
@@ -155,6 +155,9 @@ describe("describeContractCall", () => {
 describe("fetchGasEstimateSafe", () => {
   beforeEach(() => {
     jest.restoreAllMocks();
+    if (!global.fetch) {
+      global.fetch = jest.fn();
+    }
   });
 
   it("returns fallback values when the API is unreachable", async () => {
@@ -173,7 +176,7 @@ describe("fetchGasEstimateSafe", () => {
 
   it("returns fallback values when API returns non-OK status", async () => {
     jest.spyOn(global, "fetch").mockResolvedValue(
-      new Response(null, { status: 500 })
+      { ok: false, status: 500 } as unknown as Response
     );
 
     const result = await fetchGasEstimateSafe();

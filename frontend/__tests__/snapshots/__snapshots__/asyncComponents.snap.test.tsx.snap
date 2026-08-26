@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`async component snapshots AdminAnalytics error: AdminAnalytics error 1`] = `
 <div
@@ -543,26 +543,55 @@ exports[`async component snapshots EarningsChart populated: EarningsChart popula
     class="card"
   >
     <div
-      class="flex items-center justify-between mb-4"
+      class="flex flex-wrap items-center justify-between gap-3 mb-4"
     >
       <p
         class="font-display text-lg text-amber-100"
       >
-        Monthly Earnings (Last 12 Months)
+        Monthly Earnings
+         (Last 12 Months)
       </p>
-      <button
-        aria-label="Export earnings data as CSV"
-        class="btn-secondary text-xs px-3 py-1.5"
+      <div
+        class="flex items-center gap-2"
       >
-        Export CSV
-      </button>
+        <div
+          aria-label="Chart view mode"
+          class="flex rounded-md border border-amber-900/30 overflow-hidden text-xs"
+          role="group"
+        >
+          <button
+            aria-pressed="true"
+            class="px-3 py-1.5 transition-colors bg-market-300 text-black"
+          >
+            Per-period
+          </button>
+          <button
+            aria-pressed="false"
+            class="px-3 py-1.5 transition-colors text-amber-700 hover:text-amber-100"
+          >
+            Cumulative
+          </button>
+        </div>
+        <button
+          aria-label="Export earnings data as CSV"
+          class="btn-secondary text-xs px-3 py-1.5"
+        >
+          Export CSV
+        </button>
+      </div>
     </div>
     <div
-      data-testid="recharts-container"
+      aria-label="Line chart showing freelancer revenue over time"
+      class="w-full h-[220px]"
+      role="img"
     >
       <div
-        data-testid="bar-chart"
-      />
+        data-testid="recharts-container"
+      >
+        <div
+          data-testid="line-chart"
+        />
+      </div>
     </div>
   </div>
   <div
@@ -577,11 +606,15 @@ exports[`async component snapshots EarningsChart populated: EarningsChart popula
       class="flex flex-col sm:flex-row items-center gap-6"
     >
       <div
-        data-testid="recharts-container"
+        class="w-[160px] h-[160px] sm:w-[200px] sm:h-[200px] flex-shrink-0"
       >
         <div
-          data-testid="pie-chart"
-        />
+          data-testid="recharts-container"
+        >
+          <div
+            data-testid="pie-chart"
+          />
+        </div>
       </div>
       <div
         class="flex-1 space-y-2 min-w-0"
@@ -645,11 +678,13 @@ exports[`async component snapshots EditProfileForm populated: EditProfileForm po
     <div>
       <label
         class="block text-sm font-medium text-amber-100 mb-2"
+        for="display-name"
       >
         Display Name
       </label>
       <input
-        class="w-full bg-ink-900/50 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 placeholder:text-amber-800/50 focus:outline-none focus:border-market-400 transition-colors"
+        class="w-full bg-ink-900/50 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 placeholder:text-amber-600/70 focus:outline-none focus:border-market-400 transition-colors"
+        id="display-name"
         maxlength="30"
         minlength="3"
         placeholder="Jane Doe"
@@ -657,7 +692,7 @@ exports[`async component snapshots EditProfileForm populated: EditProfileForm po
         value="Jane Doe"
       />
       <p
-        class="text-xs text-amber-800 mt-1.5 flex justify-between"
+        class="text-xs text-amber-600 mt-1.5 flex justify-between"
       >
         <span>
           Minimum 3 characters
@@ -669,77 +704,84 @@ exports[`async component snapshots EditProfileForm populated: EditProfileForm po
       </p>
     </div>
     <div>
-      <label
-        class="block text-sm font-medium text-amber-100 mb-2"
+      <fieldset
+        class="border-0 p-0 m-0"
       >
-        Role
-      </label>
-      <div
-        class="flex flex-wrap gap-4"
-      >
-        <label
-          class="flex items-center justify-center px-4 py-2.5 rounded-xl border cursor-pointer transition-all bg-market-500/10 border-market-400 text-market-300"
+        <legend
+          class="block text-sm font-medium text-amber-100 mb-2"
+          id="role-label"
         >
-          <input
-            checked=""
-            class="sr-only"
-            name="role"
-            type="radio"
-            value="freelancer"
-          />
-          <span
-            class="capitalize"
-          >
-            freelancer
-          </span>
-        </label>
-        <label
-          class="flex items-center justify-center px-4 py-2.5 rounded-xl border cursor-pointer transition-all bg-ink-900/50 border-market-500/20 text-amber-600 hover:border-market-500/50"
+          Role
+        </legend>
+        <div
+          class="flex flex-wrap gap-4"
         >
-          <input
-            class="sr-only"
-            name="role"
-            type="radio"
-            value="client"
-          />
-          <span
-            class="capitalize"
+          <label
+            class="flex items-center justify-center px-4 py-2.5 rounded-xl border cursor-pointer transition-all bg-market-500/10 border-market-400 text-market-300"
           >
-            client
-          </span>
-        </label>
-        <label
-          class="flex items-center justify-center px-4 py-2.5 rounded-xl border cursor-pointer transition-all bg-ink-900/50 border-market-500/20 text-amber-600 hover:border-market-500/50"
-        >
-          <input
-            class="sr-only"
-            name="role"
-            type="radio"
-            value="both"
-          />
-          <span
-            class="capitalize"
+            <input
+              checked=""
+              class="sr-only"
+              name="role"
+              type="radio"
+              value="freelancer"
+            />
+            <span
+              class="capitalize"
+            >
+              freelancer
+            </span>
+          </label>
+          <label
+            class="flex items-center justify-center px-4 py-2.5 rounded-xl border cursor-pointer transition-all bg-ink-900/50 border-market-500/20 text-amber-600 hover:border-market-500/50"
           >
-            both
-          </span>
-        </label>
-      </div>
+            <input
+              class="sr-only"
+              name="role"
+              type="radio"
+              value="client"
+            />
+            <span
+              class="capitalize"
+            >
+              client
+            </span>
+          </label>
+          <label
+            class="flex items-center justify-center px-4 py-2.5 rounded-xl border cursor-pointer transition-all bg-ink-900/50 border-market-500/20 text-amber-600 hover:border-market-500/50"
+          >
+            <input
+              class="sr-only"
+              name="role"
+              type="radio"
+              value="both"
+            />
+            <span
+              class="capitalize"
+            >
+              both
+            </span>
+          </label>
+        </div>
+      </fieldset>
     </div>
     <div>
       <label
         class="block text-sm font-medium text-amber-100 mb-2"
+        for="bio"
       >
         Bio
       </label>
       <textarea
-        class="w-full bg-ink-900/50 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 placeholder:text-amber-800/50 focus:outline-none focus:border-market-400 transition-colors h-32 resize-none"
+        class="w-full bg-ink-900/50 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 placeholder:text-amber-600/70 focus:outline-none focus:border-market-400 transition-colors h-32 resize-none"
+        id="bio"
         maxlength="300"
         placeholder="Tell us a little about yourself..."
       >
         Stellar developer
       </textarea>
       <p
-        class="text-xs text-amber-800 mt-1.5 flex justify-between"
+        class="text-xs text-amber-600 mt-1.5 flex justify-between"
       >
         <span>
           Brief description of your expertise and background
@@ -753,6 +795,7 @@ exports[`async component snapshots EditProfileForm populated: EditProfileForm po
     <div>
       <label
         class="block text-sm font-medium text-amber-100 mb-2"
+        for="skills"
       >
         Skills
       </label>
@@ -771,7 +814,8 @@ exports[`async component snapshots EditProfileForm populated: EditProfileForm po
           </button>
         </span>
         <input
-          class="flex-1 bg-transparent border-none outline-none text-amber-100 placeholder:text-amber-800/50 min-w-[120px] px-2"
+          class="flex-1 bg-transparent border-none outline-none text-amber-100 placeholder:text-amber-600/70 min-w-[120px] px-2"
+          id="skills"
           placeholder="Add more..."
           type="text"
           value=""
@@ -783,13 +827,13 @@ exports[`async component snapshots EditProfileForm populated: EditProfileForm po
         class="flex items-center justify-between gap-4 mb-3"
       >
         <div>
-          <label
+          <span
             class="block text-sm font-medium text-amber-100"
           >
             Availability
-          </label>
+          </span>
           <p
-            class="text-xs text-amber-800 mt-1"
+            class="text-xs text-amber-600 mt-1"
           >
             Show clients when you can take on new work.
           </p>
@@ -801,11 +845,13 @@ exports[`async component snapshots EditProfileForm populated: EditProfileForm po
         <div>
           <label
             class="block text-xs font-medium text-amber-100 mb-1.5"
+            for="status"
           >
             Status
           </label>
           <select
             class="w-full bg-ink-950/60 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 focus:outline-none focus:border-market-400 transition-colors"
+            id="status"
           >
             <option
               value="available"
@@ -830,11 +876,13 @@ exports[`async component snapshots EditProfileForm populated: EditProfileForm po
           <div>
             <label
               class="block text-xs font-medium text-amber-100 mb-1.5"
+              for="available-from"
             >
               Available From
             </label>
             <input
               class="w-full bg-ink-950/60 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 focus:outline-none focus:border-market-400 transition-colors"
+              id="available-from"
               type="date"
               value=""
             />
@@ -842,11 +890,13 @@ exports[`async component snapshots EditProfileForm populated: EditProfileForm po
           <div>
             <label
               class="block text-xs font-medium text-amber-100 mb-1.5"
+              for="available-until"
             >
               Available Until
             </label>
             <input
               class="w-full bg-ink-950/60 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 focus:outline-none focus:border-market-400 transition-colors"
+              id="available-until"
               type="date"
               value=""
             />
@@ -859,13 +909,13 @@ exports[`async component snapshots EditProfileForm populated: EditProfileForm po
         class="flex items-center justify-between gap-4 mb-3"
       >
         <div>
-          <label
+          <span
             class="block text-sm font-medium text-amber-100"
           >
             Portfolio
-          </label>
+          </span>
           <p
-            class="text-xs text-amber-800 mt-1"
+            class="text-xs text-amber-600 mt-1"
           >
             Add up to 
             10
@@ -894,55 +944,54 @@ exports[`async component snapshots EditProfileForm populated: EditProfileForm po
             class="flex items-center justify-between mb-3"
           >
             <div>
-              <label
+              <span
                 class="block text-sm font-medium text-amber-100"
               >
                 Upload Files
-              </label>
+              </span>
               <p
-                class="text-xs text-amber-800 mt-1"
+                class="text-xs text-amber-600 mt-1"
               >
                 Upload up to 
-                5
-                 files (max 10MB each). Images, PDFs, and documents supported.
+                10
+                 files (max 5MB each). Images and PDFs supported.
               </p>
             </div>
           </div>
           <div
             class="space-y-3"
           >
-            <div
-              class="relative"
+            <button
+              aria-label="Upload portfolio files. Click or drag and drop files here."
+              class="w-full rounded-xl border-2 border-dashed px-4 py-8 text-center transition-all cursor-pointer font-normal border-market-500/30 bg-ink-900/40 hover:border-market-500/50"
+              type="button"
             >
               <input
-                accept="image/*,.pdf,.doc,.docx,.txt"
-                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                accept="image/*,.pdf"
+                class="hidden"
                 multiple=""
+                tabindex="-1"
                 type="file"
               />
               <div
-                class="rounded-xl border border-dashed border-market-500/30 bg-ink-900/40 px-4 py-6 text-center hover:border-market-500/50 transition-colors cursor-pointer"
+                class="text-3xl mb-2 transition-colors text-amber-600"
               >
-                <div
-                  class="text-2xl mb-2"
-                >
-                  📁
-                </div>
-                <p
-                  class="text-sm text-amber-100"
-                >
-                  Click to upload files or drag and drop
-                </p>
-                <p
-                  class="text-xs text-amber-800 mt-1"
-                >
-                  0
-                  /
-                  5
-                   files uploaded
-                </p>
+                ↓
               </div>
-            </div>
+              <p
+                class="text-sm text-amber-100 font-medium"
+              >
+                Click or drag and drop files
+              </p>
+              <p
+                class="text-xs text-amber-600 mt-1"
+              >
+                0
+                /
+                10
+                 files uploaded
+              </p>
+            </button>
           </div>
         </div>
       </div>
@@ -951,7 +1000,7 @@ exports[`async component snapshots EditProfileForm populated: EditProfileForm po
       class="pt-4 border-t border-market-500/10 flex justify-between items-center gap-3"
     >
       <p
-        class="text-xs text-amber-800"
+        class="text-xs text-amber-600"
       >
         0
         /
@@ -1002,6 +1051,7 @@ exports[`async component snapshots FaucetButton default visible state: FaucetBut
       </div>
     </div>
     <button
+      aria-label="Fund testnet wallet with XLM"
       class="w-full btn-primary text-sm bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
     >
       Fund Testnet Wallet
@@ -2133,14 +2183,65 @@ exports[`async component snapshots TimeTracker empty client view: TimeTracker em
 
 exports[`async component snapshots TimeTracker loading: TimeTracker loading 1`] = `
 <div
-  class="card mt-6 animate-pulse"
+  class="card mt-6 space-y-5"
 >
   <div
-    class="h-5 bg-market-500/10 rounded w-1/3 mb-3"
-  />
+    class="flex items-center justify-between"
+  >
+    <h2
+      class="text-lg font-semibold text-amber-100"
+    >
+      ⏱ Time Tracker
+    </h2>
+  </div>
+  <div>
+    <label
+      class="text-xs text-amber-700 block mb-1"
+      for="hourly-rate-xlm"
+    >
+      Hourly Rate (XLM)
+    </label>
+    <input
+      class="w-full p-2 rounded-lg bg-ink-800 border border-market-500/20 text-amber-100 text-sm focus:outline-none focus:border-market-500/50"
+      id="hourly-rate-xlm"
+      min="0"
+      placeholder="e.g. 25"
+      step="0.01"
+      type="number"
+      value=""
+    />
+  </div>
   <div
-    class="h-4 bg-market-500/8 rounded w-2/3"
-  />
+    class="bg-ink-800 rounded-xl p-4 border border-market-500/15"
+  >
+    <div
+      class="font-mono text-3xl text-market-400 mb-3 text-center tabular-nums"
+    >
+      00:00:00
+    </div>
+    <input
+      class="w-full mb-3 p-2 rounded-lg bg-ink-700 border border-market-500/15 text-amber-100 text-sm focus:outline-none focus:border-market-500/40"
+      placeholder="What are you working on? (optional)"
+      type="text"
+      value=""
+    />
+    <div
+      class="flex gap-2"
+    >
+      <button
+        class="flex-1 btn-primary py-2 text-sm"
+      >
+        ▶ Start
+      </button>
+    </div>
+  </div>
+  <div>
+    <button
+      class="text-xs text-market-400 hover:text-market-300 underline"
+    >
+      + Add manual entry
+    </button>
+  </div>
 </div>
 `;
 
@@ -2160,16 +2261,52 @@ exports[`async component snapshots XlmPriceWidget error: XlmPriceWidget error 1`
         XLM / USD
       </h3>
     </div>
-    <button
-      class="btn-secondary text-xs py-1 px-2"
-      type="button"
+    <div
+      class="flex items-center gap-2"
     >
-      Collapse
-    </button>
+      <button
+        class="text-xs font-medium px-2.5 py-1 rounded-lg bg-market-500/15 hover:bg-market-500/25 text-market-300 hover:text-market-200 border border-market-500/25 hover:border-market-400/40 transition-all"
+        title="Set price alert"
+        type="button"
+      >
+        ⚡ Alert
+      </button>
+      <button
+        class="btn-secondary text-xs py-1 px-2"
+        type="button"
+      >
+        Collapse
+      </button>
+    </div>
   </div>
   <div
     class="mt-3 space-y-3"
   >
+    <div
+      class="flex items-center gap-1"
+    >
+      <button
+        aria-pressed="false"
+        class="text-xs font-medium px-2 py-0.5 rounded transition-colors text-amber-700 hover:text-amber-500"
+        type="button"
+      >
+        1D
+      </button>
+      <button
+        aria-pressed="true"
+        class="text-xs font-medium px-2 py-0.5 rounded transition-colors bg-amber-600/30 text-amber-200"
+        type="button"
+      >
+        7D
+      </button>
+      <button
+        aria-pressed="false"
+        class="text-xs font-medium px-2 py-0.5 rounded transition-colors text-amber-700 hover:text-amber-500"
+        type="button"
+      >
+        30D
+      </button>
+    </div>
     <p
       class="text-sm text-red-400"
     >
@@ -2195,16 +2332,40 @@ exports[`async component snapshots XlmPriceWidget loading: XlmPriceWidget loadin
         XLM / USD
       </h3>
     </div>
-    <button
-      class="btn-secondary text-xs py-1 px-2"
-      type="button"
+    <div
+      class="flex items-center gap-2"
     >
-      Collapse
-    </button>
+      <button
+        class="text-xs font-medium px-2.5 py-1 rounded-lg bg-market-500/15 hover:bg-market-500/25 text-market-300 hover:text-market-200 border border-market-500/25 hover:border-market-400/40 transition-all"
+        title="Set price alert"
+        type="button"
+      >
+        ⚡ Alert
+      </button>
+      <button
+        class="btn-secondary text-xs py-1 px-2"
+        type="button"
+      >
+        Collapse
+      </button>
+    </div>
   </div>
   <div
     class="mt-3 space-y-3"
   >
+    <div
+      class="flex items-center gap-1"
+    >
+      <div
+        class="h-5 w-8 rounded bg-market-500/10 animate-pulse"
+      />
+      <div
+        class="h-5 w-8 rounded bg-market-500/10 animate-pulse"
+      />
+      <div
+        class="h-5 w-8 rounded bg-market-500/10 animate-pulse"
+      />
+    </div>
     <div
       class="h-28 rounded-lg bg-market-500/10 animate-pulse"
     />
@@ -2228,16 +2389,52 @@ exports[`async component snapshots XlmPriceWidget populated: XlmPriceWidget popu
         XLM / USD
       </h3>
     </div>
-    <button
-      class="btn-secondary text-xs py-1 px-2"
-      type="button"
+    <div
+      class="flex items-center gap-2"
     >
-      Collapse
-    </button>
+      <button
+        class="text-xs font-medium px-2.5 py-1 rounded-lg bg-market-500/15 hover:bg-market-500/25 text-market-300 hover:text-market-200 border border-market-500/25 hover:border-market-400/40 transition-all"
+        title="Set price alert"
+        type="button"
+      >
+        ⚡ Alert
+      </button>
+      <button
+        class="btn-secondary text-xs py-1 px-2"
+        type="button"
+      >
+        Collapse
+      </button>
+    </div>
   </div>
   <div
     class="mt-3 space-y-3"
   >
+    <div
+      class="flex items-center gap-1"
+    >
+      <button
+        aria-pressed="false"
+        class="text-xs font-medium px-2 py-0.5 rounded transition-colors text-amber-700 hover:text-amber-500"
+        type="button"
+      >
+        1D
+      </button>
+      <button
+        aria-pressed="true"
+        class="text-xs font-medium px-2 py-0.5 rounded transition-colors bg-amber-600/30 text-amber-200"
+        type="button"
+      >
+        7D
+      </button>
+      <button
+        aria-pressed="false"
+        class="text-xs font-medium px-2 py-0.5 rounded transition-colors text-amber-700 hover:text-amber-500"
+        type="button"
+      >
+        30D
+      </button>
+    </div>
     <div
       class="flex items-end justify-between"
     >
@@ -2260,17 +2457,14 @@ exports[`async component snapshots XlmPriceWidget populated: XlmPriceWidget popu
       </div>
     </div>
     <div
+      aria-label="XLM/USD price chart – 7D"
       class="h-28"
+      role="img"
     >
       <div
         data-testid="chart-line"
       />
     </div>
-    <p
-      class="text-xs text-amber-700"
-    >
-      7-day sparkline
-    </p>
   </div>
 </div>
 `;

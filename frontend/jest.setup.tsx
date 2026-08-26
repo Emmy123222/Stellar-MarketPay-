@@ -50,3 +50,15 @@ jest.mock("next/router", () => ({
     isReady: true,
   }),
 }));
+
+jest.mock("@react-pdf/renderer", () => ({
+  pdf: jest.fn(() => ({
+    toBlob: jest.fn().mockResolvedValue(new Blob([])),
+  })),
+  Document: () => null,
+  Page: () => null,
+  Text: () => null,
+  View: () => null,
+  StyleSheet: { create: (s: any) => s },
+  Font: { register: jest.fn() },
+}));
