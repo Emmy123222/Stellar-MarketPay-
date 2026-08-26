@@ -123,6 +123,20 @@ function defaultEscrowRow(overrides = {}) {
   };
 }
 
+function defaultEscrowExtensionRow(overrides = {}) {
+  return {
+    id: overrides.id || 1,
+    job_id: overrides.job_id || "job-1",
+    requested_by: overrides.requested_by || "G" + "A".repeat(55),
+    new_timeout_ledger: overrides.new_timeout_ledger || 1000,
+    status: overrides.status || "pending",
+    approved_by: overrides.approved_by || null,
+    approved_at: overrides.approved_at || null,
+    created_at: overrides.created_at || new Date().toISOString(),
+    updated_at: overrides.updated_at || new Date().toISOString(),
+  };
+}
+
 function defaultOnboardingRow(overrides = {}) {
   return {
     public_key: overrides.public_key || "G" + "A".repeat(55),
@@ -174,6 +188,7 @@ function createPgMock() {
   const daoArbitrators = new Map();
   const apiKeys = new Map();
   const escrows = new Map();
+  const escrowExtensions = new Map();
   const onboardingProgress = new Map();
   const timelineEvents = [];
 
@@ -417,6 +432,43 @@ function createPgMock() {
         [...escrows.values()].find((e) => e.job_id === params[0]) ||
         escrows.get(params[0]);
       return { rows: escrow ? [escrow] : [] };
+    }
+
+    // ─── Escrow Extensions Queries ─────────────────────────────────────────
+    if (text.startsWith("INSERT INTO escrow_extensions")) {
+      const id = escrowExtensions.size + 1;
+      const row = defaultEscrowExtensionRow({
+        id,
+        job_id: params[0],
+        requested_by: params[1],
+        new_timeout_ledger: params[2],
+        status: "pending",
+      });
+      escrowExtensions.set(id, row);
+      return { rows: [row], rowCount: 1 };
+    }
+
+    if (text.includes("FROM escrow_extensions")) {
+      let list = [...escrowExtensions.values()];
+      if (text.includes("job_id = $1")) {
+        list = list.filter((e) => e.job_id === params[0]);
+      }
+      if (text.includes("status = 'pending'")) {
+        list = list.filter((e) => e.status === "pending");
+      }
+      return { rows: list };
+    }
+
+    if (text.startsWith("UPDATE escrow_extensions")) {
+      const ext = escrowExtensions.get(params[0]) || [...escrowExtensions.values()].find((e) => e.id === params[0]);
+      if (ext) {
+        ext.status = "approved";
+        ext.approved_by = params[1];
+        ext.approved_at = new Date().toISOString();
+        ext.updated_at = new Date().toISOString();
+        return { rows: [ext], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
     }
 
     // ─── Specific UPDATE jobs ────────────────────────────────────────────
@@ -1203,6 +1255,7 @@ function createPgMock() {
     daoArbitrators.clear();
     apiKeys.clear();
     escrows.clear();
+    escrowExtensions.clear();
     onboardingProgress.clear();
     timelineEvents.length = 0;
     query.mockClear();
@@ -1220,6 +1273,7 @@ function createPgMock() {
     daoArbitrators,
     apiKeys,
     escrows,
+    escrowExtensions,
     onboardingProgress,
     reset,
     end: jest.fn(),
@@ -1238,5 +1292,6 @@ module.exports = {
   defaultDaoArbitratorRow,
   defaultApiKeyRow,
   defaultEscrowRow,
+  defaultEscrowExtensionRow,
   defaultOnboardingRow,
 };
