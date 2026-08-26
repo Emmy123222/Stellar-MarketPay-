@@ -6,7 +6,6 @@ import { useRouter } from "next/router";
 import Navbar from "@/components/Navbar";
 import MobileTabBar from "@/components/MobileTabBar";
 import FaucetButton from "@/components/FaucetButton";
-import AppFooter from "@/components/AppFooter";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
 import CommandPalette from "@/components/CommandPalette";
 import OnboardingWizard from "@/components/Onboarding/OnboardingWizard";
