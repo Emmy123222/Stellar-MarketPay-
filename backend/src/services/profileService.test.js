@@ -17,6 +17,9 @@ const {
 
 describe("profileService", () => {
   const publicKey = "GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
+  // Rising Talent requires account age < 90 days — keep this relative so the
+  // assertion stays stable as the calendar moves forward.
+  const recentCreatedAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -145,14 +148,14 @@ describe("profileService", () => {
         total_earned_xlm: "150.0000000",
         avg_rating: "4.80",
         rating_count: 2,
-        created_at: "2026-04-23T00:00:00.000Z",
-        updated_at: "2026-04-23T00:00:00.000Z",
+        created_at: recentCreatedAt,
+        updated_at: recentCreatedAt,
       };
       pool.query
         .mockResolvedValueOnce({ rows: [profileRow] })
         .mockResolvedValueOnce({
           rows: [{
-            created_at: profileRow.created_at,
+            created_at: recentCreatedAt,
             completed_jobs: 3,
             total_jobs: 3,
             total_earned_xlm: "150.0000000",

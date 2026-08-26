@@ -88,6 +88,19 @@ npm run dev
 # → http://localhost:4000
 ```
 
+### 5. Database Migrations
+
+Run and rollback database migrations sequentially (`V1` to `V49`):
+
+```bash
+cd backend
+# Apply all pending migrations sequentially
+npm run migrate
+
+# Roll back the most recently applied migration
+npm run migrate:rollback
+```
+
 ---
 
 ## 🔑 Environment Variables
