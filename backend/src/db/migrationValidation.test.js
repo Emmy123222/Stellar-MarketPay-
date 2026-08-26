@@ -90,6 +90,13 @@ describe("assertUniqueVersions()", () => {
       ])
     ).toThrow(/Duplicate migration version V1/);
   });
+
+  it("V6 migration prefix is used by exactly one migration (issue #1067)", () => {
+    const migrations = loadMigrationPairs();
+    const v6 = migrations.filter((m) => m.version === 6);
+    expect(v6).toHaveLength(1);
+    expect(v6[0].name).toBe("V6__private_message_nonce_unique");
+  });
 });
 
 describe("getCurrentMigrationVersion()", () => {
