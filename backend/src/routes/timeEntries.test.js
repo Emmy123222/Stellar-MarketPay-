@@ -20,6 +20,7 @@ const pool = require("../db/pool");
 const express = require("express");
 const request = require("supertest");
 const jwt = require("jsonwebtoken");
+const { authedAgent } = require("../testUtils/authedRequest");
 const { JWT_SECRET } = require("../middleware/auth");
 const timeEntriesRoutes = require("./timeEntries");
 
@@ -77,10 +78,9 @@ describe("Time Entries Route Suite (/api/time-entries)", () => {
         }]
       });
 
-      const res = await request(app)
+      const agent = await authedAgent(app, { publicKey: FREELANCER_KEY });
+      const res = await agent
         .post("/api/time-entries")
-        .set("Authorization", `Bearer ${makeToken(FREELANCER_KEY)}`)
-        .set("X-CSRF-Token", "dummy-token")
         .send(validBody);
 
       expect(res.status).toBe(201);
