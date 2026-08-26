@@ -28,7 +28,9 @@ fn setup(
     let token_admin = token::StellarAssetClient::new(env, &token_id);
     token_admin.mint(&client, &1_000_000);
 
-    (contract, admin, treasury, client, freelancer, referrer, token_id)
+    (
+        contract, admin, treasury, client, freelancer, referrer, token_id,
+    )
 }
 
 fn referred_escrow(
