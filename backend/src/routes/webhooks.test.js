@@ -8,6 +8,7 @@
  *   - Happy path with a valid payload (201, webhook registered)
  *   - Authentication rejection (401) — the route is guarded by verifyJWT
  *   - Validation failures (400) for malformed bodies
+ *   - Guard behaviour: the rate limiter actually blocks a burst (429)
  *   - Not-found path: the route takes no id, so unknown sub-routes 404
  *
  * The DB pool is replaced with the shared pgMock (required transitively by
@@ -262,6 +263,52 @@ describe("Webhooks Route Suite (/api/webhooks)", () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("Webhook secret must be at least 8 characters");
       expect(registerWebhook).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // Guard: the webhook rate limiter (10 req/min per IP)
+  // =========================================================================
+  describe("Rate-limit guard", () => {
+    it("429 — blocks a burst of requests via the webhook rate limiter", async () => {
+      const originalScale = process.env.RATE_LIMIT_SCALE;
+      process.env.RATE_LIMIT_SCALE = "1";
+
+      // Re-require the route module so a fresh limiter instance is created
+      // with the unscaled 10 req/min ceiling, scoped to this test only.
+      jest.resetModules();
+      const freshWebhookRoutes = require("./webhooks");
+      const freshWebhookService = require("../services/webhookService");
+      freshWebhookService.registerWebhook.mockResolvedValue({
+        id: "webhook-1",
+        user_address: USER_ADDRESS,
+        url: "https://example.com/webhook",
+        events: ["escrow_created"],
+        created_at: "2026-08-01T00:00:00.000Z",
+      });
+
+      const limitedApp = express();
+      limitedApp.use(express.json());
+      limitedApp.use("/api/webhooks", freshWebhookRoutes);
+      // eslint-disable-next-line no-unused-vars
+      limitedApp.use((err, req, res, next) => {
+        const status = err.statusCode || err.status || 500;
+        res.status(status).json({ error: err.message });
+      });
+
+      let last;
+      for (let i = 0; i < 11; i += 1) {
+        last = await request(limitedApp)
+          .post("/api/webhooks")
+          .set("Authorization", `Bearer ${makeToken()}`)
+          .set("X-CSRF-Token", "dummy-token")
+          .send(VALID_BODY);
+      }
+
+      expect(last.status).toBe(429);
+      expect(last.body.error).toMatch(/Too many requests/);
+
+      process.env.RATE_LIMIT_SCALE = originalScale;
     });
   });
 
