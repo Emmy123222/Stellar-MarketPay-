@@ -50,3 +50,22 @@ jest.mock("next/router", () => ({
     isReady: true,
   }),
 }));
+
+// Mock @react-pdf/renderer to avoid ES module issues in Jest
+jest.mock("@react-pdf/renderer", () => ({
+  pdf: jest.fn(() => ({
+    toBlob: jest.fn(() => Promise.resolve(new Blob())),
+    toBuffer: jest.fn(() => Promise.resolve(Buffer.from(""))),
+  })),
+  Font: {
+    register: jest.fn(),
+  },
+  StyleSheet: {
+    create: jest.fn((styles) => styles),
+  },
+  View: ({ children }: any) => children,
+  Text: ({ children }: any) => children,
+  Document: ({ children }: any) => children,
+  Page: ({ children }: any) => children,
+  BlobProvider: ({ children }: any) => children({ blob: new Blob(), url: "" }),
+}));
