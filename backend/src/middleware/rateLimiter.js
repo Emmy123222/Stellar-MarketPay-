@@ -52,15 +52,24 @@ function scaleMaxRequests(maxRequests) {
  */
 const createRateLimiter = (maxRequests, windowMinutes, options = {}) => {
   const { name = "global", logger = rateLimitLogger } = options;
+  const scaledMax = scaleMaxRequests(maxRequests);
+  const windowMs = windowMinutes * 60 * 1000;
+
   return rateLimit({
-    windowMs: windowMinutes * 60 * 1000,
-    max: scaleMaxRequests(maxRequests),
+    windowMs,
+    max: scaledMax,
     standardHeaders: true,
     legacyHeaders: true,
     keyGenerator: (req) => getClientIp(req),
     handler: (req, res) => {
       const retryAfter = Math.ceil(windowMinutes * 60);
+      const resetEpoch = Math.ceil((Date.now() + windowMs) / 1000);
+
       res.set("Retry-After", String(retryAfter));
+      res.set("X-RateLimit-Limit", String(scaledMax));
+      res.set("X-RateLimit-Remaining", "0");
+      res.set("X-RateLimit-Reset", String(resetEpoch));
+
       logger.warn({
         endpoint: name,
         ip: getClientIp(req),
@@ -70,6 +79,7 @@ const createRateLimiter = (maxRequests, windowMinutes, options = {}) => {
         retryAfter,
         requestId: req.requestId,
       }, "Rate limit exceeded");
+
       return res.status(429).json({
         error: "Too many requests — please wait before trying again",
       });

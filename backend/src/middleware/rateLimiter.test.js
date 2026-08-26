@@ -337,3 +337,41 @@ describe("scaleMaxRequests", () => {
     expect(scaleMaxRequests(-5)).toBe(1);
   });
 });
+
+describe("X-RateLimit-* headers on 429 responses", () => {
+  it("sets X-RateLimit-Limit, X-RateLimit-Remaining, and X-RateLimit-Reset on 429", async () => {
+    const app = buildTestApp(1, { name: "test-headers" });
+
+    await request(app).get("/test"); // consume the only allowed request
+
+    const blocked = await request(app).get("/test");
+    expect(blocked.status).toBe(429);
+
+    expect(blocked.headers["x-ratelimit-limit"]).toBe("1");
+    expect(blocked.headers["x-ratelimit-remaining"]).toBe("0");
+
+    const reset = Number(blocked.headers["x-ratelimit-reset"]);
+    expect(reset).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    // Reset should be within the next window (1 minute = 60 seconds from now)
+    expect(reset).toBeLessThanOrEqual(Math.ceil((Date.now() + 60_000) / 1000));
+  });
+
+  it("X-RateLimit-Reset reflects the correct window duration", async () => {
+    const limiter = createRateLimiter(1, 5, { name: "test-5min-headers" });
+    const app = express();
+    app.set("trust proxy", 1);
+    app.use(limiter);
+    app.get("/test", (req, res) => res.json({ ok: true }));
+
+    await request(app).get("/test"); // consume limit
+
+    const before = Math.floor(Date.now() / 1000);
+    const blocked = await request(app).get("/test");
+    const after = Math.ceil((Date.now() + 5 * 60 * 1000) / 1000);
+
+    expect(blocked.status).toBe(429);
+    const reset = Number(blocked.headers["x-ratelimit-reset"]);
+    expect(reset).toBeGreaterThan(before);
+    expect(reset).toBeLessThanOrEqual(after);
+  });
+});
