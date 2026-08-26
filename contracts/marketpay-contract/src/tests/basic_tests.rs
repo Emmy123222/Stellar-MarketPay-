@@ -108,3 +108,42 @@ fn test_governance_unauthorized_voter() {
     // Panics here
     client.cast_vote(&voter, &pid, &true);
 }
+
+#[test]
+#[should_panic(expected = "Voter has already cast a vote")]
+fn test_governance_rejects_double_vote() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(MarketPayContract, ());
+    let client = MarketPayContractClient::new(&env, &id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &Address::generate(&env));
+    let voter = Address::generate(&env);
+    env.as_contract(&id, || {
+        env.storage().instance().set(&DataKey::CompletedJobs(voter.clone()), &1u32);
+    });
+    let pid = client.create_proposal(&admin, &String::from_str(&env, "p"), &String::from_str(&env, "d"), &10);
+    client.cast_vote(&voter, &pid, &true);
+    client.cast_vote(&voter, &pid, &false);
+}
+
+#[test]
+#[should_panic(expected = "Proposal already resolved")]
+fn test_governance_rejects_vote_after_resolution() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(MarketPayContract, ());
+    let client = MarketPayContractClient::new(&env, &id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &Address::generate(&env));
+    let voter = Address::generate(&env);
+    env.as_contract(&id, || {
+        env.storage().instance().set(&DataKey::CompletedJobs(voter.clone()), &1u32);
+    });
+    let pid = client.create_proposal(&admin, &String::from_str(&env, "p"), &String::from_str(&env, "d"), &10);
+    let mut ledger = env.ledger().get();
+    ledger.sequence_number += 10;
+    env.ledger().set(ledger);
+    client.resolve_proposal(&pid);
+    client.cast_vote(&voter, &pid, &true);
+}
