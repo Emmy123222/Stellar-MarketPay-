@@ -4,6 +4,7 @@
  */
 import { useEffect, useState } from "react";
 import Head from "next/head";
+import Image from "next/image";
 import axios from "axios";
 
 interface Stats {
@@ -266,9 +267,11 @@ export default function StatsPage() {
                     {/* Avatar */}
                     <div className="flex-shrink-0">
                       {c.avatar_url ? (
-                        <img
+                        <Image
                           src={c.avatar_url}
                           alt={c.name}
+                          width={40}
+                          height={40}
                           className="w-10 h-10 rounded-full ring-2 ring-gray-200 dark:ring-market-500/20 object-cover"
                         />
                       ) : (
