@@ -20,42 +20,65 @@ exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connec
       <div
         class="flex items-center gap-2"
       >
-        <span
-          class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"
-        />
-        <span
-          class="address-tag"
+        <div
+          class="flex items-center gap-1 sm:gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity text-xs sm:text-sm px-2 py-2 sm:px-3 sm:py-2 min-h-[44px]"
         >
-          GAAAAA...AAAWHF
-        </span>
-        <button
-          class="p-1.5 rounded-md transition-all flex items-center justify-center h-7 min-w-[28px] text-amber-600 hover:text-amber-300 hover:bg-amber-400/10 border border-transparent"
-          title="Copy public key"
-        >
-          <svg
-            fill="none"
-            height="14"
-            stroke="currentColor"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-            width="14"
-            xmlns="http://www.w3.org/2000/svg"
+          <button
+            class="flex items-center gap-1 sm:gap-1.5 min-h-[44px]"
+            title="wallet.balance"
+            type="button"
           >
-            <rect
-              height="13"
-              rx="2"
-              ry="2"
-              width="13"
-              x="9"
-              y="9"
+            <span
+              class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"
             />
-            <path
-              d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
-            />
-          </svg>
-        </button>
+            <span
+              class="hidden sm:inline"
+            >
+              GAAAAA...AAAWHF
+            </span>
+            <span
+              class="sm:hidden text-[10px]"
+            >
+              GAAAAA...AAAWHF
+            </span>
+            <span
+              class="text-xs text-amber-800"
+            >
+              wallet.loading
+            </span>
+          </button>
+          <button
+            aria-label="wallet.copyAddress"
+            class="p-1.5 rounded-md transition-all flex items-center justify-center h-7 min-w-[28px] text-amber-600 hover:text-amber-300 hover:bg-amber-400/10 border border-transparent"
+            title="wallet.copyAddress"
+            type="button"
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              height="14"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+              width="14"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <rect
+                height="13"
+                rx="2"
+                ry="2"
+                width="13"
+                x="9"
+                y="9"
+              />
+              <path
+                d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
       <a
         href="/post-job"

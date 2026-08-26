@@ -66,7 +66,10 @@
   },
   "wallet": {
     "balance": "Saldo",
-    "loading": "Cargando..."
+    "loading": "Cargando...",
+    "copyAddress": "Copiar dirección de la billetera",
+    "copied": "¡Copiado!",
+    "copyFailed": "Error"
   },
   "language": {
     "switch": "Cambiar Idioma",

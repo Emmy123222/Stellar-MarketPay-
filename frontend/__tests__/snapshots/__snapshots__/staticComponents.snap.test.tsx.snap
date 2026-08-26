@@ -300,7 +300,7 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
         >
           Expires:
            
-          Sep 1, 2026
+          Sep 2, 2026
         </p>
       </button>
       <button
@@ -340,7 +340,7 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
         >
           Expires:
            
-          Sep 24, 2026
+          Sep 25, 2026
         </p>
       </button>
     </div>
@@ -868,7 +868,7 @@ exports[`static component snapshots JobCard bookmarked: JobCard bookmarked 1`] =
       <p
         class="text-xs text-amber-800/60"
       >
-        8 months ago
+        7 months ago
       </p>
     </div>
   </div>
@@ -1007,7 +1007,7 @@ exports[`static component snapshots JobCard default: JobCard default 1`] = `
       <p
         class="text-xs text-amber-800/60"
       >
-        8 months ago
+        7 months ago
       </p>
     </div>
   </div>
@@ -1906,29 +1906,65 @@ exports[`static component snapshots Navbar logged in: Navbar logged in 1`] = `
           </svg>
         </button>
       </div>
-      <button
+      <div
         class="flex items-center gap-1 sm:gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity text-xs sm:text-sm px-2 py-2 sm:px-3 sm:py-2 min-h-[44px]"
-        title="wallet.balance"
       >
-        <span
-          class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"
-        />
-        <span
-          class="hidden sm:inline"
+        <button
+          class="flex items-center gap-1 sm:gap-1.5 min-h-[44px]"
+          title="wallet.balance"
+          type="button"
         >
-          GAAAAA...AAAWHF
-        </span>
-        <span
-          class="sm:hidden text-[10px]"
+          <span
+            class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"
+          />
+          <span
+            class="hidden sm:inline"
+          >
+            GAAAAA...AAAWHF
+          </span>
+          <span
+            class="sm:hidden text-[10px]"
+          >
+            GAAAAA...AAAWHF
+          </span>
+          <span
+            class="text-xs text-amber-800"
+          >
+            wallet.loading
+          </span>
+        </button>
+        <button
+          aria-label="wallet.copyAddress"
+          class="p-1.5 rounded-md transition-all flex items-center justify-center h-7 min-w-[28px] text-amber-600 hover:text-amber-300 hover:bg-amber-400/10 border border-transparent"
+          title="wallet.copyAddress"
+          type="button"
         >
-          GAAAAA...AAAWHF
-        </span>
-        <span
-          class="text-xs text-amber-800"
-        >
-          wallet.loading
-        </span>
-      </button>
+          <svg
+            class="w-3.5 h-3.5"
+            fill="none"
+            height="14"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="14"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <rect
+              height="13"
+              rx="2"
+              ry="2"
+              width="13"
+              x="9"
+              y="9"
+            />
+            <path
+              d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+            />
+          </svg>
+        </button>
+      </div>
       <button
         class="hidden sm:inline text-xs text-amber-800 hover:text-amber-500 transition-colors px-2 py-1"
       >
