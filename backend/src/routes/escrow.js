@@ -28,6 +28,8 @@ const {
   releaseMilestone,
   rejectMilestone,
   disputeMilestone,
+  requestEscrowExtension,
+  approveEscrowExtension,
 
   verifyFreelancerAccount,
 } = require("../services/escrowService");
@@ -525,6 +527,70 @@ router.post("/verify-freelancer", escrowActionRateLimiter, async (req, res, next
     await verifyFreelancerAccount(freelancerAddress);
 
     res.json({ success: true, data: { freelancerAddress, exists: true } });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/:jobId/extend
+ * Request an on-chain escrow timeout extension by mutual consent.
+ * The caller must be the client or freelancer.
+ */
+router.post("/:jobId/extend", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { requestedBy, newTimeoutLedger, contractTxHash } = req.body;
+
+    if (!requestedBy || !/^G[A-Z0-9]{55}$/.test(requestedBy)) {
+      const e = new Error("Invalid wallet address");
+      e.status = 400;
+      throw e;
+    }
+
+    if (
+      newTimeoutLedger === undefined ||
+      newTimeoutLedger === null ||
+      !Number.isInteger(Number(newTimeoutLedger)) ||
+      Number(newTimeoutLedger) <= 0
+    ) {
+      const e = new Error("newTimeoutLedger must be a positive integer");
+      e.status = 400;
+      throw e;
+    }
+
+    const result = await requestEscrowExtension(
+      jobId,
+      requestedBy,
+      Number(newTimeoutLedger),
+      contractTxHash,
+    );
+
+    res.status(201).json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/:jobId/extend/approve
+ * Approve a pending escrow timeout extension request.
+ * The caller must be the party that did NOT request the extension.
+ */
+router.post("/:jobId/extend/approve", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { approvedBy, contractTxHash } = req.body;
+
+    if (!approvedBy || !/^G[A-Z0-9]{55}$/.test(approvedBy)) {
+      const e = new Error("Invalid wallet address");
+      e.status = 400;
+      throw e;
+    }
+
+    const result = await approveEscrowExtension(jobId, approvedBy, contractTxHash);
+
+    res.json(result);
   } catch (e) {
     next(e);
   }
