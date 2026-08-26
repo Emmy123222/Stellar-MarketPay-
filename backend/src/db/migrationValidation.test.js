@@ -15,6 +15,7 @@ const pool = require("./pool");
 const {
   migrate,
   loadMigrationPairs,
+  assertUniqueVersions,
   ensureMigrationsTable,
   getCurrentMigrationVersion,
   getExpectedMigrationVersion,
@@ -67,6 +68,34 @@ describe("getExpectedMigrationVersion()", () => {
       ? migrations[migrations.length - 1].version
       : null;
     expect(getExpectedMigrationVersion()).toBe(expected);
+  });
+});
+
+describe("assertUniqueVersions()", () => {
+  it("does not throw when all versions are unique", () => {
+    expect(() =>
+      assertUniqueVersions([
+        { version: 1, name: "V1__a" },
+        { version: 2, name: "V2__b" },
+        { version: 3, name: "V3__c" },
+      ])
+    ).not.toThrow();
+  });
+
+  it("throws when two migrations share a version number", () => {
+    expect(() =>
+      assertUniqueVersions([
+        { version: 1, name: "V1__a" },
+        { version: 1, name: "V1__b" },
+      ])
+    ).toThrow(/Duplicate migration version V1/);
+  });
+
+  it("V6 migration prefix is used by exactly one migration (issue #1067)", () => {
+    const migrations = loadMigrationPairs();
+    const v6 = migrations.filter((m) => m.version === 6);
+    expect(v6).toHaveLength(1);
+    expect(v6[0].name).toBe("V6__private_message_nonce_unique");
   });
 });
 

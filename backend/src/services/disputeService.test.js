@@ -11,8 +11,13 @@ jest.mock("./ipfsService", () => ({
   getGatewayUrl: jest.fn((cid) => `https://gateway.pinata.cloud/ipfs/${cid}`),
 }));
 
+jest.mock("./sorobanArbitratorRegistry", () => ({
+  isArbitrator: jest.fn().mockResolvedValue(false),
+}));
+
 const pool = require("../db/pool");
 const ipfsService = require("./ipfsService");
+const sorobanArbitratorRegistry = require("./sorobanArbitratorRegistry");
 const {
   createDispute,
   uploadEvidence,
@@ -23,10 +28,14 @@ const {
   validateIpfsCid,
 } = require("./disputeService");
 
-const CLIENT_ADDRESS = "GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
-const FREELANCER_ADDRESS = "GBBCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
-const ADMIN_ADDRESS = "GADMIN1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEF";
-const OTHER_ADDRESS = "GCCCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
+const CLIENT_ADDRESS =
+  "GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
+const FREELANCER_ADDRESS =
+  "GBBCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
+const ADMIN_ADDRESS =
+  "GADMIN1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEF";
+const OTHER_ADDRESS =
+  "GCCCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
 const JOB_ID = "job-456";
 const VALID_CID_V0 = "QmYwAPJzv5CZsnAzt8auVZRnApMEfM4kQh6wxbN4p5M6Za";
 const VALID_CID_V1 = `bafy${"a".repeat(55)}`;
@@ -70,13 +79,15 @@ describe("disputeService", () => {
         .mockResolvedValueOnce({ rows: [makeJob()] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{
-            id: "dispute-1",
-            job_id: JOB_ID,
-            raised_by: CLIENT_ADDRESS,
-            status: "open",
-            created_at: new Date().toISOString(),
-          }],
+          rows: [
+            {
+              id: "dispute-1",
+              job_id: JOB_ID,
+              raised_by: CLIENT_ADDRESS,
+              status: "open",
+              created_at: new Date().toISOString(),
+            },
+          ],
         });
 
       const result = await createDispute(JOB_ID, CLIENT_ADDRESS);
@@ -90,12 +101,14 @@ describe("disputeService", () => {
         .mockResolvedValueOnce({ rows: [makeJob()] })
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
-          rows: [{
-            id: "dispute-2",
-            job_id: JOB_ID,
-            raised_by: FREELANCER_ADDRESS,
-            status: "open",
-          }],
+          rows: [
+            {
+              id: "dispute-2",
+              job_id: JOB_ID,
+              raised_by: FREELANCER_ADDRESS,
+              status: "open",
+            },
+          ],
         });
 
       const result = await createDispute(JOB_ID, FREELANCER_ADDRESS);
@@ -106,9 +119,9 @@ describe("disputeService", () => {
     it("rejects dispute creation by non-participant", async () => {
       pool.query.mockResolvedValueOnce({ rows: [makeJob()] });
 
-      await expect(
-        createDispute(JOB_ID, OTHER_ADDRESS),
-      ).rejects.toThrow("Only the job client or freelancer can raise a dispute");
+      await expect(createDispute(JOB_ID, OTHER_ADDRESS)).rejects.toThrow(
+        "Only the job client or freelancer can raise a dispute",
+      );
     });
 
     it("rejects duplicate dispute on same job", async () => {
@@ -116,17 +129,17 @@ describe("disputeService", () => {
         .mockResolvedValueOnce({ rows: [makeJob()] })
         .mockResolvedValueOnce({ rows: [{ id: "existing" }] });
 
-      await expect(
-        createDispute(JOB_ID, CLIENT_ADDRESS),
-      ).rejects.toThrow("A dispute already exists for this job");
+      await expect(createDispute(JOB_ID, CLIENT_ADDRESS)).rejects.toThrow(
+        "A dispute already exists for this job",
+      );
     });
 
     it("throws 404 when job not found", async () => {
       pool.query.mockResolvedValueOnce({ rows: [] });
 
-      await expect(
-        createDispute(JOB_ID, CLIENT_ADDRESS),
-      ).rejects.toThrow("Job not found");
+      await expect(createDispute(JOB_ID, CLIENT_ADDRESS)).rejects.toThrow(
+        "Job not found",
+      );
     });
   });
 
@@ -144,7 +157,13 @@ describe("disputeService", () => {
 
       ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V0 });
 
-      const result = await uploadEvidence(JOB_ID, CLIENT_ADDRESS, fileBuffer, fileName, mimeType);
+      const result = await uploadEvidence(
+        JOB_ID,
+        CLIENT_ADDRESS,
+        fileBuffer,
+        fileName,
+        mimeType,
+      );
 
       expect(result.success).toBe(true);
       expect(result.data.ipfsCid).toBe(VALID_CID_V0);
@@ -171,22 +190,30 @@ describe("disputeService", () => {
     it("rejects evidence upload after dispute resolved", async () => {
       pool.query
         .mockResolvedValueOnce({ rows: [makeJob()] })
-        .mockResolvedValueOnce({ rows: [{ id: "dispute-1", status: "resolved" }] });
+        .mockResolvedValueOnce({
+          rows: [{ id: "dispute-1", status: "resolved" }],
+        });
 
       await expect(
         uploadEvidence(JOB_ID, CLIENT_ADDRESS, fileBuffer, fileName, mimeType),
-      ).rejects.toThrow("Cannot upload evidence after dispute has been resolved");
+      ).rejects.toThrow(
+        "Cannot upload evidence after dispute has been resolved",
+      );
     });
 
     it("rejects evidence exceeding max file limit", async () => {
       pool.query
         .mockResolvedValueOnce({ rows: [makeJob()] })
         .mockResolvedValueOnce({ rows: [{ id: "dispute-1", status: "open" }] })
-        .mockResolvedValueOnce({ rows: [{ count: String(MAX_EVIDENCE_FILES) }] });
+        .mockResolvedValueOnce({
+          rows: [{ count: String(MAX_EVIDENCE_FILES) }],
+        });
 
       await expect(
         uploadEvidence(JOB_ID, CLIENT_ADDRESS, fileBuffer, fileName, mimeType),
-      ).rejects.toThrow(`Maximum ${MAX_EVIDENCE_FILES} files allowed per party`);
+      ).rejects.toThrow(
+        `Maximum ${MAX_EVIDENCE_FILES} files allowed per party`,
+      );
     });
 
     it("rejects evidence exceeding 5MB file size", async () => {
@@ -207,11 +234,19 @@ describe("disputeService", () => {
         .mockResolvedValueOnce({ rows: [makeJob()] })
         .mockResolvedValueOnce({ rows: [{ id: "dispute-1", status: "open" }] })
         .mockResolvedValueOnce({ rows: [{ count: "0" }] })
-        .mockResolvedValueOnce({ rows: [makeEvidenceRow({ ipfs_cid: VALID_CID_V1 })] });
+        .mockResolvedValueOnce({
+          rows: [makeEvidenceRow({ ipfs_cid: VALID_CID_V1 })],
+        });
 
       ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V1 });
 
-      const result = await uploadEvidence(JOB_ID, CLIENT_ADDRESS, fileBuffer, fileName, mimeType);
+      const result = await uploadEvidence(
+        JOB_ID,
+        CLIENT_ADDRESS,
+        fileBuffer,
+        fileName,
+        mimeType,
+      );
 
       expect(result.data.ipfsCid).toBe(VALID_CID_V1);
       expect(result.data.gatewayUrl).toContain(VALID_CID_V1);
@@ -220,7 +255,10 @@ describe("disputeService", () => {
     it.each([
       ["short CID", "QmTest123"],
       ["CID with script payload", "<script>alert(1)</script>"],
-      ["CID with special characters", "QmYwAPJzv5CZsnAzt8auVZRnApMEfM4kQh6wxbN4p5M!"],
+      [
+        "CID with special characters",
+        "QmYwAPJzv5CZsnAzt8auVZRnApMEfM4kQh6wxbN4p5M!",
+      ],
       ["non-string CID", null],
     ])("rejects %s before storing evidence", async (_label, cid) => {
       pool.query
@@ -242,12 +280,17 @@ describe("disputeService", () => {
   });
 
   describe("validateIpfsCid", () => {
-    it.each([VALID_CID_V0, VALID_CID_V1])("accepts valid CID format %s", (cid) => {
-      expect(validateIpfsCid(cid)).toBe(cid);
-    });
+    it.each([VALID_CID_V0, VALID_CID_V1])(
+      "accepts valid CID format %s",
+      (cid) => {
+        expect(validateIpfsCid(cid)).toBe(cid);
+      },
+    );
 
     it("rejects a CID with unexpected length", () => {
-      expect(() => validateIpfsCid("bafyshort")).toThrow("Invalid IPFS CID returned from upload service");
+      expect(() => validateIpfsCid("bafyshort")).toThrow(
+        "Invalid IPFS CID returned from upload service",
+      );
     });
   });
 
@@ -257,17 +300,23 @@ describe("disputeService", () => {
         .mockResolvedValueOnce({ rows: [{ id: ADMIN_ADDRESS }] })
         .mockResolvedValueOnce({ rows: [{ id: "dispute-1", status: "open" }] })
         .mockResolvedValueOnce({
-          rows: [{
-            id: "dispute-1",
-            job_id: JOB_ID,
-            status: "resolved",
-            resolved_by: ADMIN_ADDRESS,
-            resolution: "release_funds",
-          }],
+          rows: [
+            {
+              id: "dispute-1",
+              job_id: JOB_ID,
+              status: "resolved",
+              resolved_by: ADMIN_ADDRESS,
+              resolution: "release_funds",
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [] });
 
-      const result = await resolveDispute(JOB_ID, ADMIN_ADDRESS, "release_funds");
+      const result = await resolveDispute(
+        JOB_ID,
+        ADMIN_ADDRESS,
+        "release_funds",
+      );
 
       expect(result.success).toBe(true);
       expect(result.dispute.status).toBe("resolved");
@@ -279,34 +328,72 @@ describe("disputeService", () => {
         .mockResolvedValueOnce({ rows: [{ id: ADMIN_ADDRESS }] })
         .mockResolvedValueOnce({ rows: [{ id: "dispute-1", status: "open" }] })
         .mockResolvedValueOnce({
-          rows: [{
-            id: "dispute-1",
-            status: "resolved",
-            resolved_by: ADMIN_ADDRESS,
-            resolution: "refund_client",
-          }],
+          rows: [
+            {
+              id: "dispute-1",
+              status: "resolved",
+              resolved_by: ADMIN_ADDRESS,
+              resolution: "refund_client",
+            },
+          ],
         })
         .mockResolvedValueOnce({ rows: [] });
 
-      const result = await resolveDispute(JOB_ID, ADMIN_ADDRESS, "refund_client");
+      const result = await resolveDispute(
+        JOB_ID,
+        ADMIN_ADDRESS,
+        "refund_client",
+      );
 
       expect(result.success).toBe(true);
       expect(result.dispute.resolution).toBe("refund_client");
     });
 
-    it("rejects resolution by non-admin", async () => {
-      pool.query
-        .mockResolvedValueOnce({ rows: [] });
+    it("rejects resolution by non-admin and non-arbitrator", async () => {
+      pool.query.mockResolvedValueOnce({ rows: [] });
 
       await expect(
         resolveDispute(JOB_ID, OTHER_ADDRESS, "release_funds"),
-      ).rejects.toThrow("Only an admin can resolve disputes");
+      ).rejects.toThrow(
+        "Only an admin or on-chain arbitrator can resolve disputes",
+      );
+    });
+
+    it("on-chain arbitrator can resolve dispute with release_funds", async () => {
+      sorobanArbitratorRegistry.isArbitrator.mockResolvedValueOnce(true);
+      pool.query
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ id: "dispute-1", status: "open" }] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: "dispute-1",
+              job_id: JOB_ID,
+              status: "resolved",
+              resolved_by: OTHER_ADDRESS,
+              resolution: "release_funds",
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const result = await resolveDispute(
+        JOB_ID,
+        OTHER_ADDRESS,
+        "release_funds",
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.dispute.status).toBe("resolved");
+      expect(result.dispute.resolution).toBe("release_funds");
     });
 
     it("rejects invalid resolution value", async () => {
       await expect(
         resolveDispute(JOB_ID, ADMIN_ADDRESS, "invalid_action"),
-      ).rejects.toThrow("Resolution must be 'release_funds' or 'refund_client'");
+      ).rejects.toThrow(
+        "Resolution must be 'release_funds' or 'refund_client'",
+      );
     });
 
     it("rejects resolving non-existent dispute", async () => {
@@ -322,7 +409,9 @@ describe("disputeService", () => {
     it("rejects resolving already resolved dispute", async () => {
       pool.query
         .mockResolvedValueOnce({ rows: [{ id: ADMIN_ADDRESS }] })
-        .mockResolvedValueOnce({ rows: [{ id: "dispute-1", status: "resolved" }] });
+        .mockResolvedValueOnce({
+          rows: [{ id: "dispute-1", status: "resolved" }],
+        });
 
       await expect(
         resolveDispute(JOB_ID, ADMIN_ADDRESS, "release_funds"),
@@ -334,7 +423,11 @@ describe("disputeService", () => {
     it("returns dispute with evidence list", async () => {
       const evidenceRows = [
         makeEvidenceRow({ id: "ev-1", file_name: "doc1.pdf" }),
-        makeEvidenceRow({ id: "ev-2", file_name: "doc2.pdf", uploader_address: FREELANCER_ADDRESS }),
+        makeEvidenceRow({
+          id: "ev-2",
+          file_name: "doc2.pdf",
+          uploader_address: FREELANCER_ADDRESS,
+        }),
       ];
 
       pool.query
@@ -347,7 +440,9 @@ describe("disputeService", () => {
       expect(result.data.evidence).toHaveLength(2);
       expect(result.data.evidence[0].fileName).toBe("doc1.pdf");
       expect(result.data.evidence[1].fileName).toBe("doc2.pdf");
-      expect(result.data.evidence[0].gatewayUrl).toContain("gateway.pinata.cloud");
+      expect(result.data.evidence[0].gatewayUrl).toContain(
+        "gateway.pinata.cloud",
+      );
     });
 
     it("returns empty evidence list when no evidence uploaded", async () => {

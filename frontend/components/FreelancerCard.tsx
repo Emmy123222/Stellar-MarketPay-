@@ -12,6 +12,8 @@ interface FreelancerCardProps {
 }
 
 export default function FreelancerCard({ profile }: FreelancerCardProps) {
+  const availabilityStatus = profile.availability?.status;
+
   return (
     <Link href={`/freelancers/${encodeURIComponent(profile.publicKey)}`}>
       <div className="card-hover group flex h-full flex-col justify-between gap-4 p-5 transition-shadow hover:shadow-xl">
@@ -26,8 +28,8 @@ export default function FreelancerCard({ profile }: FreelancerCardProps) {
       </div>
     </div>
     <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${availabilityBadgeClass(profile.availability?.status)}`}>
-                {availabilityStatusLabel(profile.availability?.status)}
+              <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${availabilityBadgeClass(availabilityStatus)}`}>
+                {availabilityStatusLabel(availabilityStatus)}
               </span>
               {profile.tier ? <FreelancerTierBadge tier={profile.tier} className="hidden sm:inline-flex" /> : null}
             </div>

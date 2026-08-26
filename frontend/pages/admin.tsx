@@ -25,6 +25,7 @@ import {
 import { shortenAddress, timeAgo } from "@/utils/format";
 import dynamic from "next/dynamic";
 import Admin2FAModal from "@/components/Admin2FAModal";
+import { useToast } from "@/components/Toast";
 
 // Dynamic import for heavy AdminAnalytics component
 const AdminAnalytics = dynamic(() => import("@/components/AdminAnalytics"), {
@@ -112,6 +113,7 @@ function formatAuditTarget(target?: string | null) {
 
 export default function AdminDashboard({ publicKey }: AdminPageProps) {
   const router = useRouter();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<ActiveTab>("analytics");
   const [disputes, setDisputes] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
@@ -627,7 +629,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                   <button
                     onClick={async () => {
                       await generateCostReport();
-                      alert("Cost report generation triggered. Check audit log.");
+                      toast.success("Cost report generation triggered. Check audit log.");
                     }}
                     className="btn-ghost text-sm py-2 px-5"
                   >
