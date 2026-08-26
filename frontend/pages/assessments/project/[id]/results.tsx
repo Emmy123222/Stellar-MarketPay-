@@ -18,25 +18,31 @@ interface AssessmentResultsProps {
   publicKey: string | null;
 }
 
+interface AssessmentResultsResponse {
+  success: boolean;
+  data: AssessmentResult[];
+}
+
 export default function AssessmentResults({ publicKey }: AssessmentResultsProps) {
   const router = useRouter();
   const toast = useToast();
   const { id } = router.query;
+  const assessmentId = typeof id === "string" ? id : null;
 
   const [results, setResults] = useState<AssessmentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (id && publicKey) {
-      fetchResults();
+    if (assessmentId && publicKey) {
+      fetchResults(assessmentId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, publicKey]);
+  }, [assessmentId, publicKey]);
 
-  const fetchResults = async () => {
+  const fetchResults = async (id: string) => {
     try {
-      const response = await api.get(`/api/assessments/project/${id}/results`);
+      const response = await api.get<AssessmentResultsResponse>(`/api/assessments/project/${id}/results`);
       if (response.data.success) {
         setResults(response.data.data);
       }
@@ -61,7 +67,7 @@ export default function AssessmentResults({ publicKey }: AssessmentResultsProps)
           <button 
             onClick={() => {
               // Copy link to clipboard
-              const link = `${window.location.origin}/assessments/project/${id}`;
+              const link = `${window.location.origin}/assessments/project/${assessmentId}`;
               navigator.clipboard.writeText(link);
               toast.success('Assessment link copied to clipboard! Send this to freelancers.');
             }}
