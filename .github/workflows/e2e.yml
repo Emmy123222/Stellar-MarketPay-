@@ -29,9 +29,9 @@ jobs:
       NEXT_PUBLIC_CONTRACT_ID: CMOCKCONTRACTID
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -49,7 +49,7 @@ jobs:
         run: npx playwright test tests/e2e/freelancer-onboarding.spec.ts tests/e2e/full-marketplace-flow.spec.ts --project=chromium-dark --pass-with-no-tests
 
       - name: Upload Playwright report on failure
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
