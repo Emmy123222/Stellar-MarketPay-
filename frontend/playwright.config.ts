@@ -34,6 +34,7 @@ export default defineConfig({
       NEXT_PUBLIC_STELLAR_NETWORK: "testnet",
       NEXT_PUBLIC_HORIZON_URL: "https://horizon-testnet.stellar.org",
       NEXT_PUBLIC_CONTRACT_ID: "CMOCKCONTRACTID",
+      SKIP_API_CALLS: "true",
     },
   },
   projects: [

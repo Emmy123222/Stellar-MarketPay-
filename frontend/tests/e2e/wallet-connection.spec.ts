@@ -59,6 +59,18 @@ async function seedStableUiState(page: Page) {
 }
 
 /**
+ * Force the Next.js server to render in English.  Without this the
+ * Accept-Language header from headless Chromium on Linux CI can cause the
+ * server to render a non-English locale, producing a hydration-error overlay
+ * that blocks the entire page.
+ */
+async function ensureEnglishLocale(page: Page) {
+  await page.context().addCookies([
+    { name: "NEXT_LOCALE", value: "en", domain: "127.0.0.1", path: "/" },
+  ]);
+}
+
+/**
  * Intercept every backend/network call the flow touches.
  *
  * Layer 1: XHR patch — the axios client targets NEXT_PUBLIC_API_URL
@@ -143,7 +155,9 @@ test.describe("Wallet connection (Freighter)", () => {
     await mockFreighter(page);
     await seedStableUiState(page);
     await installApiMocks(page);
+    await ensureEnglishLocale(page);
     await page.goto("/");
+    await page.waitForLoadState("networkidle");
 
     const connectButton = page.getByRole("button", { name: "Connect Wallet" });
     await expect(connectButton).toBeVisible();
@@ -173,7 +187,9 @@ test.describe("Wallet connection (Freighter)", () => {
     // is exactly how a browser without the extension behaves.
     await seedStableUiState(page);
     await installApiMocks(page);
+    await ensureEnglishLocale(page);
     await page.goto("/");
+    await page.waitForLoadState("networkidle");
 
     // Home hero opens the WalletConnect card.
     await page.getByRole("button", { name: "Get Started Free" }).click();
@@ -192,7 +208,9 @@ test.describe("Wallet connection (Freighter)", () => {
     await mockFreighter(page);
     await seedStableUiState(page);
     await installApiMocks(page);
+    await ensureEnglishLocale(page);
     await page.goto("/");
+    await page.waitForLoadState("networkidle");
 
     await page.getByRole("button", { name: "Connect Wallet" }).click();
     await expect(page.getByRole("button", { name: "Disconnect" })).toBeVisible();
