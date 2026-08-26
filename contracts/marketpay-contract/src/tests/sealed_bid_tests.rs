@@ -88,3 +88,29 @@ fn test_late_reveal_rejected() {
 
     client.reveal_bid(&job_id, &freelancer, &amount, &nonce);
 }
+
+#[test]
+#[should_panic(expected = "Bidding not closed")]
+fn test_reveal_before_close_rejected() {
+    let env = Env::default();
+    let (_id, client, _owner, _admin, job_id) = setup(&env);
+    let freelancer = Address::generate(&env);
+    let nonce = BytesN::from_array(&env, &[9u8; 32]);
+    let amount = 400_i128;
+    client.submit_bid_commitment(&job_id, &freelancer, &bid_commitment(&env, amount, nonce.clone()));
+    client.reveal_bid(&job_id, &freelancer, &amount, &nonce);
+}
+
+#[test]
+#[should_panic(expected = "Bid already revealed")]
+fn test_double_reveal_rejected() {
+    let env = Env::default();
+    let (_id, client, owner, _admin, job_id) = setup(&env);
+    let freelancer = Address::generate(&env);
+    let nonce = BytesN::from_array(&env, &[8u8; 32]);
+    let amount = 400_i128;
+    client.submit_bid_commitment(&job_id, &freelancer, &bid_commitment(&env, amount, nonce.clone()));
+    client.close_bidding(&job_id, &owner);
+    client.reveal_bid(&job_id, &freelancer, &amount, &nonce);
+    client.reveal_bid(&job_id, &freelancer, &amount, &nonce);
+}
