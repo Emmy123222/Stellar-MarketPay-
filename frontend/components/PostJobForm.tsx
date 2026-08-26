@@ -33,6 +33,7 @@ interface PostJobFormProps {
 }
 
 const DRAFT_STORAGE_KEY = "marketpay_post_job_draft";
+type DraftPayload = Omit<Parameters<typeof updateDraft>[0], "id"> & { id?: string };
 
 // ---------------------------------------------------------------------------
 // Multi-step config (Issue #494)
@@ -397,18 +398,17 @@ export default function PostJobForm({
         }
 
         const skillsArray = form.skills.split(",").map((s) => s.trim()).filter(Boolean);
-        const draftData: any = {
+        const draftData: DraftPayload = {
           title: form.title,
           description: form.description,
-          budget: form.budget,
+          budget: parseFloat(form.budget) || 0,
           category: form.category,
           skills: skillsArray,
           deadline: form.deadline,
         };
 
         if (draftId) {
-          draftData.id = draftId;
-          const result = await updateDraft(draftData);
+          const result = await updateDraft({ ...draftData, id: draftId });
           setDraftId(result.id);
         } else {
           const result = await saveDraft(draftData);
