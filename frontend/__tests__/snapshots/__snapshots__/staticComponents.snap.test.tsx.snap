@@ -301,7 +301,7 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
         >
           Expires:
            
-          Sep 1, 2026
+          Jan 22, 2026
         </p>
       </button>
       <button
@@ -341,7 +341,7 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
         >
           Expires:
            
-          Sep 24, 2026
+          Feb 14, 2026
         </p>
       </button>
     </div>
