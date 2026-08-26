@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { api, getApiErrorMessage } from "@/lib/api/client";
+import { useToast } from "@/components/Toast";
 
 interface AssessmentQuestion {
   question: string;
@@ -27,6 +28,7 @@ interface TakeAssessmentProps {
 
 export default function TakeAssessment({ publicKey }: TakeAssessmentProps) {
   const router = useRouter();
+  const toast = useToast();
   const { id } = router.query;
 
   const [assessment, setAssessment] = useState<ProjectAssessment | null>(null);
@@ -100,7 +102,7 @@ export default function TakeAssessment({ publicKey }: TakeAssessmentProps) {
         answers
       });
       if (response.data.success) {
-        alert('Assessment submitted successfully!');
+        toast.success('Assessment submitted successfully!');
         router.push('/dashboard');
       }
     } catch (err) {

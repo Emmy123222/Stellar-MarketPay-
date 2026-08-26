@@ -10,13 +10,12 @@ import type {
   PortfolioItem,
   PortfolioItemType,
   PortfolioFile,
-  UserProfile,
   UserRole,
 } from "@/utils/types";
 import clsx from "clsx";
 
 interface Props {
-  publicKey: string;
+  readonly publicKey: string;
 }
 
 const MAX_PORTFOLIO_ITEMS = 10;
@@ -47,7 +46,6 @@ function createDefaultAvailability(): Availability {
 }
 
 export default function EditProfileForm({ publicKey }: Props) {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
@@ -70,7 +68,6 @@ export default function EditProfileForm({ publicKey }: Props) {
     fetchProfile(publicKey)
       .then((data) => {
         if (data) {
-          setProfile(data);
           setDisplayName(data.displayName || "");
           setBio(data.bio || "");
           setRole(data.role || "freelancer");
@@ -154,35 +151,40 @@ export default function EditProfileForm({ publicKey }: Props) {
     return { valid, errors };
   }, [portfolioFiles.length]);
 
-  const handleFileUpload = async (files: FileList | File[]) => {
-    const { valid, errors } = validateFiles(files);
-    if (errors.length > 0) {
-      setErrorMsg(errors.join(". "));
-      return;
-    }
-    if (valid.length === 0) return;
+  const handleFileUpload = useCallback(
+    async (files: FileList | File[]) => {
+      const { valid, errors } = validateFiles(files);
+      if (errors.length > 0) {
+        setErrorMsg(errors.join(". "));
+        return;
+      }
+      if (valid.length === 0) return;
 
-    setUploadingFiles(true);
-    setErrorMsg("");
-    const initialProgress: Record<number, number> = {};
-    valid.forEach((_, i) => { initialProgress[i] = 0; });
-    setUploadProgress(initialProgress);
-
-    try {
-      const result = await uploadPortfolioFiles(publicKey, valid, (fileIndex, percent) => {
-        setUploadProgress((prev) => ({ ...prev, [fileIndex]: percent }));
+      setUploadingFiles(true);
+      setErrorMsg("");
+      const initialProgress: Record<number, number> = {};
+      valid.forEach((_, i) => {
+        initialProgress[i] = 0;
       });
-      setPortfolioFiles((current) => [...current, ...result.uploadedFiles]);
-      setSuccessMsg(`${result.uploadedFiles.length} file(s) uploaded successfully!`);
-      setTimeout(() => setSuccessMsg(""), 3000);
-    } catch (err: any) {
-      console.error("File upload error:", err);
-      setErrorMsg(err.response?.data?.error || "Failed to upload files");
-    } finally {
-      setUploadingFiles(false);
-      setUploadProgress({});
-    }
-  };
+      setUploadProgress(initialProgress);
+
+      try {
+        const result = await uploadPortfolioFiles(publicKey, valid, (fileIndex, percent) => {
+          setUploadProgress((prev) => ({ ...prev, [fileIndex]: percent }));
+        });
+        setPortfolioFiles((current) => [...current, ...result.uploadedFiles]);
+        setSuccessMsg(`${result.uploadedFiles.length} file(s) uploaded successfully!`);
+        setTimeout(() => setSuccessMsg(""), 3000);
+      } catch (err: any) {
+        console.error("File upload error:", err);
+        setErrorMsg(err.response?.data?.error || "Failed to upload files");
+      } finally {
+        setUploadingFiles(false);
+        setUploadProgress({});
+      }
+    },
+    [publicKey, validateFiles]
+  );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -253,7 +255,7 @@ export default function EditProfileForm({ publicKey }: Props) {
     setSuccessMsg("");
 
     try {
-      const updated = await upsertProfile({
+      await upsertProfile({
         publicKey,
         displayName,
         bio,
@@ -270,7 +272,6 @@ export default function EditProfileForm({ publicKey }: Props) {
       };
       const profileWithAvailability = await updateProfileAvailability(publicKey, availabilityPayload);
 
-      setProfile(profileWithAvailability);
       setPortfolioItems(profileWithAvailability.portfolioItems || []);
       setAvailability({
         status: profileWithAvailability.availability?.status || "available",
@@ -286,6 +287,13 @@ export default function EditProfileForm({ publicKey }: Props) {
       setSaving(false);
     }
   };
+
+  let uploadStatusText = "Click or drag and drop files";
+  if (uploadingFiles) {
+    uploadStatusText = "Uploading...";
+  } else if (isDragOver) {
+    uploadStatusText = "Drop files here";
+  }
 
   if (loading) {
     return (
@@ -337,30 +345,32 @@ export default function EditProfileForm({ publicKey }: Props) {
         </div>
 
         <div>
-          <span id="role-label" className="block text-sm font-medium text-amber-100 mb-2">Role</span>
-          <div className="flex flex-wrap gap-4" role="group" aria-labelledby="role-label">
-            {(["freelancer", "client", "both"] as UserRole[]).map((r) => (
-              <label
-                key={r}
-                className={clsx(
-                  "flex items-center justify-center px-4 py-2.5 rounded-xl border cursor-pointer transition-all",
-                  role === r
-                    ? "bg-market-500/10 border-market-400 text-market-300"
-                    : "bg-ink-900/50 border-market-500/20 text-amber-600 hover:border-market-500/50"
-                )}
-              >
-                <input
-                  type="radio"
-                  name="role"
-                  value={r}
-                  checked={role === r}
-                  onChange={() => setRole(r)}
-                  className="sr-only"
-                />
-                <span className="capitalize">{r}</span>
-              </label>
-            ))}
-          </div>
+          <fieldset className="border-0 p-0 m-0">
+            <legend id="role-label" className="block text-sm font-medium text-amber-100 mb-2">Role</legend>
+            <div className="flex flex-wrap gap-4">
+              {(["freelancer", "client", "both"] as UserRole[]).map((r) => (
+                <label
+                  key={r}
+                  className={clsx(
+                    "flex items-center justify-center px-4 py-2.5 rounded-xl border cursor-pointer transition-all",
+                    role === r
+                      ? "bg-market-500/10 border-market-400 text-market-300"
+                      : "bg-ink-900/50 border-market-500/20 text-amber-600 hover:border-market-500/50"
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="role"
+                    value={r}
+                    checked={role === r}
+                    onChange={() => setRole(r)}
+                    className="sr-only"
+                  />
+                  <span className="capitalize">{r}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
         </div>
 
         <div>
@@ -556,28 +566,27 @@ export default function EditProfileForm({ publicKey }: Props) {
 
               <div className="space-y-3">
                 {/* Drag-and-Drop Zone */}
-                <div
+                <button
+                  type="button"
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={handleDrop}
                   onClick={() => fileInputRef.current?.click()}
                   className={clsx(
-                    "rounded-xl border-2 border-dashed px-4 py-8 text-center transition-all cursor-pointer",
+                    "w-full rounded-xl border-2 border-dashed px-4 py-8 text-center transition-all cursor-pointer font-normal",
                     isDragOver
                       ? "border-market-400 bg-market-500/10 scale-[1.01]"
                       : "border-market-500/30 bg-ink-900/40 hover:border-market-500/50",
                     (uploadingFiles || portfolioFiles.length >= MAX_PORTFOLIO_FILES) && "opacity-50 cursor-not-allowed"
                   )}
-                  role="button"
-                  tabIndex={0}
                   aria-label="Upload portfolio files. Click or drag and drop files here."
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInputRef.current?.click(); } }}
                 >
                   <input
                     ref={fileInputRef}
                     type="file"
                     multiple
                     accept="image/*,.pdf"
+                    tabIndex={-1}
                     onChange={(e) => {
                       if (e.target.files && e.target.files.length > 0) {
                         handleFileUpload(e.target.files);
@@ -586,18 +595,17 @@ export default function EditProfileForm({ publicKey }: Props) {
                     }}
                     disabled={uploadingFiles || portfolioFiles.length >= MAX_PORTFOLIO_FILES}
                     className="hidden"
-                    aria-hidden="true"
                   />
                   <div className={clsx("text-3xl mb-2 transition-colors", isDragOver ? "text-market-400" : "text-amber-600")}>
                     {isDragOver ? "\u2191" : "\u2193"}
                   </div>
                   <p className="text-sm text-amber-100 font-medium">
-                    {uploadingFiles ? "Uploading..." : isDragOver ? "Drop files here" : "Click or drag and drop files"}
+                    {uploadStatusText}
                   </p>
                   <p className="text-xs text-amber-600 mt-1">
                     {portfolioFiles.length}/{MAX_PORTFOLIO_FILES} files uploaded
                   </p>
-                </div>
+                </button>
 
                 {/* Per-file upload progress */}
                 {Object.keys(uploadProgress).length > 0 && (
@@ -624,7 +632,7 @@ export default function EditProfileForm({ publicKey }: Props) {
                   <div className="space-y-2">
                     {portfolioFiles.map((file, index) => (
                       <div
-                        key={index}
+                        key={file.cid || `${file.fileName}-${index}`}
                         className="flex items-center gap-3 p-3 rounded-lg border border-market-500/20 bg-ink-900/50"
                       >
                         {file.mimeType.startsWith("image/") && file.url ? (

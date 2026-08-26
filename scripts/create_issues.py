@@ -306,7 +306,7 @@ add(
         "",
         "The supporting pieces **do** exist:",
         "",
-        "- `backend/src/db/migrations/V19__escrow_extensions.up.sql` creates `escrow_extensions`",
+        "- `backend/src/db/migrations/V32__escrow_extensions.up.sql` creates `escrow_extensions`",
         "- the contract implements `request_extension` / `approve_extension`",
         "",
         "## Task",

@@ -25,14 +25,12 @@ describe("POST /api/jobs/:id/boost", () => {
   });
 
   it("should successfully boost a job with a valid 5 XLM transaction", async () => {
-    horizonClient.callWithLimit.mockImplementation(async (fn) => fn());
-
+    // jobs.js destructures boostJob from jobService at require time, so the
+    // router holds a reference to the automock instance — configure that
+    // instance rather than replacing the module property.
     const mockJob = { id: "job-123", boosted: true, boostedUntil: new Date().toISOString() };
-    jobService.boostJob = jest.fn().mockResolvedValue(mockJob);
+    jobService.boostJob.mockResolvedValue(mockJob);
 
-    // Instead of mocking the Horizon Server instance directly inside the route,
-    // since the route instantiates it internally, we mock the callWithLimit behavior 
-    // to return our expected result for the verifyTx function.
     horizonClient.callWithLimit.mockResolvedValue({
       type: "payment",
       asset_type: "native",
@@ -81,7 +79,7 @@ describe("POST /api/jobs/:id/boost", () => {
   it("should apply 30 days boost for >= 15 XLM", async () => {
     horizonClient.callWithLimit.mockResolvedValue({});
     const mockJob = { id: "job-123", boosted: true, boostedUntil: new Date().toISOString() };
-    jobService.boostJob = jest.fn().mockResolvedValue(mockJob);
+    jobService.boostJob.mockResolvedValue(mockJob);
 
     const response = await request(app)
       .post("/api/jobs/job-123/boost")

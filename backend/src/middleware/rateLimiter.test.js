@@ -44,7 +44,8 @@ describe("rate limiter IP handling", () => {
       .set("X-Forwarded-For", "10.0.0.99");
 
     expect(blocked.status).toBe(429);
-    expect(blocked.body.message).toMatch(/too many requests/i);
+    // createRateLimiter handler returns `{ error }`, not `{ message }`.
+    expect(blocked.body.error).toMatch(/too many requests/i);
   });
 
   it("uses a consistent key for the same connection when headers are spoofed", async () => {
