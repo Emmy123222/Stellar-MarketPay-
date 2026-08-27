@@ -559,7 +559,15 @@ router.patch(
   async (req, res, next) => {
     try {
       const { escrowContractId } = validate(updateEscrowSchema, req.body);
-      const job = await updateJobEscrowId(req.params.id, escrowContractId);
+      const pool = require("../db/pool");
+      const { rows: acceptedApplications } = await pool.query(
+        "SELECT bid_amount FROM applications WHERE job_id = $1 AND status = 'accepted' LIMIT 1",
+        [req.params.id],
+      );
+      const options = acceptedApplications.length
+        ? { amount: acceptedApplications[0].bid_amount }
+        : {};
+      const job = await updateJobEscrowId(req.params.id, escrowContractId, options);
       await logContractInteraction({
         functionName: "create_escrow",
         callerAddress: req.user.publicKey,
