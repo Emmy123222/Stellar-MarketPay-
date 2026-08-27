@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/router";
 import { renewScopeSession } from "@/lib/api/scope";
+import SanitizedHtml from "@/components/SanitizedHtml";
 
 type CursorMap = Record<string, { start: number; end: number; updatedAt: number }>;
 
@@ -502,9 +503,10 @@ Use markdown: # Title, **bold**, *italic*, `code`, - lists"
           )}
 
           {previewTab === "preview" && (
-            <div
+            <SanitizedHtml
+              as="div"
               className="border border-market-500/20 bg-market-900/30 rounded-xl p-4 min-h-[16rem] overflow-auto"
-              dangerouslySetInnerHTML={{ __html: previewHtml }}
+              html={previewHtml}
             />
           )}
 
@@ -534,9 +536,10 @@ Use markdown: # Title, **bold**, *italic*, `code`, - lists"
                 readOnly={finalized}
                 disabled={finalized}
               />
-              <div
+              <SanitizedHtml
+                as="div"
                 className="border border-market-500/20 bg-market-900/30 rounded-xl p-4 min-h-[16rem] w-1/2 overflow-auto"
-                dangerouslySetInnerHTML={{ __html: previewHtml }}
+                html={previewHtml}
               />
             </div>
           )}
