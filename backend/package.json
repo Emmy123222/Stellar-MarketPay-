@@ -147,7 +147,7 @@
                     "src/tests/integration"
                 ],
                 "transformIgnorePatterns": [
-                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domelementtype|domhandler|domutils|entities|dom-serializer|css-select|boolbase|nth-check|parse5|parse5-htmlparser2-tree-adapter)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
@@ -167,7 +167,7 @@
                 ],
                 "testTimeout": 30000,
                 "transformIgnorePatterns": [
-                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domelementtype|domhandler|domutils|entities|dom-serializer|css-select|boolbase|nth-check|parse5|parse5-htmlparser2-tree-adapter)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
