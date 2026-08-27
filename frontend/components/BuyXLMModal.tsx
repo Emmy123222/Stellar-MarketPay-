@@ -13,7 +13,6 @@ import {
 } from "@/lib/anchors";
 import { useToast } from "@/components/Toast";
 import { usePriceContext } from "@/contexts/PriceContext";
-import { readSync } from "node:fs";
 
 interface BuyXLMModalProps {
   publicKey: string;

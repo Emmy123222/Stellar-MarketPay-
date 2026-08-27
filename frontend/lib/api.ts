@@ -119,7 +119,7 @@ export async function fetchRecentlyCompletedJobs(limit = 3): Promise<Job[]> {
  */
 export async function fetchJob(id: string, viewerAddress?: string) {
   const { data } = await api.get<{ success: boolean; data: Job }>(
-    `/api/jobs/${id}`,
+    `/api/jobs/${encodeURIComponent(id)}`,
     {
       params: viewerAddress ? { viewerAddress } : undefined,
     },
@@ -222,7 +222,7 @@ export async function expireOldJobs() {
 
 export async function fetchApplications(jobId: string) {
   const { data } = await api.get<{ success: boolean; data: Application[] }>(
-    `/api/applications/job/${jobId}`,
+    `/api/applications/job/${encodeURIComponent(jobId)}`,
   );
   return data.data;
 }
@@ -444,7 +444,7 @@ export async function submitRating(payload: {
 
 export async function fetchRatings(publicKey: string) {
   const { data } = await api.get<{ success: boolean; data: Rating[] }>(
-    `/api/ratings/${publicKey}`,
+    `/api/ratings/${encodeURIComponent(publicKey)}`,
   );
   return data.data;
 }

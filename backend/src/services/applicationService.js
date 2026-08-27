@@ -155,8 +155,6 @@ if (process.env.NODE_ENV === 'test') {
 else {
   const pool = require("../db/pool");
   const { getJob, assignFreelancer } = require("./jobService");
-}
-
 /**
  * Camel-cased application record returned by this service.
  *
@@ -468,9 +466,10 @@ async function acceptApplication(applicationId, clientAddress) {
   }
 }
 
-module.exports = {
-  submitApplication,
-  getApplicationsForJob,
-  getApplicationsForFreelancer,
-  acceptApplication,
-};
+  module.exports = {
+    submitApplication,
+    getApplicationsForJob,
+    getApplicationsForFreelancer,
+    acceptApplication,
+  };
+}

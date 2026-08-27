@@ -519,12 +519,17 @@ if (process.env.NODE_ENV === 'test') {
 
     let jobs = rows.map(rowToJob);
 
-    let filteredJobs = currentRows.map(rowToJob);
+    let nextCursor = null;
+    if (jobs.length === limit) {
+      nextCursor = encodeCursor(rows[rows.length - 1]);
+    }
+
+    let filteredJobs = jobs;
     if (timezone) {
       filteredJobs = filteredJobs.filter((job) => isTimezoneCompatible(job.timezone, timezone));
     }
 
-    return { jobs };
+    return { jobs: filteredJobs, nextCursor };
   }
 
   /**
@@ -879,14 +884,13 @@ if (process.env.NODE_ENV === 'test') {
     };
   }
 
-}
-
-if (process.env.NODE_ENV !== 'test') {
   module.exports = {
     createJob,
     getJob,
     listJobs,
     listJobsByClient,
+    updateJobStatus,
+    assignFreelancer,
     updateJobEscrowId,
     deleteJob,
     boostJob,
