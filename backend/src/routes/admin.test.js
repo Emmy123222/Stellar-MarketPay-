@@ -101,6 +101,7 @@ const { sendEmail } = require("../utils/email");
 // ─────────────────────────────────────────────────────────────────────────
 
 const app = express();
+// lgtm [js/missing-token-validation]
 app.use(cookieParser());
 app.use(doubleCsrfProtection);
 // CSRF bootstrap endpoint used by fetchCsrf() (mirrors src/routes/auth.js).
