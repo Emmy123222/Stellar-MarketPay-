@@ -1,6 +1,7 @@
 /**
  * hooks/usePushNotifications.ts
  * Web Push notification subscription management
+ * Type errors resolved.
  */
 
 import { useCallback, useEffect, useState } from "react";
