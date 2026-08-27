@@ -24,6 +24,7 @@ export default function OfflineBanner() {
   const [showReconnected, setShowReconnected] = useState(false);
   const [cachedCount, setCachedCount] = useState(0);
   const [showReconnecting, setShowReconnecting] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -35,7 +36,8 @@ export default function OfflineBanner() {
       setIsOnline(true);
       setShowReconnecting(true);
       // Dismiss the reconnecting message after 2 seconds
-      setTimeout(() => setShowReconnecting(false), 2000);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setShowReconnecting(false), 2000);
     };
     const handleOffline = () => {
       setIsOnline(false);

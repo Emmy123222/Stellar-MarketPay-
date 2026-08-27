@@ -54,6 +54,17 @@ const mockTransaction = {} as import("@stellar/stellar-sdk").Transaction;
 const noop: any = jest.fn();
 
 describe("static component snapshots", () => {
+  let dateSpy: jest.SpyInstance;
+
+  beforeAll(() => {
+    const MOCK_TIMESTAMP = new Date("2026-08-25T00:00:00.000Z").getTime();
+    dateSpy = jest.spyOn(Date, "now").mockImplementation(() => MOCK_TIMESTAMP);
+  });
+
+  afterAll(() => {
+    dateSpy?.mockRestore();
+  });
+
   describe("Spinner", () => {
     it("default", () => snapshotContainer(<Spinner />, "Spinner default"));
   });
