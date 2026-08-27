@@ -11,7 +11,7 @@ import clsx from "clsx";
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useTranslation } from "@/lib/i18n";
 import JobFiltersPanel, {
   ActiveFilterChips,
@@ -254,7 +254,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   };
 
   const pageFromQuery = Math.max(1, Number(router.query.page) || 1);
-  const filterQuery: JobFilterQuery = {
+  const filterQuery: JobFilterQuery = useMemo(() => ({
     search: (router.query.search as string) || undefined,
     minBudget: minBudget || undefined,
     maxBudget: maxBudget || undefined,
@@ -263,7 +263,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     duration: (router.query.duration as string) || undefined,
     postedSince: (router.query.postedSince as string) || undefined,
     maxApplications: (router.query.maxApplications as string) || undefined,
-  };
+  }), [router.query.search, router.query.skills, router.query.minClientRating, router.query.duration, router.query.postedSince, router.query.maxApplications, minBudget, maxBudget]);
 
   const updateFilters = (
     patch: Partial<JobFilterQuery>,
@@ -434,6 +434,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     filterQuery.duration,
     filterQuery.postedSince,
     filterQuery.maxApplications,
+    setNextCursorTracked,
   ]);
 
   // Fetch suggestions with debounce
@@ -523,8 +524,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
 
   const searchFiltered = jobs;
 
-  activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
-  const filtered = activeTimezone
+  const filtered = (manualTimezone || (useGeolocation ? userTimezone : ""))
     ? searchFiltered.filter((j) => isTimezoneCompatible(j.timezone))
     : searchFiltered;
 
@@ -551,7 +551,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     setError(null);
 
     try {
-      activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
+      const activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
 
       const result = await fetchJobs({
         category: category || undefined,
@@ -596,7 +596,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     } finally {
       setLoadingMore(false);
     }
-  }, [nextCursor, loadingMore, manualTimezone, useGeolocation, userTimezone, category, status, viewerAddress, minBudget, maxBudget, filterQuery, currentPage, router]);
+  }, [nextCursor, loadingMore, manualTimezone, useGeolocation, userTimezone, category, status, viewerAddress, minBudget, maxBudget, filterQuery, currentPage, router, search, setNextCursorTracked]);
 
   const parentRef = useRef<HTMLDivElement>(null);
   const [isMobile, setIsMobile] = useState(true);

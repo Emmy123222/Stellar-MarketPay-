@@ -1,3 +1,4 @@
+-- Onboarding progress tracker (ported from orphaned backend/migrations/016)
 CREATE TABLE IF NOT EXISTS onboarding_progress (
   public_key TEXT PRIMARY KEY,
   current_step INTEGER NOT NULL DEFAULT 0,

@@ -460,7 +460,7 @@ router.post("/", jobCreationRateLimiter, verifyJWT, validateJsonb({ milestones: 
     }
 
     const job = await createJob({ ...req.body, clientAddress: signedAddress });
-    await cache.delPattern("jobs:list:*");
+    await cache.invalidateJobListCache();
     res.status(201).json({ success: true, data: job });
   } catch (e) {
     next(e);
@@ -559,7 +559,15 @@ router.patch(
   async (req, res, next) => {
     try {
       const { escrowContractId } = validate(updateEscrowSchema, req.body);
-      const job = await updateJobEscrowId(req.params.id, escrowContractId);
+      const pool = require("../db/pool");
+      const { rows: acceptedApplications } = await pool.query(
+        "SELECT bid_amount FROM applications WHERE job_id = $1 AND status = 'accepted' LIMIT 1",
+        [req.params.id],
+      );
+      const options = acceptedApplications.length
+        ? { amount: acceptedApplications[0].bid_amount }
+        : {};
+      const job = await updateJobEscrowId(req.params.id, escrowContractId, options);
       await logContractInteraction({
         functionName: "create_escrow",
         callerAddress: req.user.publicKey,
@@ -945,36 +953,6 @@ router.get("/suggest", suggestRateLimiter, async (req, res, next) => {
     res.json({ success: true, data: suggestions });
   } catch (e) { next(e); }
 });
-
-// GET /api/analytics/categories — stats per category
-router.get(
-  "/analytics/categories",
-  generalJobRateLimiter,
-  async (req, res, next) => {
-    try {
-      const { getCategoryAnalytics } = require("../services/jobService");
-      const data = await getCategoryAnalytics();
-      res.json({ success: true, data });
-    } catch (e) {
-      next(e);
-    }
-  },
-);
-
-// GET /api/analytics/overview — platform-wide totals
-router.get(
-  "/analytics/overview",
-  generalJobRateLimiter,
-  async (req, res, next) => {
-    try {
-      const { getAnalyticsOverview } = require("../services/jobService");
-      const data = await getAnalyticsOverview();
-      res.json({ success: true, data });
-    } catch (e) {
-      next(e);
-    }
-  },
-);
 
 // POST /api/jobs/bulk-cancel — cancel multiple open jobs at once
 router.post(

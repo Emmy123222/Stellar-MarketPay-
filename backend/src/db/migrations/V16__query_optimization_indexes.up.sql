@@ -1,12 +1,16 @@
 -- Issue #340: query optimization and text-search acceleration
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
+CREATE OR REPLACE FUNCTION array_to_string_immutable(arr TEXT[], sep TEXT)
+RETURNS TEXT LANGUAGE sql IMMUTABLE PARALLEL SAFE AS
+$$ SELECT COALESCE(array_to_string(arr, sep), '') $$;
+
 ALTER TABLE jobs
   ADD COLUMN IF NOT EXISTS job_search_vector tsvector
   GENERATED ALWAYS AS (
     setweight(to_tsvector('simple', COALESCE(title, '')), 'A') ||
     setweight(to_tsvector('simple', COALESCE(description, '')), 'B') ||
-    setweight(to_tsvector('simple', COALESCE(array_to_string(skills, ' '), '')), 'C')
+    setweight(to_tsvector('simple', COALESCE(array_to_string_immutable(skills, ' '), '')), 'C')
   ) STORED;
 
 CREATE INDEX IF NOT EXISTS jobs_open_public_created_idx

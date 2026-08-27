@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { api, getApiErrorMessage } from "@/lib/api/client";
@@ -61,6 +61,31 @@ export default function TakeAssessment({ publicKey }: TakeAssessmentProps) {
     }
   };
 
+  const submitAnswers = useCallback(async () => {
+    setSubmitting(true);
+    setError('');
+    try {
+      const response = await api.post(`/api/assessments/project/${id}/submit`, {
+        answers
+      });
+      if (response.data.success) {
+        toast.success('Assessment submitted successfully!');
+        router.push('/dashboard');
+      }
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to submit assessment'));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [id, answers, router, toast]);
+
+  const handleAutoSubmit = useCallback(async () => {
+    // Only auto-submit if we haven't already submitted
+    if (!submitting) {
+      await submitAnswers();
+    }
+  }, [submitting, submitAnswers]);
+
   useEffect(() => {
     if (assessment && submission && submission.status === 'started') {
       const timeLimitMs = assessment.time_limit_minutes * 60 * 1000;
@@ -85,31 +110,7 @@ export default function TakeAssessment({ publicKey }: TakeAssessmentProps) {
       
       return () => { if (timerRef.current) clearInterval(timerRef.current); };
     }
-  }, [assessment, submission]);
-
-  const handleAutoSubmit = async () => {
-    // Only auto-submit if we haven't already submitted
-    if (!submitting) {
-      await submitAnswers();
-    }
-  };
-
-  const submitAnswers = async () => {
-    setSubmitting(true);
-    setError('');
-    try {
-      const response = await api.post(`/api/assessments/project/${id}/submit`, {
-        answers
-      });
-      if (response.data.success) {
-        toast.success('Assessment submitted successfully!');
-        router.push('/dashboard');
-      }
-    } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to submit assessment'));
-      setSubmitting(false);
-    }
-  };
+  }, [assessment, submission, handleAutoSubmit]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

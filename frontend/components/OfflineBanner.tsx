@@ -23,7 +23,7 @@ export default function OfflineBanner() {
   const [isOnline, setIsOnline] = useState(true);
   const [showReconnected, setShowReconnected] = useState(false);
   const [cachedCount, setCachedCount] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showReconnecting, setShowReconnecting] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -33,16 +33,13 @@ export default function OfflineBanner() {
 
     const handleOnline = () => {
       setIsOnline(true);
-      setShowReconnected(true);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        setShowReconnected(false);
-      }, 2000);
+      setShowReconnecting(true);
+      // Dismiss the reconnecting message after 2 seconds
+      setTimeout(() => setShowReconnecting(false), 2000);
     };
     const handleOffline = () => {
       setIsOnline(false);
-      setShowReconnected(false);
-      if (timerRef.current) clearTimeout(timerRef.current);
+      setShowReconnecting(false);
       // Refresh count when going offline so the banner is accurate
       setCachedCount(getCachedJobCount());
     };
@@ -57,26 +54,12 @@ export default function OfflineBanner() {
     };
   }, []);
 
-  if (isOnline && !showReconnected) return null;
+  if (isOnline && !showReconnecting) return null;
 
-  if (showReconnected) {
+  if (showReconnecting) {
     return (
       <div className="fixed top-0 left-0 right-0 z-50 border-b border-emerald-500/30 bg-emerald-500/10 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto flex items-center gap-3 px-4 py-3">
-          <div className="flex-shrink-0">
-            <svg
-              className="h-5 w-5 text-emerald-400"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              <path
-                fillRule="evenodd"
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </div>
           <p className="flex-1 text-sm font-medium text-emerald-300">
             You&apos;re back online!
           </p>

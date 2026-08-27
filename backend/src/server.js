@@ -460,6 +460,24 @@ app.use("/api/graphql",       graphqlHandler);
 app.use("/api/events",        eventsRoutes);
 app.use("/api/invitations",   invitationRoutes);
 app.use("/api/stats",         statsRoutes);
+app.use("/api/analytics",     (() => {
+  const express = require("express");
+  const router = express.Router();
+  const { createRateLimiter } = require("./middleware/rateLimiter");
+  const jobService = require("./services/jobService");
+  const analyticsLimiter = createRateLimiter(60, 1);
+  router.get("/categories", analyticsLimiter, async (req, res, next) => {
+    try {
+      res.json({ success: true, data: await jobService.getCategoryAnalytics() });
+    } catch (e) { next(e); }
+  });
+  router.get("/overview", analyticsLimiter, async (req, res, next) => {
+    try {
+      res.json({ success: true, data: await jobService.getAnalyticsOverview() });
+    } catch (e) { next(e); }
+  });
+  return router;
+})());
 app.use("/api/contributors",    contributorRoutes);
 app.use("/api/gas-estimate",    gasEstimatorRoutes);
 app.use("/api/transactions",   transactionRoutes);

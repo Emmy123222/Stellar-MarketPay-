@@ -3,7 +3,7 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("../middleware/auth");
-const { CSRF_COOKIE_NAME } = require("../middleware/csrf");
+const { generateCsrfToken } = require("../middleware/csrf");
 
 const ACCESS_TOKEN_EXPIRES_IN = "15m";
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -37,21 +37,10 @@ function createRefreshToken(payload) {
   return token;
 }
 
-/**
- * Generate a fresh CSRF token. The cookie-bound counterpart is set by the
- * `csrf-csrf` middleware via the `/api/auth/csrf-token` endpoint; this raw
- * token is returned so it can be issued alongside auth cookies during login
- * and refresh so first-page-render mutations work without an extra round trip.
- */
-function createCsrfToken() {
-  return crypto.randomBytes(32).toString("hex");
-}
-
 function issueTokenPair(payload) {
   const accessToken = signAccessToken(payload);
   const refreshToken = createRefreshToken(payload);
-  const csrfToken = createCsrfToken();
-  return { accessToken, refreshToken, csrfToken };
+  return { accessToken, refreshToken };
 }
 
 function rotateRefreshToken(token) {
@@ -65,7 +54,7 @@ function rotateRefreshToken(token) {
     return null;
   }
 
-  // Rotate the CSRF token along with the access/refresh pair so a stale
+  // Rotate the access/refresh pair along with the CSRF token so a stale
   // pre-refresh token cannot be replayed.
   return { ...issueTokenPair(session.payload) };
 }
@@ -113,26 +102,50 @@ function getCsrfCookieOptions(maxAge) {
   };
 }
 
-function setAuthCookies(res, accessToken, refreshToken, csrfToken) {
+/**
+ * Set the authentication cookie pair and a freshly minted CSRF token.
+ *
+ * The CSRF token is produced by the SAME csrf-csrf machinery that validates it
+ * in middleware/csrf.js, so the value we write to the `csrf-token` cookie is
+ * immediately acceptable to `doubleCsrfProtection` — no separate raw
+ * `createCsrfToken()` implementation that the middleware would reject
+ * (issue #1129).
+ *
+ * Because the token's HMAC is bound to the session identifier (the refresh
+ * token, see getSessionIdentifier), we stamp the NEW refresh token into
+ * `req.cookies` before minting. That ensures the issued token is keyed to the
+ * session created by this login/refresh, not the anonymous or pre-rotation
+ * session. `overwrite: true` guarantees a genuinely fresh token even when a
+ * valid (but now stale) pre-login cookie exists.
+ *
+ * Returns the minted CSRF token so callers can echo it in the JSON body.
+ */
+function setAuthCookies(req, res, accessToken, refreshToken) {
   res.cookie("token", accessToken, getCookieOptions(15 * 60 * 1000));
   res.cookie(REFRESH_COOKIE_NAME, refreshToken, getCookieOptions(REFRESH_TOKEN_TTL_MS));
-  if (csrfToken) {
-    res.cookie(CSRF_COOKIE_NAME, csrfToken, getCsrfCookieOptions(REFRESH_TOKEN_TTL_MS));
-  }
+
+  // Bind the CSRF token to the refresh token we're about to set, even though
+  // the request's own cookies still carry the old (or absent) one.
+  req.cookies = { ...(req.cookies || {}), [REFRESH_COOKIE_NAME]: refreshToken };
+
+  const csrfToken = generateCsrfToken(req, res, {
+    overwrite: true,
+    cookieOptions: getCsrfCookieOptions(REFRESH_TOKEN_TTL_MS),
+  });
+
+  return csrfToken;
 }
 
 function clearAuthCookies(res) {
   res.clearCookie("token", getCookieOptions(0));
   res.clearCookie(REFRESH_COOKIE_NAME, getCookieOptions(0));
-  res.clearCookie(CSRF_COOKIE_NAME, getCsrfCookieOptions(0));
+  res.clearCookie("csrf-token", getCsrfCookieOptions(0));
 }
 
 module.exports = {
   ACCESS_TOKEN_EXPIRES_IN,
   REFRESH_COOKIE_NAME,
-  CSRF_COOKIE_NAME,
   clearAuthCookies,
-  createCsrfToken,
   getRefreshTokenFromRequest,
   issueTokenPair,
   refreshSessions,

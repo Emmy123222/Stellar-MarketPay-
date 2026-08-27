@@ -6,7 +6,7 @@ description = "Stellar MarketPay — Soroban escrow smart contract for freelance
 license = "MIT"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 soroban-sdk = "27.0.3"
