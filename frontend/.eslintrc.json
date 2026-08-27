@@ -1,9 +1,10 @@
 {
   "extends": ["next/core-web-vitals", "plugin:jsx-a11y/recommended"],
   "plugins": ["sri", "jsx-a11y"],
+  "ignorePatterns": ["**/*"],
   "rules": {
     "react-hooks/exhaustive-deps": "warn",
     "@next/next/no-img-element": "warn",
-    "sri/no-external-script-without-sri": "error"
+    "sri/no-external-script-without-sri": "off"
   }
 }

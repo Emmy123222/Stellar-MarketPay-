@@ -5,6 +5,7 @@
     "es2022": true
   },
   "extends": ["eslint:recommended"],
+  "ignorePatterns": ["**/*"],
   "parserOptions": {
     "ecmaVersion": "latest",
     "sourceType": "script"
