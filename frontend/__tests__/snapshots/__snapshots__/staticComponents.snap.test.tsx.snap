@@ -874,7 +874,7 @@ exports[`static component snapshots JobCard bookmarked: JobCard bookmarked 1`] =
       <p
         class="text-xs text-amber-800/60"
       >
-        8 months ago
+        7 months ago
       </p>
     </div>
   </div>
@@ -1013,7 +1013,7 @@ exports[`static component snapshots JobCard default: JobCard default 1`] = `
       <p
         class="text-xs text-amber-800/60"
       >
-        8 months ago
+        7 months ago
       </p>
     </div>
   </div>
