@@ -127,7 +127,7 @@
             }
         },
         "transformIgnorePatterns": [
-            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|sanitize-html|htmlparser2|entities|parse5|domhandler|domutils)/)"
         ],
         "moduleNameMapper": {
             "^(\\.{1,2}/.*)\\.js$": "$1"
@@ -147,7 +147,7 @@
                     "src/tests/integration"
                 ],
                 "transformIgnorePatterns": [
-                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|sanitize-html|htmlparser2|entities|parse5|domhandler|domutils)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
@@ -167,7 +167,7 @@
                 ],
                 "testTimeout": 30000,
                 "transformIgnorePatterns": [
-                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|sanitize-html|htmlparser2|entities|parse5|domhandler|domutils)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
