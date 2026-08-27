@@ -300,7 +300,7 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
         >
           Expires:
            
-          Aug 31, 2026
+          Sep 1, 2026
         </p>
       </button>
       <button
@@ -340,7 +340,7 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
         >
           Expires:
            
-          Sep 23, 2026
+          Sep 24, 2026
         </p>
       </button>
     </div>
@@ -868,7 +868,7 @@ exports[`static component snapshots JobCard bookmarked: JobCard bookmarked 1`] =
       <p
         class="text-xs text-amber-800/60"
       >
-        7 months ago
+        8 months ago
       </p>
     </div>
   </div>
@@ -1007,7 +1007,7 @@ exports[`static component snapshots JobCard default: JobCard default 1`] = `
       <p
         class="text-xs text-amber-800/60"
       >
-        7 months ago
+        8 months ago
       </p>
     </div>
   </div>

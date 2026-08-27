@@ -32,11 +32,15 @@ jest.mock("../services/indexerService", () => {
   }));
 });
 
-jest.mock("../services/priceAlertService", () => ({
-  PriceAlertService: jest.fn().mockImplementation(() => ({
-    start: jest.fn(),
-  })),
-}));
+jest.mock("../services/priceAlertService", () => {
+  const mod = jest.requireActual("../services/priceAlertService");
+  class Mock {}
+  Mock.prototype.start = jest.fn();
+  Mock.prototype.stop = jest.fn();
+  const out = Object.assign({}, mod, { PriceAlertService: Mock });
+  Object.defineProperty(out, "__esModule", { value: false });
+  return out;
+});
 
 jest.mock("../db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),
@@ -48,6 +52,10 @@ jest.mock("../routes/notifications", () => {
   router.get("/", (req, res) => res.json({ success: true }));
   return router;
 });
+
+// This suite asserts real CSRF 403s / happy-path tokens. Override the
+// jest.setup.js skip-mock so doubleCsrfProtection actually validates.
+jest.mock("../middleware/csrf", () => jest.requireActual("../middleware/csrf"));
 
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
 
@@ -64,6 +72,11 @@ jest.mock("@stellar/stellar-sdk", () => {
 
 const request = require("supertest");
 const jwt = require("jsonwebtoken");
+const {
+  fetchCsrf,
+  applyCsrf,
+  getCookie,
+} = require("../testUtils/csrfTestHelpers");
 
 const app = require("../server");
 
@@ -71,24 +84,6 @@ const TEST_KEYPAIR = Keypair.random();
 const WRONG_KEYPAIR = Keypair.random();
 const CHALLENGE_XDR = "AAAAAFakeChallengeTransactionXDRBase64Encoded==";
 const SIGNED_XDR = "AAAAAFakeSignedChallengeTransactionXDRBase64==";
-
-function getCookie(res, name) {
-  return (res.headers["set-cookie"] || [])
-    .find((cookie) => cookie.startsWith(`${name}=`))
-    ?.split(";")[0];
-}
-
-/**
- * Fetch a real CSRF token + its cookie pair so we exercise the same
- * round-trip that the frontend performs.
- */
-async function fetchCsrfContext() {
-  const res = await request(app).get("/api/auth/csrf-token");
-  expect(res.status).toBe(200);
-  expect(typeof res.body.csrfToken).toBe("string");
-  const cookie = getCookie(res, "csrf-token");
-  return { token: res.body.csrfToken, cookie };
-}
 
 describe("SEP-10 Authentication Flow", () => {
   beforeEach(() => {
@@ -280,32 +275,32 @@ describe("SEP-10 Authentication Flow", () => {
 
   describe("Protected endpoint — missing/invalid JWT", () => {
     it("missing JWT: returns 401 for protected endpoint", async () => {
-      const csrf = await fetchCsrfContext();
-      const res = await request(app)
-        .post("/api/disputes/job-123/evidence")
-        .set("Cookie", csrf.cookie)
-        .set("X-CSRF-Token", csrf.token);
+      const csrf = await fetchCsrf(app);
+      const res = await applyCsrf(
+        request(app).post("/api/disputes/job-123/evidence"),
+        csrf,
+      );
 
       expect(res.status).toBe(401);
       expect(res.body.error).toContain("Missing or invalid token");
     });
 
     it("invalid JWT: returns 401 when accessing protected route", async () => {
-      const csrf = await fetchCsrfContext();
-      const res = await request(app)
-        .post("/api/disputes/job-123/evidence")
-        .set("Authorization", "Bearer invalid.jwt.token")
-        .set("Cookie", csrf.cookie)
-        .set("X-CSRF-Token", csrf.token);
+      const csrf = await fetchCsrf(app);
+      const res = await applyCsrf(
+        request(app)
+          .post("/api/disputes/job-123/evidence")
+          .set("Authorization", "Bearer invalid.jwt.token"),
+        csrf,
+      );
 
       expect(res.status).toBe(401);
       expect(res.body.error).toContain("Invalid or expired token");
     });
 
     it("expired JWT: returns 401 on protected endpoint", async () => {
-      // CSRF-protected mutations still require a token even from an expired JWT.
-      const csrf = await fetchCsrfContext();
-      // Create a short-lived token and let it expire
+      // CSRF-protected mutations still require a real token even with an expired JWT.
+      const csrf = await fetchCsrf(app);
       const shortLived = jwt.sign(
         { publicKey: TEST_KEYPAIR.publicKey() },
         process.env.JWT_SECRET,
@@ -313,14 +308,14 @@ describe("SEP-10 Authentication Flow", () => {
           expiresIn: "1s",
         },
       );
-      // Wait for expiration
       await new Promise((r) => setTimeout(r, 1100));
 
-      const res = await request(app)
-        .post("/api/disputes/job-123/evidence")
-        .set("Authorization", `Bearer ${shortLived}`)
-        .set("Cookie", "csrf-token=test-csrf-token")
-        .set("X-CSRF-Token", "test-csrf-token");
+      const res = await applyCsrf(
+        request(app)
+          .post("/api/disputes/job-123/evidence")
+          .set("Authorization", `Bearer ${shortLived}`),
+        csrf,
+      );
 
       expect(res.status).toBe(401);
       expect(res.body.error).toContain("Invalid or expired token");
@@ -383,22 +378,22 @@ describe("SEP-10 Authentication Flow", () => {
     });
 
     it("rejects write requests with 403 when CSRF token is mismatched", async () => {
-      const csrf = await fetchCsrfContext();
+      const csrf = await fetchCsrf(app);
       const res = await request(app)
         .post("/api/disputes/job-123/evidence")
         .set("Cookie", csrf.cookie)
-        .set("X-CSRF-Token", "deliberately-wrong-token");
+        .set("x-csrf-token", "deliberately-wrong-token");
 
       expect(res.status).toBe(403);
       expect(res.body.error).toBeTruthy();
     });
 
     it("passes CSRF check on protected route when cookie and header match", async () => {
-      const csrf = await fetchCsrfContext();
-      const res = await request(app)
-        .post("/api/disputes/job-123/evidence")
-        .set("Cookie", csrf.cookie)
-        .set("X-CSRF-Token", csrf.token);
+      const csrf = await fetchCsrf(app);
+      const res = await applyCsrf(
+        request(app).post("/api/disputes/job-123/evidence"),
+        csrf,
+      );
 
       // 401 means CSRF passed and we reached the JWT auth layer.
       expect(res.status).toBe(401);
@@ -409,10 +404,9 @@ describe("SEP-10 Authentication Flow", () => {
       Utils.verifyChallengeTx.mockReturnValue(TEST_KEYPAIR.publicKey());
 
       // 1. Get a CSRF pair (same flow the frontend uses on first paint)
-      const csrf = await fetchCsrfContext();
+      const csrf = await fetchCsrf(app);
 
-      // 2. Log in to set the auth cookies (uses its own csrf cookie returned
-      //    in the response body).
+      // 2. Log in to set the auth cookies (/api/auth is CSRF-exempt).
       const loginRes = await request(app)
         .post("/api/auth")
         .send({ transaction: SIGNED_XDR });
@@ -420,16 +414,13 @@ describe("SEP-10 Authentication Flow", () => {
       const authCookies = loginRes.headers["set-cookie"]
         .map((c) => c.split(";")[0])
         .join("; ");
-      // Preserve any CSRF cookies we already had on the jar before login.
-      const mergedCookies = [csrf.cookie, authCookies]
-        .filter(Boolean)
-        .join("; ");
 
       // 3. Perform protected action — must pass CSRF AND the JWT auth gate.
-      const res = await request(app)
-        .post("/api/jobs/drafts")
-        .set("Cookie", mergedCookies)
-        .set("X-CSRF-Token", csrf.token);
+      const res = await applyCsrf(
+        request(app).post("/api/jobs/drafts"),
+        csrf,
+        { extraCookies: authCookies },
+      );
 
       expect(res.status).not.toBe(403);
       expect(res.status).not.toBe(401);

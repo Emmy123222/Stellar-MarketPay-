@@ -93,12 +93,24 @@ jest.mock("../../services/profileService", () => ({
   getClientReputation: jest.fn(async () => ({ score: 5 })),
 }));
 
-jest.mock("../../middleware/auth", () => ({
-  verifyJWT: (req, _res, next) => {
-    req.user = { publicKey: "G" + "A".repeat(55) };
-    next();
-  },
-}));
+jest.mock("../../middleware/auth", () => {
+  // The mock must cover every export of middleware/auth — route modules
+  // destructure requireAdminRole / requireAdmin2FA / JWT_SECRET at load time
+  // and Express throws "argument handler must be a function" if any is
+  // undefined when the router is mounted.
+  const jwtSecret =
+    process.env.JWT_SECRET || "test-jwt-secret-with-enough-length-for-ci";
+  return {
+    verifyJWT: (req, _res, next) => {
+      req.user = { publicKey: "G" + "A".repeat(55) };
+      next();
+    },
+    requireAdminRole: (req, _res, next) => next(),
+    requireAdmin2FA: (req, _res, next) => next(),
+    JWT_SECRET: jwtSecret,
+    requireJwtSecret: () => jwtSecret,
+  };
+});
 
 jest.mock("../../services/jobDraftService", () => ({
   saveDraft: jest.fn(async (key, body) => ({ id: "draft-1", ...body })),
@@ -117,10 +129,34 @@ jest.mock("../../services/contractAuditService", () => ({
   logContractInteraction: jest.fn(async () => undefined),
 }));
 
-jest.mock("../../services/notificationService", () => ({
-  createJobNotification: jest.fn(async () => undefined),
-  EVENT_TYPES: { DISPUTE_OPENED: "dispute_opened" },
-}));
+jest.mock("../../services/notificationService", () => {
+  // Mock every export — server.js destructures setBroadcastToUser /
+  // processPendingNotifications at boot and route modules call others, so an
+  // incomplete mock makes the app crash on require.
+  const names = [
+    "queueNotification",
+    "createInAppNotification",
+    "createJobNotification",
+    "listInAppNotifications",
+    "markInAppNotificationRead",
+    "markAllInAppNotificationsRead",
+    "getUserPreferences",
+    "processPendingNotifications",
+    "notifyEscrowEvent",
+    "generateEmailContent",
+    "getNextRetryTime",
+    "sendPushNotificationForEvent",
+    "generateInAppContent",
+    "sendEmail",
+    "sendWebhook",
+    "setBroadcastToUser",
+  ];
+  const svc = {};
+  for (const n of names) svc[n] = jest.fn(async () => undefined);
+  svc.getUserPreferences = jest.fn(async () => ({ email_enabled: false }));
+  svc.EVENT_TYPES = { DISPUTE_OPENED: "dispute_opened" };
+  return svc;
+});
 
 jest.mock("../../services/developerService", () => ({
   recordApiKeyUsageMinute: jest.fn(async () => undefined),
@@ -128,6 +164,9 @@ jest.mock("../../services/developerService", () => ({
 
 jest.mock("../../middleware/jsonbValidator", () => ({
   validateJsonb: () => (_req, _res, next) => next(),
+  // server.js mounts this at boot; a missing export makes app.use() throw.
+  jsonDepthLimitMiddleware: (_req, _res, next) => next(),
+  measureDepth: () => 0,
 }));
 
 jest.mock("../../schemas/milestones.schema", () => ({}));

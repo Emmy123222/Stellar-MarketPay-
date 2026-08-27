@@ -2,9 +2,9 @@
  * components/JobCard.tsx
  * Displays a single job listing in the browse grid.
  */
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
-import { useState, useEffect } from "react";
 export function useSNS(address: string | undefined) {
     const [name, setName] = useState<string | null>(null);
     useEffect(() => {
@@ -22,8 +22,6 @@ export function useSNS(address: string | undefined) {
     }, [address]);
     return name;
 }
-
-import { useRef } from "react"; // Added for hover logic
 import {
   formatDeadline,
   formatMoney,

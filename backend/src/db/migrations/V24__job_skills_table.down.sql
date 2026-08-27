@@ -19,7 +19,7 @@ ALTER TABLE jobs
   GENERATED ALWAYS AS (
     setweight(to_tsvector('simple', COALESCE(title, '')), 'A') ||
     setweight(to_tsvector('simple', COALESCE(description, '')), 'B') ||
-    setweight(to_tsvector('simple', COALESCE(array_to_string(skills, ' '), '')), 'C')
+    setweight(to_tsvector('simple', COALESCE(array_to_string_immutable(skills, ' '), '')), 'C')
   ) STORED;
 
 CREATE INDEX IF NOT EXISTS jobs_search_vector_idx ON jobs USING GIN (job_search_vector);

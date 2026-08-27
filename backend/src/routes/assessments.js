@@ -75,9 +75,11 @@ router.get("/project/:id", verifyJWT, async (req, res, next) => {
        return res.status(403).json({ error: "Assessment already submitted or graded", submission });
     }
 
-    // Strip correct answers from questions before sending
+    // Strip correct answers from questions before sending to the client.
+    // _correctAnswer is intentionally destructured-and-discarded so the field
+    // is excluded from `rest` — the leading underscore silences the lint rule.
     const safeQuestions = assessment.questions.map(q => {
-      const { correctAnswer, ...rest } = q;
+      const { correctAnswer: _correctAnswer, ...rest } = q; // eslint-disable-line no-unused-vars
       return rest;
     });
 
