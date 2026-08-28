@@ -19,7 +19,7 @@ module.exports = {
   coverageReporters: ["text", "lcov", "html"],
   coverageThreshold: { global: { lines: 60, branches: 50 } },
   transformIgnorePatterns: [
-    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus)/)",
+    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|sanitize-html)/)",
   ],
   moduleNameMapper: { "^(\\.{1,2}/.*)\\.js$": "$1" },
 };
