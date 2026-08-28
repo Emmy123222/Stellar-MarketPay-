@@ -22,6 +22,7 @@ function getCachedJobCount(): number {
 export default function OfflineBanner() {
   const [isOnline, setIsOnline] = useState(true);
   const [cachedCount, setCachedCount] = useState(0);
+  const [showReconnecting, setShowReconnecting] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -29,9 +30,15 @@ export default function OfflineBanner() {
     setIsOnline(navigator.onLine);
     setCachedCount(getCachedJobCount());
 
-    const handleOnline = () => setIsOnline(true);
+    const handleOnline = () => {
+      setIsOnline(true);
+      setShowReconnecting(true);
+      // Dismiss the reconnecting message after 2 seconds
+      setTimeout(() => setShowReconnecting(false), 2000);
+    };
     const handleOffline = () => {
       setIsOnline(false);
+      setShowReconnecting(false);
       // Refresh count when going offline so the banner is accurate
       setCachedCount(getCachedJobCount());
     };
@@ -45,7 +52,19 @@ export default function OfflineBanner() {
     };
   }, []);
 
-  if (isOnline) return null;
+  if (isOnline && !showReconnecting) return null;
+
+  if (showReconnecting) {
+    return (
+      <div className="fixed top-0 left-0 right-0 z-50 border-b border-emerald-500/30 bg-emerald-500/10 backdrop-blur-sm">
+        <div className="max-w-7xl mx-auto flex items-center gap-3 px-4 py-3">
+          <p className="flex-1 text-sm font-medium text-emerald-300">
+            You&apos;re back online!
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

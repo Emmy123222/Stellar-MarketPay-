@@ -1077,20 +1077,24 @@ async function getCategoryAnalytics() {
     FROM jobs
     WHERE deleted_at IS NULL
     GROUP BY category
-    ORDER BY job_count DESC
   `);
 
-  return rows.map((r) => ({
-    category: r.category,
-    jobCount: parseInt(r.job_count, 10),
-    avgBudgetXLM: r.avg_budget_xlm
-      ? parseFloat(parseFloat(r.avg_budget_xlm).toFixed(2))
-      : 0,
-    filledCount: parseInt(r.filled_count, 10),
-    avgDaysToFill: r.avg_days_to_fill
-      ? parseFloat(parseFloat(r.avg_days_to_fill).toFixed(1))
-      : null,
-  }));
+  const rowMap = new Map(rows.map((r) => [r.category, r]));
+
+  return VALID_CATEGORIES.map((cat) => {
+    const r = rowMap.get(cat);
+    return {
+      category: cat,
+      jobCount: r ? parseInt(r.job_count, 10) : 0,
+      avgBudgetXLM: r?.avg_budget_xlm
+        ? parseFloat(parseFloat(r.avg_budget_xlm).toFixed(2))
+        : 0,
+      filledCount: r ? parseInt(r.filled_count, 10) : 0,
+      avgDaysToFill: r?.avg_days_to_fill
+        ? parseFloat(parseFloat(r.avg_days_to_fill).toFixed(1))
+        : null,
+    };
+  }).sort((a, b) => b.jobCount - a.jobCount);
 }
 
 async function getAnalyticsOverview() {

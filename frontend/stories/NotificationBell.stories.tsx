@@ -1,3 +1,4 @@
+declare const jest: any;
 import { Meta, StoryObj } from "@storybook/react";
 import NotificationBell from "@/components/NotificationBell";
 import { fetchNotifications } from "@/lib/api";

@@ -404,7 +404,7 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
     return () => {
       cancelled = true;
     };
-  }, [jobId, job?.status]);
+  }, [jobId, job]);
 
   const handleInviteFreelancer = async () => {
     if (!publicKey || !job) return;
