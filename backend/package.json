@@ -78,7 +78,6 @@
         "ajv": "^8.20.0",
         "@stryker-mutator/core": "^9.6.1",
         "@stryker-mutator/jest-runner": "^9.6.1",
-        "babel-jest": "^29.7.0",
         "eslint": "^10.9.0",
         "fast-check": "^4.9.0",
         "globals": "^17.11.0",
@@ -129,11 +128,8 @@
                 "branches": 80
             }
         },
-        "transform": {
-            "^.+\\.js$": "babel-jest"
-        },
         "transformIgnorePatterns": [
-            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domhandler|domutils|domelementtype|entities|dom-serializer|sanitize-html|escape-string-regexp|parse-srcset)/)"
+            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
         ],
         "moduleNameMapper": {
             "^(\\.{1,2}/.*)\\.js$": "$1"
@@ -152,11 +148,8 @@
                     "/node_modules/",
                     "src/tests/integration"
                 ],
-                "transform": {
-                    "^.+\\.js$": "babel-jest"
-                },
                 "transformIgnorePatterns": [
-                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domhandler|domutils|domelementtype|entities|dom-serializer|sanitize-html|escape-string-regexp|parse-srcset)/)"
+                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
@@ -175,11 +168,8 @@
                     "<rootDir>/jest.mocks.js"
                 ],
                 "testTimeout": 30000,
-                "transform": {
-                    "^.+\\.js$": "babel-jest"
-                },
                 "transformIgnorePatterns": [
-                    "/node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domhandler|domutils|entities|domelementtype|dom-serializer|sanitize-html|escape-string-regexp|parse-srcset)/)"
+                    "/node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domhandler|domutils|entities|domelementtype|dom-serializer)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
