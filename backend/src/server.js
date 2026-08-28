@@ -587,6 +587,7 @@ wsServer.on("connection", async (ws, request) => {
       realtimeClients.delete(ws);
       setWebsocketConnections("realtime", realtimeClients.size);
       if (userAddress) {
+        userLastSeen.set(userAddress, new Date());
         const sockets = userClients.get(userAddress);
         if (sockets) {
           sockets.delete(ws);
@@ -679,19 +680,23 @@ wsServer.on("connection", async (ws, request) => {
 
     ws.on("close", async () => {
       clients.delete(ws);
-      refreshWsMetrics();
-      const freshSession = await loadScopeSession(sessionId);
-      if (!freshSession) return;
-      const nextCursors = { ...(freshSession.cursors || {}) };
-      delete nextCursors[participantId];
-      await upsertScopeSession(sessionId, {
-        content: freshSession.content || "",
-        cursors: nextCursors,
-        finalized: freshSession.finalized,
-        finalizedHash: freshSession.finalized_hash || null,
-        finalizedPayload: freshSession.finalized_payload || null,
-      });
       if (!clients.size) scopeSessionClients.delete(sessionId);
+      refreshWsMetrics();
+      try {
+        const freshSession = await loadScopeSession(sessionId);
+        if (!freshSession) return;
+        const nextCursors = { ...(freshSession.cursors || {}) };
+        delete nextCursors[participantId];
+        await upsertScopeSession(sessionId, {
+          content: freshSession.content || "",
+          cursors: nextCursors,
+          finalized: freshSession.finalized,
+          finalizedHash: freshSession.finalized_hash || null,
+          finalizedPayload: freshSession.finalized_payload || null,
+        });
+      } catch {
+        /* ignore close cleanup errors */
+      }
     });
   }
 });
@@ -1034,24 +1039,16 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // Expose WebSocket internals for testing
-app._ws = {
-  server,
-  wsServer,
-  realtimeClients,
-  userClients,
-  userLastSeen,
-  scopeSessionClients,
-  broadcastRealtime,
-  broadcastToUser,
-};
-
-app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
-
-// Expose WebSocket internals for tests
 app._ws = wsServer;
 app._ws.server = server;
+app._ws.wsServer = wsServer;
 app._ws.realtimeClients = realtimeClients;
 app._ws.userClients = userClients;
+app._ws.userLastSeen = userLastSeen;
 app._ws.scopeSessionClients = scopeSessionClients;
+app._ws.broadcastRealtime = broadcastRealtime;
+app._ws.broadcastToUser = broadcastToUser;
+
+app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
 
 module.exports = app;

@@ -1,7 +1,7 @@
 /**
  * src/services/websocket.chaos.test.js
  *
- * Issue #888 — Chaos/reconnection resilience tests for the WebSocket server.
+ * Issue #888 / #1088 — Chaos/reconnection resilience tests for the WebSocket server.
  *
  * Covers:
  *   1. Random connection kills x10  →  verify client reconnects every time
@@ -137,19 +137,32 @@ function userToken(userAddress) {
   return jwt.sign({ publicKey: userAddress }, process.env.JWT_SECRET);
 }
 
+let port;
+const openClients = new Set();
+
 /**
  * Create a new WS client, wire up message capture, and attach helpers.
  */
-function wsConnect(userAddress, { port, path = "/ws/realtime" } = {}) {
+function wsConnect(userAddress, { port: portArg, path = "/ws/realtime" } = {}) {
+  const targetPort = portArg || port;
   const sep = path.includes("?") ? "&" : "?";
   const token = userAddress ? `${sep}token=${userToken(userAddress)}` : "";
-  const ws = new WsClient(`ws://localhost:${port}${path}${token}`);
+  const ws = new WsClient(`ws://localhost:${targetPort}${path}${token}`);
+  openClients.add(ws);
+  ws.on("close", () => openClients.delete(ws));
+  ws.on("error", () => {
+    // ignore intentional connection kills
+  });
   const messages = [];
   const messageCallbacks = [];
   ws.on("message", (data) => {
-    const parsed = JSON.parse(data.toString());
-    messages.push(parsed);
-    messageCallbacks.forEach((cb) => cb(parsed));
+    try {
+      const parsed = JSON.parse(data.toString());
+      messages.push(parsed);
+      messageCallbacks.forEach((cb) => cb(parsed));
+    } catch (_err) {
+      // non-JSON message
+    }
   });
   ws._messages = messages;
   ws._waitForMessage = (filter, timeoutMs = 500) => {
@@ -161,9 +174,12 @@ function wsConnect(userAddress, { port, path = "/ws/realtime" } = {}) {
         if (idx !== -1) messageCallbacks.splice(idx, 1);
         reject(new Error("Timed out waiting for WebSocket message"));
       }, timeoutMs);
+      if (typeof timer.unref === "function") timer.unref();
       const onMsg = (msg) => {
         if (filter(msg)) {
           clearTimeout(timer);
+          const idx = messageCallbacks.indexOf(onMsg);
+          if (idx !== -1) messageCallbacks.splice(idx, 1);
           resolve(msg);
         }
       };
@@ -201,28 +217,81 @@ function seededShuffle(arr, seed) {
 // ── Test Suite ────────────────────────────────────────────────────────────
 
 describe("WebSocket chaos & reconnection resilience (#888)", () => {
-  let port;
   let server;
 
   beforeAll(async () => {
     server = app._ws.server;
-    // bootstrap() already called server.listen() — just wait for readiness
-    await new Promise((resolve) => {
-      if (server.listening) return resolve();
-      server.once("listening", resolve);
-    });
+    // bootstrap() is skipped in NODE_ENV=test — bind an ephemeral port ourselves.
+    if (!server.listening) {
+      await new Promise((resolve) => server.listen(0, resolve));
+    }
     port = server.address().port;
   }, 10_000);
 
   afterAll(() => {
-    server.close();
+    for (const ws of openClients) {
+      try {
+        ws.terminate();
+      } catch (_err) {
+        // ignore
+      }
+    }
+    openClients.clear();
+    for (const ws of app._ws.realtimeClients) {
+      try {
+        ws.terminate();
+      } catch (_err) {
+        // ignore
+      }
+    }
+    for (const set of app._ws.userClients.values()) {
+      for (const ws of set) {
+        try {
+          ws.terminate();
+        } catch (_err) {
+          // ignore
+        }
+      }
+    }
+    for (const set of app._ws.scopeSessionClients.values()) {
+      for (const ws of set) {
+        try {
+          ws.terminate();
+        } catch (_err) {
+          // ignore
+        }
+      }
+    }
+    if (server) {
+      if (typeof server.closeAllConnections === "function") {
+        try {
+          server.closeAllConnections();
+        } catch (_err) {
+          // ignore
+        }
+      }
+      try {
+        server.close();
+      } catch (_err) {
+        // ignore
+      }
+    }
   });
 
   afterEach(() => {
     jest.clearAllMocks();
+    for (const ws of openClients) {
+      try {
+        ws.terminate();
+      } catch (_err) {
+        // ignore
+      }
+    }
+    openClients.clear();
     app._ws.userClients.clear();
     app._ws.realtimeClients.clear();
     app._ws.scopeSessionClients.clear();
+    if (app._ws.userLastSeen) app._ws.userLastSeen.clear();
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -297,7 +366,7 @@ describe("WebSocket chaos & reconnection resilience (#888)", () => {
       await ws1._waitForMessage((m) => m.event === "connected", 1_000);
 
       // Send several messages via the server's own broadcast
-      const broadcast = app.locals.broadcastRealtime;
+      const broadcast = app.locals.broadcastRealtime || app._ws.broadcastRealtime;
       const sentPayloads = [];
       for (let i = 0; i < 5; i++) {
         const payload = { id: i, text: `pre-kill-${i}`, ts: Date.now() };
@@ -348,7 +417,7 @@ describe("WebSocket chaos & reconnection resilience (#888)", () => {
     });
 
     test("no duplicate messages received after reconnection", async () => {
-      const broadcast = app.locals.broadcastRealtime;
+      const broadcast = app.locals.broadcastRealtime || app._ws.broadcastRealtime;
 
       // First connect
       const ws1 = wsConnect(TEST_USER_A, { port });
@@ -523,6 +592,7 @@ describe("WebSocket chaos & reconnection resilience (#888)", () => {
         timings.push(elapsed);
 
         ws2.close();
+        await new Promise((r) => setTimeout(r, 15));
       }
 
       // Build a useful failure message
