@@ -447,7 +447,10 @@ router.get("/:id/invoice", verifyJWT, generalJobRateLimiter, async (req, res, ne
 // POST /api/jobs — create a new job
 router.post("/", jobCreationRateLimiter, verifyJWT, validateJsonb({ milestones: milestonesSchema }), async (req, res, next) => {
   try {
-    const validatedBody = validate(createJobSchema, req.body);
+    const validatedBody = validate(createJobSchema, {
+      ...req.body,
+      budget: req.body.budget !== undefined && req.body.budget !== null ? parseFloat(req.body.budget) : req.body.budget,
+    });
     const signedAddress = req.user?.publicKey;
     const payloadClientAddress = typeof validatedBody.clientAddress === "string" ? validatedBody.clientAddress.trim() : "";
 
@@ -459,7 +462,7 @@ router.post("/", jobCreationRateLimiter, verifyJWT, validateJsonb({ milestones: 
       return res.status(401).json({ error: "Unauthorized: clientAddress does not match signed wallet address" });
     }
 
-    const job = await createJob({ ...req.body, clientAddress: signedAddress });
+    const job = await createJob({ ...validatedBody, clientAddress: signedAddress });
     await cache.invalidateJobListCache();
     res.status(201).json({ success: true, data: job });
   } catch (e) {
