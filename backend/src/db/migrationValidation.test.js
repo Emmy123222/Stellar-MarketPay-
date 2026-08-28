@@ -46,9 +46,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (hasPostgres) {
-    await pool.end();
-  }
+  await pool.end();
 });
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -195,6 +193,34 @@ describe("validateMigrationVersion()", () => {
 });
 
 describe("Health endpoint – migrationVersion field", () => {
+  let fetchSpy;
+  let poolSpy;
+  const cacheService = require("../services/cacheService");
+  const originalCachePing = cacheService.ping;
+
+  beforeAll(() => {
+    fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: { records: [{ sequence: 12345678 }] },
+      }),
+    });
+    poolSpy = jest.spyOn(pool, "query").mockResolvedValue({
+      rows: [{ "?column?": 1 }],
+    });
+    cacheService.ping = jest.fn().mockResolvedValue("up");
+  });
+
+  afterAll(() => {
+    fetchSpy?.mockRestore();
+    poolSpy?.mockRestore();
+    if (originalCachePing) {
+      cacheService.ping = originalCachePing;
+    } else {
+      delete cacheService.ping;
+    }
+  });
+
   it("returns migrationVersion in the health response", async () => {
     const express = require("express");
     const supertest = require("supertest");

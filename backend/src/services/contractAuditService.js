@@ -14,6 +14,9 @@ const TRACKED_CONTRACT_FUNCTIONS = new Set([
   "refund_escrow",
   "submit_deliverable_hash",
   "verify_deliverable_hash",
+  "create_recurring_escrow",
+  "release_recurring_escrow",
+  "cancel_recurring_escrow",
 ]);
 
 function isOffChainHash(txHash) {

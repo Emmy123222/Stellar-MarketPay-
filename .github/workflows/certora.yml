@@ -35,14 +35,14 @@ jobs:
     env:
       HAS_CERTORAKEY: ${{ secrets.CERTORAKEY != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32v1-none
           components: clippy, rustfmt
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry

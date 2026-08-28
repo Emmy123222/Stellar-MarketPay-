@@ -14,14 +14,18 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined, // Changed from 2 to 1 (sequential in CI to reduce race conditions)
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: {
-    baseURL: "http://127.0.0.1:3000",
+    baseURL: "http://127.0.0.1:3100",
     trace: "on-first-retry",
     actionTimeout: 20_000, // Added explicit action timeout
     navigationTimeout: 30_000, // Added explicit navigation timeout
+    bypassCSP: true,
   },
   webServer: {
-    command: "npm run dev",
-    url: "http://127.0.0.1:3000",
+    // Dedicated port + direct next invocation: `npm run dev` shells out to
+    // `cp`, which does not exist on Windows, and keeps the e2e server isolated
+    // from anything already bound to the default dev port.
+    command: "npx next dev -p 3100",
+    url: "http://127.0.0.1:3100",
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     env: {
@@ -30,6 +34,7 @@ export default defineConfig({
       NEXT_PUBLIC_STELLAR_NETWORK: "testnet",
       NEXT_PUBLIC_HORIZON_URL: "https://horizon-testnet.stellar.org",
       NEXT_PUBLIC_CONTRACT_ID: "CMOCKCONTRACTID",
+      SKIP_API_CALLS: "true",
     },
   },
   projects: [
