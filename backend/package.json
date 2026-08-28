@@ -71,6 +71,7 @@
         "nanoid": "^3.3.18"
     },
     "devDependencies": {
+        "@babel/preset-env": "^7.29.7",
         "@eslint/js": "^10.0.1",
         "@stryker-mutator/core": "^9.6.1",
         "@stryker-mutator/jest-runner": "^9.6.1",
@@ -123,7 +124,7 @@
             }
         },
         "transformIgnorePatterns": [
-            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domhandler|domutils|domelementtype|entities|dom-serializer)/)"
         ],
         "moduleNameMapper": {
             "^(\\.{1,2}/.*)\\.js$": "$1"
@@ -140,7 +141,7 @@
                     "src/tests/integration"
                 ],
                 "transformIgnorePatterns": [
-                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domhandler|domutils|domelementtype|entities|dom-serializer)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
@@ -160,7 +161,7 @@
                 ],
                 "testTimeout": 30000,
                 "transformIgnorePatterns": [
-                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domhandler|domutils|domelementtype|entities|dom-serializer)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
