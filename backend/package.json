@@ -129,7 +129,7 @@
             }
         },
         "transformIgnorePatterns": [
-            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domhandler|domutils|domelementtype|entities|dom-serializer|sanitize-html)/)"
+            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domhandler|domutils|domelementtype|entities|dom-serializer|sanitize-html|escape-string-regexp|parse-srcset)/)"
         ],
         "moduleNameMapper": {
             "^(\\.{1,2}/.*)\\.js$": "$1"
@@ -149,7 +149,7 @@
                     "src/tests/integration"
                 ],
                 "transformIgnorePatterns": [
-                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domhandler|domutils|domelementtype|entities|dom-serializer|sanitize-html)/)"
+                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domhandler|domutils|domelementtype|entities|dom-serializer|sanitize-html|escape-string-regexp|parse-srcset)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
@@ -169,7 +169,7 @@
                 ],
                 "testTimeout": 30000,
                 "transformIgnorePatterns": [
-                    "/node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domhandler|domutils|entities|domelementtype|dom-serializer|sanitize-html)/)"
+                    "/node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|htmlparser2|domhandler|domutils|entities|domelementtype|dom-serializer|sanitize-html|escape-string-regexp|parse-srcset)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"

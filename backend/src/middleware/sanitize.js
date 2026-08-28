@@ -4,7 +4,8 @@
  */
 "use strict";
 
-const sanitizeHtml = require("sanitize-html");
+const _sanitizeHtml = require("sanitize-html");
+const sanitizeHtml = typeof _sanitizeHtml === "function" ? _sanitizeHtml : (_sanitizeHtml.default || _sanitizeHtml);
 const validator = require("validator");
 
 /**
