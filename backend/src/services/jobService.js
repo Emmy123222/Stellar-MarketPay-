@@ -7,9 +7,6 @@
 
 const pool = require("../db/pool");
 const { getTimezoneOffset } = require("date-fns-tz");
-const { isBlocked } = require("./profileService");
-
-const { getTimezoneOffset } = require("date-fns-tz");
 
 /**
  * Camel-cased job record returned by this service.
@@ -185,7 +182,7 @@ function rowToJob(row) {
  *   clientAddress: 'GBX...',
  * });
  */
-async function createJob({ title, description, budget, currency, category, skills, deadline, timezone, clientAddress, screeningQuestions }) {
+async function createJob({ title, description, budget, currency, category, skills, deadline, timezone, clientAddress, screeningQuestions, visibility }) {
   validatePublicKey(clientAddress);
 
   if (!title || title.length < 10) {
@@ -213,6 +210,7 @@ async function createJob({ title, description, budget, currency, category, skill
     e.status = 400;
     throw e;
   }
+  visibility = visibility || "public";
   if (!["public", "private", "invite_only"].includes(visibility)) {
     const e = new Error("Visibility must be public, private, or invite_only");
     e.status = 400;
@@ -227,8 +225,8 @@ async function createJob({ title, description, budget, currency, category, skill
   const { rows } = await pool.query(
     `
     INSERT INTO jobs
-      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, NOW(), NOW())
+      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, visibility, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, $11, $12, NOW(), NOW())
     RETURNING *
     `,
     [
@@ -241,7 +239,8 @@ async function createJob({ title, description, budget, currency, category, skill
       clientAddress,
       deadline || null,
       timezone || null,
-      safeScreeningQuestions
+      safeScreeningQuestions,
+      visibility
     ]
   );
 
@@ -316,7 +315,7 @@ function decodeCursor(cursor) {
  * @returns {Promise<{jobs: Object[], nextCursor: string|null}>} An object containing the list of jobs and an optional next cursor for pagination.
  * @throws {Error} If the provided cursor is invalid.
  */
-async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone } = {}) {
+async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone, viewerAddress } = {}) {
   const conditions = [];
   const params = [];
 
@@ -377,13 +376,11 @@ async function listJobs({ category, status = "open", limit = 50, search, cursor,
   );
 
   let jobs = rows.map(rowToJob);
-
-  let filteredJobs = currentRows.map(rowToJob);
   if (timezone) {
-    filteredJobs = filteredJobs.filter((job) => isTimezoneCompatible(job.timezone, timezone));
+    jobs = jobs.filter((job) => isTimezoneCompatible(job.timezone, timezone));
   }
 
-  return { jobs };
+  return { jobs, nextCursor: rows.length === limit ? encodeCursor(rows[rows.length - 1]) : null };
 }
 
 /**
@@ -513,6 +510,8 @@ async function deleteJob(jobId) {
  * @throws {Error} If the job is not found.
  */
 async function boostJob(jobId, txHash) {
+  // Payment verification is handled by the caller until Horizon transaction lookup is added.
+  void txHash;
   // Verify job exists
   const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [jobId]);
   if (!rows.length) {
@@ -532,7 +531,7 @@ async function boostJob(jobId, txHash) {
     [boostedUntil.toISOString(), jobId]
   );
 
-  return rowToJob(rows[0]);
+  return rowToJob(updateRows[0]);
 }
 
 /**
@@ -558,7 +557,7 @@ async function incrementShareCount(jobId) {
 }
 
 async function raiseDispute(jobId, { reason, description, raisedBy }) {
-  const { rows } = await query(
+  const { rows } = await pool.query(
     `UPDATE jobs 
      SET status = 'disputed', 
          dispute_reason = $1, 
@@ -579,7 +578,7 @@ async function raiseDispute(jobId, { reason, description, raisedBy }) {
 }
 
 async function resolveDispute(jobId) {
-  const { rows } = await query(
+  const { rows } = await pool.query(
     `UPDATE jobs 
      SET status = 'in_progress', 
          dispute_reason = NULL, 
@@ -602,14 +601,14 @@ async function resolveDispute(jobId) {
 async function getRecommendedJobs(publicKey) {
   validatePublicKey(publicKey);
 
-  const { rows: profileRows } = await query(
+  const { rows: profileRows } = await pool.query(
     "SELECT skills FROM profiles WHERE public_key = $1",
     [publicKey]
   );
 
   const freelancerSkills = (profileRows[0]?.skills || []).map(s => s.toLowerCase());
 
-  const { rows: jobRows } = await query(
+  const { rows: jobRows } = await pool.query(
     "SELECT * FROM jobs WHERE status = 'open' ORDER BY created_at DESC",
     []
   );
@@ -630,7 +629,7 @@ async function getRecommendedJobs(publicKey) {
   return scored.slice(0, 5);
 }
 
-export default {
+module.exports = {
   createJob,
   getJob,
   listJobs,
@@ -640,4 +639,8 @@ export default {
   boostJob,
   incrementShareCount,
   getRecommendedJobs,
+  updateJobStatus,
+  assignFreelancer,
+  raiseDispute,
+  resolveDispute,
 };

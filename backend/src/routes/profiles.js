@@ -10,11 +10,17 @@ const { verifyJWT } = require("../middleware/auth");
 const profileUpdateRateLimiter = createRateLimiter(5, 1); // 5 profile updates per minute
 const generalProfileRateLimiter = createRateLimiter(30, 1); // 100 requests per minute for getting profiles
 
-const { getProfile, upsertProfile, updateAvailability, getSkillEndorsements, endorseSkill } = require("../services/profileService");
 const {
-  upsertPriceAlertPreference,
-  getPriceAlertPreference,
-} = require("../services/priceAlertService");
+  getProfile,
+  upsertProfile,
+  updateAvailability,
+  getProfileStats,
+  getResponseTime,
+  blockFreelancer,
+  unblockFreelancer,
+  getSkillEndorsements,
+  endorseSkill,
+} = require("../services/profileService");
 
 router.get("/:publicKey", generalProfileRateLimiter, async (req, res, next) => {
   try { res.json({ success: true, data: await getProfile(req.params.publicKey) }); }
@@ -67,29 +73,6 @@ router.delete("/:publicKey/block/:address", verifyJWT, profileUpdateRateLimiter,
     const profile = await unblockFreelancer(req.params.publicKey, req.params.address);
     res.json({ success: true, data: profile });
   } catch (e) { next(e); }
-});
-
-// ─── Skill Endorsements ──────────────────────────────────────────────────────
-
-router.post("/:publicKey/skill-endorsements", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
-  try {
-    const recipientAddress = req.params.publicKey;
-    const endorserAddress = req.user.publicKey;
-    const { skill } = req.body;
-
-    if (!skill || typeof skill !== "string" || !skill.trim()) {
-      return res.status(400).json({ error: "skill is required" });
-    }
-
-    if (endorserAddress === recipientAddress) {
-      return res.status(400).json({ error: "Cannot endorse your own skill" });
-    }
-
-    await endorseSkill({ skill, endorserAddress, recipientAddress });
-    res.status(201).json({ success: true });
-  } catch (e) {
-    next(e);
-  }
 });
 
 // ─── Skill Endorsements ──────────────────────────────────────────────────────

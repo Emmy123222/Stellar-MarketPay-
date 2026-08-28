@@ -19,7 +19,7 @@ const { logContractInteraction } = require("../services/contractAuditService");
 router.post("/:jobId/release", async (req, res, next) => {
   try {
     const { jobId } = req.params;
-    const { clientAddress, contractTxHash, releaseCurrency } = req.body;
+    const { clientAddress } = req.body;
 
     if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
       const e = new Error("Invalid client address");

@@ -4,7 +4,7 @@
  */
 "use strict";
 
-const { Server, Asset } = require("@stellar/stellar-sdk");
+const { Server } = require("@stellar/stellar-sdk");
 
 // Configuration
 const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";

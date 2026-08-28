@@ -321,12 +321,12 @@ async function getProfile(publicKey) {
  *   role: 'freelancer',
  * });
  */
-async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, availability, role }) {
+async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, portfolioFiles, availability, role }) {
   validatePublicKey(publicKey);
 
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 15) : null;
   const safePortfolioItems = validatePortfolioItems(portfolioItems);
-  const safePortfolioFiles = validatePortfolioFiles(portfolioFiles);
+  const safePortfolioFiles = validatePortfolioFiles(portfolioFiles || []);
   const safeAvailability = validateAvailability(availability);
   const safeRole = validateProfileRole(role);
 
@@ -386,6 +386,44 @@ async function updateAvailability(publicKey, availability) {
   );
 
   return rowToProfile(rows[0]);
+}
+
+function calculateFreelancerTier(completedJobs = 0, rating = null) {
+  if (completedJobs >= 50 && rating >= 4.5) return "platinum";
+  if (completedJobs >= 20 && rating >= 4) return "gold";
+  if (completedJobs >= 5 && rating >= 3.5) return "silver";
+  return "bronze";
+}
+
+async function verifyIdentity(publicKey, didHash) {
+  validatePublicKey(publicKey);
+  if (!didHash || typeof didHash !== "string") throw createValidationError("didHash is required");
+  const { rows } = await pool.query(
+    "UPDATE profiles SET did_hash = $1, is_kyc_verified = true, updated_at = NOW() WHERE public_key = $2 RETURNING *",
+    [didHash.trim(), publicKey]
+  );
+  if (!rows.length) { const e = new Error("Profile not found"); e.status = 404; throw e; }
+  return rowToProfile(rows[0]);
+}
+
+async function getProfileStats(publicKey) {
+  validatePublicKey(publicKey);
+  const { rows } = await pool.query(
+    "SELECT COUNT(*)::int AS total_applications, COUNT(*) FILTER (WHERE status = 'accepted')::int AS accepted_applications FROM applications WHERE freelancer_address = $1",
+    [publicKey]
+  );
+  const totalApplications = rows[0]?.total_applications || 0;
+  const acceptedApplications = rows[0]?.accepted_applications || 0;
+  return { totalApplications, acceptedApplications, successRate: totalApplications ? Math.round((acceptedApplications / totalApplications) * 100) : 0 };
+}
+
+async function getResponseTime(publicKey) {
+  validatePublicKey(publicKey);
+  const { rows } = await pool.query(
+    "SELECT AVG(EXTRACT(EPOCH FROM (accepted_at - created_at)) / 86400) AS avg_days FROM applications WHERE freelancer_address = $1 AND accepted_at IS NOT NULL",
+    [publicKey]
+  );
+  return { averageDays: rows[0]?.avg_days == null ? null : Math.round(Number(rows[0].avg_days) * 10) / 10 };
 }
 
 async function isBlocked(clientPublicKey, freelancerAddress) {
@@ -512,6 +550,11 @@ async function endorseSkill({ skill, endorserAddress, recipientAddress }) {
 
 module.exports = {
   getProfile,
+  getProfileStats,
+  getResponseTime,
+  isBlocked,
+  blockFreelancer,
+  unblockFreelancer,
   upsertProfile,
   updateAvailability,
   verifyIdentity,
