@@ -13,6 +13,7 @@ const {
   EVENT_TYPES,
 } = require("./notificationService");
 const { createServiceLogger, logError } = require("../utils/logger");
+const { getServicePublicKey } = require("./stellarServiceKey");
 
 const LEDGERS_PER_DAY = 17280; // Approximate number of ledgers per day on Stellar
 
@@ -61,6 +62,13 @@ async function createRecurringEscrow({
     throw e;
   }
 
+  await logContractInteraction({
+    functionName: "create_recurring_escrow",
+    callerAddress: clientAddress,
+    jobId,
+    txHash: `offchain-${Date.now()}`,
+  });
+
   return rows[0];
 }
 
@@ -108,6 +116,13 @@ async function tickRecurringEscrow(jobId) {
       [jobId]
     );
   }
+
+  await logContractInteraction({
+    functionName: "release_recurring_escrow",
+    callerAddress: getServicePublicKey(),
+    jobId,
+    txHash: `offchain-${Date.now()}`,
+  });
 
   // Notify both parties
   const job = await getJob(jobId);
@@ -175,6 +190,13 @@ async function cancelRecurringEscrow(jobId, clientAddress) {
      WHERE job_id = $1`,
     [jobId]
   );
+
+  await logContractInteraction({
+    functionName: "cancel_recurring_escrow",
+    callerAddress: clientAddress,
+    jobId,
+    txHash: `offchain-${Date.now()}`,
+  });
 
   // Notify both parties
   await notifyEscrowEvent({

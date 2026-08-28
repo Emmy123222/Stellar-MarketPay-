@@ -1,0 +1,57 @@
+name: E2E & Accessibility
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: E2E & Accessibility Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    env:
+      NEXT_PUBLIC_USE_CONTRACT_MOCK: "true"
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_STELLAR_NETWORK: testnet
+      NEXT_PUBLIC_HORIZON_URL: https://horizon-testnet.stellar.org
+      NEXT_PUBLIC_CONTRACT_ID: CMOCKCONTRACTID
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests (chromium)
+        run: npx playwright test tests/e2e/freelancer-onboarding.spec.ts tests/e2e/full-marketplace-flow.spec.ts --project=chromium --pass-with-no-tests
+
+      - name: Run E2E tests (chromium-dark)
+        run: npx playwright test tests/e2e/freelancer-onboarding.spec.ts tests/e2e/full-marketplace-flow.spec.ts --project=chromium-dark --pass-with-no-tests
+
+      - name: Upload Playwright report on failure
+        uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 30

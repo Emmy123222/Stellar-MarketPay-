@@ -51,7 +51,7 @@ import FeeEstimationModal from "@/components/FeeEstimationModal";
 
 const mockTransaction = {} as import("@stellar/stellar-sdk").Transaction;
 
-const noop = jest.fn();
+const noop: any = jest.fn();
 
 describe("static component snapshots", () => {
   describe("Spinner", () => {
