@@ -323,7 +323,7 @@ describe("SEP-10 Authentication Flow", () => {
   });
 
   describe("Cookie Storage & CSRF Protection", () => {
-    it("POST /api/auth sets HttpOnly token and refreshToken cookies only — CSRF cookie issued by /api/auth/csrf-token", async () => {
+    it("POST /api/auth sets HttpOnly token/refreshToken cookies plus a valid CSRF cookie bound to the new session", async () => {
       Utils.verifyChallengeTx.mockReturnValue(TEST_KEYPAIR.publicKey());
 
       const res = await request(app)
@@ -346,12 +346,22 @@ describe("SEP-10 Authentication Flow", () => {
       expect(refreshCookie).toBeTruthy();
       expect(refreshCookie).toContain("HttpOnly");
 
-      // /api/auth itself does NOT set a CSRF cookie — that's /api/auth/csrf-token's job
-      // so we don't surprise clients with stale pre-login CSRF state.
-      const csrfOnLogin = res.headers["set-cookie"].find((c) =>
+      // Login now mints a real csrf-csrf token bound to the new refresh token
+      // (issue #1129) and sets it as a non-HttpOnly cookie, so the value the
+      // middleware validates is exactly the one it issued — no stale raw token.
+      const csrfCookie = res.headers["set-cookie"].find((c) =>
         c.startsWith("csrf-token="),
       );
-      expect(csrfOnLogin).toBeUndefined();
+      expect(csrfCookie).toBeTruthy();
+      expect(csrfCookie).not.toContain("HttpOnly");
+      expect(csrfCookie).toContain("SameSite=Strict");
+
+      // The token returned in the body is the same value written to the cookie,
+      // and it echoes back through the shared helper successfully.
+      expect(typeof res.body.csrfToken).toBe("string");
+      expect(res.body.csrfToken.length).toBeGreaterThan(8);
+      const csrfFromCookie = getCookie(res, "csrf-token").split("=")[1];
+      expect(csrfFromCookie).toBe(res.body.csrfToken);
     });
 
     it("GET /api/auth/csrf-token sets non-HttpOnly csrf-token cookie and returns the token", async () => {
@@ -403,10 +413,8 @@ describe("SEP-10 Authentication Flow", () => {
     it("allows write requests with matching CSRF and valid JWT in cookie", async () => {
       Utils.verifyChallengeTx.mockReturnValue(TEST_KEYPAIR.publicKey());
 
-      // 1. Get a CSRF pair (same flow the frontend uses on first paint)
-      const csrf = await fetchCsrf(app);
-
-      // 2. Log in to set the auth cookies (/api/auth is CSRF-exempt).
+      // 1. Log in. setAuthCookies now mints a csrf-csrf token bound to the NEW
+      //    refresh-token session (issue #1129) and sets it as a cookie.
       const loginRes = await request(app)
         .post("/api/auth")
         .send({ transaction: SIGNED_XDR });
@@ -414,8 +422,12 @@ describe("SEP-10 Authentication Flow", () => {
       const authCookies = loginRes.headers["set-cookie"]
         .map((c) => c.split(";")[0])
         .join("; ");
+      const csrf = {
+        token: loginRes.body.csrfToken,
+        cookie: getCookie(loginRes, "csrf-token"),
+      };
 
-      // 3. Perform protected action — must pass CSRF AND the JWT auth gate.
+      // 2. Perform protected action — must pass CSRF AND the JWT auth gate.
       const res = await applyCsrf(
         request(app).post("/api/jobs/drafts"),
         csrf,

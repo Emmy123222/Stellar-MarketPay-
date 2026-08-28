@@ -6,7 +6,6 @@ import { useRouter } from "next/router";
 import Navbar from "@/components/Navbar";
 import MobileTabBar from "@/components/MobileTabBar";
 import FaucetButton from "@/components/FaucetButton";
-import AppFooter from "@/components/AppFooter";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
 import CommandPalette from "@/components/CommandPalette";
 import OnboardingWizard from "@/components/Onboarding/OnboardingWizard";
@@ -403,7 +402,10 @@ function App({ Component, pageProps }: AppProps) {
             </Head>
             <OfflineBanner />
             <div className="min-h-screen bg-lines" style={{ backgroundColor: "var(--bg)" }}>
-              <Navbar publicKey={publicKey} onConnect={handleConnect} onDisconnect={() => setPublicKey(null)} />
+              {/* handleWalletDisconnect clears the persisted key; a bare
+                  setPublicKey(null) lets the storage-rehydration effect below
+                  instantly restore the session, so Disconnect appears dead. */}
+              <Navbar publicKey={publicKey} onConnect={handleConnect} onDisconnect={handleWalletDisconnect} />
               <MobileTabBar publicKey={publicKey} />
               <main id="main-content">
                 <Component {...pageProps} publicKey={publicKey} onConnect={handleConnect} />

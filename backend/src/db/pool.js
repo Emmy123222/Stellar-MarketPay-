@@ -173,5 +173,10 @@ async function connectWithRetry({
 }
 
 module.exports = pool;
+// Read/write aliases: this deployment talks to a single Postgres endpoint, so
+// both resolve to the same instrumented pool. Services destructure
+// { readPool, writePool } to keep the door open for a reader/writer split.
+module.exports.readPool = pool;
+module.exports.writePool = pool;
 module.exports.getPoolStats = getPoolStats;
 module.exports.connectWithRetry = connectWithRetry;

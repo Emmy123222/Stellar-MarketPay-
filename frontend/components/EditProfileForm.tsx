@@ -3,6 +3,7 @@
  * Form to view and edit user profile details.
  */
 import { useState, useEffect, useRef, useCallback } from "react";
+import Image from "next/image";
 import { fetchProfile, updateProfileAvailability, upsertProfile, uploadPortfolioFiles } from "@/lib/api";
 import type {
   Availability,
@@ -636,9 +637,11 @@ export default function EditProfileForm({ publicKey }: Props) {
                         className="flex items-center gap-3 p-3 rounded-lg border border-market-500/20 bg-ink-900/50"
                       >
                         {file.mimeType.startsWith("image/") && file.url ? (
-                          <img
+                          <Image
                             src={file.url}
                             alt={file.fileName}
+                            width={40}
+                            height={40}
                             className="w-10 h-10 rounded-lg object-cover border border-market-500/20 flex-shrink-0"
                           />
                         ) : (

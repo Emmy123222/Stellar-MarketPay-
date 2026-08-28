@@ -11,7 +11,32 @@
  *   - Pool handles concurrent queries without connection exhaustion
  */
 
-const { Pool } = require("pg");
+// ── Mock pg so no real database connection is opened ─────────────────────────
+jest.mock("pg", () => {
+  class FakePool {
+    constructor(options) {
+      this.options = options;
+      this.totalCount = 2;
+      this.idleCount = 2;
+      this.waitingCount = 0;
+      this.listeners = {};
+    }
+
+    on(event, handler) {
+      this.listeners[event] = handler;
+    }
+
+    query(sql, params) {
+      const text = typeof sql === "string" ? sql : (sql && sql.text) || "";
+      if (text.includes("SELECT $1 as id")) {
+        return Promise.resolve({ rows: [{ id: params ? params[0] : undefined }], rowCount: 1 });
+      }
+      return Promise.resolve({ rows: [{ ok: 1 }], rowCount: 1 });
+    }
+  }
+  return { Pool: FakePool };
+});
+
 const pool = require("../src/db/pool");
 
 describe("Database connection pool", () => {
@@ -85,8 +110,6 @@ describe("Database connection pool", () => {
     });
 
     it("returns connections to pool after query completion", async () => {
-      const initialStats = pool.getPoolStats();
-      
       // Execute a query
       await pool.query("SELECT 1");
       
