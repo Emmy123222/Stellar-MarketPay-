@@ -17,3 +17,7 @@ jest.mock("./src/middleware/csrf", () => {
     doubleCsrfProtection: (req, res, next) => next(),
   };
 });
+
+jest.mock("sanitize-html", () => {
+  return jest.fn((html) => html);
+});
