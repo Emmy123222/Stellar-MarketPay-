@@ -8,7 +8,7 @@ import { fetchAuthChallenge, verifyAuthChallenge, setJwtToken } from "@/lib/api"
 import "@/styles/globals.css";
 import { ToastProvider } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
-import ShortcutsModal from "@/components/ShortcutsModal";
+import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
 import OfflineBanner from "@/components/OfflineBanner";
 import RateLimitWatcher from "@/components/RateLimitWatcher";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -103,7 +103,7 @@ function App({ Component, pageProps }: AppProps) {
           <main>
             <Component {...pageProps} publicKey={publicKey} onConnect={handleConnect} />
           </main>
-          <ShortcutsModal
+          <KeyboardShortcutsModal
             isOpen={shortcutsModalOpen}
             onClose={() => setShortcutsModalOpen(false)}
             showJobDetailShortcuts={isJobDetailPage}
