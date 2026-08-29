@@ -447,21 +447,41 @@ router.get("/:id/invoice", verifyJWT, generalJobRateLimiter, async (req, res, ne
 // POST /api/jobs — create a new job
 router.post("/", jobCreationRateLimiter, verifyJWT, validateJsonb({ milestones: milestonesSchema }), async (req, res, next) => {
   try {
-    const validatedBody = validate(createJobSchema, {
-      ...req.body,
-      budget: req.body.budget !== undefined && req.body.budget !== null ? parseFloat(req.body.budget) : req.body.budget,
-    });
+    // 1) Check authentication/signed address first
     const signedAddress = req.user?.publicKey;
-    const payloadClientAddress = typeof validatedBody.clientAddress === "string" ? validatedBody.clientAddress.trim() : "";
-
-    if (!signedAddress || !payloadClientAddress) {
-      return res.status(401).json({ error: "Unauthorized: clientAddress is required and must match the signed wallet address" });
+    const payloadClientAddressRaw = typeof req.body.clientAddress === "string" ? req.body.clientAddress.trim() : "";
+    if (!signedAddress || !payloadClientAddressRaw) {
+      return res
+        .status(401)
+        .json({ error: "Unauthorized: clientAddress is required and must match the signed wallet address" });
+    }
+    if (payloadClientAddressRaw !== signedAddress) {
+      return res
+        .status(401)
+        .json({ error: "Unauthorized: clientAddress does not match signed wallet address" });
     }
 
-    if (payloadClientAddress !== signedAddress) {
-      return res.status(401).json({ error: "Unauthorized: clientAddress does not match signed wallet address" });
+    // 2) Parse budget safely
+    const rawBudget = req.body.budget;
+    let budgetForValidation;
+    if (rawBudget === "" || rawBudget === null || rawBudget === undefined) {
+      budgetForValidation = undefined;
+    } else {
+      const parsed = Number(String(rawBudget).trim());
+      if (!Number.isFinite(parsed)) {
+        return res.status(400).json({ error: "Budget must be a valid number" });
+      }
+      budgetForValidation = parsed;
     }
 
+    // 3) Validate input after auth and safe coercion
+    const bodyToValidate = {
+      ...req.body,
+      ...(budgetForValidation !== undefined ? { budget: budgetForValidation } : {}),
+    };
+    const validatedBody = validate(createJobSchema, bodyToValidate);
+
+    // 4) Create job with the verified signedAddress
     const job = await createJob({ ...validatedBody, clientAddress: signedAddress });
     await cache.invalidateJobListCache();
     res.status(201).json({ success: true, data: job });
