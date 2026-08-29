@@ -309,6 +309,10 @@ async function bootstrap() {
   🌐 Network: ${process.env.STELLAR_NETWORK || "testnet"}
   `);
   });
+  } catch (err) {
+    console.error("Failed to bootstrap server:", err.message);
+    process.exit(1);
+  }
 }
 
 /**
@@ -353,7 +357,6 @@ async function startJobExpiryChecker() {
       console.error("[job-expiry] Error on scheduled check:", err.message);
     }
   }, 60 * 60 * 1000).unref();
-}
 }
 
 bootstrap();

@@ -5,7 +5,6 @@ const {
   loadMigrationPairs,
   ensureMigrationsTable,
   rollbackLastMigration,
-  getExpectedMigrationVersion,
 } = require("./migrate");
 
 describe("Database Migrations (V1–V49)", () => {
@@ -71,7 +70,7 @@ describe("Database Migrations (V1–V49)", () => {
           await client.query("COMMIT");
         } catch (err) {
           await client.query("ROLLBACK");
-          throw new Error(`Migration ${migration.name} failed to apply: ${err.message}`);
+          throw new Error(`Migration ${migration.name} failed to apply: ${err.message}`, { cause: err });
         }
 
         // Validate schema: check tables exist in public schema

@@ -169,7 +169,6 @@ async function getTimeSeriesMetrics({ metric = "total_jobs", from, to, granulari
   if (to) {
     conditions.push(`bucket <= $${paramIdx}`);
     params.push(to);
-    paramIdx++;
   }
 
   const where = conditions.join(" AND ");

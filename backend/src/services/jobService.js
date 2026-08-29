@@ -3,7 +3,29 @@
  */
 "use strict";
 
-const { getTimezoneOffset } = require("date-fns-tz");
+const { getTimezoneOffset } = require("date-fns-tz");/**
+ * Check if a job's timezone is compatible with the user's timezone.
+ * Compatible if the time difference is within +/-3 hours.
+ *
+ * @param {string} jobTimezone - IANA timezone string of the job (e.g., "America/New_York")
+ * @param {string} userTimezone - IANA timezone string of the user (e.g., "Europe/London")
+ * @returns {boolean} true if timezones are compatible or if job has no timezone restriction
+ */
+function isTimezoneCompatible(jobTimezone, userTimezone) {
+  if (!jobTimezone) return true;
+  if (!userTimezone) return true;
+
+  try {
+    const now = new Date();
+    const userOffset = getTimezoneOffset(userTimezone, now);
+    const jobOffset = getTimezoneOffset(jobTimezone, now);
+    const diffHours = Math.abs(userOffset - jobOffset) / (1000 * 60 * 60);
+    return diffHours <= 3;
+  } catch {
+    return true;
+  }
+}
+
 
 // Provide a lightweight in-memory implementation for tests to avoid requiring
 // a running Postgres instance. The test-suite imports `jobService` and
