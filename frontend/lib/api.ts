@@ -533,3 +533,126 @@ export async function fetchSkillEndorsements(
   }>(`/api/profiles/${encodeURIComponent(publicKey)}/skill-endorsements`);
   return data.data;
 }
+
+// ─── Freelancer Analytics ───────────────────────────────────────────────────
+
+export async function fetchFreelancerEarnings(publicKey: string) {
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/earnings`,
+  );
+  return data.data;
+}
+
+export async function fetchProfiles(params?: { category?: string; limit?: number }) {
+  const { data } = await api.get<{ success: boolean; data: UserProfile[] }>(
+    "/api/profiles",
+    { params },
+  );
+  return data.data;
+}
+
+// ─── Analytics ──────────────────────────────────────────────────────────────
+
+export async function fetchCategoryAnalytics(category: string) {
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    `/api/analytics/category/${encodeURIComponent(category)}`,
+  );
+  return data.data;
+}
+
+export async function fetchAnalyticsOverview() {
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    "/api/analytics/overview",
+  );
+  return data.data;
+}
+
+// ─── Job Certificates & Disputes ───────────────────────────────────────────
+
+export async function mintCompletionCertificate(jobId: string, freelancerAddress: string) {
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    `/api/jobs/${jobId}/certificate`,
+    { freelancerAddress },
+  );
+  return data.data;
+}
+
+export async function raiseDispute(jobId: string, reason: string) {
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    `/api/jobs/${jobId}/dispute`,
+    { reason },
+  );
+  return data.data;
+}
+
+export async function fetchNftCertificateByJob(jobId: string) {
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    `/api/jobs/${jobId}/certificate`,
+  );
+  return data.data;
+}
+
+// ─── Saved Searches ─────────────────────────────────────────────────────────
+
+export async function fetchSavedSearches(publicKey: string) {
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/saved-searches`,
+  );
+  return data.data;
+}
+
+export async function createSavedSearch(publicKey: string, payload: { name: string; filters: any }) {
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/saved-searches`,
+    payload,
+  );
+  return data.data;
+}
+
+// ─── Notifications ──────────────────────────────────────────────────────────
+
+export async function fetchNotifications(publicKey: string) {
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    `/api/notifications/${encodeURIComponent(publicKey)}`,
+  );
+  return data.data;
+}
+
+export async function markNotificationRead(notificationId: string) {
+  const { data } = await api.patch<{ success: boolean; data: any }>(
+    `/api/notifications/${notificationId}`,
+  );
+  return data.data;
+}
+
+export async function markAllNotificationsRead(publicKey: string) {
+  const { data } = await api.patch<{ success: boolean; data: any }>(
+    `/api/notifications/${encodeURIComponent(publicKey)}/read-all`,
+  );
+  return data.data;
+}
+
+// ─── Health & Status ────────────────────────────────────────────────────────
+
+export async function fetchHealthStatus() {
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    "/api/health/status",
+  );
+  return data.data;
+}
+
+export async function fetchHealthHistory(limit = 30) {
+  const { data } = await api.get<{ success: boolean; data: any[] }>(
+    "/api/health/history",
+    { params: { limit } },
+  );
+  return data.data;
+}
+
+export async function subscribeStatusAlerts(publicKey: string, email: string) {
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    `/api/profiles/${encodeURIComponent(publicKey)}/status-alerts`,
+    { email },
+  );
+  return data.data;
+}
