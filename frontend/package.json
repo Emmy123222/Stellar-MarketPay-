@@ -87,6 +87,8 @@
   "overrides": {
     "js-yaml": "^4.1.0",
     "serialize-javascript": "^7.0.3",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "next": "$next",
+    "eslint": "$eslint"
   }
 }
