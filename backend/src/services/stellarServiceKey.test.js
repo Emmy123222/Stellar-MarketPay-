@@ -26,7 +26,7 @@ describe("loadServiceKeypair", () => {
   test("returns a valid Keypair when secret is correct", () => {
     // Use a known valid Stellar secret key (test/dev only — never production)
     process.env.STELLAR_SERVICE_SECRET =
-      "SCZANGBA5RLBRQD6VGZPBVBFN4XFZJVKUCYNUG6SDXPN64CAQHG5GQX";
+      "SASLCQL5I42FNPUILMWURVUZNIL4H4LURPGTDRVXDJWCGZ7XZSJDH4RN";
     const { loadServiceKeypair } = require("./stellarServiceKey");
     const kp = loadServiceKeypair();
     expect(kp).toBeDefined();
@@ -37,7 +37,7 @@ describe("loadServiceKeypair", () => {
 
 describe("signWithServiceKey", () => {
   const VALID_SECRET =
-    "SCZANGBA5RLBRQD6VGZPBVBFN4XFZJVKUCYNUG6SDXPN64CAQHG5GQX";
+    "SASLCQL5I42FNPUILMWURVUZNIL4H4LURPGTDRVXDJWCGZ7XZSJDH4RN";
 
   test("calls signFn with the keypair when IP is allowed", async () => {
     process.env.STELLAR_SERVICE_SECRET = VALID_SECRET;
@@ -72,7 +72,7 @@ describe("signWithServiceKey", () => {
 describe("verifyServiceKey", () => {
   test("returns true for the public key matching the loaded keypair", () => {
     process.env.STELLAR_SERVICE_SECRET =
-      "SCZANGBA5RLBRQD6VGZPBVBFN4XFZJVKUCYNUG6SDXPN64CAQHG5GQX";
+      "SASLCQL5I42FNPUILMWURVUZNIL4H4LURPGTDRVXDJWCGZ7XZSJDH4RN";
     const { verifyServiceKey, getServicePublicKey } = require("./stellarServiceKey");
     const pubKey = getServicePublicKey();
     expect(verifyServiceKey(pubKey)).toBe(true);
@@ -80,7 +80,7 @@ describe("verifyServiceKey", () => {
 
   test("returns false for a different public key", () => {
     process.env.STELLAR_SERVICE_SECRET =
-      "SCZANGBA5RLBRQD6VGZPBVBFN4XFZJVKUCYNUG6SDXPN64CAQHG5GQX";
+      "SASLCQL5I42FNPUILMWURVUZNIL4H4LURPGTDRVXDJWCGZ7XZSJDH4RN";
     const { verifyServiceKey } = require("./stellarServiceKey");
     expect(verifyServiceKey("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF")).toBe(false);
   });

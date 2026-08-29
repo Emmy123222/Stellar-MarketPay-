@@ -34,13 +34,9 @@ jest.mock("./stellarServiceKey", () => ({
   getServicePublicKey: jest.fn(() => "GSERVICEPUBLICKEY0000000000000000000000000000000000000000"),
 }));
 
-const { getJob,
-  recordTimelineEvent,
-} = require("./jobService");
+const { getJob } = require("./jobService");
 const { processReferralPayout } = require("./referralService");
-const { notifyEscrowEvent,
-  EVENT_TYPES,
-} = require("./notificationService");
+const { notifyEscrowEvent } = require("./notificationService");
 const {
   releaseFunds,
   refundClient,

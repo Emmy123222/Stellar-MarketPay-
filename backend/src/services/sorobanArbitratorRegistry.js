@@ -1,7 +1,6 @@
 "use strict";
 
-const { Address, nativeToScVal, scValToNative } = require("@stellar/stellar-sdk");
-const { requireEnv } = require("../config/env");
+const { nativeToScVal, scValToNative } = require("@stellar/stellar-sdk");
 const { readContractValue } = require("./sorobanClient");
 const pool = require("../db/pool");
 

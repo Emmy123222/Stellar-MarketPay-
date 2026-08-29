@@ -333,7 +333,7 @@ async function timeoutRefund(jobId, clientAddress, contractTxHash, req = null) {
   const clientIp = req ? getClientIp(req) : '127.0.0.1';
   
   try {
-    await signWithServiceKey(clientIp, async (keypair) => {
+    await signWithServiceKey(clientIp, async (_keypair) => {
       // In a real implementation, this would sign and submit the Soroban transaction
       // For now, we validate the keypair is loaded and IP is allowed
       logger.info(

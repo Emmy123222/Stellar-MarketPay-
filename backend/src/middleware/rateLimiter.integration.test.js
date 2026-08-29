@@ -2,6 +2,20 @@ const request = require('supertest');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 
+jest.mock('../db/pool', () => ({
+  query: jest.fn().mockResolvedValue({ rows: [{ '?column?': 1 }] }),
+  getPoolStats: jest.fn().mockReturnValue({}),
+}));
+
+jest.mock('../services/cacheService', () => ({
+  ping: jest.fn().mockResolvedValue('up'),
+}));
+
+global.fetch = jest.fn().mockResolvedValue({
+  ok: true,
+  json: jest.fn().mockResolvedValue({ _embedded: { records: [{ sequence: 123 }] } }),
+});
+
 // Import route modules that use the rate limiter internally
 const healthRoutes = require('../routes/health');
 const verificationRoutes = require('../routes/verification');

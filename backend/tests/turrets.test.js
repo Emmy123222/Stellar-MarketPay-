@@ -12,9 +12,13 @@ jest.mock("@stellar/stellar-sdk", () => ({
   },
 }));
 
-jest.mock("crypto", () => ({
-  createSecretKey: jest.fn(() => ({ type: "secret" })),
-}));
+jest.mock("crypto", () => {
+  const actual = jest.requireActual("crypto");
+  return {
+    ...actual,
+    createSecretKey: jest.fn(() => ({ type: "secret" })),
+  };
+});
 
 describe("Turrets API — POST /api/turrets/sign", () => {
   let app;
@@ -26,7 +30,7 @@ describe("Turrets API — POST /api/turrets/sign", () => {
     process.env.STELLAR_NETWORK_PASSPHRASE =
       "Test SDF Network ; September 2015";
 
-    const module = await import("../../src/server.js");
+    const module = require("../src/server.js");
     app = module.default || module;
   });
 

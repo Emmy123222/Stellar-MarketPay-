@@ -19,6 +19,8 @@ jest.mock("../utils/queue", () => ({
 }));
 
 const pool = require("../db/pool");
+const originalEnv = process.env.NODE_ENV;
+process.env.NODE_ENV = "production";
 const {
   createJob,
   getJob,
@@ -47,6 +49,7 @@ const {
   getSuggestions,
   rowToJob,
 } = require("./jobService");
+process.env.NODE_ENV = originalEnv;
 
 describe("jobService", () => {
   beforeEach(() => {

@@ -34,10 +34,10 @@ const LEDGERS_PER_DAY = 17280; // Approximate number of ledgers per day on Stell
 async function createRecurringEscrow({
   jobId,
   clientAddress,
-  freelancerAddress,
-  contractId,
+  _freelancerAddress,
+  _contractId,
   amountPerRelease,
-  currency,
+  _currency,
   intervalDays,
   totalReleases,
 }) {

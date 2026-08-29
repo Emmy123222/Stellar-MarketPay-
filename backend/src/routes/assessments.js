@@ -79,7 +79,7 @@ router.get("/project/:id", verifyJWT, async (req, res, next) => {
     // _correctAnswer is intentionally destructured-and-discarded so the field
     // is excluded from `rest` — the leading underscore silences the lint rule.
     const safeQuestions = assessment.questions.map(q => {
-      const { correctAnswer: _correctAnswer, ...rest } = q; // eslint-disable-line no-unused-vars
+      const { correctAnswer: _correctAnswer, ...rest } = q;
       return rest;
     });
 

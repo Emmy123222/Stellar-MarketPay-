@@ -841,7 +841,7 @@ describe("Notification Service", () => {
 
   describe("sendPushNotificationForEvent", () => {
     test("should send push for important events", async () => {
-      const result = await sendPushNotificationForEvent(defaultAddress, {
+      await sendPushNotificationForEvent(defaultAddress, {
         type: EVENT_TYPES.APPLICATION_RECEIVED,
         title: "New application",
         body: "Someone applied",

@@ -1,7 +1,6 @@
 "use strict";
 
-const { SorobanRpc, Contract, xdr } = require("@stellar/stellar-sdk");
-const { requireEnv } = require("../config/env");
+const { SorobanRpc, Contract } = require("@stellar/stellar-sdk");
 
 const SOROBAN_RPC_URL =
   process.env.SOROBAN_RPC_URL ||

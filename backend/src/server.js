@@ -163,7 +163,7 @@ app.get("/api/indexer/health", (req, res) => {
   });
 });
 
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   console.error("[Error]", err.message);
 
   res.status(err.status || 500).json({
