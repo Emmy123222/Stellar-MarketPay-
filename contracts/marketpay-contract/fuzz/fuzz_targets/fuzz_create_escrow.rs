@@ -8,8 +8,8 @@
 #![no_main]
 
 use libfuzzer_sys::{arbitrary, fuzz_target};
-use soroban_sdk::{testutils::Address as _, Address, Env, String as SorobanString};
 use marketpay_contract::{CreateEscrowParams, MarketPayContract, MarketPayContractClient};
+use soroban_sdk::{testutils::Address as _, Address, Env, String as SorobanString};
 
 #[derive(Debug, arbitrary::Arbitrary)]
 struct FuzzInput {
@@ -33,11 +33,13 @@ fuzz_target!(|data: FuzzInput| {
     };
     let job_id = SorobanString::from_str(&env, &job_id_str);
 
-    let contract_addr = env.register_contract(None, MarketPayContract);
+    let contract_addr = env.register(MarketPayContract, ());
     let client = MarketPayContractClient::new(&env, &contract_addr);
 
     let token_admin = Address::generate(&env);
-    let token_addr = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+    let token_addr = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token_addr);
 
     let caller = Address::generate(&env);
@@ -58,10 +60,8 @@ fuzz_target!(|data: FuzzInput| {
         referrer: None,
     };
 
-    // The call may panic for invalid inputs; that is expected contract
-    // behaviour (panic = trap in WASM).  The fuzzer catches unintended
-    // panics (e.g. integer overflow, out-of-bounds) separately.
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.create_escrow(&job_id, &caller, &params);
-    }));
+    // The call may fail for invalid inputs; that is expected contract
+    // behaviour. The fuzzer uses try_create_escrow to prevent host-level
+    // panics from terminating the fuzzer.
+    let _ = client.try_create_escrow(&job_id, &caller, &params);
 });
