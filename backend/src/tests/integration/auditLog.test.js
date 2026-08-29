@@ -73,7 +73,7 @@ describe("Audit Log Integration Tests", () => {
   const entityId = "00000000-0000-0000-0000-000000000001";
 
   test("insertAuditLog creates a row with correct fields", async () => {
-    const entry = await insertAuditLog({
+    const entry = await new Promise(r => setTimeout(r, 10)); await insertAuditLog({
       actorAddress,
       action: "test_action",
       entityType: "test_entity",
@@ -101,7 +101,7 @@ describe("Audit Log Integration Tests", () => {
   });
 
   test("insertAuditLog accepts null old_value and new_value", async () => {
-    const entry = await insertAuditLog({
+    const entry = await new Promise(r => setTimeout(r, 10)); await insertAuditLog({
       actorAddress,
       action: "system_event",
       entityType: "system",
@@ -114,13 +114,13 @@ describe("Audit Log Integration Tests", () => {
   });
 
   test("listAuditLogs returns entries ordered by created_at DESC", async () => {
-    await insertAuditLog({
+    await new Promise(r => setTimeout(r, 10)); await insertAuditLog({
       actorAddress,
       action: "first",
       entityType: "test",
       entityId,
     });
-    await insertAuditLog({
+    await new Promise(r => setTimeout(r, 10)); await insertAuditLog({
       actorAddress,
       action: "second",
       entityType: "test",
@@ -136,14 +136,14 @@ describe("Audit Log Integration Tests", () => {
   });
 
   test("listAuditLogs filters by entity_type, entity_id, and action", async () => {
-    await insertAuditLog({
+    await new Promise(r => setTimeout(r, 10)); await insertAuditLog({
       actorAddress,
       action: "job_status_change",
       entityType: "job",
       entityId: "job-1",
       newValue: { status: "completed" },
     });
-    await insertAuditLog({
+    await new Promise(r => setTimeout(r, 10)); await insertAuditLog({
       actorAddress,
       action: "escrow_release",
       entityType: "escrow",
@@ -164,7 +164,7 @@ describe("Audit Log Integration Tests", () => {
   test("listAuditLogs paginates with cursor", async () => {
     // Insert 3 entries
     for (let i = 0; i < 3; i++) {
-      await insertAuditLog({
+      await new Promise(r => setTimeout(r, 10)); await insertAuditLog({
         actorAddress,
         action: `page_test_${i}`,
         entityType: "test",

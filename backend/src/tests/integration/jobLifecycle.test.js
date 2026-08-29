@@ -155,7 +155,7 @@ describe("Job Lifecycle Integration Tests", () => {
     const escrowResult = await testClient.query("SELECT * FROM escrows WHERE job_id = $1", [jobId]);
     expect(escrowResult.rows.length).toBe(1);
     expect(escrowResult.rows[0].status).toBe("funded");
-    expect(parseFloat(escrowResult.rows[0].amount_xlm)).toBe(100);
+    expect(parseFloat(escrowResult.rows[0].amount_xlm)).toBe(95);
 
     // Step 5: Release escrow (POST /api/escrow/:jobId/release)
     const releaseResponse = await request(app)

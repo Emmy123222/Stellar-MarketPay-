@@ -102,17 +102,17 @@ const { sendEmail } = require("../utils/email");
 // ─────────────────────────────────────────────────────────────────────────
 
 const app = express();
-// codeql[js/missing-token-validation]
-// codeql[js/missing-csrf-middleware]
-// lgtm[js/missing-token-validation]
-// lgtm[js/missing-csrf-middleware]
+// codeql [js/missing-token-validation]
+// codeql [js/missing-csrf-middleware]
+// lgtm [js/missing-token-validation]
+// lgtm [js/missing-csrf-middleware]
+app.use(express.json());
 app.use(cookieParser());
 app.use(doubleCsrfProtection);
 // CSRF bootstrap endpoint used by fetchCsrf() (mirrors src/routes/auth.js).
 app.get("/api/auth/csrf-token", (req, res) => {
   res.json({ csrfToken: generateCsrfToken(req, res) });
 });
-app.use(express.json());
 app.use("/api/admin", adminRoutes);
 
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
