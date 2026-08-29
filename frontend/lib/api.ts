@@ -571,7 +571,7 @@ export async function fetchAnalyticsOverview() {
 
 export async function mintCompletionCertificate(jobId: string, freelancerAddress: string) {
   const { data } = await api.post<{ success: boolean; data: any }>(
-    `/api/jobs/${jobId}/certificate`,
+    `/api/jobs/${encodeURIComponent(jobId)}/certificate`,
     { freelancerAddress },
   );
   return data.data;
@@ -579,7 +579,7 @@ export async function mintCompletionCertificate(jobId: string, freelancerAddress
 
 export async function raiseDispute(jobId: string, reason: string) {
   const { data } = await api.post<{ success: boolean; data: any }>(
-    `/api/jobs/${jobId}/dispute`,
+    `/api/jobs/${encodeURIComponent(jobId)}/dispute`,
     { reason },
   );
   return data.data;
@@ -587,7 +587,7 @@ export async function raiseDispute(jobId: string, reason: string) {
 
 export async function fetchNftCertificateByJob(jobId: string) {
   const { data } = await api.get<{ success: boolean; data: any }>(
-    `/api/jobs/${jobId}/certificate`,
+    `/api/jobs/${encodeURIComponent(jobId)}/certificate`,
   );
   return data.data;
 }
@@ -620,7 +620,7 @@ export async function fetchNotifications(publicKey: string) {
 
 export async function markNotificationRead(notificationId: string) {
   const { data } = await api.patch<{ success: boolean; data: any }>(
-    `/api/notifications/${notificationId}`,
+    `/api/notifications/${encodeURIComponent(notificationId)}`,
   );
   return data.data;
 }

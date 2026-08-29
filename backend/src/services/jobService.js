@@ -710,7 +710,7 @@ if (process.env.NODE_ENV === 'test') {
       [boostedUntil.toISOString(), jobId]
     );
 
-    return rowToJob(rows[0]);
+    return rowToJob(updateRows[0]);
   }
 
   /**
