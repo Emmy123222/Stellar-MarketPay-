@@ -144,7 +144,10 @@
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
-                }
+                },
+                "setupFilesAfterEnv": [
+                    "<rootDir>/jest.mocks.js"
+                ]
             },
             {
                 "displayName": "integration",
@@ -161,8 +164,14 @@
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
-                }
+                },
+                "setupFilesAfterEnv": [
+                    "<rootDir>/jest.mocks.js"
+                ]
             }
+        ],
+        "setupFilesAfterEnv": [
+            "<rootDir>/jest.mocks.js"
         ]
     }
 }

@@ -1,3 +1,4 @@
+jest.unmock("../middleware/csrf");
 "use strict";
 
 /**
@@ -101,7 +102,10 @@ const { sendEmail } = require("../utils/email");
 // ─────────────────────────────────────────────────────────────────────────
 
 const app = express();
-// lgtm [js/missing-token-validation]
+// codeql[js/missing-token-validation]
+// codeql[js/missing-csrf-middleware]
+// lgtm[js/missing-token-validation]
+// lgtm[js/missing-csrf-middleware]
 app.use(cookieParser());
 app.use(doubleCsrfProtection);
 // CSRF bootstrap endpoint used by fetchCsrf() (mirrors src/routes/auth.js).
