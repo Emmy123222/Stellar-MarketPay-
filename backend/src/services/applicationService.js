@@ -17,7 +17,7 @@ const { calculateFreelancerTier } = require("./profileService");
 // `services/store.js` maps.
 if (process.env.NODE_ENV === 'test') {
   const store = require('./store');
-  const { v4: uuidv4 } = require('uuid');
+  const crypto = require('crypto');
 
   function validatePublicKey(key) {
     if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
@@ -84,7 +84,7 @@ if (process.env.NODE_ENV === 'test') {
       }
     }
 
-    const id = uuidv4();
+    const id = crypto.randomUUID();
     const now = new Date().toISOString();
     const appRow = {
       id,

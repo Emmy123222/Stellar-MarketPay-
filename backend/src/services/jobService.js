@@ -32,7 +32,7 @@ function isTimezoneCompatible(jobTimezone, userTimezone) {
 // expects synchronous functions that operate on `services/store.js` maps.
 if (process.env.NODE_ENV === 'test') {
   const store = require('./store');
-  const { v4: uuidv4 } = require('uuid');
+  const crypto = require('crypto');
 
   async function createJob(input) {
     const {
@@ -75,7 +75,7 @@ if (process.env.NODE_ENV === 'test') {
       throw e;
     }
 
-    const id = uuidv4();
+    const id = crypto.randomUUID();
     const now = new Date().toISOString();
     const job = {
       id,
