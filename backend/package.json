@@ -38,7 +38,7 @@
         "express": "^5.2.1",
         "express-rate-limit": "^7.3.1",
         "form-data": "^4.0.6",
-        "graphql": "^17.0.2",
+        "graphql": "^16.11.0",
         "helmet": "^8.3.0",
         "ioredis": "^5.11.1",
         "jsdom": "^24.1.0",
@@ -68,7 +68,8 @@
         "bull": {
             "uuid": "^11.1.1"
         },
-        "nanoid": "^3.3.18"
+        "nanoid": "^3.3.18",
+        "htmlparser2": "^9.1.0"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
@@ -122,7 +123,7 @@
             }
         },
         "transformIgnorePatterns": [
-            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|sanitize-html|htmlparser2)/)"
         ],
         "moduleNameMapper": {
             "^(\\.{1,2}/.*)\\.js$": "$1"
@@ -139,7 +140,7 @@
                     "src/tests/integration"
                 ],
                 "transformIgnorePatterns": [
-                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|sanitize-html|htmlparser2)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
@@ -157,7 +158,7 @@
                 "testTimeout": 30000,
                 "runInBand": true,
                 "transformIgnorePatterns": [
-                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|sanitize-html|htmlparser2)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
