@@ -56,8 +56,6 @@ module.exports = [
         varsIgnorePattern: "^_",
         caughtErrors: "none",
       }],
-      "no-useless-assignment": "warn",
-      "preserve-caught-error": "warn",
     },
   },
 
