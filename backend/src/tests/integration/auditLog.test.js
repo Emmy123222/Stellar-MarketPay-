@@ -164,6 +164,7 @@ describe("Audit Log Integration Tests", () => {
   test("listAuditLogs paginates with cursor", async () => {
     // Insert 3 entries
     for (let i = 0; i < 3; i++) {
+      await new Promise(r => setTimeout(r, 10));
       await insertAuditLog({
         actorAddress,
         action: `page_test_${i}`,
