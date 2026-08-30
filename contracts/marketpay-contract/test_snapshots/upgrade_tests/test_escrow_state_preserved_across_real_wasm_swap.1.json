@@ -138,12 +138,29 @@
         }
       ]
     ],
-    [],
-    [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "upgrade",
+              "args": [
+                {
+                  "bytes": "290b8f34b498bb6bd549f970cb681e6d2bb8d4312c59b4768f34f419358ae3ef"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
     []
   ],
   "ledger": {
-    "protocol_version": 26,
+    "protocol_version": 27,
     "sequence_number": 0,
     "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -205,7 +222,7 @@
               "val": {
                 "contract_instance": {
                   "executable": {
-                    "wasm": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                    "wasm": "290b8f34b498bb6bd549f970cb681e6d2bb8d4312c59b4768f34f419358ae3ef"
                   },
                   "storage": [
                     {
@@ -457,6 +474,26 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "ledger_key_nonce": {
+                  "nonce": "4837995959683129791"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "ledger_key_nonce": {
                   "nonce": "5541220902715666415"
                 }
               },
@@ -694,6 +731,37 @@
           "ext": "v0"
         },
         "live_until": 120960
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_code": {
+              "ext": {
+                "v1": {
+                  "ext": "v0",
+                  "cost_inputs": {
+                    "ext": "v0",
+                    "n_instructions": 2,
+                    "n_functions": 1,
+                    "n_globals": 2,
+                    "n_table_entries": 0,
+                    "n_types": 1,
+                    "n_data_segments": 1,
+                    "n_elem_segments": 0,
+                    "n_imports": 0,
+                    "n_exports": 3,
+                    "n_data_segment_bytes": 0
+                  }
+                }
+              },
+              "hash": "290b8f34b498bb6bd549f970cb681e6d2bb8d4312c59b4768f34f419358ae3ef",
+              "code": "0061736d010000000105016000017e0302010005030100100611027f01418080c0000b7f00418080c0000b071503066d656d6f727902000470696e670000015f03010a0a0108004284808080100b0b090100418080c0000b00002b0e636f6e747261637473706563763000000000000000000000000470696e67000000000000000100000004001e11636f6e7472616374656e766d6574617630000000000000001b00000000006f0e636f6e74726163746d65746176300000000000000005727376657200000000000006312e39372e3100000000000000000008727373646b7665720000002f32372e302e36233630393236613230643166396630613636396435666535353136333666343261313330326630633000"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 4095
       },
       {
         "entry": {
