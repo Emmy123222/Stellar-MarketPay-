@@ -11,7 +11,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 # Enable the testutils feature so we can build an Env in the fuzz harness.
 marketpay-contract = { path = "..", features = ["testutils"] }
-soroban-sdk = { version = "27.0.6", features = ["testutils"] }
+soroban-sdk = { version = "27.0.3", features = ["testutils"] }
 
 [[bin]]
 name = "fuzz_create_escrow"
