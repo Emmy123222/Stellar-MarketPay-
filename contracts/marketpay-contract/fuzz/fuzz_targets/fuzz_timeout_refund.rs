@@ -53,9 +53,12 @@ fuzz_target!(|data: FuzzInput| {
 
     client.create_escrow(&job_id, &real_client, &params);
 
-    // Advance the ledger by the fuzz-supplied amount.
+    // Advance the ledger by the fuzz-supplied amount (bounded to prevent Soroban host TTL overflow).
+    // Also advance the timestamp (approx. 5s per ledger in Stellar) so timeout expiration is exercised.
+    let advance = data.ledger_advance % 1_000_000;
     env.ledger().with_mut(|l| {
-        l.sequence_number = l.sequence_number.saturating_add(data.ledger_advance);
+        l.sequence_number = l.sequence_number.saturating_add(advance);
+        l.timestamp = l.timestamp.saturating_add((advance as u64) * 5);
     });
 
     let caller = if data.use_real_client {
