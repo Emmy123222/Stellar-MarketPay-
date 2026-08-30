@@ -357,14 +357,21 @@ pub(crate) fn release_escrow_core(env: Env, job_id: String, mut escrow: Escrow) 
             );
         }
 
-        // ── Referral bonus: 2% of post-fee amount goes to referrer ─────────
+        // ── Referral bonus: 2% of post-fee amount goes to referrer, ────────
+        // capped at the admin-configured MaxReferrerBonusXlm (Issue #440).
         let (freelancer_amount, referral_amount) = match &escrow.referrer {
             Some(referrer_addr) => {
-                let bonus = after_fee
+                let uncapped_bonus = after_fee
                     .checked_mul(200)
                     .expect("Arithmetic overflow")
                     .checked_div(10_000)
                     .expect("Arithmetic overflow");
+                let max_bonus: Option<i128> =
+                    env.storage().instance().get(&DataKey::MaxReferrerBonusXlm);
+                let bonus = match max_bonus {
+                    Some(cap) => uncapped_bonus.min(cap),
+                    None => uncapped_bonus,
+                };
                 let to_freelancer = after_fee.checked_sub(bonus).expect("Arithmetic overflow");
                 if bonus > 0 {
                     token_client.transfer(&env.current_contract_address(), referrer_addr, &bonus);
