@@ -4,9 +4,8 @@
  */
 "use strict";
 
+const sanitizeHtml = require("sanitize-html");
 const validator = require("validator");
-const { JSDOM } = require("jsdom");
-const DOMPurify = require("dompurify")(new JSDOM("").window);
 
 /**
  * SQL injection patterns to detect and block
@@ -20,7 +19,7 @@ const SQL_PATTERNS = [
 /**
  * Sanitize a single string value by:
  * 1. Decoding entities and normalizing Unicode exploits
- * 2. Stripping HTML tags and dangerous content via DOMPurify (server-side)
+ * 2. Stripping HTML tags and dangerous content via sanitize-html
  * 3. Checking for SQL injection patterns
  *
  * @param {string} value - The string to sanitize
@@ -33,16 +32,16 @@ function sanitizeString(value, options = {}) {
   if (typeof value !== "string") return value;
 
   let sanitized = validator.unescape(value).normalize("NFKC");
-  sanitized = DOMPurify.sanitize(sanitized, {
-    ALLOWED_TAGS: [],
-    ALLOWED_ATTR: [],
-    FORBID_TAGS: ["script", "style", "iframe", "svg", "object", "embed", "link"],
+  sanitized = sanitizeHtml(sanitized, {
+    allowedTags: [],
+    allowedAttributes: {},
+    disallowedTagsMode: "discard",
   });
   sanitized = validator.unescape(sanitized).normalize("NFKC");
-  sanitized = DOMPurify.sanitize(sanitized, {
-    ALLOWED_TAGS: [],
-    ALLOWED_ATTR: [],
-    FORBID_TAGS: ["script", "style", "iframe", "svg", "object", "embed", "link"],
+  sanitized = sanitizeHtml(sanitized, {
+    allowedTags: [],
+    allowedAttributes: {},
+    disallowedTagsMode: "discard",
   });
 
   sanitized = sanitized.replace(/[<>]/g, "");

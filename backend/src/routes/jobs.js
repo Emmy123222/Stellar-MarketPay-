@@ -483,7 +483,7 @@ router.post("/", jobCreationRateLimiter, verifyJWT, validateJsonb({ milestones: 
 
     // 4) Create job with the verified signedAddress
     const job = await createJob({ ...validatedBody, clientAddress: signedAddress });
-    await cache.invalidateJobListCache();
+    await cache.delPattern("jobs:list:*");
     res.status(201).json({ success: true, data: job });
   } catch (e) {
     next(e);
