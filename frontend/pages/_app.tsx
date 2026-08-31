@@ -6,7 +6,6 @@ import { useRouter } from "next/router";
 import Navbar from "@/components/Navbar";
 import MobileTabBar from "@/components/MobileTabBar";
 import FaucetButton from "@/components/FaucetButton";
-import AppFooter from "@/components/AppFooter";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
 import CommandPalette from "@/components/CommandPalette";
 import OnboardingWizard from "@/components/Onboarding/OnboardingWizard";
@@ -22,7 +21,7 @@ import {
   logout,
   registerReferral,
 } from "@/lib/api";
-import { useToast } from "@/components/Toast";
+import { toast } from "@/components/Toast";
 import WalletAccountMonitor from "@/components/WalletAccountMonitor";
 import PWAInstall from "@/components/PWAInstall";
 import "@/styles/globals.css";
@@ -34,8 +33,7 @@ import OfflineBanner from "@/components/OfflineBanner";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useBackgroundSync } from "@/hooks/useBackgroundSync";
 import { appWithTranslation } from "next-i18next";
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const nextI18NextConfig = require("../next-i18next.config.js");
+import nextI18NextConfig from "../next-i18next.config.js";
 
 const WALLET_PUBLIC_KEY_STORAGE_KEY = "smp_wallet_public_key";
 const REF_STORAGE_KEY = "smp_referrer";
@@ -351,10 +349,10 @@ function App({ Component, pageProps }: AppProps) {
         persistPublicKey(pk);
         await maybeRegisterReferral(pk);
       } else {
-        alert("Wallet connected, but authentication failed.");
+        toast.error("Wallet connected, but authentication failed.");
       }
     } else if (error) {
-      alert(error);
+      toast.error(error);
     }
   };
 
@@ -404,7 +402,10 @@ function App({ Component, pageProps }: AppProps) {
             </Head>
             <OfflineBanner />
             <div className="min-h-screen bg-lines" style={{ backgroundColor: "var(--bg)" }}>
-              <Navbar publicKey={publicKey} onConnect={handleConnect} onDisconnect={() => setPublicKey(null)} />
+              {/* handleWalletDisconnect clears the persisted key; a bare
+                  setPublicKey(null) lets the storage-rehydration effect below
+                  instantly restore the session, so Disconnect appears dead. */}
+              <Navbar publicKey={publicKey} onConnect={handleConnect} onDisconnect={handleWalletDisconnect} />
               <MobileTabBar publicKey={publicKey} />
               <main id="main-content">
                 <Component {...pageProps} publicKey={publicKey} onConnect={handleConnect} />

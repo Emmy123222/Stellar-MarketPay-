@@ -1,57 +1,163 @@
 version: 2
+
 updates:
+  # ---------------------------------------------------------------------
+  # Frontend (Next.js app) — npm
+  # ---------------------------------------------------------------------
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
       interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "frontend"
     assignees:
       - "Emmy123222"
     groups:
-      minor-and-patch:
-        patterns:
-          - "*"
+      npm-minor-patch:
+        applies-to: version-updates
         update-types:
           - "minor"
           - "patch"
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    ignore:
+      # Major bumps are reviewed manually, one at a time, so they don't
+      # get silently bundled into an automated PR.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
+  # ---------------------------------------------------------------------
+  # Backend (API service) — npm
+  # ---------------------------------------------------------------------
   - package-ecosystem: "npm"
     directory: "/backend"
     schedule:
       interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "backend"
     assignees:
       - "Emmy123222"
     groups:
-      minor-and-patch:
-        patterns:
-          - "*"
+      npm-minor-patch:
+        applies-to: version-updates
         update-types:
           - "minor"
           - "patch"
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
+  # ---------------------------------------------------------------------
+  # Repo-root tooling (husky, lint-staged, eslint, prettier) — npm
+  # ---------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "tooling"
+    assignees:
+      - "Emmy123222"
+    groups:
+      npm-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # ---------------------------------------------------------------------
+  # Soroban escrow contract — cargo
+  # ---------------------------------------------------------------------
   - package-ecosystem: "cargo"
     directory: "/contracts/marketpay-contract"
     schedule:
       interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "contracts"
     assignees:
       - "Emmy123222"
     groups:
-      minor-and-patch:
-        patterns:
-          - "*"
+      cargo-minor-patch:
+        applies-to: version-updates
         update-types:
           - "minor"
           - "patch"
+      cargo-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
+  # ---------------------------------------------------------------------
+  # Arbitrator registry contract — cargo
+  # ---------------------------------------------------------------------
   - package-ecosystem: "cargo"
     directory: "/contracts/arbitrator-registry"
     schedule:
       interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "contracts"
     assignees:
       - "Emmy123222"
     groups:
-      minor-and-patch:
-        patterns:
-          - "*"
+      cargo-minor-patch:
+        applies-to: version-updates
         update-types:
           - "minor"
           - "patch"
+      cargo-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # ---------------------------------------------------------------------
+  # GitHub Actions workflows
+  # ---------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+    assignees:
+      - "Emmy123222"
+    groups:
+      github-actions:
+        patterns:
+          - "*"

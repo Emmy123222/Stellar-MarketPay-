@@ -165,8 +165,8 @@ export default function SendPaymentForm({
       </div>
 
       {/* Recipient */}
-      <label className="label block mb-1">Recipient address</label>
-      <input
+      <label htmlFor="recipient-address" className="label block mb-1">Recipient address</label>
+      <input id="recipient-address"
         type="text"
         list="address-book-contacts"
         value={recipient}
@@ -217,10 +217,10 @@ export default function SendPaymentForm({
       />
 
       {/* Memo */}
-      <label className="label block mb-1">
+      <label htmlFor="memo-optional" className="label block mb-1">
         Memo <span className="text-amber-900 font-normal">(optional)</span>
       </label>
-      <input
+      <input id="memo-optional"
         type="text"
         value={memo}
         onChange={(e) => setMemo(e.target.value.slice(0, 28))}

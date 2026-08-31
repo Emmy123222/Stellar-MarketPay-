@@ -3,6 +3,21 @@ jest.mock("../db/pool", () => {
   return createPgMock();
 });
 
+jest.mock("../utils/logger", () => ({
+  createServiceLogger: jest.fn(() => ({
+    debug: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+  })),
+}));
+
+jest.mock("../utils/queue", () => ({
+  emailQueue: {
+    add: jest.fn().mockResolvedValue({}),
+  },
+}));
+
 const pool = require("../db/pool");
 const {
   createJob,
@@ -11,6 +26,26 @@ const {
   listJobsByClient,
   updateJobStatus,
   deleteJob,
+  assignFreelancer,
+  updateJobEscrowId,
+  purgeDeletedJobs,
+  boostJob,
+  incrementShareCount,
+  raiseDispute,
+  resolveDispute,
+  getCategoryAnalytics,
+  getAnalyticsOverview,
+  extendJobExpiry,
+  incrementViewCount,
+  getJobAnalytics,
+  expireOldJobs,
+  getExpiringJobs,
+  bulkCancelJobs,
+  bulkExtendJobs,
+  bulkBoostJobs,
+  getRecommendedJobs,
+  getSuggestions,
+  rowToJob,
 } = require("./jobService");
 
 describe("jobService", () => {
@@ -476,6 +511,27 @@ describe("jobService", () => {
 
       const updated = await updateJobEscrowId(job.id, "CONTRACT123");
       expect(updated.escrowContractId).toBe("CONTRACT123");
+    });
+
+    it("uses an explicit escrow amount when provided", async () => {
+      const job = await createJob({
+        title: "Escrow amount test job",
+        description: "Description format that is long enough to pass validation.",
+        budget: "100",
+        category: "Frontend Development",
+        clientAddress: validClientAddress,
+        currency: "XLM",
+      });
+
+      const updated = await updateJobEscrowId(job.id, "CONTRACT123", { amount: "75.5000000" });
+
+      expect(updated.escrowContractId).toBe("CONTRACT123");
+      const escrowInsert = pool.query.mock.calls.find(([sql]) =>
+        sql.includes("INSERT INTO escrows"),
+      );
+      expect(escrowInsert[1]).toEqual(
+        expect.arrayContaining(["75.5000000"]),
+      );
     });
 
     it("rejects invalid escrow contract ID", async () => {

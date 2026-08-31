@@ -1,14 +1,25 @@
-name: Fuzz Contract
+name: Fuzz
 
 on:
-  pull_request:
+  push:
+    branches: [main]
     paths:
-      - "contracts/marketpay-contract/src/**"
-      - "contracts/marketpay-contract/fuzz/**"
+      - "contracts/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "contracts/**"
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   fuzz:
-    name: cargo-fuzz (${{ matrix.target }})
+    name: Fuzz ${{ matrix.target }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -17,25 +28,28 @@ jobs:
           - fuzz_create_escrow
           - fuzz_release_escrow
           - fuzz_timeout_refund
-
+    defaults:
+      run:
+        working-directory: contracts/marketpay-contract/fuzz
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Install nightly toolchain
-        uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy, rustfmt
 
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-fuzz-${{ hashFiles('contracts/marketpay-contract/fuzz/Cargo.toml') }}
+            ~/.rustup
+            contracts/marketpay-contract/fuzz/target
+          key: ${{ runner.os }}-cargo-fuzz-${{ hashFiles('contracts/**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-fuzz-
 
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
 
-      - name: Run fuzz target for 60 seconds
-        working-directory: contracts/marketpay-contract
-        run: |
-          cargo fuzz run ${{ matrix.target }} -- -max_total_time=60 -timeout=10
+      - name: Fuzz ${{ matrix.target }} (60s)
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=60

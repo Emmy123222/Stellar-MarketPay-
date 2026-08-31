@@ -11,7 +11,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft, updateDraft, fetchSkillSuggestions } from "@/lib/api";
+import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft, updateDraft, fetchSkillSuggestions, fetchMyJobs } from "@/lib/api";
 import { performSEP0010Auth } from "@/lib/wallet";
 import { createEscrowOnChain } from "@/lib/stellar";
 import { usePriceContext } from "@/contexts/PriceContext";
@@ -33,6 +33,7 @@ interface PostJobFormProps {
 }
 
 const DRAFT_STORAGE_KEY = "marketpay_post_job_draft";
+type DraftPayload = Omit<Parameters<typeof updateDraft>[0], "id"> & { id?: string };
 
 // ---------------------------------------------------------------------------
 // Multi-step config (Issue #494)
@@ -62,10 +63,6 @@ function StepIndicator({
     <nav
       aria-label="Form progress"
       className="w-full mb-8"
-      role="progressbar"
-      aria-valuenow={currentStep}
-      aria-valuemin={1}
-      aria-valuemax={FORM_STEPS.length}
     >
       <ol className="flex items-center">
         {FORM_STEPS.map((step, i) => {
@@ -401,18 +398,17 @@ export default function PostJobForm({
         }
 
         const skillsArray = form.skills.split(",").map((s) => s.trim()).filter(Boolean);
-        const draftData: any = {
+        const draftData: DraftPayload = {
           title: form.title,
           description: form.description,
-          budget: form.budget,
+          budget: parseFloat(form.budget) || 0,
           category: form.category,
           skills: skillsArray,
           deadline: form.deadline,
         };
 
         if (draftId) {
-          draftData.id = draftId;
-          const result = await updateDraft(draftData);
+          const result = await updateDraft({ ...draftData, id: draftId });
           setDraftId(result.id);
         } else {
           const result = await saveDraft(draftData);

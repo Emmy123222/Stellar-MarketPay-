@@ -63,6 +63,8 @@ export interface Job {
   visibility?: JobVisibility;
   skills: string[];
   status: JobStatus;
+  /** URL-safe category slug, used for category filter links. */
+  categorySlug?: string;
   clientAddress: string;
   freelancerAddress?: string;
   escrowContractId?: string;
@@ -260,6 +262,8 @@ export interface Message {
 
 export interface PortfolioFile {
   cid: string;
+  /** Gateway URL for the pinned file, when the API supplies one. */
+  url?: string;
   fileName: string;
   mimeType: string;
   size: number;
@@ -341,6 +345,7 @@ export interface TimeEntry {
   jobId: string;
   durationMinutes: number;
   description?: string;
+  milestoneIndex?: number | null;
   startedAt?: string;
   createdAt: string;
 }

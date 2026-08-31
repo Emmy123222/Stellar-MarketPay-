@@ -35,6 +35,10 @@ const healthRateLimiter = createRateLimiter(120, 1);
 
 const CHECK_TIMEOUT_MS = 2000;
 
+// Process start time and build version, reported by GET /api/health.
+const SERVER_START = Date.now();
+const VERSION = require("../../package.json").version;
+
 /**
  * Run SELECT 1 against PostgreSQL with a hard timeout.
  * @returns {Promise<'up'|'down'>}
@@ -105,7 +109,7 @@ async function checkHorizon() {
 
 /**
  * @swagger
- * /health:
+ * /api/health:
  *   get:
  *     summary: Health check
  *     description: >
@@ -154,10 +158,10 @@ router.get("/", healthRateLimiter, async (req, res) => {
   const allUp = postgres === "up" && redis === "up" && horizon === "up";
 
   const body = {
-    status: healthy ? "healthy" : "degraded",
-    database,
-    stellar,
-    ipfs,
+    status: allUp ? "healthy" : "degraded",
+    database: postgres,
+    redis,
+    stellar: horizon,
     uptime_seconds: Math.floor((Date.now() - SERVER_START) / 1000),
     version: VERSION,
     indexer: req.app.locals.indexerService
@@ -169,7 +173,18 @@ router.get("/", healthRateLimiter, async (req, res) => {
   res.status(allUp ? 200 : 503).json(body);
 });
 
-// GET /health/db — pool connection stats for monitoring
+// GET /api/health/db — pool connection stats for monitoring
+/**
+ * @swagger
+ * /api/health/db:
+ *   get:
+ *     summary: Database pool stats
+ *     description: Pool connection statistics for monitoring dashboards.
+ *     tags: [Health]
+ *     responses:
+ *       200:
+ *         description: Pool statistics
+ */
 router.get("/db", healthRateLimiter, async (req, res) => {
   const stats = getPoolStats();
   res.json({

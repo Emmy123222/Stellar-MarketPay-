@@ -1,10 +1,15 @@
 "use strict";
 
 beforeAll(() => {
-  process.env.CONTRACT_ID = process.env.CONTRACT_ID || "CCONTRACTID123456789012345678901234567890123456789012";
+  process.env.CONTRACT_ID =
+    process.env.CONTRACT_ID ||
+    "CCONTRACTID123456789012345678901234567890123456789012";
   process.env.STELLAR_NETWORK = process.env.STELLAR_NETWORK || "testnet";
-  process.env.HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
-  process.env.PLATFORM_WALLET_ADDRESS = process.env.PLATFORM_WALLET_ADDRESS || "GPLATFORMWALLET1234567890123456789012345678901234567890";
+  process.env.HORIZON_URL =
+    process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
+  process.env.PLATFORM_WALLET_ADDRESS =
+    process.env.PLATFORM_WALLET_ADDRESS ||
+    "GPLATFORMWALLET1234567890123456789012345678901234567890";
 });
 
 jest.mock("../db/pool", () => {
@@ -28,9 +33,13 @@ jest.mock("../services/indexerService", () => {
 });
 
 jest.mock("../services/priceAlertService", () => {
-  return jest.fn().mockImplementation(() => ({
-    start: jest.fn(),
-  }));
+  const mod = jest.requireActual("../services/priceAlertService");
+  class Mock {}
+  Mock.prototype.start = jest.fn();
+  Mock.prototype.stop = jest.fn();
+  const out = Object.assign({}, mod, { PriceAlertService: Mock });
+  Object.defineProperty(out, "__esModule", { value: false });
+  return out;
 });
 
 jest.mock("../db/migrate", () => ({
@@ -43,6 +52,10 @@ jest.mock("../routes/notifications", () => {
   router.get("/", (req, res) => res.json({ success: true }));
   return router;
 });
+
+// This suite asserts real CSRF 403s / happy-path tokens. Override the
+// jest.setup.js skip-mock so doubleCsrfProtection actually validates.
+jest.mock("../middleware/csrf", () => jest.requireActual("../middleware/csrf"));
 
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
 
@@ -59,6 +72,11 @@ jest.mock("@stellar/stellar-sdk", () => {
 
 const request = require("supertest");
 const jwt = require("jsonwebtoken");
+const {
+  fetchCsrf,
+  applyCsrf,
+  getCookie,
+} = require("../testUtils/csrfTestHelpers");
 
 const app = require("../server");
 
@@ -66,24 +84,6 @@ const TEST_KEYPAIR = Keypair.random();
 const WRONG_KEYPAIR = Keypair.random();
 const CHALLENGE_XDR = "AAAAAFakeChallengeTransactionXDRBase64Encoded==";
 const SIGNED_XDR = "AAAAAFakeSignedChallengeTransactionXDRBase64==";
-
-function getCookie(res, name) {
-  return (res.headers["set-cookie"] || [])
-    .find((cookie) => cookie.startsWith(`${name}=`))
-    ?.split(";")[0];
-}
-
-/**
- * Fetch a real CSRF token + its cookie pair so we exercise the same
- * round-trip that the frontend performs.
- */
-async function fetchCsrfContext() {
-  const res = await request(app).get("/api/auth/csrf-token");
-  expect(res.status).toBe(200);
-  expect(typeof res.body.csrfToken).toBe("string");
-  const cookie = getCookie(res, "csrf-token");
-  return { token: res.body.csrfToken, cookie };
-}
 
 describe("SEP-10 Authentication Flow", () => {
   beforeEach(() => {
@@ -275,43 +275,47 @@ describe("SEP-10 Authentication Flow", () => {
 
   describe("Protected endpoint — missing/invalid JWT", () => {
     it("missing JWT: returns 401 for protected endpoint", async () => {
-      const csrf = await fetchCsrfContext();
-      const res = await request(app)
-        .post("/api/disputes/job-123/evidence")
-        .set("Cookie", csrf.cookie)
-        .set("X-CSRF-Token", csrf.token);
+      const csrf = await fetchCsrf(app);
+      const res = await applyCsrf(
+        request(app).post("/api/disputes/job-123/evidence"),
+        csrf,
+      );
 
       expect(res.status).toBe(401);
       expect(res.body.error).toContain("Missing or invalid token");
     });
 
     it("invalid JWT: returns 401 when accessing protected route", async () => {
-      const csrf = await fetchCsrfContext();
-      const res = await request(app)
-        .post("/api/disputes/job-123/evidence")
-        .set("Authorization", "Bearer invalid.jwt.token")
-        .set("Cookie", csrf.cookie)
-        .set("X-CSRF-Token", csrf.token);
+      const csrf = await fetchCsrf(app);
+      const res = await applyCsrf(
+        request(app)
+          .post("/api/disputes/job-123/evidence")
+          .set("Authorization", "Bearer invalid.jwt.token"),
+        csrf,
+      );
 
       expect(res.status).toBe(401);
       expect(res.body.error).toContain("Invalid or expired token");
     });
 
     it("expired JWT: returns 401 on protected endpoint", async () => {
-      // CSRF-protected mutations still require a token even from an expired JWT.
-      const csrf = await fetchCsrfContext();
-      // Create a short-lived token and let it expire
-      const shortLived = jwt.sign({ publicKey: TEST_KEYPAIR.publicKey() }, process.env.JWT_SECRET, {
-        expiresIn: "1s",
-      });
-      // Wait for expiration
+      // CSRF-protected mutations still require a real token even with an expired JWT.
+      const csrf = await fetchCsrf(app);
+      const shortLived = jwt.sign(
+        { publicKey: TEST_KEYPAIR.publicKey() },
+        process.env.JWT_SECRET,
+        {
+          expiresIn: "1s",
+        },
+      );
       await new Promise((r) => setTimeout(r, 1100));
 
-      const res = await request(app)
-        .post("/api/disputes/job-123/evidence")
-        .set("Authorization", `Bearer ${shortLived}`)
-        .set("Cookie", "XSRF-TOKEN=test-csrf-token")
-        .set("X-XSRF-Token", "test-csrf-token");
+      const res = await applyCsrf(
+        request(app)
+          .post("/api/disputes/job-123/evidence")
+          .set("Authorization", `Bearer ${shortLived}`),
+        csrf,
+      );
 
       expect(res.status).toBe(401);
       expect(res.body.error).toContain("Invalid or expired token");
@@ -319,7 +323,7 @@ describe("SEP-10 Authentication Flow", () => {
   });
 
   describe("Cookie Storage & CSRF Protection", () => {
-    it("POST /api/auth sets HttpOnly token and refreshToken cookies only — CSRF cookie issued by /api/auth/csrf-token", async () => {
+    it("POST /api/auth sets HttpOnly token/refreshToken cookies plus a valid CSRF cookie bound to the new session", async () => {
       Utils.verifyChallengeTx.mockReturnValue(TEST_KEYPAIR.publicKey());
 
       const res = await request(app)
@@ -329,19 +333,35 @@ describe("SEP-10 Authentication Flow", () => {
       expect(res.status).toBe(200);
 
       // HttpOnly token + refresh cookies
-      const tokenCookie = res.headers["set-cookie"].find(c => c.startsWith("token="));
+      const tokenCookie = res.headers["set-cookie"].find((c) =>
+        c.startsWith("token="),
+      );
       expect(tokenCookie).toBeTruthy();
       expect(tokenCookie).toContain("HttpOnly");
       expect(tokenCookie).toContain("SameSite=Strict");
 
-      const refreshCookie = res.headers["set-cookie"].find(c => c.startsWith("refreshToken="));
+      const refreshCookie = res.headers["set-cookie"].find((c) =>
+        c.startsWith("refreshToken="),
+      );
       expect(refreshCookie).toBeTruthy();
       expect(refreshCookie).toContain("HttpOnly");
 
-      // /api/auth itself does NOT set a CSRF cookie — that's /api/auth/csrf-token's job
-      // so we don't surprise clients with stale pre-login CSRF state.
-      const csrfOnLogin = res.headers["set-cookie"].find(c => c.startsWith("csrf-token="));
-      expect(csrfOnLogin).toBeUndefined();
+      // Login now mints a real csrf-csrf token bound to the new refresh token
+      // (issue #1129) and sets it as a non-HttpOnly cookie, so the value the
+      // middleware validates is exactly the one it issued — no stale raw token.
+      const csrfCookie = res.headers["set-cookie"].find((c) =>
+        c.startsWith("csrf-token="),
+      );
+      expect(csrfCookie).toBeTruthy();
+      expect(csrfCookie).not.toContain("HttpOnly");
+      expect(csrfCookie).toContain("SameSite=Strict");
+
+      // The token returned in the body is the same value written to the cookie,
+      // and it echoes back through the shared helper successfully.
+      expect(typeof res.body.csrfToken).toBe("string");
+      expect(res.body.csrfToken.length).toBeGreaterThan(8);
+      const csrfFromCookie = getCookie(res, "csrf-token").split("=")[1];
+      expect(csrfFromCookie).toBe(res.body.csrfToken);
     });
 
     it("GET /api/auth/csrf-token sets non-HttpOnly csrf-token cookie and returns the token", async () => {
@@ -351,7 +371,9 @@ describe("SEP-10 Authentication Flow", () => {
       expect(typeof res.body.csrfToken).toBe("string");
       expect(res.body.csrfToken.length).toBeGreaterThan(8);
 
-      const cookie = res.headers["set-cookie"].find(c => c.startsWith("csrf-token="));
+      const cookie = res.headers["set-cookie"].find((c) =>
+        c.startsWith("csrf-token="),
+      );
       expect(cookie).toBeTruthy();
       // XSRF cookie must be JS-readable so refresh-from-other-tab logic can echo it
       expect(cookie).not.toContain("HttpOnly");
@@ -359,30 +381,29 @@ describe("SEP-10 Authentication Flow", () => {
     });
 
     it("rejects write requests with 403 when CSRF token is missing", async () => {
-      const res = await request(app)
-        .post("/api/disputes/job-123/evidence");
+      const res = await request(app).post("/api/disputes/job-123/evidence");
 
       expect(res.status).toBe(403);
       expect(res.body.error).toBeTruthy();
     });
 
     it("rejects write requests with 403 when CSRF token is mismatched", async () => {
-      const csrf = await fetchCsrfContext();
+      const csrf = await fetchCsrf(app);
       const res = await request(app)
         .post("/api/disputes/job-123/evidence")
         .set("Cookie", csrf.cookie)
-        .set("X-CSRF-Token", "deliberately-wrong-token");
+        .set("x-csrf-token", "deliberately-wrong-token");
 
       expect(res.status).toBe(403);
       expect(res.body.error).toBeTruthy();
     });
 
     it("passes CSRF check on protected route when cookie and header match", async () => {
-      const csrf = await fetchCsrfContext();
-      const res = await request(app)
-        .post("/api/disputes/job-123/evidence")
-        .set("Cookie", csrf.cookie)
-        .set("X-CSRF-Token", csrf.token);
+      const csrf = await fetchCsrf(app);
+      const res = await applyCsrf(
+        request(app).post("/api/disputes/job-123/evidence"),
+        csrf,
+      );
 
       // 401 means CSRF passed and we reached the JWT auth layer.
       expect(res.status).toBe(401);
@@ -392,26 +413,26 @@ describe("SEP-10 Authentication Flow", () => {
     it("allows write requests with matching CSRF and valid JWT in cookie", async () => {
       Utils.verifyChallengeTx.mockReturnValue(TEST_KEYPAIR.publicKey());
 
-      // 1. Get a CSRF pair (same flow the frontend uses on first paint)
-      const csrf = await fetchCsrfContext();
-
-      // 2. Log in to set the auth cookies (uses its own csrf cookie returned
-      //    in the response body).
+      // 1. Log in. setAuthCookies now mints a csrf-csrf token bound to the NEW
+      //    refresh-token session (issue #1129) and sets it as a cookie.
       const loginRes = await request(app)
         .post("/api/auth")
         .send({ transaction: SIGNED_XDR });
 
       const authCookies = loginRes.headers["set-cookie"]
-        .map(c => c.split(";")[0])
+        .map((c) => c.split(";")[0])
         .join("; ");
-      // Preserve any CSRF cookies we already had on the jar before login.
-      const mergedCookies = [csrf.cookie, authCookies].filter(Boolean).join("; ");
+      const csrf = {
+        token: loginRes.body.csrfToken,
+        cookie: getCookie(loginRes, "csrf-token"),
+      };
 
-      // 3. Perform protected action — must pass CSRF AND the JWT auth gate.
-      const res = await request(app)
-        .post("/api/jobs/drafts")
-        .set("Cookie", mergedCookies)
-        .set("X-CSRF-Token", csrf.token);
+      // 2. Perform protected action — must pass CSRF AND the JWT auth gate.
+      const res = await applyCsrf(
+        request(app).post("/api/jobs/drafts"),
+        csrf,
+        { extraCookies: authCookies },
+      );
 
       expect(res.status).not.toBe(403);
       expect(res.status).not.toBe(401);
@@ -433,9 +454,13 @@ describe("SEP-10 Authentication Flow", () => {
       expect(logoutRes.status).toBe(200);
 
       // Verify cookies are cleared
-      const tokenCookie = logoutRes.headers["set-cookie"].find(c => c.startsWith("token="));
-      const xsrfCookie = logoutRes.headers["set-cookie"].find(c => c.startsWith("XSRF-TOKEN="));
-      
+      const tokenCookie = logoutRes.headers["set-cookie"].find((c) =>
+        c.startsWith("token="),
+      );
+      const xsrfCookie = logoutRes.headers["set-cookie"].find((c) =>
+        c.startsWith("csrf-token="),
+      );
+
       // Browsers accept either Max-Age=0 or Expires=epoch to clear a cookie
       expect(tokenCookie).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/);
       expect(xsrfCookie).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/);

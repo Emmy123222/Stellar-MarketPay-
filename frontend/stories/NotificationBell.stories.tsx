@@ -1,3 +1,4 @@
+declare const jest: any;
 import { Meta, StoryObj } from "@storybook/react";
 import NotificationBell from "@/components/NotificationBell";
 import { fetchNotifications } from "@/lib/api";
@@ -67,7 +68,7 @@ export const Loading: Story = {
   play: async () => {
     // @ts-ignore
     fetchNotifications.mockImplementation(() => {
-      return new Promise((resolve) => {
+      return new Promise<void>((resolve) => {
         setTimeout(() => {
           // @ts-ignore
           fetchNotifications.mockResolvedValueOnce({ data: { ...mockNotifications } });

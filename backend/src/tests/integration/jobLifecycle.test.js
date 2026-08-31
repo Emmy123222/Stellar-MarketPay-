@@ -9,6 +9,7 @@
 "use strict";
 
 const request = require("supertest");
+const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
 const app = require("../../server");
 
@@ -45,7 +46,6 @@ describe("Job Lifecycle Integration Tests", () => {
   let freelancerAuthToken;
   let jobId;
   let applicationId;
-  let escrowId;
 
   beforeAll(async () => {
     // Create test users
@@ -60,9 +60,19 @@ describe("Job Lifecycle Integration Tests", () => {
       [clientPublicKey, "Test Client", "client", freelancerPublicKey, "Test Freelancer", "freelancer"]
     );
 
-    // Generate auth tokens (simplified for integration test)
-    authToken = "test-client-token";
-    freelancerAuthToken = "test-freelancer-token";
+    // Generate auth tokens the real verifyJWT middleware accepts. Requests
+    // hit the actual app, so bearer strings must be valid signed JWTs whose
+    // publicKey claim matches the acting wallet address.
+    const signingSecret =
+      process.env.JWT_SECRET || "test-jwt-secret-with-enough-length-for-ci";
+    authToken = jwt.sign({ publicKey: clientPublicKey }, signingSecret, {
+      expiresIn: "1h",
+    });
+    freelancerAuthToken = jwt.sign(
+      { publicKey: freelancerPublicKey },
+      signingSecret,
+      { expiresIn: "1h" }
+    );
   });
 
   test("Complete job lifecycle: post → apply → accept → escrow → release → rating", async () => {
@@ -98,7 +108,8 @@ describe("Job Lifecycle Integration Tests", () => {
       .send({
         jobId,
         freelancerAddress: freelancerPublicKey,
-        proposal: "I would like to apply for this job",
+        proposal:
+          "I would like to apply for this job. I have extensive experience with the required skills and can deliver high-quality work on time.",
         bidAmount: 95,
       });
 
@@ -116,11 +127,11 @@ describe("Job Lifecycle Integration Tests", () => {
     expect(appResult.rows[0].status).toBe("pending");
     expect(appResult.rows[0].freelancer_address).toBe(freelancerPublicKey);
 
-    // Step 3: Accept the application
+    // Step 3: Accept the application (POST /api/applications/:id/accept)
     const acceptResponse = await request(app)
-      .patch(`/api/applications/${applicationId}/accept`)
+      .post(`/api/applications/${applicationId}/accept`)
       .set("Authorization", `Bearer ${authToken}`)
-      .send({});
+      .send({ clientAddress: clientPublicKey });
 
     expect(acceptResponse.status).toBe(200);
     expect(acceptResponse.body.success).toBe(true);
@@ -130,40 +141,36 @@ describe("Job Lifecycle Integration Tests", () => {
     expect(updatedJobResult.rows[0].status).toBe("in_progress");
     expect(updatedJobResult.rows[0].freelancer_address).toBe(freelancerPublicKey);
 
-    // Step 4: Create escrow
+    // Step 4: Fund escrow by attaching the Soroban contract to the job.
+    // Escrow rows are keyed by job_id; the API records the funded escrow.
     const escrowResponse = await request(app)
-      .post("/api/escrow")
+      .patch(`/api/jobs/${jobId}/escrow`)
       .set("Authorization", `Bearer ${authToken}`)
-      .send({
-        jobId,
-        contractId: "C" + "X".repeat(55),
-        amountXlm: 100,
-      });
+      .send({ escrowContractId: "C" + "X".repeat(55) });
 
-    expect(escrowResponse.status).toBe(201);
+    expect(escrowResponse.status).toBe(200);
     expect(escrowResponse.body.success).toBe(true);
-    expect(escrowResponse.body.data).toHaveProperty("id");
-    escrowId = escrowResponse.body.data.id;
 
     // Verify escrow in database
-    const escrowResult = await testClient.query("SELECT * FROM escrows WHERE id = $1", [escrowId]);
+    const escrowResult = await testClient.query("SELECT * FROM escrows WHERE job_id = $1", [jobId]);
     expect(escrowResult.rows.length).toBe(1);
     expect(escrowResult.rows[0].status).toBe("funded");
-    expect(parseFloat(escrowResult.rows[0].amount_xlm)).toBe(100);
+    expect(parseFloat(escrowResult.rows[0].amount_xlm)).toBe(95);
 
-    // Step 5: Release escrow
+    // Step 5: Release escrow (POST /api/escrow/:jobId/release)
     const releaseResponse = await request(app)
-      .post(`/api/escrow/${escrowId}/release`)
+      .post(`/api/escrow/${jobId}/release`)
       .set("Authorization", `Bearer ${authToken}`)
-      .send({});
+      .send({ clientAddress: clientPublicKey });
 
     expect(releaseResponse.status).toBe(200);
     expect(releaseResponse.body.success).toBe(true);
 
-    // Verify escrow status changed to released
-    const releasedEscrowResult = await testClient.query("SELECT * FROM escrows WHERE id = $1", [escrowId]);
-    expect(releasedEscrowResult.rows[0].status).toBe("released");
-    expect(releasedEscrowResult.rows[0].released_at).not.toBeNull();
+    // The API marks the job completed immediately. The escrow row's own
+    // status flips to 'released' asynchronously when the indexer observes
+    // the on-chain release_escrow() event, so assert on the completed job.
+    const completedJobResult = await testClient.query("SELECT * FROM jobs WHERE id = $1", [jobId]);
+    expect(completedJobResult.rows[0].status).toBe("completed");
 
     // Step 6: Submit rating
     const ratingResponse = await request(app)

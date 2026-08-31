@@ -2,7 +2,7 @@
 
 const pool = require("../db/pool");
 const { getJob, recordTimelineEvent } = require("./jobService");
-const { logContractInteraction } = require("./contractAuditService");
+const { logContractInteraction, verifyOnChainTransaction } = require("./contractAuditService");
 const {
   notifyEscrowEvent,
   EVENT_TYPES,
@@ -159,6 +159,39 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
     [jobId],
   );
 
+  if (!escrowRows.length) {
+    const e = new Error("No escrow record found for this job");
+    e.status = 400;
+    throw e;
+  }
+
+  const amountXlm = escrowRows[0].amount_xlm;
+
+  // Bug #850: Validate that the escrow amount is consistent with the job.
+  // The escrow amount should reflect the accepted bid, not necessarily the
+  // original job budget.  Log a warning if the amounts diverge so operators
+  // can investigate.
+  //
+  // TODO(#850): Cross-check against the on-chain Soroban escrow contract's
+  // stored amount via getEscrowState() before releasing.  The frontend already
+  // calls getEscrowState() in the release flow; the backend should mirror that
+  // check once we have a RPC helper wired up in the service layer.
+  const escrowAmountNum = parseFloat(amountXlm);
+  if (isNaN(escrowAmountNum) || escrowAmountNum <= 0) {
+    const e = new Error("Escrow amount is missing or invalid");
+    e.status = 400;
+    throw e;
+  }
+
+  // Warn if the escrow amount exceeds the job budget (possible data inconsistency)
+  const budgetNum = parseFloat(job.budget);
+  if (!isNaN(budgetNum) && escrowAmountNum > budgetNum + 0.0000001) {
+    logger.warn(
+      { jobId, escrowAmount: amountXlm, jobBudget: job.budget },
+      'Escrow amount exceeds job budget — possible data inconsistency (Issue #850)',
+    );
+  }
+
   await pool.query(
     `INSERT INTO escrow_releases (job_id, released_by, tx_hash, released_at)
      VALUES ($1, $2, $3, NOW())`,
@@ -190,12 +223,11 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
     data: {
       jobTitle: job.title,
       jobId,
-      amount: job.budget,
+      amount: amountXlm,
       currency: job.currency,
     },
   });
 
-  const amountXlm = escrowRows.length ? escrowRows[0].amount_xlm : "0";
   const referralResult = await processReferralPayout(
     jobId,
     job.freelancerAddress,
@@ -246,6 +278,12 @@ async function refundClient(jobId, clientAddress, contractTxHash) {
     eventData: txInfo ? txInfo.eventData : undefined,
   });
 
+  const { rows: escrowRows } = await pool.query(
+    "SELECT amount_xlm FROM escrows WHERE job_id = $1",
+    [jobId],
+  );
+  const escrowAmount = escrowRows.length ? escrowRows[0].amount_xlm : job.budget;
+
   await notifyEscrowEvent({
     eventType: EVENT_TYPES.REFUND_ISSUED,
     jobId,
@@ -254,7 +292,7 @@ async function refundClient(jobId, clientAddress, contractTxHash) {
     data: {
       jobTitle: job.title,
       jobId,
-      amount: job.budget,
+      amount: escrowAmount,
       currency: job.currency,
     },
   });
@@ -702,6 +740,146 @@ async function submitDeliverableHash(jobId, freelancerAddress, hashHex) {
   return { success: true, submission: rows[0] };
 }
 
+async function requestEscrowExtension(jobId, requestedBy, newTimeoutLedger, contractTxHash) {
+  const job = await getJob(jobId);
+  if (job.clientAddress !== requestedBy && job.freelancerAddress !== requestedBy) {
+    const e = new Error("Only the client or freelancer can request an extension");
+    e.status = 403;
+    throw e;
+  }
+
+  const { rows: pending } = await pool.query(
+    "SELECT status FROM escrow_extensions WHERE job_id = $1 AND status = 'pending'",
+    [jobId],
+  );
+  if (pending.length > 0) {
+    const e = new Error("A pending extension request already exists for this escrow");
+    e.status = 400;
+    throw e;
+  }
+
+  const { rows: escrowRows } = await pool.query(
+    "SELECT status, timeout_ledger FROM escrows WHERE job_id = $1",
+    [jobId],
+  );
+  if (!escrowRows.length) {
+    const e = new Error("No escrow found for this job");
+    e.status = 404;
+    throw e;
+  }
+
+  const escrow = escrowRows[0];
+  if (escrow.status !== "funded" && escrow.status !== "in_progress" && escrow.status !== "locked") {
+    const e = new Error("Extension is only allowed while escrow is funded or in progress");
+    e.status = 400;
+    throw e;
+  }
+
+  const currentLedger = escrow.timeout_ledger || 0;
+  if (newTimeoutLedger <= currentLedger) {
+    const e = new Error("New timeout ledger must be greater than the current timeout");
+    e.status = 400;
+    throw e;
+  }
+
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
+  await logContractInteraction({
+    functionName: "request_extension",
+    callerAddress: requestedBy,
+    jobId,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
+  });
+
+  const { rows } = await pool.query(
+    `INSERT INTO escrow_extensions (job_id, requested_by, new_timeout_ledger, status, created_at, updated_at)
+     VALUES ($1, $2, $3, 'pending', NOW(), NOW())
+     RETURNING *`,
+    [jobId, requestedBy, newTimeoutLedger],
+  );
+
+  return { success: true, extension: rows[0] };
+}
+
+async function approveEscrowExtension(jobId, approvedBy, contractTxHash) {
+  const job = await getJob(jobId);
+
+  const { rows: pendingRows } = await pool.query(
+    "SELECT * FROM escrow_extensions WHERE job_id = $1 AND status = 'pending'",
+    [jobId],
+  );
+  if (!pendingRows.length) {
+    const e = new Error("No pending extension request for this job");
+    e.status = 404;
+    throw e;
+  }
+
+  const extension = pendingRows[0];
+
+  if (extension.requested_by === approvedBy) {
+    const e = new Error("Cannot approve your own extension request");
+    e.status = 403;
+    throw e;
+  }
+
+  if (job.clientAddress !== approvedBy && job.freelancerAddress !== approvedBy) {
+    const e = new Error("Only the client or freelancer can approve an extension");
+    e.status = 403;
+    throw e;
+  }
+
+  const { rows: escrowRows } = await pool.query(
+    "SELECT status FROM escrows WHERE job_id = $1",
+    [jobId],
+  );
+  if (!escrowRows.length) {
+    const e = new Error("No escrow found for this job");
+    e.status = 404;
+    throw e;
+  }
+
+  const escrow = escrowRows[0];
+  if (escrow.status !== "funded" && escrow.status !== "in_progress" && escrow.status !== "locked") {
+    const e = new Error("Extension is only allowed while escrow is funded or in progress");
+    e.status = 400;
+    throw e;
+  }
+
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
+  await logContractInteraction({
+    functionName: "approve_extension",
+    callerAddress: approvedBy,
+    jobId,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
+  });
+
+  const { rows } = await pool.query(
+    `UPDATE escrow_extensions
+     SET status = 'approved', approved_by = $2, approved_at = NOW(), updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [extension.id, approvedBy],
+  );
+
+  await pool.query(
+    `UPDATE escrows
+     SET timeout_ledger = $2, updated_at = NOW()
+     WHERE job_id = $1`,
+    [jobId, extension.new_timeout_ledger],
+  );
+
+  return { success: true, extension: rows[0] };
+}
+
 module.exports = {
   releaseFunds,
   refundClient,
@@ -716,6 +894,8 @@ module.exports = {
   resolveLedgerTimestamp,
   startEscrowTimeoutChecker,
   submitDeliverableHash,
+  requestEscrowExtension,
+  approveEscrowExtension,
 
   verifyFreelancerAccount,
   ESCROW_TIMEOUT_DAYS,

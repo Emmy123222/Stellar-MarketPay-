@@ -10,6 +10,7 @@ jest.mock("./profileService", () => ({
 
 jest.mock("./notificationService", () => ({
   createJobNotification: jest.fn().mockResolvedValue({}),
+  queueNotification: jest.fn().mockResolvedValue({}),
   EVENT_TYPES: {
     APPLICATION_RECEIVED: "application_received",
     APPLICATION_ACCEPTED: "application_accepted",
@@ -18,7 +19,9 @@ jest.mock("./notificationService", () => ({
 }));
 
 const pool = require("../db/pool");
-const { isBlocked } = require("./profileService");
+const { isBlocked,
+  calculateFreelancerTier,
+} = require("./profileService");
 const {
   submitApplication,
   getApplicationsForJob,

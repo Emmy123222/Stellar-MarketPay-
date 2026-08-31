@@ -21,19 +21,36 @@ jest.mock("../db/pool", () => {
   };
 });
 
-// axios may or may not be in node_modules, so use { virtual: true } to
-// avoid module-resolution failures.
+// Mock axios so tests control GitHub API responses.
 jest.mock("axios", () => ({
+  default: { create: jest.fn() },
   get: jest.fn(),
-}), { virtual: true });
+}));
 const axios = require("axios");
 
+// Mock stellar-sdk to avoid its axios dependency chain and network calls.
+jest.mock("@stellar/stellar-sdk", () => ({
+  Horizon: jest.fn(),
+  Networks: { TESTNET: "Test SDF Network ; September 2015" },
+  Keypair: { fromSecret: jest.fn(), fromPublicKey: jest.fn() },
+  TransactionBuilder: jest.fn(),
+  Account: jest.fn(),
+  Contract: jest.fn(),
+  nativeToScVal: jest.fn(),
+  scValToNative: jest.fn(),
+  Address: jest.fn(),
+  rpc: { Server: jest.fn() },
+  xdr: {},
+  Utils: { readChallengeTx: jest.fn(), verifyChallengeTxSigners: jest.fn() },
+  SorobanRpc: { Server: jest.fn() },
+}));
+
 jest.mock("../services/indexerService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn() }))
+  jest.fn().mockImplementation(() => ({ start: jest.fn() })),
 );
-jest.mock("../services/priceAlertService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn() }))
-);
+jest.mock("../services/priceAlertService", () => ({
+  PriceAlertService: jest.fn().mockImplementation(() => ({ start: jest.fn() })),
+}));
 jest.mock("../db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),
 }));
@@ -45,6 +62,7 @@ jest.mock("../routes/notifications", () => {
 });
 
 const pool = require("../db/pool");
+const { fetchCsrf, applyCsrf } = require("../testUtils/csrfTestHelpers");
 const app = require("../server");
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -53,7 +71,8 @@ const app = require("../server");
 function ghUser(overrides = {}) {
   return {
     login: overrides.login || "testuser",
-    avatar_url: overrides.avatar_url || "https://avatars.githubusercontent.com/u/1",
+    avatar_url:
+      overrides.avatar_url || "https://avatars.githubusercontent.com/u/1",
     html_url: `https://github.com/${overrides.login || "testuser"}`,
     contributions: overrides.contributions ?? 5,
     id: overrides.id ?? 1,
@@ -64,7 +83,9 @@ function ghUser(overrides = {}) {
 /** Factory for mock DB profile rows */
 function profile(overrides = {}) {
   return {
-    public_key: overrides.public_key || "GABCDEF1234567890123456789012345678901234567890123",
+    public_key:
+      overrides.public_key ||
+      "GABCDEF1234567890123456789012345678901234567890123",
     display_name: overrides.display_name || null,
     github_username: overrides.github_username || null,
     completed_jobs: overrides.completed_jobs ?? 0,
@@ -81,14 +102,31 @@ function computeScore(jobs, xlm, prs) {
 // ─── Suite ─────────────────────────────────────────────────────────────────
 
 describe("GET /api/contributors", () => {
-  // Bust the module-scoped contributorCache after each test so test
-  // isolation is preserved (cache must not leak between tests).
-  afterEach(async () => {
-    await request(app).post("/api/contributors/refresh");
-  });
+  // Monotonically advance fake time by 25 h each test so the module-scoped
+  // contributorCache (1 h TTL) and GitHub sub-cache (24 h TTL) are always
+  // stale at the start of every test.  Within a single test Date.now()
+  // returns the same value, so the caching-behaviour test still works.
+  let fakeTime;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    fakeTime = (fakeTime ?? Date.now()) + 25 * 60 * 60 * 1000;
+    jest.spyOn(Date, "now").mockReturnValue(fakeTime);
+    pool.query.mockResolvedValue({ rows: [] });
+    pool.connect.mockResolvedValue({
+      query: pool.query,
+      release: jest.fn(),
+    });
+  });
+
+  afterEach(async () => {
+    jest.restoreAllMocks();
+    axios.get.mockResolvedValue({ data: [] });
+    pool.query.mockResolvedValue({ rows: [] });
+    await applyCsrf(
+      request(app).post("/api/contributors/refresh"),
+      await fetchCsrf(app),
+    );
   });
 
   // ── Score computation ─────────────────────────────────────────────────
@@ -176,7 +214,7 @@ describe("GET /api/contributors", () => {
             display_name: login,
             completed_jobs: 13 - i,
             total_earned_xlm: "0.0000000",
-          })
+          }),
         );
       }
 
@@ -441,7 +479,7 @@ describe("GET /api/contributors", () => {
             display_name: login,
             completed_jobs: 1,
             total_earned_xlm: "0.0000000",
-          })
+          }),
         );
       }
 
@@ -458,6 +496,11 @@ describe("GET /api/contributors", () => {
 describe("POST /api/contributors/refresh", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    pool.query.mockResolvedValue({ rows: [] });
+    pool.connect.mockResolvedValue({
+      query: pool.query,
+      release: jest.fn(),
+    });
   });
 
   it("refreshes cache and returns fresh data", async () => {
@@ -475,7 +518,7 @@ describe("POST /api/contributors/refresh", () => {
       ],
     });
 
-    const res = await request(app).post("/api/contributors/refresh");
+    const res = await applyCsrf(request(app).post("/api/contributors/refresh"), await fetchCsrf(app));
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.message).toBe("Cache refreshed");

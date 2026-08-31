@@ -25,7 +25,7 @@ export async function fetchNotifications(params?: {
   });
   return {
     ...data.data,
-    hasMore: data.data.has_more ?? Boolean(data.data.next_cursor),
+    hasMore: data.data.hasMore ?? Boolean(data.data.nextCursor),
   };
 }
 

@@ -2,9 +2,9 @@
  * components/JobCard.tsx
  * Displays a single job listing in the browse grid.
  */
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
-import { useState, useEffect } from "react";
 export function useSNS(address: string | undefined) {
     const [name, setName] = useState<string | null>(null);
     useEffect(() => {
@@ -22,8 +22,6 @@ export function useSNS(address: string | undefined) {
     }, [address]);
     return name;
 }
-
-import { useRef } from "react"; // Added for hover logic
 import {
   formatDeadline,
   formatMoney,
@@ -38,7 +36,6 @@ import type { Job } from "@/utils/types";
 import { usePriceContext } from "@/contexts/PriceContext";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import JobStatusTimeline from "@/components/JobStatusTimeline";
-import { Download } from "lucide-react";
 
 interface JobCardProps {
   job: Job;
@@ -212,7 +209,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
           isFocused ? "ring-2 ring-market-400/50" : "",
           job.isInvited ? "ring-2 ring-market-400/30 bg-market-500/5" : "",
         ].join(" ")}
-        tabIndex={0}
+        tabIndex={-1}
         data-job-card-focus={isFocused ? "true" : undefined}
         onFocus={onFocus}
         onMouseEnter={handleMouseEnter}
@@ -313,7 +310,16 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
                 {downloadingInvoice ? (
                   <span className="w-4 h-4 border-2 border-market-400 border-t-transparent rounded-full animate-spin" />
                 ) : (
-                  <Download className="w-4 h-4 transition-transform group-hover/invoice:scale-110" />
+                  <svg
+                    className="w-4 h-4 transition-transform group-hover/invoice:scale-110"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
                 )}
               </button>
             )}

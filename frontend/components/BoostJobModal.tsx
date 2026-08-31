@@ -9,11 +9,8 @@
 
 import AccessibleModal from "@/components/AccessibleModal";
 import { useState } from "react";
-import {
-  buildBoostJobTx,
-  signAndSubmitSorobanTx,
-  XLM_SAC_ADDRESS,
-} from "@/lib/stellar";
+import { getApiErrorMessage } from "@/lib/api/client";
+import { buildBoostJobTx, signAndSubmitSorobanTx } from "@/lib/stellar";
 import { formatDate } from "@/utils/format";
 
 // ─── Boost tiers ─────────────────────────────────────────────────────────────
@@ -153,6 +150,7 @@ export default function BoostJobModal({
         </div>
         <button
           onClick={onClose}
+          aria-label="Close boost job modal"
           className="text-amber-700 hover:text-amber-400 text-xl leading-none ml-4"
         >
           ✕

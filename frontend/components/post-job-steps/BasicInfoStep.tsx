@@ -81,8 +81,8 @@ export default function BasicInfoStep({ form, touched, errors, onChange, onTitle
   return (
     <div className="space-y-5">
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Job Title</label>
-        <input
+        <label htmlFor="job-title" className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Job Title</label>
+        <input id="job-title"
           name="title"
           value={form.title}
           onChange={onChange}
@@ -131,8 +131,8 @@ export default function BasicInfoStep({ form, touched, errors, onChange, onTitle
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Description</label>
-        <textarea
+        <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Description</label>
+        <textarea id="description"
           name="description"
           value={form.description}
           onChange={onChange}
@@ -203,8 +203,8 @@ export default function BasicInfoStep({ form, touched, errors, onChange, onTitle
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Category</label>
-        <select
+        <label htmlFor="category" className="block text-sm font-medium text-gray-700 dark:text-amber-300 mb-1">Category</label>
+        <select id="category"
           name="category"
           value={form.category}
           onChange={onChange}

@@ -3,6 +3,7 @@
  * Form to view and edit user profile details.
  */
 import { useState, useEffect, useRef, useCallback } from "react";
+import Image from "next/image";
 import { fetchProfile, updateProfileAvailability, upsertProfile, uploadPortfolioFiles } from "@/lib/api";
 import type {
   Availability,
@@ -10,13 +11,12 @@ import type {
   PortfolioItem,
   PortfolioItemType,
   PortfolioFile,
-  UserProfile,
   UserRole,
 } from "@/utils/types";
 import clsx from "clsx";
 
 interface Props {
-  publicKey: string;
+  readonly publicKey: string;
 }
 
 const MAX_PORTFOLIO_ITEMS = 10;
@@ -47,7 +47,6 @@ function createDefaultAvailability(): Availability {
 }
 
 export default function EditProfileForm({ publicKey }: Props) {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
@@ -70,7 +69,6 @@ export default function EditProfileForm({ publicKey }: Props) {
     fetchProfile(publicKey)
       .then((data) => {
         if (data) {
-          setProfile(data);
           setDisplayName(data.displayName || "");
           setBio(data.bio || "");
           setRole(data.role || "freelancer");
@@ -154,35 +152,40 @@ export default function EditProfileForm({ publicKey }: Props) {
     return { valid, errors };
   }, [portfolioFiles.length]);
 
-  const handleFileUpload = async (files: FileList | File[]) => {
-    const { valid, errors } = validateFiles(files);
-    if (errors.length > 0) {
-      setErrorMsg(errors.join(". "));
-      return;
-    }
-    if (valid.length === 0) return;
+  const handleFileUpload = useCallback(
+    async (files: FileList | File[]) => {
+      const { valid, errors } = validateFiles(files);
+      if (errors.length > 0) {
+        setErrorMsg(errors.join(". "));
+        return;
+      }
+      if (valid.length === 0) return;
 
-    setUploadingFiles(true);
-    setErrorMsg("");
-    const initialProgress: Record<number, number> = {};
-    valid.forEach((_, i) => { initialProgress[i] = 0; });
-    setUploadProgress(initialProgress);
-
-    try {
-      const result = await uploadPortfolioFiles(publicKey, valid, (fileIndex, percent) => {
-        setUploadProgress((prev) => ({ ...prev, [fileIndex]: percent }));
+      setUploadingFiles(true);
+      setErrorMsg("");
+      const initialProgress: Record<number, number> = {};
+      valid.forEach((_, i) => {
+        initialProgress[i] = 0;
       });
-      setPortfolioFiles((current) => [...current, ...result.uploadedFiles]);
-      setSuccessMsg(`${result.uploadedFiles.length} file(s) uploaded successfully!`);
-      setTimeout(() => setSuccessMsg(""), 3000);
-    } catch (err: any) {
-      console.error("File upload error:", err);
-      setErrorMsg(err.response?.data?.error || "Failed to upload files");
-    } finally {
-      setUploadingFiles(false);
-      setUploadProgress({});
-    }
-  };
+      setUploadProgress(initialProgress);
+
+      try {
+        const result = await uploadPortfolioFiles(publicKey, valid, (fileIndex, percent) => {
+          setUploadProgress((prev) => ({ ...prev, [fileIndex]: percent }));
+        });
+        setPortfolioFiles((current) => [...current, ...result.uploadedFiles]);
+        setSuccessMsg(`${result.uploadedFiles.length} file(s) uploaded successfully!`);
+        setTimeout(() => setSuccessMsg(""), 3000);
+      } catch (err: any) {
+        console.error("File upload error:", err);
+        setErrorMsg(err.response?.data?.error || "Failed to upload files");
+      } finally {
+        setUploadingFiles(false);
+        setUploadProgress({});
+      }
+    },
+    [publicKey, validateFiles]
+  );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -253,7 +256,7 @@ export default function EditProfileForm({ publicKey }: Props) {
     setSuccessMsg("");
 
     try {
-      const updated = await upsertProfile({
+      await upsertProfile({
         publicKey,
         displayName,
         bio,
@@ -270,7 +273,6 @@ export default function EditProfileForm({ publicKey }: Props) {
       };
       const profileWithAvailability = await updateProfileAvailability(publicKey, availabilityPayload);
 
-      setProfile(profileWithAvailability);
       setPortfolioItems(profileWithAvailability.portfolioItems || []);
       setAvailability({
         status: profileWithAvailability.availability?.status || "available",
@@ -286,6 +288,13 @@ export default function EditProfileForm({ publicKey }: Props) {
       setSaving(false);
     }
   };
+
+  let uploadStatusText = "Click or drag and drop files";
+  if (uploadingFiles) {
+    uploadStatusText = "Uploading...";
+  } else if (isDragOver) {
+    uploadStatusText = "Drop files here";
+  }
 
   if (loading) {
     return (
@@ -320,8 +329,8 @@ export default function EditProfileForm({ publicKey }: Props) {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <label className="block text-sm font-medium text-amber-100 mb-2">Display Name</label>
-          <input
+          <label htmlFor="display-name" className="block text-sm font-medium text-amber-100 mb-2">Display Name</label>
+          <input id="display-name"
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
@@ -337,35 +346,37 @@ export default function EditProfileForm({ publicKey }: Props) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-amber-100 mb-2">Role</label>
-          <div className="flex flex-wrap gap-4">
-            {(["freelancer", "client", "both"] as UserRole[]).map((r) => (
-              <label
-                key={r}
-                className={clsx(
-                  "flex items-center justify-center px-4 py-2.5 rounded-xl border cursor-pointer transition-all",
-                  role === r
-                    ? "bg-market-500/10 border-market-400 text-market-300"
-                    : "bg-ink-900/50 border-market-500/20 text-amber-600 hover:border-market-500/50"
-                )}
-              >
-                <input
-                  type="radio"
-                  name="role"
-                  value={r}
-                  checked={role === r}
-                  onChange={() => setRole(r)}
-                  className="sr-only"
-                />
-                <span className="capitalize">{r}</span>
-              </label>
-            ))}
-          </div>
+          <fieldset className="border-0 p-0 m-0">
+            <legend id="role-label" className="block text-sm font-medium text-amber-100 mb-2">Role</legend>
+            <div className="flex flex-wrap gap-4">
+              {(["freelancer", "client", "both"] as UserRole[]).map((r) => (
+                <label
+                  key={r}
+                  className={clsx(
+                    "flex items-center justify-center px-4 py-2.5 rounded-xl border cursor-pointer transition-all",
+                    role === r
+                      ? "bg-market-500/10 border-market-400 text-market-300"
+                      : "bg-ink-900/50 border-market-500/20 text-amber-600 hover:border-market-500/50"
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="role"
+                    value={r}
+                    checked={role === r}
+                    onChange={() => setRole(r)}
+                    className="sr-only"
+                  />
+                  <span className="capitalize">{r}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-amber-100 mb-2">Bio</label>
-          <textarea
+          <label htmlFor="bio" className="block text-sm font-medium text-amber-100 mb-2">Bio</label>
+          <textarea id="bio"
             value={bio}
             onChange={(e) => setBio(e.target.value)}
             className="w-full bg-ink-900/50 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 placeholder:text-amber-600/70 focus:outline-none focus:border-market-400 transition-colors h-32 resize-none"
@@ -379,7 +390,7 @@ export default function EditProfileForm({ publicKey }: Props) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-amber-100 mb-2">Skills</label>
+          <label htmlFor="skills" className="block text-sm font-medium text-amber-100 mb-2">Skills</label>
           <div className="bg-ink-900/50 border border-market-500/20 rounded-xl p-2 focus-within:border-market-400 transition-colors min-h-[52px] flex flex-wrap gap-2 items-center">
             {skills.map((skill) => (
               <span key={skill} className="flex items-center gap-1.5 bg-ink-800 border border-market-500/20 text-amber-100 text-sm px-2.5 py-1 rounded-lg">
@@ -393,7 +404,7 @@ export default function EditProfileForm({ publicKey }: Props) {
                 </button>
               </span>
             ))}
-            <input
+            <input id="skills"
               type="text"
               value={skillInput}
               onChange={(e) => setSkillInput(e.target.value)}
@@ -407,7 +418,7 @@ export default function EditProfileForm({ publicKey }: Props) {
         <div>
           <div className="flex items-center justify-between gap-4 mb-3">
             <div>
-              <label className="block text-sm font-medium text-amber-100">Availability</label>
+              <span className="block text-sm font-medium text-amber-100">Availability</span>
               <p className="text-xs text-amber-600 mt-1">
                 Show clients when you can take on new work.
               </p>
@@ -416,8 +427,8 @@ export default function EditProfileForm({ publicKey }: Props) {
 
           <div className="rounded-xl border border-market-500/20 bg-ink-900/50 p-4 space-y-4">
             <div>
-              <label className="block text-xs font-medium text-amber-100 mb-1.5">Status</label>
-              <select
+              <label htmlFor="status" className="block text-xs font-medium text-amber-100 mb-1.5">Status</label>
+              <select id="status"
                 value={availability.status}
                 onChange={(e) => updateAvailabilityField("status", e.target.value as AvailabilityStatus)}
                 className="w-full bg-ink-950/60 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 focus:outline-none focus:border-market-400 transition-colors"
@@ -432,8 +443,8 @@ export default function EditProfileForm({ publicKey }: Props) {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-amber-100 mb-1.5">Available From</label>
-                <input
+                <label htmlFor="available-from" className="block text-xs font-medium text-amber-100 mb-1.5">Available From</label>
+                <input id="available-from"
                   type="date"
                   value={availability.availableFrom ? availability.availableFrom.slice(0, 10) : ""}
                   onChange={(e) => updateAvailabilityField("availableFrom", e.target.value)}
@@ -442,8 +453,8 @@ export default function EditProfileForm({ publicKey }: Props) {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-amber-100 mb-1.5">Available Until</label>
-                <input
+                <label htmlFor="available-until" className="block text-xs font-medium text-amber-100 mb-1.5">Available Until</label>
+                <input id="available-until"
                   type="date"
                   value={availability.availableUntil ? availability.availableUntil.slice(0, 10) : ""}
                   onChange={(e) => updateAvailabilityField("availableUntil", e.target.value)}
@@ -457,7 +468,7 @@ export default function EditProfileForm({ publicKey }: Props) {
         <div>
           <div className="flex items-center justify-between gap-4 mb-3">
             <div>
-              <label className="block text-sm font-medium text-amber-100">Portfolio</label>
+              <span className="block text-sm font-medium text-amber-100">Portfolio</span>
               <p className="text-xs text-amber-600 mt-1">
                 Add up to {MAX_PORTFOLIO_ITEMS} verified work samples.
               </p>
@@ -494,8 +505,8 @@ export default function EditProfileForm({ publicKey }: Props) {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-amber-100 mb-1.5">Title</label>
-                      <input
+                      <label htmlFor="title" className="block text-xs font-medium text-amber-100 mb-1.5">Title</label>
+                      <input id="title"
                         type="text"
                         value={item.title}
                         onChange={(e) => updatePortfolioItem(index, "title", e.target.value)}
@@ -506,8 +517,8 @@ export default function EditProfileForm({ publicKey }: Props) {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-amber-100 mb-1.5">Type</label>
-                      <select
+                      <label htmlFor="type" className="block text-xs font-medium text-amber-100 mb-1.5">Type</label>
+                      <select id="type"
                         value={item.type}
                         onChange={(e) => updatePortfolioItem(index, "type", e.target.value as PortfolioItemType)}
                         className="w-full bg-ink-950/60 border border-market-500/20 rounded-xl px-4 py-3 text-amber-100 focus:outline-none focus:border-market-400 transition-colors"
@@ -547,7 +558,7 @@ export default function EditProfileForm({ publicKey }: Props) {
             <div className="mt-4">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <label className="block text-sm font-medium text-amber-100">Upload Files</label>
+                  <span className="block text-sm font-medium text-amber-100">Upload Files</span>
                   <p className="text-xs text-amber-600 mt-1">
                     Upload up to {MAX_PORTFOLIO_FILES} files (max 5MB each). Images and PDFs supported.
                   </p>
@@ -556,28 +567,27 @@ export default function EditProfileForm({ publicKey }: Props) {
 
               <div className="space-y-3">
                 {/* Drag-and-Drop Zone */}
-                <div
+                <button
+                  type="button"
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={handleDrop}
                   onClick={() => fileInputRef.current?.click()}
                   className={clsx(
-                    "rounded-xl border-2 border-dashed px-4 py-8 text-center transition-all cursor-pointer",
+                    "w-full rounded-xl border-2 border-dashed px-4 py-8 text-center transition-all cursor-pointer font-normal",
                     isDragOver
                       ? "border-market-400 bg-market-500/10 scale-[1.01]"
                       : "border-market-500/30 bg-ink-900/40 hover:border-market-500/50",
                     (uploadingFiles || portfolioFiles.length >= MAX_PORTFOLIO_FILES) && "opacity-50 cursor-not-allowed"
                   )}
-                  role="button"
-                  tabIndex={0}
                   aria-label="Upload portfolio files. Click or drag and drop files here."
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInputRef.current?.click(); } }}
                 >
                   <input
                     ref={fileInputRef}
                     type="file"
                     multiple
                     accept="image/*,.pdf"
+                    tabIndex={-1}
                     onChange={(e) => {
                       if (e.target.files && e.target.files.length > 0) {
                         handleFileUpload(e.target.files);
@@ -586,18 +596,17 @@ export default function EditProfileForm({ publicKey }: Props) {
                     }}
                     disabled={uploadingFiles || portfolioFiles.length >= MAX_PORTFOLIO_FILES}
                     className="hidden"
-                    aria-hidden="true"
                   />
                   <div className={clsx("text-3xl mb-2 transition-colors", isDragOver ? "text-market-400" : "text-amber-600")}>
                     {isDragOver ? "\u2191" : "\u2193"}
                   </div>
                   <p className="text-sm text-amber-100 font-medium">
-                    {uploadingFiles ? "Uploading..." : isDragOver ? "Drop files here" : "Click or drag and drop files"}
+                    {uploadStatusText}
                   </p>
                   <p className="text-xs text-amber-600 mt-1">
                     {portfolioFiles.length}/{MAX_PORTFOLIO_FILES} files uploaded
                   </p>
-                </div>
+                </button>
 
                 {/* Per-file upload progress */}
                 {Object.keys(uploadProgress).length > 0 && (
@@ -624,13 +633,15 @@ export default function EditProfileForm({ publicKey }: Props) {
                   <div className="space-y-2">
                     {portfolioFiles.map((file, index) => (
                       <div
-                        key={index}
+                        key={file.cid || `${file.fileName}-${index}`}
                         className="flex items-center gap-3 p-3 rounded-lg border border-market-500/20 bg-ink-900/50"
                       >
                         {file.mimeType.startsWith("image/") && file.url ? (
-                          <img
+                          <Image
                             src={file.url}
                             alt={file.fileName}
+                            width={40}
+                            height={40}
                             className="w-10 h-10 rounded-lg object-cover border border-market-500/20 flex-shrink-0"
                           />
                         ) : (

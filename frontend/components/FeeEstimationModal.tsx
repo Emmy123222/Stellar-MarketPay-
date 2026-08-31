@@ -9,6 +9,7 @@
  */
 import AccessibleModal from "@/components/AccessibleModal";
 import { useEffect, useState } from "react";
+import { stroopsToXlm } from "@/lib/sorobanFees";
 import type { Transaction } from "@stellar/stellar-sdk";
 import {
   estimateSorobanFee,
@@ -142,6 +143,28 @@ export default function FeeEstimationModal({
         </dl>
       )}
 
+      {estimate && (
+        <div className="mb-4">
+          <label className="text-xs text-amber-700 block mb-1">
+            Max fee multiplier: {maxFeeMultiplier.toFixed(1)}×
+          </label>
+          <input
+            type="range"
+            min={1}
+            max={3}
+            step={0.5}
+            value={maxFeeMultiplier}
+            onChange={(e) => setMaxFeeMultiplier(Number(e.target.value))}
+            className="w-full accent-amber-500"
+          />
+          {maxFeeUsd != null && (
+            <p className="text-xs text-amber-700 mt-1">
+              Max fee: {maxFeeXlm} XLM ≈ \ USD
+            </p>
+          )}
+        </div>
+      )}
+
       {insufficient && (
         <p className="text-red-400 text-xs mb-3">
           Insufficient balance — top up XLM and try again.
@@ -153,7 +176,7 @@ export default function FeeEstimationModal({
           Cancel
         </button>
         <button
-          onClick={onConfirm}
+          onClick={() => onConfirm({ maxFeeMultiplier, maxFeeStroops })}
           disabled={!estimate || Boolean(error) || insufficient}
           className="btn-primary flex-1 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >

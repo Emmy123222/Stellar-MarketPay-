@@ -91,17 +91,19 @@ describe("GET /health", () => {
       mockHorizonUp();
     });
 
-    it("returns 200 with status ok and all deps up", async () => {
+    it("returns 200 with status healthy and all deps up", async () => {
       const app = createApp();
       const res = await request(app).get("/api/health");
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({
-        status: "ok",
-        postgres: "up",
+      expect(res.body).toMatchObject({
+        status: "healthy",
+        database: "up",
         redis: "up",
-        horizon: "up",
+        stellar: "up",
       });
+      expect(res.body).toHaveProperty("uptime_seconds");
+      expect(res.body).toHaveProperty("version");
     });
   });
 
@@ -112,16 +114,16 @@ describe("GET /health", () => {
       mockHorizonUp();
     });
 
-    it("returns 503 with status degraded and postgres down", async () => {
+    it("returns 503 with status degraded and database down", async () => {
       const app = createApp();
       const res = await request(app).get("/api/health");
 
       expect(res.status).toBe(503);
-      expect(res.body).toEqual({
+      expect(res.body).toMatchObject({
         status: "degraded",
-        postgres: "down",
+        database: "down",
         redis: "up",
-        horizon: "up",
+        stellar: "up",
       });
     });
   });
@@ -138,11 +140,11 @@ describe("GET /health", () => {
       const res = await request(app).get("/api/health");
 
       expect(res.status).toBe(503);
-      expect(res.body).toEqual({
+      expect(res.body).toMatchObject({
         status: "degraded",
-        postgres: "up",
+        database: "up",
         redis: "down",
-        horizon: "up",
+        stellar: "up",
       });
     });
   });
@@ -154,16 +156,16 @@ describe("GET /health", () => {
       mockHorizonDown();
     });
 
-    it("returns 503 with status degraded and horizon down", async () => {
+    it("returns 503 with status degraded and stellar down", async () => {
       const app = createApp();
       const res = await request(app).get("/api/health");
 
       expect(res.status).toBe(503);
-      expect(res.body).toEqual({
+      expect(res.body).toMatchObject({
         status: "degraded",
-        postgres: "up",
+        database: "up",
         redis: "up",
-        horizon: "down",
+        stellar: "down",
       });
     });
   });
@@ -180,11 +182,11 @@ describe("GET /health", () => {
       const res = await request(app).get("/api/health");
 
       expect(res.status).toBe(503);
-      expect(res.body).toEqual({
+      expect(res.body).toMatchObject({
         status: "degraded",
-        postgres: "down",
+        database: "down",
         redis: "down",
-        horizon: "up",
+        stellar: "up",
       });
     });
   });

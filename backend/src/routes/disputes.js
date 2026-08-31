@@ -15,7 +15,7 @@ const multer     = require("multer");
 const pool       = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT }         = require("../middleware/auth");
-const s3Service            = require("../services/s3Service");
+const ipfsService          = require("../services/ipfsService");
 const { validateIpfsCid }    = require("../services/disputeService");
 const sorobanEvidence       = require("../services/sorobanEvidence");
 const { createError, ErrorCodes } = require("../utils/errors");
@@ -127,7 +127,7 @@ router.get("/:jobId", readRateLimiter, async (req, res, next) => {
           fileSize:        ev.file_size,
           mimeType:        ev.mime_type,
           fileUrl:         ev.ipfs_cid,
-          gatewayUrl:      s3Service.getGatewayUrl(ev.ipfs_cid),
+          gatewayUrl:      ipfsService.getGatewayUrl(ev.ipfs_cid),
           createdAt:       ev.created_at,
         })),
       },
@@ -210,7 +210,7 @@ router.post(
 
       let ipfsResult;
       try {
-        ipfsResult = await s3Service.uploadFile(
+        ipfsResult = await ipfsService.uploadFile(
           req.file.buffer,
           req.file.originalname,
           req.file.mimetype
@@ -243,7 +243,7 @@ router.post(
           fileSize:        ev.file_size,
           mimeType:        ev.mime_type,
           fileUrl:         ev.ipfs_cid,
-          gatewayUrl:      s3Service.getGatewayUrl(ev.ipfs_cid),
+          gatewayUrl:      ipfsService.getGatewayUrl(ev.ipfs_cid),
           createdAt:       ev.created_at,
         },
       });

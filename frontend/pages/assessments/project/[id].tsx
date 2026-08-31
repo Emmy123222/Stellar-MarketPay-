@@ -1,29 +1,51 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import Layout from '../../../components/Layout';
-import { useAuth } from '../../../contexts/AuthContext';
-import api from '../../../utils/api';
+import { api, getApiErrorMessage } from "@/lib/api/client";
+import { useToast } from "@/components/Toast";
 
-export default function TakeAssessment() {
+interface AssessmentQuestion {
+  question: string;
+  options: string[];
+}
+
+interface ProjectAssessment {
+  id: string;
+  title: string;
+  description?: string;
+  time_limit_minutes: number;
+  questions: AssessmentQuestion[];
+}
+
+interface AssessmentSubmission {
+  status: "started" | "submitted" | "graded";
+  started_at: string;
+}
+
+interface TakeAssessmentProps {
+  publicKey: string | null;
+}
+
+export default function TakeAssessment({ publicKey }: TakeAssessmentProps) {
   const router = useRouter();
+  const toast = useToast();
   const { id } = router.query;
-  const { user } = useAuth();
-  
-  const [assessment, setAssessment] = useState(null);
-  const [submission, setSubmission] = useState(null);
-  const [answers, setAnswers] = useState({});
+
+  const [assessment, setAssessment] = useState<ProjectAssessment | null>(null);
+  const [submission, setSubmission] = useState<AssessmentSubmission | null>(null);
+  const [answers, setAnswers] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [timeLeft, setTimeLeft] = useState(null);
-  const timerRef = useRef(null);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (id && user) {
+    if (id && publicKey) {
       fetchAssessment();
     }
-  }, [id, user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, publicKey]);
 
   const fetchAssessment = async () => {
     try {
@@ -33,11 +55,36 @@ export default function TakeAssessment() {
         setSubmission(response.data.data.submission);
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to load assessment');
+      setError(getApiErrorMessage(err, 'Failed to load assessment'));
     } finally {
       setLoading(false);
     }
   };
+
+  const submitAnswers = useCallback(async () => {
+    setSubmitting(true);
+    setError('');
+    try {
+      const response = await api.post(`/api/assessments/project/${id}/submit`, {
+        answers
+      });
+      if (response.data.success) {
+        toast.success('Assessment submitted successfully!');
+        router.push('/dashboard');
+      }
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to submit assessment'));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [id, answers, router, toast]);
+
+  const handleAutoSubmit = useCallback(async () => {
+    // Only auto-submit if we haven't already submitted
+    if (!submitting) {
+      await submitAnswers();
+    }
+  }, [submitting, submitAnswers]);
 
   useEffect(() => {
     if (assessment && submission && submission.status === 'started') {
@@ -51,7 +98,7 @@ export default function TakeAssessment() {
         
         if (remaining <= 0) {
           setTimeLeft(0);
-          clearInterval(timerRef.current);
+          if (timerRef.current) clearInterval(timerRef.current);
           handleAutoSubmit();
         } else {
           setTimeLeft(Math.ceil(remaining / 1000));
@@ -61,59 +108,35 @@ export default function TakeAssessment() {
       updateTimer();
       timerRef.current = setInterval(updateTimer, 1000);
       
-      return () => clearInterval(timerRef.current);
+      return () => { if (timerRef.current) clearInterval(timerRef.current); };
     }
-  }, [assessment, submission]);
+  }, [assessment, submission, handleAutoSubmit]);
 
-  const handleAutoSubmit = async () => {
-    // Only auto-submit if we haven't already submitted
-    if (!submitting) {
-      await submitAnswers();
-    }
-  };
-
-  const submitAnswers = async () => {
-    setSubmitting(true);
-    setError('');
-    try {
-      const response = await api.post(`/api/assessments/project/${id}/submit`, {
-        answers
-      });
-      if (response.data.success) {
-        alert('Assessment submitted successfully!');
-        router.push('/dashboard');
-      }
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to submit assessment');
-      setSubmitting(false);
-    }
-  };
-
-  const handleSubmit = (e) => {
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     submitAnswers();
   };
 
-  const handleOptionChange = (qIndex, optionIndex) => {
+  const handleOptionChange = (qIndex: number, optionIndex: number) => {
     setAnswers({
       ...answers,
       [qIndex]: optionIndex
     });
   };
 
-  const formatTime = (seconds) => {
+  const formatTime = (seconds: number | null) => {
     if (seconds === null) return '--:--';
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  if (!user) return <Layout><div className="container mx-auto p-4">Please log in.</div></Layout>;
-  if (loading) return <Layout><div className="container mx-auto p-4">Loading...</div></Layout>;
-  if (error && !assessment) return <Layout><div className="container mx-auto p-4 text-red-500">{error}</div></Layout>;
+  if (!publicKey) return <><div className="container mx-auto p-4">Connect your wallet to take this assessment.</div></>;
+  if (loading) return <><div className="container mx-auto p-4">Loading...</div></>;
+  if (error && !assessment) return <><div className="container mx-auto p-4 text-red-500">{error}</div></>;
 
   return (
-    <Layout>
+    <>
       <Head>
         <title>{assessment?.title || 'Project Assessment'}</title>
       </Head>
@@ -121,7 +144,7 @@ export default function TakeAssessment() {
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold">{assessment?.title}</h1>
           {submission?.status === 'started' && (
-            <div className={`text-xl font-mono p-2 rounded ${timeLeft < 60 ? 'bg-red-100 text-red-700' : 'bg-gray-100'}`}>
+            <div className={`text-xl font-mono p-2 rounded ${timeLeft !== null && timeLeft < 60 ? 'bg-red-100 text-red-700' : 'bg-gray-100'}`}>
               Time Left: {formatTime(timeLeft)}
             </div>
           )}
@@ -135,7 +158,7 @@ export default function TakeAssessment() {
 
         {submission?.status === 'started' ? (
           <form onSubmit={handleSubmit} className="space-y-8">
-            {assessment.questions.map((q, qIndex) => (
+            {(assessment?.questions ?? []).map((q, qIndex) => (
               <div key={qIndex} className="bg-white p-6 rounded-lg shadow-sm border">
                 <h3 className="text-lg font-medium mb-4">{qIndex + 1}. {q.question}</h3>
                 <div className="space-y-3">
@@ -171,6 +194,6 @@ export default function TakeAssessment() {
           </div>
         )}
       </div>
-    </Layout>
+    </>
   );
 }

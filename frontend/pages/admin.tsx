@@ -25,6 +25,7 @@ import {
 import { shortenAddress, timeAgo } from "@/utils/format";
 import dynamic from "next/dynamic";
 import Admin2FAModal from "@/components/Admin2FAModal";
+import { useToast } from "@/components/Toast";
 
 // Dynamic import for heavy AdminAnalytics component
 const AdminAnalytics = dynamic(() => import("@/components/AdminAnalytics"), {
@@ -112,6 +113,7 @@ function formatAuditTarget(target?: string | null) {
 
 export default function AdminDashboard({ publicKey }: AdminPageProps) {
   const router = useRouter();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<ActiveTab>("analytics");
   const [disputes, setDisputes] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
@@ -627,7 +629,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                   <button
                     onClick={async () => {
                       await generateCostReport();
-                      alert("Cost report generation triggered. Check audit log.");
+                      toast.success("Cost report generation triggered. Check audit log.");
                     }}
                     className="btn-ghost text-sm py-2 px-5"
                   >
@@ -772,8 +774,8 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
             <h3 className="font-display text-lg font-bold text-amber-100 mb-1">Resolve Dispute</h3>
             <p className="text-amber-800 text-sm mb-4">{resolveModal.title}</p>
 
-            <label className="block text-xs text-amber-800 mb-1">Release funds to</label>
-            <div className="flex gap-2 mb-4">
+            <span id="release-funds-to" className="block text-xs text-amber-800 mb-1">Release funds to</span>
+            <div className="flex gap-2 mb-4" role="group" aria-labelledby="release-funds-to">
               {(["freelancer", "client"] as const).map((side) => (
                 <button
                   key={side}
@@ -790,7 +792,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
               ))}
             </div>
 
-            <label className="block text-xs text-amber-800 mb-1">Resolution note *</label>
+            <label htmlFor="resolve-note" className="block text-xs text-amber-800 mb-1">Resolution note *</label>
             <textarea
               id="resolve-note"
               value={resolveNote}
@@ -826,7 +828,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
             <h3 className="font-display text-lg font-bold text-amber-100 mb-1">Cancel Job</h3>
             <p className="text-amber-800 text-sm mb-4">{cancelModal.title}</p>
 
-            <label className="block text-xs text-amber-800 mb-1">Reason *</label>
+            <label htmlFor="cancel-reason" className="block text-xs text-amber-800 mb-1">Reason *</label>
             <textarea
               id="cancel-reason"
               value={cancelReason}
@@ -876,7 +878,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
           <div className="card max-w-md w-full border-amber-500/30">
             <h3 className="font-display text-lg font-bold text-amber-100 mb-4">Freeze Wallet</h3>
 
-            <label className="block text-xs text-amber-800 mb-1">Wallet Address *</label>
+            <label htmlFor="freeze-address" className="block text-xs text-amber-800 mb-1">Wallet Address *</label>
             <input
               id="freeze-address"
               type="text"
@@ -886,7 +888,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
               placeholder="G..."
             />
 
-            <label className="block text-xs text-amber-800 mb-1">Reason</label>
+            <label htmlFor="freeze-reason" className="block text-xs text-amber-800 mb-1">Reason</label>
             <input
               id="freeze-reason"
               type="text"

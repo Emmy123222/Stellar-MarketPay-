@@ -5,12 +5,10 @@
  */
 "use strict";
 
-const { readPool, writePool } = require("../db/pool");
-const {
-  findJobById,
-  listJobs: queryListJobs,
-} = require("../db/queries/jobs");
-const pool = writePool; // default alias — write-safe; read-only paths use readPool
+const poolModule = require("../db/pool");
+const pool = poolModule.writePool || poolModule;
+const readPool = poolModule.readPool || poolModule;
+const { findJobById, listJobs: queryListJobs } = require("../db/queries/jobs");
 const { refreshFreelancerTier } = require("./profileService");
 const { createJobNotification, EVENT_TYPES } = require("./notificationService");
 const { insertAuditLog } = require("./auditLogService");
@@ -196,7 +194,6 @@ function validatePublicKey(key) {
   }
 }
 
-
 /**
  * Convert a snake_case `jobs` row into the camelCase API object.
  *
@@ -227,7 +224,7 @@ function rowToJob(row) {
     timezone: row.timezone,
     screeningQuestions: row.screening_questions || [],
     milestones: normalizeMilestoneRows(row.milestones, row.budget),
-    disputeReason:      row.dispute_reason,
+    disputeReason: row.dispute_reason,
     disputeDescription: row.dispute_description,
     disputedBy: row.disputed_by,
     disputedAt: row.disputed_at,
@@ -275,7 +272,21 @@ function rowToJob(row) {
  *   clientAddress: 'GBX...',
  * });
  */
-async function createJob({ title, description, budget, currency, category, categorySlug, skills, deadline, timezone, clientAddress, screeningQuestions, milestones, visibility = "public" }) {
+let createJob = async function ({
+  title,
+  description,
+  budget,
+  currency,
+  category,
+  categorySlug,
+  skills,
+  deadline,
+  timezone,
+  clientAddress,
+  screeningQuestions,
+  milestones,
+  visibility = "public",
+}) {
   validatePublicKey(clientAddress);
 
   if (!title || title.length < 10) {
@@ -307,7 +318,7 @@ async function createJob({ title, description, budget, currency, category, categ
   if (categoryLookupVal) {
     const { rows: catRows } = await pool.query(
       "SELECT id, name FROM categories WHERE slug = $1 OR LOWER(name) = LOWER($2) LIMIT 1",
-      [categoryLookupVal, categoryLookupVal]
+      [categoryLookupVal, categoryLookupVal],
     );
     if (catRows.length) {
       resolvedCategoryId = catRows[0].id;
@@ -329,7 +340,12 @@ async function createJob({ title, description, budget, currency, category, categ
     throw e;
   }
 
-  const safeSkills = Array.isArray(skills) ? skills.slice(0, 8).map(s => s.trim()).filter(Boolean) : [];
+  const safeSkills = Array.isArray(skills)
+    ? skills
+        .slice(0, 8)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
   const safeScreeningQuestions = Array.isArray(screeningQuestions)
     ? screeningQuestions.slice(0, 5).filter((q) => q && q.trim().length > 0)
     : [];
@@ -365,7 +381,9 @@ async function createJob({ title, description, budget, currency, category, categ
 
     if (safeSkills.length > 0) {
       // Normalize and insert missing skills
-      const skillValues = safeSkills.map((s) => `(LOWER(TRIM($$${s}$$)), TRIM($$${s}$$))`).join(",");
+      const skillValues = safeSkills
+        .map((s) => `(LOWER(TRIM($$${s}$$)), TRIM($$${s}$$))`)
+        .join(",");
       await client.query(`
         INSERT INTO skills (slug, display_name)
         VALUES ${skillValues}
@@ -376,12 +394,14 @@ async function createJob({ title, description, budget, currency, category, categ
       const slugs = safeSkills.map((s) => s.toLowerCase().trim());
       const { rows: skillRows } = await client.query(
         "SELECT id FROM skills WHERE slug = ANY($1::text[])",
-        [slugs]
+        [slugs],
       );
 
       // Insert into job_skills
       if (skillRows.length > 0) {
-        const jobSkillValues = skillRows.map((r) => `('${job.id}', ${r.id})`).join(",");
+        const jobSkillValues = skillRows
+          .map((r) => `('${job.id}', ${r.id})`)
+          .join(",");
         await client.query(`
           INSERT INTO job_skills (job_id, skill_id)
           VALUES ${jobSkillValues}
@@ -401,9 +421,9 @@ async function createJob({ title, description, budget, currency, category, categ
   if (safeSkills.length > 0) {
     const { rows: updatedSkills } = await pool.query(
       "SELECT s.display_name FROM skills s JOIN job_skills js ON s.id = js.skill_id WHERE js.job_id = $1",
-      [job.id]
+      [job.id],
     );
-    job.skills = updatedSkills.map(s => s.display_name);
+    job.skills = updatedSkills.map((s) => s.display_name);
   } else {
     job.skills = [];
   }
@@ -424,11 +444,15 @@ async function createJob({ title, description, budget, currency, category, categ
       job.id,
     ]);
   } catch (err) {
-    console.error("[tfidf] Failed to compute vector for job", job.id, err.message);
+    console.error(
+      "[tfidf] Failed to compute vector for job",
+      job.id,
+      err.message,
+    );
   }
 
   return rowToJob(job);
-}
+};
 
 function tokenize(text) {
   if (!text) return [];
@@ -544,7 +568,9 @@ async function listJobs({
         'StartSel=<mark>,StopSel=</mark>,MaxWords=50,MinWords=20') AS headline_title,
       ts_headline(description, websearch_to_tsquery('english', $${searchIdx}),
         'StartSel=<mark>,StopSel=</mark>,MaxWords=80,MinWords=30') AS headline_description`;
-    conditions.push(`search_vector @@ websearch_to_tsquery('english', $${searchIdx})`);
+    conditions.push(
+      `search_vector @@ websearch_to_tsquery('english', $${searchIdx})`,
+    );
     orderClause = `rank DESC, ${orderClause}`;
   }
 
@@ -567,7 +593,6 @@ async function listJobs({
       OR jobs.category = $${params.length}
     )`);
   }
-
 
   const minBudget = parseFloat(min_budget);
   if (!Number.isNaN(minBudget)) {
@@ -689,7 +714,10 @@ async function listJobs({
  * @returns {Promise<Object[]>} An array of job objects.
  * @throws {Error} If the clientAddress is an invalid Stellar public key.
  */
-async function listJobsByClient(clientAddress, { includeDeleted = false } = {}) {
+async function listJobsByClient(
+  clientAddress,
+  { includeDeleted = false } = {},
+) {
   validatePublicKey(clientAddress);
   const deletedFilter = includeDeleted ? "" : "AND deleted_at IS NULL";
   const { rows } = await pool.query(
@@ -707,7 +735,7 @@ async function listJobsByClient(clientAddress, { includeDeleted = false } = {}) 
  * @returns {Promise<Object>} The updated job object.
  * @throws {Error} If the status is invalid or the job is not found.
  */
-async function updateJobStatus(id, status) {
+let updateJobStatus = async function (id, status) {
   if (!VALID_STATUSES.includes(status)) {
     const e = new Error("Invalid status");
     e.status = 400;
@@ -752,7 +780,7 @@ async function updateJobStatus(id, status) {
   }
 
   return job;
-}
+};
 
 /**
  * Assign a freelancer to a job and update its status to 'in_progress'.
@@ -762,7 +790,7 @@ async function updateJobStatus(id, status) {
  * @returns {Promise<Object>} The updated job object.
  * @throws {Error} If the freelancerAddress is invalid or the job is not found.
  */
-async function assignFreelancer(jobId, freelancerAddress) {
+let assignFreelancer = async function (jobId, freelancerAddress) {
   validatePublicKey(freelancerAddress);
 
   const { rows } = await pool.query(
@@ -780,17 +808,24 @@ async function assignFreelancer(jobId, freelancerAddress) {
   }
 
   return rowToJob(rows[0]);
-}
+};
 
 /**
  * Update the escrow contract ID associated with a job.
  *
  * @param {number|string} jobId - The ID of the job.
  * @param {string} escrowContractId - The escrow contract ID.
+ * @param {Object} [options] - Optional overrides.
+ * @param {string|number} [options.amount] - Escrow amount override (e.g. accepted bid amount).
+ *   Falls back to job.budget when omitted.
  * @returns {Promise<Object>} The updated job object.
  * @throws {Error} If the escrowContractId is invalid or the job is not found.
  */
-async function updateJobEscrowId(jobId, escrowContractId) {
+let updateJobEscrowId = async function (
+  jobId,
+  escrowContractId,
+  { amount } = {},
+) {
   if (!escrowContractId || typeof escrowContractId !== "string") {
     const e = new Error("Invalid escrow contract ID");
     e.status = 400;
@@ -804,6 +839,9 @@ async function updateJobEscrowId(jobId, escrowContractId) {
 
   if (rows.length) {
     const job = rowToJob(rows[0]);
+    // Use explicit amount when provided (e.g. accepted bid amount); fall back to job budget
+    const escrowAmount =
+      amount !== undefined ? parseFloat(amount).toFixed(7) : job.budget;
     await pool.query(
       `INSERT INTO escrows (job_id, contract_id, amount_xlm, milestones, status, created_at, updated_at)
        VALUES ($1, $2, $3, $4, 'funded', NOW(), NOW())
@@ -812,7 +850,7 @@ async function updateJobEscrowId(jobId, escrowContractId) {
            amount_xlm = EXCLUDED.amount_xlm,
            milestones = EXCLUDED.milestones,
            updated_at = NOW()`,
-      [job.id, escrowContractId, job.budget, JSON.stringify(job.milestones)],
+      [job.id, escrowContractId, escrowAmount, JSON.stringify(job.milestones)],
     );
     return job;
   }
@@ -820,7 +858,7 @@ async function updateJobEscrowId(jobId, escrowContractId) {
   const e = new Error("Job not found");
   e.status = 404;
   throw e;
-}
+};
 
 /**
  * Soft-delete a job by its ID (sets deleted_at instead of removing).
@@ -832,7 +870,7 @@ async function updateJobEscrowId(jobId, escrowContractId) {
 async function deleteJob(jobId) {
   const { rowCount } = await pool.query(
     "UPDATE jobs SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
-    [jobId]
+    [jobId],
   );
   if (!rowCount) {
     const e = new Error("Job not found");
@@ -852,7 +890,7 @@ async function purgeDeletedJobs(days = 90) {
     `DELETE FROM jobs
      WHERE deleted_at IS NOT NULL
        AND deleted_at < NOW() - INTERVAL '1 day' * $1`,
-    [days]
+    [days],
   );
   return rowCount || 0;
 }
@@ -871,9 +909,10 @@ async function purgeDeletedJobs(days = 90) {
  */
 async function boostJob(jobId, txHash, boostDays = 7) {
   // Verify job exists
-  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`, [
-    jobId,
-  ]);
+  const { rows } = await pool.query(
+    `${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`,
+    [jobId],
+  );
   if (!rows.length) {
     const e = new Error("Job not found");
     e.status = 404;
@@ -951,7 +990,11 @@ async function raiseDispute(jobId, { reason, description, raisedBy }) {
       entityType: "job",
       entityId: jobId,
       oldValue: oldJob ? { status: oldJob.status, disputeReason: null } : null,
-      newValue: { status: job.status, disputeReason: reason, disputedBy: raisedBy },
+      newValue: {
+        status: job.status,
+        disputeReason: reason,
+        disputedBy: raisedBy,
+      },
     });
   } catch {
     // Non-fatal
@@ -1034,20 +1077,24 @@ async function getCategoryAnalytics() {
     FROM jobs
     WHERE deleted_at IS NULL
     GROUP BY category
-    ORDER BY job_count DESC
   `);
 
-  return rows.map((r) => ({
-    category: r.category,
-    jobCount: parseInt(r.job_count, 10),
-    avgBudgetXLM: r.avg_budget_xlm
-      ? parseFloat(parseFloat(r.avg_budget_xlm).toFixed(2))
-      : 0,
-    filledCount: parseInt(r.filled_count, 10),
-    avgDaysToFill: r.avg_days_to_fill
-      ? parseFloat(parseFloat(r.avg_days_to_fill).toFixed(1))
-      : null,
-  }));
+  const rowMap = new Map(rows.map((r) => [r.category, r]));
+
+  return VALID_CATEGORIES.map((cat) => {
+    const r = rowMap.get(cat);
+    return {
+      category: cat,
+      jobCount: r ? parseInt(r.job_count, 10) : 0,
+      avgBudgetXLM: r?.avg_budget_xlm
+        ? parseFloat(parseFloat(r.avg_budget_xlm).toFixed(2))
+        : 0,
+      filledCount: r ? parseInt(r.filled_count, 10) : 0,
+      avgDaysToFill: r?.avg_days_to_fill
+        ? parseFloat(parseFloat(r.avg_days_to_fill).toFixed(1))
+        : null,
+    };
+  }).sort((a, b) => b.jobCount - a.jobCount);
 }
 
 async function getAnalyticsOverview() {
@@ -1100,7 +1147,10 @@ async function extendJobExpiry(jobId, days = 30, clientAddress) {
     throw e;
   }
 
-  const { rows } = await pool.query(`${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`, [jobId]);
+  const { rows } = await pool.query(
+    `${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`,
+    [jobId],
+  );
   if (!rows.length) {
     const e = new Error("Job not found");
     e.status = 404;
@@ -1123,7 +1173,9 @@ async function extendJobExpiry(jobId, days = 30, clientAddress) {
   const alreadyExtendedDays = alreadyExtendedMs / (1000 * 60 * 60 * 24);
 
   if (alreadyExtendedDays + daysNum > 90) {
-    const e = new Error("Maximum total extension is 90 days from the original expiry");
+    const e = new Error(
+      "Maximum total extension is 90 days from the original expiry",
+    );
     e.status = 400;
     throw e;
   }
@@ -1144,7 +1196,7 @@ async function extendJobExpiry(jobId, days = 30, clientAddress) {
          updated_at = NOW()
      WHERE id = $2
      RETURNING *`,
-    [newExpiry.toISOString(), jobId]
+    [newExpiry.toISOString(), jobId],
   );
 
   const updatedJob = rowToJob(updateRows[0]);
@@ -1162,7 +1214,7 @@ async function incrementViewCount(jobId) {
   const { rows } = await pool.query(
     `UPDATE jobs SET view_count = COALESCE(view_count, 0) + 1, updated_at = NOW()
      WHERE id = $1 RETURNING view_count`,
-    [jobId]
+    [jobId],
   );
   if (!rows.length) {
     const e = new Error("Job not found");
@@ -1180,7 +1232,7 @@ async function incrementViewCount(jobId) {
 async function getJobAnalytics(jobId) {
   const { rows: jobRows } = await pool.query(
     `${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`,
-    [jobId]
+    [jobId],
   );
   if (!jobRows.length) {
     const e = new Error("Job not found");
@@ -1196,14 +1248,14 @@ async function getJobAnalytics(jobId) {
        MIN(bid_amount) AS min_bid,
        MAX(bid_amount) AS max_bid
      FROM applications WHERE job_id = $1`,
-    [jobId]
+    [jobId],
   );
 
   const { rows: viewRows } = await pool.query(
     `SELECT COUNT(*)::int AS total_views,
             COUNT(DISTINCT ip_hash)::int AS unique_views
      FROM job_views WHERE job_id = $1`,
-    [jobId]
+    [jobId],
   );
 
   return {
@@ -1229,7 +1281,7 @@ async function expireOldJobs() {
      WHERE status = 'open'
        AND deleted_at IS NULL
        AND expires_at IS NOT NULL
-       AND expires_at < NOW()`
+       AND expires_at < NOW()`,
   );
   return rowCount || 0;
 }
@@ -1248,7 +1300,7 @@ async function getExpiringJobs(daysFromNow = 3) {
        AND expires_at > NOW()
        AND expires_at <= NOW() + INTERVAL '1 day' * $1
      ORDER BY expires_at ASC`,
-    [daysFromNow]
+    [daysFromNow],
   );
   return rows.map(rowToJob);
 }
@@ -1267,7 +1319,7 @@ async function bulkCancelJobs(jobIds, clientAddress) {
         `UPDATE jobs SET status = 'cancelled', updated_at = NOW()
          WHERE id = $1 AND client_address = $2 AND status = 'open' AND deleted_at IS NULL
          RETURNING id`,
-        [id, clientAddress]
+        [id, clientAddress],
       );
       results.push({ id, success: rows.length > 0 });
     } catch {
@@ -1326,14 +1378,14 @@ async function bulkBoostJobs(jobIds, clientAddress, txHash) {
 async function getRecommendedJobs(publicKey) {
   const { rows: profileRows } = await pool.query(
     "SELECT skills FROM profiles WHERE public_key = $1",
-    [publicKey]
+    [publicKey],
   );
   const skills = profileRows.length ? profileRows[0].skills || [] : [];
 
   if (!skills.length) {
     // No skills, return recent open jobs excluding applied ones
     const { rows } = await pool.query(
-       `SELECT j.*, COALESCE((SELECT array_agg(s.display_name) FROM job_skills js JOIN skills s ON s.id = js.skill_id WHERE js.job_id = j.id), '{}') AS skills FROM jobs j
+      `SELECT j.*, COALESCE((SELECT array_agg(s.display_name) FROM job_skills js JOIN skills s ON s.id = js.skill_id WHERE js.job_id = j.id), '{}') AS skills FROM jobs j
         WHERE j.status = 'open'
           AND j.visibility = 'public'
           AND j.deleted_at IS NULL
@@ -1343,7 +1395,7 @@ async function getRecommendedJobs(publicKey) {
           )
         ORDER BY j.created_at DESC
         LIMIT 5`,
-      [publicKey]
+      [publicKey],
     );
     return rows.map(rowToJob);
   }
@@ -1356,7 +1408,7 @@ async function getRecommendedJobs(publicKey) {
        AND skills && $1
      ORDER BY created_at DESC
      LIMIT 5`,
-    [skills, publicKey]
+    [skills, publicKey],
   );
 
   return rows.map(rowToJob);
@@ -1377,19 +1429,19 @@ async function getSuggestions(query) {
            AND status = 'open'
            AND deleted_at IS NULL
          ORDER BY title LIMIT 5`,
-        [q]
+        [q],
       ),
       pool.query(
         `SELECT DISTINCT skill
          FROM (SELECT unnest(skills) AS skill FROM jobs WHERE status = 'open' AND deleted_at IS NULL) skills
          WHERE skill ILIKE $1
          ORDER BY skill LIMIT 3`,
-        [`%${q}%`]
+        [`%${q}%`],
       ),
     ]);
 
     const categoryMatches = VALID_CATEGORIES.filter((cat) =>
-      cat.toLowerCase().includes(q.toLowerCase())
+      cat.toLowerCase().includes(q.toLowerCase()),
     ).slice(0, 2);
 
     return {
@@ -1496,7 +1548,10 @@ assignFreelancer = async function (jobId, freelancerAddress) {
   try {
     await recordTimelineEvent(jobId, "bid_accepted");
   } catch (err) {
-    console.error("[timeline] Failed to record bid_accepted event:", err.message);
+    console.error(
+      "[timeline] Failed to record bid_accepted event:",
+      err.message,
+    );
   }
   return job;
 };
@@ -1509,7 +1564,10 @@ updateJobStatus = async function (id, status) {
     try {
       await recordTimelineEvent(id, "work_completed");
     } catch (err) {
-      console.error("[timeline] Failed to record work_completed event:", err.message);
+      console.error(
+        "[timeline] Failed to record work_completed event:",
+        err.message,
+      );
     }
   }
   return job;
@@ -1517,12 +1575,16 @@ updateJobStatus = async function (id, status) {
 
 // Extend updateJobEscrowId to accept optional txHash for recording escrow_funded event
 const _updateJobEscrowId = updateJobEscrowId;
-updateJobEscrowId = async function (jobId, escrowContractId, txHash = null) {
-  const job = await _updateJobEscrowId(jobId, escrowContractId);
+updateJobEscrowId = async function (jobId, escrowContractId, options = {}) {
+  const { txHash = null, ...escrowOptions } = options;
+  const job = await _updateJobEscrowId(jobId, escrowContractId, escrowOptions);
   try {
     await recordTimelineEvent(jobId, "escrow_funded", txHash);
   } catch (err) {
-    console.error("[timeline] Failed to record escrow_funded event:", err.message);
+    console.error(
+      "[timeline] Failed to record escrow_funded event:",
+      err.message,
+    );
   }
   return job;
 };

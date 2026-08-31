@@ -4,7 +4,10 @@
 "use strict";
 const express = require("express");
 const { Utils, Keypair } = require("@stellar/stellar-sdk");
-const { ensureAdminProfile, get2FAStatus } = require("../services/twoFactorService");
+const {
+  ensureAdminProfile,
+  get2FAStatus,
+} = require("../services/twoFactorService");
 const pool = require("../db/pool");
 const {
   clearAuthCookies,
@@ -27,7 +30,8 @@ const authReadRateLimiter = createRateLimiter(100, 1, { name: "auth-read" });
 let cachedServerKeypair = null;
 function getServerKeypair() {
   if (!cachedServerKeypair) {
-    const serverPrivateKey = process.env.SERVER_PRIVATE_KEY || Keypair.random().secret();
+    const serverPrivateKey =
+      process.env.SERVER_PRIVATE_KEY || Keypair.random().secret();
     cachedServerKeypair = Keypair.fromSecret(serverPrivateKey);
   }
   return cachedServerKeypair;
@@ -116,7 +120,7 @@ router.get("/", (req, res, next) => {
       accountId,
       HOME_DOMAIN,
       300, // 5 minutes timeout
-      networkPassphrase
+      networkPassphrase,
     );
 
     res.json({ transaction: challenge, network });
@@ -175,7 +179,9 @@ router.post("/", async (req, res, next) => {
   try {
     const { transaction, network: reqNetwork } = req.body;
     if (!transaction) {
-      return res.status(400).json({ error: "Missing transaction in request body" });
+      return res
+        .status(400)
+        .json({ error: "Missing transaction in request body" });
     }
     const network = reqNetwork === "mainnet" ? "mainnet" : "testnet";
     const networkPassphrase = resolvePassphrase(network);
@@ -186,7 +192,7 @@ router.post("/", async (req, res, next) => {
       serverKeypair.publicKey(),
       networkPassphrase,
       HOME_DOMAIN,
-      ""
+      "",
     );
 
     const adminAddresses = (process.env.ADMIN_WALLET_ADDRESSES || "")
@@ -209,18 +215,20 @@ router.post("/", async (req, res, next) => {
     try {
       await pool.query(
         `UPDATE profiles SET last_login_at = NOW() WHERE public_key = $1`,
-        [accountId]
+        [accountId],
       );
     } catch (stampErr) {
       // Non-fatal: log and continue issuing the token
       console.warn("[auth] Could not stamp last_login_at:", stampErr.message);
     }
 
-    const { accessToken, refreshToken, csrfToken } = issueTokenPair(payload);
-    setAuthCookies(res, accessToken, refreshToken, csrfToken);
+    const { accessToken, refreshToken } = issueTokenPair(payload);
+    const csrfToken = setAuthCookies(req, res, accessToken, refreshToken);
     res.json({ success: true, token: accessToken, csrfToken });
   } catch (e) {
-    const err = Object.assign(new Error("Unauthorized: " + e.message), { status: 401 });
+    const err = Object.assign(new Error("Unauthorized: " + e.message), {
+      status: 401,
+    });
     next(err);
   }
 });
@@ -231,11 +239,22 @@ router.post("/refresh", authWriteRateLimiter, (req, res) => {
 
   if (!rotated) {
     clearAuthCookies(res);
-    return res.status(401).json({ error: "Unauthorized: Invalid refresh token" });
+    return res
+      .status(401)
+      .json({ error: "Unauthorized: Invalid refresh token" });
   }
 
-  setAuthCookies(res, rotated.accessToken, rotated.refreshToken, rotated.csrfToken);
-  return res.json({ success: true, token: rotated.accessToken, csrfToken: rotated.csrfToken });
+  const csrfToken = setAuthCookies(
+    req,
+    res,
+    rotated.accessToken,
+    rotated.refreshToken,
+  );
+  return res.json({
+    success: true,
+    token: rotated.accessToken,
+    csrfToken,
+  });
 });
 
 router.post("/logout", authWriteRateLimiter, (req, res) => {

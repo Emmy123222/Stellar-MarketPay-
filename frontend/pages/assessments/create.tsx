@@ -1,48 +1,70 @@
+/**
+ * pages/assessments/create.tsx
+ * Project assessment creation page with question builder and time limit configuration.
+ */
 import React, { useState } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import Layout from '../../components/Layout';
-import { useAuth } from '../../contexts/AuthContext';
-import api from '../../utils/api';
+import { api, getApiErrorMessage } from "@/lib/api/client";
+import { useToast } from "@/components/Toast";
 
-export default function CreateAssessment() {
+type QuestionType = "multiple_choice" | "short_answer";
+
+interface Question {
+  type: QuestionType;
+  question: string;
+  options: string[];
+  correctAnswer: number;
+}
+
+interface CreateAssessmentProps {
+  publicKey: string | null;
+}
+
+const emptyQuestion = (): Question => ({
+  type: "multiple_choice",
+  question: "",
+  options: ["", ""],
+  correctAnswer: 0,
+});
+
+export default function CreateAssessment({ publicKey }: CreateAssessmentProps) {
   const router = useRouter();
-  const { user } = useAuth();
+  const toast = useToast();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(15);
-  const [questions, setQuestions] = useState([
-    { type: 'multiple_choice', question: '', options: ['', ''], correctAnswer: 0 }
-  ]);
+  const [questions, setQuestions] = useState<Question[]>([emptyQuestion()]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleAddQuestion = () => {
-    setQuestions([
-      ...questions,
-      { type: 'multiple_choice', question: '', options: ['', ''], correctAnswer: 0 }
-    ]);
+    setQuestions([...questions, emptyQuestion()]);
   };
 
-  const handleQuestionChange = (index, field, value) => {
+  const handleQuestionChange = <K extends keyof Question>(
+    index: number,
+    field: K,
+    value: Question[K],
+  ) => {
     const newQuestions = [...questions];
-    newQuestions[index][field] = value;
+    newQuestions[index] = { ...newQuestions[index], [field]: value };
     setQuestions(newQuestions);
   };
 
-  const handleOptionChange = (qIndex, oIndex, value) => {
+  const handleOptionChange = (qIndex: number, oIndex: number, value: string) => {
     const newQuestions = [...questions];
     newQuestions[qIndex].options[oIndex] = value;
     setQuestions(newQuestions);
   };
 
-  const handleAddOption = (qIndex) => {
+  const handleAddOption = (qIndex: number) => {
     const newQuestions = [...questions];
     newQuestions[qIndex].options.push('');
     setQuestions(newQuestions);
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
     setLoading(true);
@@ -51,29 +73,29 @@ export default function CreateAssessment() {
       const response = await api.post('/api/assessments/project', {
         title,
         description,
-        timeLimitMinutes: parseInt(timeLimitMinutes, 10),
+        timeLimitMinutes,
         questions
       });
 
       if (response.data.success) {
-        alert('Assessment created successfully!');
+        toast.success('Assessment created successfully!');
         router.push(`/assessments/project/${response.data.data.id}/results`);
       } else {
         setError('Failed to create assessment.');
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'An error occurred while creating the assessment.');
+      setError(getApiErrorMessage(err, 'An error occurred while creating the assessment.'));
     } finally {
       setLoading(false);
     }
   };
 
-  if (!user) {
-    return <Layout><div className="container mx-auto p-4">Please log in to create assessments.</div></Layout>;
+  if (!publicKey) {
+    return <><div className="container mx-auto p-4">Connect your wallet to create assessments.</div></>;
   }
 
   return (
-    <Layout>
+    <>
       <Head>
         <title>Create Project Assessment</title>
       </Head>
@@ -83,8 +105,8 @@ export default function CreateAssessment() {
         
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700">Assessment Title</label>
-            <input 
+            <label htmlFor="assessment-title" className="block text-sm font-medium text-gray-700">Assessment Title</label>
+            <input id="assessment-title" 
               type="text" 
               required
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
@@ -94,8 +116,8 @@ export default function CreateAssessment() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">Description</label>
-            <textarea 
+            <label htmlFor="description" className="block text-sm font-medium text-gray-700">Description</label>
+            <textarea id="description" 
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border"
               rows={3}
               value={description} 
@@ -104,14 +126,14 @@ export default function CreateAssessment() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">Time Limit (Minutes)</label>
-            <input 
+            <label htmlFor="time-limit-minutes" className="block text-sm font-medium text-gray-700">Time Limit (Minutes)</label>
+            <input id="time-limit-minutes" 
               type="number" 
               required
               min={1}
               className="mt-1 block w-32 rounded-md border-gray-300 shadow-sm p-2 border"
               value={timeLimitMinutes} 
-              onChange={e => setTimeLimitMinutes(e.target.value)} 
+              onChange={e => setTimeLimitMinutes(Number(e.target.value) || 1)}
             />
           </div>
 
@@ -207,6 +229,6 @@ export default function CreateAssessment() {
           </div>
         </form>
       </div>
-    </Layout>
+    </>
   );
 }

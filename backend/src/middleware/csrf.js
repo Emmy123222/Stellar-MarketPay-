@@ -55,6 +55,18 @@ function shouldSkipCsrf(req) {
   if (path.startsWith("/api/public/")) return true;
   if (path.startsWith("/api/developer/")) return true;
 
+  // Bearer-token callers are not vulnerable to CSRF: the browser attaches
+  // cookies to cross-site requests automatically, but never an Authorization
+  // header — the attacker's page would have to read the token first, which the
+  // same-origin policy prevents. Only skip when no auth cookie is present,
+  // since middleware/auth.js prefers the cookie when both are supplied.
+  const authHeader = req.headers.authorization || "";
+  if (authHeader.startsWith("Bearer ")) {
+    const cookies = req.headers.cookie || "";
+    const hasAuthCookie = /(?:^|;\s*)(?:token|refreshToken)=/.test(cookies);
+    if (!hasAuthCookie) return true;
+  }
+
   return false;
 }
 
@@ -72,14 +84,14 @@ function getCsrfSecret() {
   if (isProd()) {
     throw new Error(
       "FATAL: CSRF_SECRET environment variable is required in production. " +
-      "Refusing to start with a fallback secret to keep CSRF tokens unforgeable.",
+        "Refusing to start with a fallback secret to keep CSRF tokens unforgeable.",
     );
   }
 
   // Dev/CI only — CSRF_SECRET in jest.setup.js covers the test path.
   console.warn(
     "[csrf] CSRF_SECRET is not set; using JWT_SECRET as a development-only fallback. " +
-    "Set CSRF_SECRET before deploying.",
+      "Set CSRF_SECRET before deploying.",
   );
   return process.env.JWT_SECRET || "csrf-dev-secret-do-not-use-in-production";
 }
@@ -99,26 +111,38 @@ try {
   }
 }
 
-const { doubleCsrfProtection: csrfProtect, generateCsrfToken: csrfGenerate } = doubleCsrf({
-  getSecret: getCsrfSecret,
-  cookieName: CSRF_COOKIE_NAME,
-  cookieOptions: {
-    secure: isProd(),
-    sameSite: "strict",
-    httpOnly: false, // Frontend reads the cookie via /api/auth/csrf-token body.
-    path: "/",
-  },
-  getCsrfTokenFromRequest: (req) => {
-    // Prefer the documented custom header; fall back to the legacy alias
-    // so first-party tooling in flight during the rename still works.
-    return (
-      req.headers[CSRF_HEADER_NAME] ||
-      req.headers["x-xsrf-token"] ||
-      null
-    );
-  },
-  size: 64,
-});
+/**
+ * Bind each CSRF token to the session it was minted for, so a token issued to
+ * one visitor can never be replayed by another. csrf-csrf requires this.
+ * The refresh-token cookie identifies the session; it and the CSRF token are
+ * rotated together by setAuthCookies(), so they stay in step. Unauthenticated
+ * callers share the anonymous bucket — the only state-mutating routes they can
+ * reach are the CSRF-exempt bootstrap paths in shouldSkipCsrf().
+ */
+function getSessionIdentifier(req) {
+  return (req.cookies && req.cookies.refreshToken) || "";
+}
+
+const { doubleCsrfProtection: csrfProtect, generateCsrfToken: csrfGenerate } =
+  doubleCsrf({
+    getSecret: getCsrfSecret,
+    getSessionIdentifier,
+    cookieName: CSRF_COOKIE_NAME,
+    cookieOptions: {
+      secure: isProd(),
+      sameSite: "strict",
+      httpOnly: false, // Frontend reads the cookie via /api/auth/csrf-token body.
+      path: "/",
+    },
+    getCsrfTokenFromRequest: (req) => {
+      // Prefer the documented custom header; fall back to the legacy alias
+      // so first-party tooling in flight during the rename still works.
+      return (
+        req.headers[CSRF_HEADER_NAME] || req.headers["x-xsrf-token"] || null
+      );
+    },
+    size: 64,
+  });
 
 function doubleCsrfProtection(req, res, next) {
   if (shouldSkipCsrf(req)) return next();
@@ -136,6 +160,7 @@ module.exports = {
   doubleCsrfProtection,
   generateCsrfToken,
   getCsrfSecret,
+  getSessionIdentifier,
   isProd,
   shouldSkipCsrf,
 };

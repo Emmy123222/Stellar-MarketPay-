@@ -10,6 +10,9 @@ const customJestConfig = {
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
   },
+  transformIgnorePatterns: [
+    "/node_modules/(?!(@react-pdf|@react-pdf/renderer|react-pdf)/)",
+  ],
 };
 
 module.exports = createJestConfig(customJestConfig);

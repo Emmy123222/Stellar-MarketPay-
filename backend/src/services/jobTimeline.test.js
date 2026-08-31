@@ -1,11 +1,19 @@
 "use strict";
 
-// Use a mock pool specifically for timeline tests
-const mockQuery = jest.fn().mockResolvedValue({ rows: [] });
+// jobService.js destructures { readPool, writePool } from ../db/pool.
+// The mock must expose those named properties so `pool = writePool` resolves
+// to a real mock object instead of undefined.
+jest.mock("../db/pool", () => {
+  const q = jest.fn().mockResolvedValue({ rows: [] });
+  const mockPoolObj = { query: q };
+  mockPoolObj.readPool = mockPoolObj;
+  mockPoolObj.writePool = mockPoolObj;
+  return mockPoolObj;
+});
 
-jest.mock("../db/pool", () => ({
-  query: mockQuery,
-}));
+// Require pool AFTER jest.mock so we get the mocked version.
+// pool.query is the single jest.fn() shared by readPool / writePool / pool.
+const pool = require("../db/pool");
 
 const {
   recordTimelineEvent,
@@ -14,26 +22,29 @@ const {
 } = require("./jobService");
 
 const JOB_ID = "job-timeline-test-1";
-const TX_HASH = "abc123def456abc123def456abc123def456abc123def456abc123def456abc1";
+const TX_HASH =
+  "abc123def456abc123def456abc123def456abc123def456abc123def456abc1";
 
 describe("jobTimeline", () => {
   beforeEach(() => {
-    mockQuery.mockReset();
-    mockQuery.mockResolvedValue({ rows: [] });
+    pool.query.mockReset();
+    pool.query.mockResolvedValue({ rows: [] });
   });
 
   describe("recordTimelineEvent", () => {
     it("records a job_posted event", async () => {
-      mockQuery
+      pool.query
         .mockResolvedValueOnce({ rows: [] }) // no existing event
         .mockResolvedValueOnce({
-          rows: [{
-            id: "evt-1",
-            job_id: JOB_ID,
-            event_type: "job_posted",
-            tx_hash: null,
-            created_at: new Date().toISOString(),
-          }],
+          rows: [
+            {
+              id: "evt-1",
+              job_id: JOB_ID,
+              event_type: "job_posted",
+              tx_hash: null,
+              created_at: new Date().toISOString(),
+            },
+          ],
         });
 
       const result = await recordTimelineEvent(JOB_ID, "job_posted");
@@ -42,53 +53,61 @@ describe("jobTimeline", () => {
     });
 
     it("records an escrow_funded event with tx hash", async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({
-          rows: [{
+      pool.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
+        rows: [
+          {
             id: "evt-2",
             job_id: JOB_ID,
             event_type: "escrow_funded",
             tx_hash: TX_HASH,
             created_at: new Date().toISOString(),
-          }],
-        });
+          },
+        ],
+      });
 
-      const result = await recordTimelineEvent(JOB_ID, "escrow_funded", TX_HASH);
+      const result = await recordTimelineEvent(
+        JOB_ID,
+        "escrow_funded",
+        TX_HASH,
+      );
       expect(result.event_type).toBe("escrow_funded");
       expect(result.tx_hash).toBe(TX_HASH);
     });
 
     it("records an escrow_released event with tx hash", async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({
-          rows: [{
+      pool.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
+        rows: [
+          {
             id: "evt-3",
             job_id: JOB_ID,
             event_type: "escrow_released",
             tx_hash: TX_HASH,
             created_at: new Date().toISOString(),
-          }],
-        });
+          },
+        ],
+      });
 
-      const result = await recordTimelineEvent(JOB_ID, "escrow_released", TX_HASH);
+      const result = await recordTimelineEvent(
+        JOB_ID,
+        "escrow_released",
+        TX_HASH,
+      );
       expect(result.event_type).toBe("escrow_released");
       expect(result.tx_hash).toBe(TX_HASH);
     });
 
     it("records a bid_accepted event without tx hash", async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({
-          rows: [{
+      pool.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
+        rows: [
+          {
             id: "evt-4",
             job_id: JOB_ID,
             event_type: "bid_accepted",
             tx_hash: null,
             created_at: new Date().toISOString(),
-          }],
-        });
+          },
+        ],
+      });
 
       const result = await recordTimelineEvent(JOB_ID, "bid_accepted");
       expect(result.event_type).toBe("bid_accepted");
@@ -96,17 +115,17 @@ describe("jobTimeline", () => {
     });
 
     it("records a work_completed event without tx hash", async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({
-          rows: [{
+      pool.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
+        rows: [
+          {
             id: "evt-5",
             job_id: JOB_ID,
             event_type: "work_completed",
             tx_hash: null,
             created_at: new Date().toISOString(),
-          }],
-        });
+          },
+        ],
+      });
 
       const result = await recordTimelineEvent(JOB_ID, "work_completed");
       expect(result.event_type).toBe("work_completed");
@@ -114,21 +133,25 @@ describe("jobTimeline", () => {
     });
 
     it("is idempotent — does not duplicate events of the same type", async () => {
-      mockQuery.mockResolvedValueOnce({
-        rows: [{
-          id: "existing-evt",
-          job_id: JOB_ID,
-          event_type: "job_posted",
-          tx_hash: null,
-        }],
+      pool.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: "existing-evt",
+            job_id: JOB_ID,
+            event_type: "job_posted",
+            tx_hash: null,
+          },
+        ],
       });
 
       const result = await recordTimelineEvent(JOB_ID, "job_posted");
       // Should return the existing event, not insert a new one
       expect(result.id).toBe("existing-evt");
       // The second query (INSERT) should NOT have been called
-      const insertCalls = mockQuery.mock.calls.filter(
-        (call) => typeof call[0] === "string" && call[0].includes("INSERT INTO job_timeline"),
+      const insertCalls = pool.query.mock.calls.filter(
+        (call) =>
+          typeof call[0] === "string" &&
+          call[0].includes("INSERT INTO job_timeline"),
       );
       expect(insertCalls.length).toBe(0);
     });
@@ -142,7 +165,7 @@ describe("jobTimeline", () => {
 
   describe("getJobTimeline", () => {
     it("returns empty array for a job with no timeline events", async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [] });
+      pool.query.mockResolvedValueOnce({ rows: [] });
 
       const timeline = await getJobTimeline(JOB_ID);
       expect(timeline).toEqual([]);
@@ -187,7 +210,7 @@ describe("jobTimeline", () => {
         },
       ];
 
-      mockQuery.mockResolvedValueOnce({ rows: mockRows });
+      pool.query.mockResolvedValueOnce({ rows: mockRows });
 
       const timeline = await getJobTimeline(JOB_ID);
 
@@ -221,14 +244,16 @@ describe("jobTimeline", () => {
     });
 
     it("handles null tx_hash gracefully", async () => {
-      mockQuery.mockResolvedValueOnce({
-        rows: [{
-          id: "evt-1",
-          job_id: JOB_ID,
-          event_type: "escrow_funded",
-          tx_hash: null,
-          created_at: new Date().toISOString(),
-        }],
+      pool.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: "evt-1",
+            job_id: JOB_ID,
+            event_type: "escrow_funded",
+            tx_hash: null,
+            created_at: new Date().toISOString(),
+          },
+        ],
       });
 
       const timeline = await getJobTimeline(JOB_ID);

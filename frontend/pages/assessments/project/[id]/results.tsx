@@ -1,43 +1,63 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import Layout from '../../../../components/Layout';
-import { useAuth } from '../../../../contexts/AuthContext';
-import api from '../../../../utils/api';
+import { api, getApiErrorMessage } from "@/lib/api/client";
+import { useToast } from "@/components/Toast";
 
-export default function AssessmentResults() {
+interface AssessmentResult {
+  id: string;
+  display_name?: string;
+  freelancer_address: string;
+  status: "started" | "submitted" | "graded";
+  score: number | null;
+  started_at: string;
+  submitted_at?: string | null;
+}
+
+interface AssessmentResultsProps {
+  publicKey: string | null;
+}
+
+interface AssessmentResultsResponse {
+  success: boolean;
+  data: AssessmentResult[];
+}
+
+export default function AssessmentResults({ publicKey }: AssessmentResultsProps) {
   const router = useRouter();
+  const toast = useToast();
   const { id } = router.query;
-  const { user } = useAuth();
-  
-  const [results, setResults] = useState([]);
+  const assessmentId = typeof id === "string" ? id : null;
+
+  const [results, setResults] = useState<AssessmentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (id && user) {
-      fetchResults();
+    if (assessmentId && publicKey) {
+      fetchResults(assessmentId);
     }
-  }, [id, user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assessmentId, publicKey]);
 
-  const fetchResults = async () => {
+  const fetchResults = async (id: string) => {
     try {
-      const response = await api.get(`/api/assessments/project/${id}/results`);
+      const response = await api.get<AssessmentResultsResponse>(`/api/assessments/project/${id}/results`);
       if (response.data.success) {
         setResults(response.data.data);
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to load results');
+      setError(getApiErrorMessage(err, 'Failed to load results'));
     } finally {
       setLoading(false);
     }
   };
 
-  if (!user) return <Layout><div className="container mx-auto p-4">Please log in.</div></Layout>;
-  if (loading) return <Layout><div className="container mx-auto p-4">Loading...</div></Layout>;
+  if (!publicKey) return <><div className="container mx-auto p-4">Connect your wallet to view results.</div></>;
+  if (loading) return <><div className="container mx-auto p-4">Loading...</div></>;
 
   return (
-    <Layout>
+    <>
       <Head>
         <title>Assessment Results</title>
       </Head>
@@ -47,9 +67,9 @@ export default function AssessmentResults() {
           <button 
             onClick={() => {
               // Copy link to clipboard
-              const link = `${window.location.origin}/assessments/project/${id}`;
+              const link = `${window.location.origin}/assessments/project/${assessmentId}`;
               navigator.clipboard.writeText(link);
-              alert('Assessment link copied to clipboard! Send this to freelancers.');
+              toast.success('Assessment link copied to clipboard! Send this to freelancers.');
             }}
             className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
           >
@@ -100,6 +120,6 @@ export default function AssessmentResults() {
           )}
         </div>
       </div>
-    </Layout>
+    </>
   );
 }

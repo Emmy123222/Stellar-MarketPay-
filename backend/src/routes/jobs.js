@@ -33,6 +33,14 @@ const jobDraftService = require("../services/jobDraftService");
 const recommendationService = require("../services/recommendationService");
 const invoiceService = require("../services/invoiceService");
 const { validateJsonb } = require("../middleware/jsonbValidator");
+const {
+  validate,
+  createJobSchema,
+  extendJobSchema,
+  inviteJobSchema,
+  reportJobSchema,
+  updateEscrowSchema,
+} = require("../validators/jobValidator");
 const milestonesSchema = require("../schemas/milestones.schema");
 const { Horizon } = require("@stellar/stellar-sdk");
 const horizonClient = require("../utils/horizonClient");
@@ -452,7 +460,7 @@ router.post("/", jobCreationRateLimiter, verifyJWT, validateJsonb({ milestones: 
     }
 
     const job = await createJob({ ...req.body, clientAddress: signedAddress });
-    await cache.delPattern("jobs:list:*");
+    await cache.invalidateJobListCache();
     res.status(201).json({ success: true, data: job });
   } catch (e) {
     next(e);
@@ -551,7 +559,15 @@ router.patch(
   async (req, res, next) => {
     try {
       const { escrowContractId } = validate(updateEscrowSchema, req.body);
-      const job = await updateJobEscrowId(req.params.id, escrowContractId);
+      const pool = require("../db/pool");
+      const { rows: acceptedApplications } = await pool.query(
+        "SELECT bid_amount FROM applications WHERE job_id = $1 AND status = 'accepted' LIMIT 1",
+        [req.params.id],
+      );
+      const options = acceptedApplications.length
+        ? { amount: acceptedApplications[0].bid_amount }
+        : {};
+      const job = await updateJobEscrowId(req.params.id, escrowContractId, options);
       await logContractInteraction({
         functionName: "create_escrow",
         callerAddress: req.user.publicKey,
@@ -638,9 +654,6 @@ router.patch(
     try {
       const { days } = validate(extendJobSchema, req.body);
       const daysNum = parseInt(days, 10) || 30;
-      if (!validDays.includes(daysNum)) {
-        return res.status(400).json({ error: "Extension days must be 7, 14, or 30" });
-      }
       const job = await extendJobExpiry(req.params.id, daysNum, req.user.publicKey);
       await cache.invalidateJobListCache();
       res.json({ success: true, data: job });
@@ -687,9 +700,6 @@ router.post("/:id/report", reportJobRateLimiter, (req, res, next) => {
 
     if (!normalizedReporterAddress)
       return res.status(400).json({ error: "Reporter address is required" });
-    if (!isValidReportCategory(category))
-      return res.status(400).json({ error: "Valid report category is required" });
-
     const duplicateKey = `${jobId}:${normalizedReporterAddress}`;
     if (jobReports.has(duplicateKey))
       return res.status(409).json({ error: "You have already reported this job" });
@@ -943,36 +953,6 @@ router.get("/suggest", suggestRateLimiter, async (req, res, next) => {
     res.json({ success: true, data: suggestions });
   } catch (e) { next(e); }
 });
-
-// GET /api/analytics/categories — stats per category
-router.get(
-  "/analytics/categories",
-  generalJobRateLimiter,
-  async (req, res, next) => {
-    try {
-      const { getCategoryAnalytics } = require("../services/jobService");
-      const data = await getCategoryAnalytics();
-      res.json({ success: true, data });
-    } catch (e) {
-      next(e);
-    }
-  },
-);
-
-// GET /api/analytics/overview — platform-wide totals
-router.get(
-  "/analytics/overview",
-  generalJobRateLimiter,
-  async (req, res, next) => {
-    try {
-      const { getAnalyticsOverview } = require("../services/jobService");
-      const data = await getAnalyticsOverview();
-      res.json({ success: true, data });
-    } catch (e) {
-      next(e);
-    }
-  },
-);
 
 // POST /api/jobs/bulk-cancel — cancel multiple open jobs at once
 router.post(

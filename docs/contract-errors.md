@@ -188,6 +188,40 @@ the corresponding `panic!` message, and a human-readable description.
 
 ---
 
+## Frontend Error-Handling Contract
+
+`frontend/lib/contractErrors.ts` is the frontend boundary between raw Soroban
+failures and user-facing messages. Keep these behaviors stable when adding or
+changing contract errors:
+
+1. **Normalize the wrapper first.** `getContractErrorCode()` removes the
+   `Error: ` and `HostError: ` prefixes, then recognizes both
+   `Error(Contract, #N)` and `Error(Contract, #N): <panic message>` forms.
+2. **Use `UNKNOWN` for code-only failures.** A Soroban error-table number is
+   not the application error enum, so `Error(Contract, #N)` maps to code `0`
+   rather than guessing a specific operation failure.
+3. **Prefer a localized message when a panic is known.**
+   `getContractErrorMessage()` selects `en`, `es`, or `fr`; unsupported locales
+   fall back to English. The unknown error has a locale-specific generic
+   message, while an unmapped numeric code gets an explicit diagnostic.
+4. **Preserve diagnostic text when parsing fails.** `parseContractError()`
+   returns the original raw error if neither the simulation wrapper nor the
+   panic message matches a known contract error. This prevents useful provider
+   diagnostics from being discarded.
+
+When adding a new contract error, update all three message maps and the
+`PANIC_TO_CODE` map together. Also update the canonical Rust error reference
+above and verify the frontend typecheck before opening a PR.
+
+### Examples
+
+| Input | Result |
+|-------|--------|
+| `Error(Contract, #1)` | Generic localized contract message |
+| `Error(Contract, #1): Escrow not found` | Escrow-not-found message |
+| `Soroban simulation failed: Bidding is closed` | Bidding-closed message |
+| `Provider unavailable` | Original provider diagnostic |
+
 ## Usage in Frontend
 
 ```typescript

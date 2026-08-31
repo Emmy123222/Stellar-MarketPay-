@@ -51,7 +51,7 @@ import FeeEstimationModal from "@/components/FeeEstimationModal";
 
 const mockTransaction = {} as import("@stellar/stellar-sdk").Transaction;
 
-const noop = jest.fn();
+const noop: any = jest.fn();
 
 describe("static component snapshots", () => {
   describe("Spinner", () => {
@@ -324,7 +324,11 @@ describe("static component snapshots", () => {
   });
 
   describe("ProposalComparison", () => {
-    it("default", () => snapshotContainer(<ProposalComparison />, "ProposalComparison"));
+    it("default", () =>
+      snapshotContainer(
+        <ProposalComparison myJobs={[]} jobApplications={new Map()} publicKey="GTEST" />,
+        "ProposalComparison",
+      ));
   });
 
   describe("RealtimeBidComparison", () => {
