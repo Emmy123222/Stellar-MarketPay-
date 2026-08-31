@@ -12,6 +12,7 @@ Stellar MarketPay is an open-source decentralised freelance marketplace where cl
 
 ---
 
+
 ## ✨ Features (v1)
 
 - 🔗 **Wallet Connect** — Freighter browser wallet integration
