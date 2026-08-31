@@ -169,6 +169,7 @@ describe("Audit Log Integration Tests", () => {
     if (!hasPostgres) return;
     // Insert 3 entries
     for (let i = 0; i < 3; i++) {
+      await new Promise(r => setTimeout(r, 10));
       await insertAuditLog({
         actorAddress,
         action: `page_test_${i}`,
