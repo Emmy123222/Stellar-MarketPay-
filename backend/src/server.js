@@ -66,6 +66,7 @@ const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
 const priceAlertRoutes     = require("./routes/priceAlerts");
 const nftRoutes            = require("./routes/nft");
+const turretRoutes         = require("./routes/turrets");
 
 const pool            = require("./db/pool");
 const { connectWithRetry } = require("./db/pool");
@@ -486,6 +487,7 @@ app.use("/api/proposal-templates", proposalTemplateRoutes);
 app.use("/api/price-alerts",      priceAlertRoutes);
 app.use("/api/ai",                aiScorerRoutes);
 app.use("/api/nft",               nftRoutes);
+app.use("/api/turrets",           turretRoutes);
 
 // 404 handler — must come after all routes
 app.use((req, res) => {
