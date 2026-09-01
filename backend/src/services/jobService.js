@@ -115,7 +115,7 @@ if (process.env.NODE_ENV === 'test') {
     return job;
   }
 
-  async function listJobs({ category, status = 'open', limit = 50, search, cursor, timezone, viewerAddress } = {}) {
+  async function listJobs({ category, status = 'open', limit = 50, search, _cursor, timezone, _viewerAddress } = {}) {
     let jobs = Array.from(store.jobs.values());
     if (status) jobs = jobs.filter((j) => j.status === status);
     if (category) jobs = jobs.filter((j) => j.category === category);

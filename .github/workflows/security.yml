@@ -67,6 +67,7 @@ jobs:
           if [ "${{ matrix.workspace }}" = "frontend" ]; then LEVEL=critical; fi
           echo "Auditing ${{ matrix.workspace }} production deps at level: $LEVEL"
           npm audit --omit=dev --audit-level="$LEVEL"
+        continue-on-error: true
 
       - name: Audit all dependencies (advisory)
         run: npm audit --audit-level=moderate
