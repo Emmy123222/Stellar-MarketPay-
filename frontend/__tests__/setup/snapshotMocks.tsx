@@ -66,6 +66,11 @@ jest.mock("@/components/EarningsChart", () => ({
   default: () => <div data-testid="earnings-chart-stub" />,
 }));
 
+jest.mock("@/components/TimeTracker", () => ({
+  __esModule: true,
+  default: () => <div data-testid="time-tracker-stub" />,
+}));
+
 jest.mock("@/components/dashboard-tabs/PostedJobsTab", () => ({
   __esModule: true,
   default: () => <div data-testid="posted-jobs-tab-stub" />,
