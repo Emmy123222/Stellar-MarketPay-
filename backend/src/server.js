@@ -29,6 +29,14 @@ const contributorRoutes = require("./routes/contributors");
 const verificationRoutes = require("./routes/verification");
 const nftRoutes         = require("./routes/nft");
 const aiScorerRoutes    = require("./routes/aiScorer");
+const contributorRoutes  = require("./routes/contributors");
+const gasEstimatorRoutes = require("./routes/gasEstimator");
+const transactionRoutes  = require("./routes/transactions");
+const daoRoutes          = require("./routes/dao");
+const proposalTemplateRoutes = require("./routes/proposalTemplates");
+const priceAlertRoutes     = require("./routes/priceAlerts");
+const nftRoutes            = require("./routes/nft");
+const turretRoutes         = require("./routes/turrets");
 
 const migrate           = require("./db/migrate");
 const IndexerService    = require("./services/indexerService");
@@ -161,6 +169,21 @@ app.get("/api/indexer/health", (req, res) => {
     status: "ok",
     indexer: indexerService.getHealth(),
   });
+  return router;
+})());
+app.use("/api/contributors",    contributorRoutes);
+app.use("/api/gas-estimate",    gasEstimatorRoutes);
+app.use("/api/transactions",   transactionRoutes);
+app.use("/api/dao",            daoRoutes);
+app.use("/api/proposal-templates", proposalTemplateRoutes);
+app.use("/api/price-alerts",      priceAlertRoutes);
+app.use("/api/ai",                aiScorerRoutes);
+app.use("/api/nft",               nftRoutes);
+app.use("/api/turrets",           turretRoutes);
+
+// 404 handler — must come after all routes
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found", code: "NOT_FOUND" });
 });
 
 app.use((err, req, res, _next) => {

@@ -275,6 +275,14 @@ describe("static component snapshots", () => {
   });
 
   describe("BoostJobModal", () => {
+    beforeAll(() => {
+      // Freeze Date.now so the tier expiry dates (Date.now() + N days)
+      // render as fixed dates regardless of when the test suite runs.
+      jest.spyOn(Date, "now").mockReturnValue(new Date("2026-01-15T12:00:00Z").getTime());
+    });
+    afterAll(() => {
+      jest.restoreAllMocks();
+    });
     it("default", () =>
       snapshotContainer(
         <BoostJobModal
