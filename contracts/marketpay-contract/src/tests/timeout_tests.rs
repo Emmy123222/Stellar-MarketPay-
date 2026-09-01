@@ -458,8 +458,7 @@ fn test_set_default_timeout_seconds_unauthorized_panics() {
 fn test_set_default_timeout_seconds_zero_panics() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _contract_client, _freelancer, _token_id, admin, _treasury) =
-        setup_contract(&env);
+    let (client, _contract_client, _freelancer, _token_id, admin, _treasury) = setup_contract(&env);
 
     client.set_default_timeout_seconds(&admin, &0);
 }
