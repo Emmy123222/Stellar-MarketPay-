@@ -66,9 +66,10 @@ export default function EditProfileForm({ publicKey }: Props) {
   const [availability, setAvailability] = useState<Availability>(createDefaultAvailability());
 
   useEffect(() => {
+    let isMounted = true;
     fetchProfile(publicKey)
       .then((data) => {
-        if (data) {
+        if (isMounted && data) {
           setDisplayName(data.displayName || "");
           setBio(data.bio || "");
           setRole(data.role || "freelancer");
@@ -83,9 +84,14 @@ export default function EditProfileForm({ publicKey }: Props) {
         }
       })
       .catch((err) => {
-        console.error("Failed to load profile:", err);
+        if (isMounted) console.error("Failed to load profile:", err);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+    return () => {
+      isMounted = false;
+    };
   }, [publicKey]);
 
   const handleAddSkill = (e: React.KeyboardEvent<HTMLInputElement>) => {
