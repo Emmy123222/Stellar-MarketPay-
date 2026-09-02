@@ -320,7 +320,7 @@ describe("useRealtimeBids (#856)", () => {
       expect(result.current.wsStatus).toBe("open");
 
       // Close the connection — should trigger exponential back-off reconnect
-      act(() => {
+      await act(async () => {
         ws1.close();
       });
       act(() => {

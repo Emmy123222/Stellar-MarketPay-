@@ -98,7 +98,7 @@ describe("tierToTransactionFee", () => {
 
   it("applies the default 10% buffer", () => {
     // 200 * 1.1 = 220 (ceil accounts for floating-point)
-    const expected = String(Math.ceil(200 * 1.1));
+    const expected = "220";
     expect(tierToTransactionFee(baseTier)).toBe(expected);
   });
 
