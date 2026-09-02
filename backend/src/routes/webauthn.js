@@ -309,7 +309,7 @@ async function handleLoginFinish(req, res, next) {
     );
 
     const { accessToken, refreshToken } = issueTokenPair({ publicKey });
-    setAuthCookies(res, accessToken, refreshToken);
+    setAuthCookies(req, res, accessToken, refreshToken);
 
     res.json({ success: true, token: accessToken });
   } catch (e) { next(e); }

@@ -42,6 +42,12 @@ jest.mock("@/lib/api", () => ({
   Timeframe: undefined,
 }));
 
+// Mock PriceAlertModal to avoid ToastProvider dependency
+jest.mock("@/components/PriceAlertModal", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+
 import XlmPriceWidget from "@/components/XlmPriceWidget";
 
 describe("XlmPriceWidget — TimeframeToggle buttons (Task 3.1)", () => {

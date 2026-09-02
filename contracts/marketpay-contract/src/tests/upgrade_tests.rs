@@ -1,15 +1,15 @@
 use crate::*;
-use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, MockAuth, MockAuthInvoke},
+    token, Address, BytesN, Env, IntoVal, String,
+};
 
-/// Verifies that:
-///   - get_version() returns 1 after initialize()
-///   - upgrade() with a valid hash increments the version to 2
-///   - existing escrow state is preserved after upgrade
-///
-/// Note: `update_current_contract_wasm` requires the hash to reference
-/// an installed WASM blob. In unit tests we verify the auth guard and
-/// version-bump logic; the actual WASM swap is covered by integration /
-/// testnet tests (see README upgrade process).
+/// A minimal, separately-compiled Soroban contract wasm (see
+/// `src/test_fixtures/README.md`), installed and swapped in by the
+/// WASM-swap tests below via the real `upgrade()` entrypoint — not a
+/// simulated storage write.
+const DUMMY_WASM: &[u8] = include_bytes!("../test_fixtures/dummy_upgrade_target.wasm");
+
 #[test]
 fn test_version_starts_at_one() {
     let env = Env::default();
@@ -22,10 +22,14 @@ fn test_version_starts_at_one() {
     assert_eq!(client.get_version(), 1u32);
 }
 
-/// Verifies escrow state is readable before and after a simulated upgrade
-/// (version bump via direct storage write, bypassing WASM swap).
+/// Runs a real WASM swap through `upgrade()` (installing an actual,
+/// independently-compiled contract wasm via `upload_contract_wasm`,
+/// rather than hand-editing storage) and confirms both the version bump
+/// and pre-existing escrow data survive it. Reads happen through
+/// `env.as_contract` because the freshly-installed wasm no longer
+/// exposes the old contract's client methods.
 #[test]
-fn test_escrow_state_preserved_across_version_bump() {
+fn test_escrow_state_preserved_across_real_wasm_swap() {
     let env = Env::default();
     env.mock_all_auths();
     let id = env.register(MarketPayContract, ());
@@ -56,20 +60,42 @@ fn test_escrow_state_preserved_across_version_bump() {
         },
     );
 
-    // Simulate the version bump that upgrade() performs (without WASM swap)
+    let new_hash = env.deployer().upload_contract_wasm(DUMMY_WASM);
+    client.upgrade(&new_hash);
+
     env.as_contract(&id, || {
-        let v: u32 = env.storage().instance().get(&DataKey::Version).unwrap_or(1);
-        env.storage().instance().set(&DataKey::Version, &(v + 1));
+        let version: u32 = env.storage().instance().get(&DataKey::Version).unwrap();
+        assert_eq!(version, 2);
+        let escrow: Escrow = env
+            .storage()
+            .instance()
+            .get(&DataKey::Escrow(job_id.clone()))
+            .unwrap();
+        assert_eq!(escrow.amount, 500);
+        assert_eq!(escrow.status, EscrowStatus::Locked);
     });
-
-    assert_eq!(client.get_version(), 2u32);
-
-    // Escrow state intact
-    let escrow = client.get_escrow(&job_id);
-    assert_eq!(escrow.amount, 500);
-    assert_eq!(escrow.status, EscrowStatus::Locked);
 }
 
+/// `upgrade()` on a real, uninstalled/garbage hash panics before it can
+/// touch storage — `update_current_contract_wasm` requires the hash to
+/// reference wasm already installed via `upload_contract_wasm`.
+#[test]
+#[should_panic]
+fn test_upgrade_rejects_uninstalled_wasm_hash() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(MarketPayContract, ());
+    let client = MarketPayContractClient::new(&env, &id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &admin);
+
+    let garbage: &[u8] = &[1, 2, 3, 4, 5];
+    let new_hash = env.deployer().upload_contract_wasm(garbage);
+    client.upgrade(&new_hash);
+}
+
+/// Baseline: calling `upgrade()` with no authorization mocked at all
+/// panics on the admin's `require_auth()`.
 #[test]
 #[should_panic]
 fn test_upgrade_rejected_for_non_admin() {
@@ -85,6 +111,38 @@ fn test_upgrade_rejected_for_non_admin() {
     let fake_hash = BytesN::from_array(&env, &[0u8; 32]);
     // Called without admin auth → should panic
     client.upgrade(&fake_hash);
+}
+
+/// Adversarial case: a non-admin account presents its own genuine,
+/// mocked authorization for the `upgrade` call. `upgrade()` requires
+/// the *stored admin's* `require_auth()`, which was never mocked, so
+/// even a legitimately-authenticated non-admin caller is rejected.
+#[test]
+#[should_panic]
+fn test_upgrade_rejected_for_authenticated_non_admin() {
+    let env = Env::default();
+    let id = env.register(MarketPayContract, ());
+    let client = MarketPayContractClient::new(&env, &id);
+
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&admin, &treasury);
+
+    let non_admin = Address::generate(&env);
+    let new_hash = env.deployer().upload_contract_wasm(DUMMY_WASM);
+
+    client
+        .mock_auths(&[MockAuth {
+            address: &non_admin,
+            invoke: &MockAuthInvoke {
+                contract: &id,
+                fn_name: "upgrade",
+                args: (new_hash.clone(),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .upgrade(&new_hash);
 }
 
 #[test]
