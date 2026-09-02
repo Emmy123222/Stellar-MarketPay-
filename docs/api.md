@@ -233,7 +233,7 @@ Push notifications use VAPID web push; see [WEB_PUSH_SETUP.md](WEB_PUSH_SETUP.md
 
 ## Disputes
 
-Evidence files are stored on IPFS; see [ADR-006](adr/ADR-006-ipfs-dispute-evidence.md) if present or [dispute_resolution_logic.md](dispute_resolution_logic.md).
+Evidence files are stored on IPFS; see ADR-006 if present or [dispute_resolution_logic.md](dispute_resolution_logic.md).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

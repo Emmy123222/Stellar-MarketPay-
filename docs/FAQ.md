@@ -431,7 +431,7 @@ Cryptocurrency transactions may be taxable in your jurisdiction. We:
 
 ### What is your privacy policy?
 
-See [Privacy Policy](../PRIVACY.md) for details on:
+See the Privacy Policy for details on:
 
 - Data collection
 - Data usage
@@ -440,7 +440,7 @@ See [Privacy Policy](../PRIVACY.md) for details on:
 
 ### What about terms of service?
 
-See [Terms of Service](../TERMS.md) for:
+See the Terms of Service for:
 
 - User responsibilities
 - Platform policies
