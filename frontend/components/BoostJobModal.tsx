@@ -152,7 +152,6 @@ export default function BoostJobModal({
           onClick={onClose}
           aria-label="Close boost job modal"
           className="text-amber-700 hover:text-amber-400 text-xl leading-none ml-4"
-          aria-label="Close boost job modal"
         >
           ✕
         </button>
