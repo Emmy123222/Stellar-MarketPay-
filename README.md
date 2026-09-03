@@ -12,6 +12,8 @@ Stellar MarketPay is an open-source decentralised freelance marketplace where cl
 
 ---
 
+
+## ✨ Features (v1)
 ## ✨ Features
 
 ### Core Marketplace (v1.0)

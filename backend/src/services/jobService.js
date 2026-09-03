@@ -532,13 +532,13 @@ function decodeCursor(cursor) {
  * List jobs with optional filtering, searching, and pagination.
  *
  * @param {ListJobsOptions} [options={}] - Options for listing jobs.
- * @returns {Promise<{jobs: Object[], nextCursor: string|null}>} An object containing the list of jobs and an optional next cursor for pagination.
+ * @returns {Promise<{jobs: Object[], nextCursor: string|null, hasMore: boolean}>} An object containing the list of jobs, an optional next cursor for pagination, and whether more results exist.
  * @throws {Error} If the provided cursor is invalid.
  */
 async function listJobs({
   category,
   status = "open",
-  limit = 50,
+  limit = 20,
   search,
   cursor,
   // eslint-disable-next-line no-unused-vars

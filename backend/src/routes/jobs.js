@@ -284,7 +284,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
     res.json({
       success: true,
       data: jobsWithRep,
-      next_cursor: result.nextCursor,
+      nextCursor: result.nextCursor,
       has_more: Boolean(result.nextCursor),
       ...(page !== undefined && !effectiveCursor && {
         _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `after`.",
