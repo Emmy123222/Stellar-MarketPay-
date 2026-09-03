@@ -320,12 +320,11 @@ describe("useRealtimeBids (#856)", () => {
       expect(result.current.wsStatus).toBe("open");
 
       // Close the connection — should trigger exponential back-off reconnect
-      act(() => {
+      await act(async () => {
         ws1.close();
       });
-      // Let the microtask for onclose resolve
-      await act(async () => {
-        await Promise.resolve();
+      act(() => {
+        jest.advanceTimersByTime(10);
       });
       expect(result.current.wsStatus).toBe("closed");
 

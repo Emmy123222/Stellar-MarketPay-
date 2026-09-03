@@ -26,10 +26,18 @@ export default function PasskeyManager({ publicKey }: Props) {
   const { success, info } = useToast();
 
   useEffect(() => {
+    let isMounted = true;
     fetchPasskeyCredentials()
-      .then(setPasskeys)
+      .then((data) => {
+        if (isMounted) setPasskeys(data);
+      })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+    return () => {
+      isMounted = false;
+    };
   }, [publicKey]);
 
   const handleRegister = async () => {

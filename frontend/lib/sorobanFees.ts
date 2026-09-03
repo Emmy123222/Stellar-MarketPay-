@@ -189,7 +189,7 @@ export async function fetchGasEstimateSafe(opts: {
  * @returns          Fee in stroops as a string (required by TransactionBuilder).
  */
 export function tierToTransactionFee(tier: FeeTier, bufferPct = 10): string {
-  const withBuffer = Math.ceil(tier.stroops * (1 + bufferPct / 100));
+  const withBuffer = Math.ceil(Math.round(tier.stroops * (1 + bufferPct / 100) * 1e4) / 1e4);
   return String(Math.max(withBuffer, 100)); // never below protocol minimum
 }
 
