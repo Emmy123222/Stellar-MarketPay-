@@ -36,6 +36,7 @@ import type { Job } from "@/utils/types";
 import { usePriceContext } from "@/contexts/PriceContext";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import JobStatusTimeline from "@/components/JobStatusTimeline";
+import SanitizedHtml from "@/components/SanitizedHtml";
 
 interface JobCardProps {
   job: Job;
@@ -229,7 +230,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
             <Link href={`/jobs/${job.id}`}>
               <h3 className="font-display font-semibold text-amber-100 text-base leading-snug group-hover:text-market-300 transition-colors line-clamp-2">
                 {job.searchHeadline ? (
-                  <span dangerouslySetInnerHTML={{ __html: job.searchHeadline }} />
+                  <SanitizedHtml html={job.searchHeadline} />
                 ) : (
                   job.title
                 )}
@@ -256,7 +257,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
         {/* Description */}
         <p className="text-amber-800/80 text-sm leading-relaxed line-clamp-3 mb-4">
           {job.descriptionHeadline ? (
-            <span dangerouslySetInnerHTML={{ __html: job.descriptionHeadline }} />
+            <SanitizedHtml html={job.descriptionHeadline} />
           ) : (
             job.description
           )}

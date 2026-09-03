@@ -4,6 +4,7 @@
   "rules": {
     "react-hooks/exhaustive-deps": "warn",
     "@next/next/no-img-element": "warn",
-    "sri/no-external-script-without-sri": "error"
+    "sri/no-external-script-without-sri": "error",
+    "sri/no-raw-dangerously-set-inner-html": "error"
   }
 }

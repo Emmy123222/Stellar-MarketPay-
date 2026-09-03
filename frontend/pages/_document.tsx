@@ -1,4 +1,5 @@
 import Document, { Html, Head, Main, NextScript, DocumentContext, DocumentInitialProps } from "next/document";
+import SanitizedHtml from "@/components/SanitizedHtml";
 
 // Inline script applied before hydration to prevent flash of wrong theme.
 // Must remain synchronous and inline — do NOT move to next/script.
@@ -35,7 +36,7 @@ export default function MarketPayDocument({ nonce }: MarketPayDocumentProps) {
   return (
     <Html lang="en">
       <Head nonce={nonce}>
-        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <SanitizedHtml as="script" nonce={nonce} html={themeScript} />
       </Head>
       <body>
         <Main />
