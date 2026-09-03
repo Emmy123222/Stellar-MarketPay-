@@ -8,7 +8,7 @@
  *  - Referee list with status badges
  *  - Payout history table
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { fetchReferralStats } from "@/lib/api";
 import type {
   ReferralStats,
@@ -85,21 +85,27 @@ export default function ReferralDashboard({
 
   const referralLink = `${BASE_URL}/?ref=${publicKey}`;
 
+  const isMountedRef = useRef(true);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await fetchReferralStats(publicKey);
-      setStats(data);
+      if (isMountedRef.current) setStats(data);
     } catch {
-      setError("Failed to load referral data. Please try again.");
+      if (isMountedRef.current) setError("Failed to load referral data. Please try again.");
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
     }
   }, [publicKey]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     load();
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [load]);
 
   const handleCopy = async () => {

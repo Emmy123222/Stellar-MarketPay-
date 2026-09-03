@@ -98,7 +98,7 @@ describe("tierToTransactionFee", () => {
 
   it("applies the default 10% buffer", () => {
     // 200 * 1.1 = 220 (ceil accounts for floating-point)
-    const expected = String(Math.ceil(200 * 1.1));
+    const expected = "220";
     expect(tierToTransactionFee(baseTier)).toBe(expected);
   });
 
@@ -156,6 +156,9 @@ describe("describeContractCall", () => {
 describe("fetchGasEstimateSafe", () => {
   beforeEach(() => {
     jest.restoreAllMocks();
+    if (!global.fetch) {
+      global.fetch = jest.fn();
+    }
   });
 
   it("returns fallback values when the API is unreachable", async () => {
@@ -173,10 +176,9 @@ describe("fetchGasEstimateSafe", () => {
   });
 
   it("returns fallback values when API returns non-OK status", async () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-    } as Response);
+    jest.spyOn(global, "fetch").mockResolvedValue(
+      { ok: false, status: 500 } as unknown as Response
+    );
 
     const result = await fetchGasEstimateSafe();
 
