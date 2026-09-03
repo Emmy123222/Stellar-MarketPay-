@@ -32,6 +32,9 @@ title = "Stellar MarketPay Gitleaks Configuration"
   # could never match a connection-string pattern.
   regexTarget = "line"
   regexes = [
+    '''G[A-Z2-7]{55}''',
+    '''TEST_SECRET_KEY_.*''',
+    '''S[A-Z2-7]{55}testmock.*''',
     '''postgresql://test:test@localhost:\d+/\w+''',
     '''postgresql://postgres:postgres@localhost:\d+/\w+''',
     '''ci-test-[a-z-]*(secret|key)[a-z0-9-]*''',
