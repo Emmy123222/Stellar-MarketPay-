@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
+import WalletAddressDisplay from "@/components/WalletAddressDisplay";
 import { server, explorerUrl, accountUrl, fetchMarketPayTransactions, type MarketPayTransaction } from "@/lib/stellar";
 import { formatXLM, shortenAddress, timeAgo } from "@/utils/format";
 import clsx from "clsx";
@@ -225,8 +226,7 @@ export default function TransactionHistory({ publicKey, onConnect }: DashboardPr
         <div>
           <h1 className="font-display text-3xl font-bold text-amber-100 mb-1">Transaction History</h1>
           <div className="flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="address-tag">{shortenAddress(publicKey)}</span>
+            <WalletAddressDisplay address={publicKey} />
             <a
               href={accountUrl(publicKey)}
               target="_blank"

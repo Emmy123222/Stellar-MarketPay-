@@ -12,6 +12,7 @@ import FaucetButton from "@/components/FaucetButton";
 import { usePriceContext } from "@/contexts/PriceContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import NotificationBell from "@/components/NotificationBell";
+import WalletAddressDisplay from "@/components/WalletAddressDisplay";
 import { fetchJobs, searchFreelancers } from "@/lib/api";
 import type { Job, UserProfile } from "@/utils/types";
 import { shortenAddress } from "@/utils/format";
@@ -52,9 +53,6 @@ export default function Navbar({
   const [hasJobAlertBadge, setHasJobAlertBadge] = useState(false);
   const { currencyMode, setCurrencyMode, priceLoading } = usePriceContext();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [balance, setBalance] = useState<string | null>(null);
-  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
-  const [balanceLoading, setBalanceLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -62,27 +60,6 @@ export default function Navbar({
   const [activeSearchIndex, setActiveSearchIndex] = useState(0);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (publicKey) {
-      setBalanceLoading(true);
-      Promise.all([
-        import("@/lib/stellar").then(m => m.getXLMBalance(publicKey)),
-        import("@/lib/stellar").then(m => m.getUSDCBalance(publicKey))
-      ]).then(([xlm, usdc]) => {
-        setBalance(Number(xlm).toFixed(2));
-        setUsdcBalance(Number(usdc).toFixed(2));
-      }).catch(() => {
-        setBalance("0.00");
-        setUsdcBalance("0.00");
-      }).finally(() => {
-        setBalanceLoading(false);
-      });
-    } else {
-      setBalance(null);
-      setUsdcBalance(null);
-    }
-  }, [publicKey]);
 
   // Hydration-safe mount tracking for theme toggle
   useEffect(() => { setMounted(true); }, []);
@@ -425,20 +402,7 @@ export default function Navbar({
           {publicKey ? (
             <>
               <NotificationBell publicKey={publicKey} />
-              <button
-                onClick={() => router.push("/dashboard/transactions")}
-                className="flex items-center gap-1 sm:gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity text-xs sm:text-sm px-2 py-2 sm:px-3 sm:py-2 min-h-[44px]"
-                title={t("wallet.balance") as string}
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="hidden sm:inline">{shortenAddress(publicKey)}</span>
-                <span className="sm:hidden text-[10px]">{shortenAddress(publicKey, 6)}</span>
-                {balanceLoading ? (
-                  <span className="text-xs text-amber-800">{t("wallet.loading")}</span>
-                ) : balance && usdcBalance ? (
-                  <span className="text-xs font-medium text-market-400 hidden sm:inline">{balance} XLM / {usdcBalance} USDC</span>
-                ) : null}
-              </button>
+              <WalletAddressDisplay address={publicKey} truncatedChars={6} />
               <button
                 onClick={onDisconnect}
                 className="hidden sm:inline text-xs text-amber-800 hover:text-amber-500 transition-colors px-2 py-1"
