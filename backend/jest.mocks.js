@@ -17,3 +17,16 @@ jest.mock("./src/middleware/csrf", () => {
     doubleCsrfProtection: (req, res, next) => next(),
   };
 });
+
+// Mock sanitize-html to avoid loading htmlparser2 (ESM-only) under Jest CJS.
+// htmlparser2 v12+ ships as ESM which Jest cannot parse without additional
+// Babel plugins; the mock strips the same tags the real function does.
+jest.mock("sanitize-html", () => {
+  // Strip script/style tags *and* their content, then strip all remaining tags.
+  const sanitize = (html) => {
+    let result = html.replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*(script|style)\s*>/gi, "");
+    result = result.replace(/<[^>]*>/g, "");
+    return result;
+  };
+  return Object.assign(sanitize, { default: sanitize });
+});
