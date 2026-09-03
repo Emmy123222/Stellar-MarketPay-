@@ -151,7 +151,9 @@ describe("Job Lifecycle Integration Tests", () => {
     expect(escrowResponse.status).toBe(200);
     expect(escrowResponse.body.success).toBe(true);
 
-    // Verify escrow in database
+    // Verify escrow in database. Escrow is funded at the accepted application's
+    // bid amount (95), not the job's listing budget (100) — see #850 fix
+    // "pass accepted bid amount to escrow update".
     const escrowResult = await testClient.query("SELECT * FROM escrows WHERE job_id = $1", [jobId]);
     expect(escrowResult.rows.length).toBe(1);
     expect(escrowResult.rows[0].status).toBe("funded");
