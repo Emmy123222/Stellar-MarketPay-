@@ -18,10 +18,15 @@ jest.mock("./notificationService", () => ({
   },
 }));
 
+let applicationService;
 const pool = require("../db/pool");
-const { isBlocked,
-  calculateFreelancerTier,
-} = require("./profileService");
+const { isBlocked } = require("./profileService");
+jest.isolateModules(() => {
+  const originalEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
+  applicationService = require("./applicationService");
+  process.env.NODE_ENV = originalEnv;
+});
 const {
   submitApplication,
   getApplicationsForJob,
@@ -30,7 +35,7 @@ const {
   withdrawApplication,
   closeBiddingForJob,
   revealApplicationBid,
-} = require("./applicationService");
+} = applicationService;
 const { createJob } = require("./jobService");
 
 describe("applicationService", () => {

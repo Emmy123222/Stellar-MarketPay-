@@ -132,19 +132,6 @@ function buildProfileRow(overrides = {}) {
   };
 }
 
-function buildJobRow(overrides = {}) {
-  return {
-    id: FAKE_JOB_ID,
-    title: "Test Job",
-    status: "open",
-    removed_at: null,
-    removed_by: null,
-    remove_reason: null,
-    deleted_at: null,
-    updated_at: new Date().toISOString(),
-    ...overrides,
-  };
-}
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
@@ -153,7 +140,7 @@ describe("Admin User Management — GET /api/admin/users", () => {
     jest.clearAllMocks();
 
     // Mock requireAdmin2FA: query admin_profiles, return totp_enabled=false
-    pool.query.mockImplementation(async (sql, params) => {
+    pool.query.mockImplementation(async (sql, _params) => {
       if (sql.includes("admin_profiles")) {
         return { rows: [{ totp_enabled: false }] };
       }
@@ -285,7 +272,7 @@ describe("Admin User Management — POST /api/admin/users/:address/ban", () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    pool.query.mockImplementation(async (sql, params) => {
+    pool.query.mockImplementation(async (sql, _params) => {
       if (sql.includes("admin_profiles")) {
         return { rows: [{ totp_enabled: false }] };
       }
@@ -346,7 +333,7 @@ describe("Admin User Management — POST /api/admin/users/:address/ban", () => {
   });
 
   it("returns 404 for non-existent user", async () => {
-    pool.query.mockImplementation(async (sql, params) => {
+    pool.query.mockImplementation(async (sql, _params) => {
       if (sql.includes("admin_profiles")) {
         return { rows: [{ totp_enabled: false }] };
       }
@@ -379,7 +366,7 @@ describe("Admin User Management — POST /api/admin/users/:address/unban", () =>
   beforeEach(() => {
     jest.clearAllMocks();
 
-    pool.query.mockImplementation(async (sql, params) => {
+    pool.query.mockImplementation(async (sql, _params) => {
       if (sql.includes("admin_profiles")) {
         return { rows: [{ totp_enabled: false }] };
       }
@@ -423,7 +410,7 @@ describe("Admin User Management — POST /api/admin/users/:address/unban", () =>
   });
 
   it("returns 404 for non-existent user", async () => {
-    pool.query.mockImplementation(async (sql, params) => {
+    pool.query.mockImplementation(async (sql, _params) => {
       if (sql.includes("admin_profiles")) {
         return { rows: [{ totp_enabled: false }] };
       }
@@ -453,7 +440,7 @@ describe("Admin User Management — POST /api/admin/jobs/:id/remove", () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    pool.query.mockImplementation(async (sql, params) => {
+    pool.query.mockImplementation(async (sql, _params) => {
       if (sql.includes("admin_profiles")) {
         return { rows: [{ totp_enabled: false }] };
       }
@@ -503,7 +490,7 @@ describe("Admin User Management — POST /api/admin/jobs/:id/remove", () => {
   });
 
   it("returns 404 for non-existent or already removed job", async () => {
-    pool.query.mockImplementation(async (sql, params) => {
+    pool.query.mockImplementation(async (sql, _params) => {
       if (sql.includes("admin_profiles")) {
         return { rows: [{ totp_enabled: false }] };
       }

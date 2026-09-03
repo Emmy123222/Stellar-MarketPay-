@@ -306,7 +306,7 @@ describe("Webhooks Route Suite (/api/webhooks)", () => {
       }
 
       expect(last.status).toBe(429);
-      expect(last.body.error).toMatch(/Too many requests/);
+      expect(last.body.message).toMatch(/Too many requests/i);
 
       process.env.RATE_LIMIT_SCALE = originalScale;
     });

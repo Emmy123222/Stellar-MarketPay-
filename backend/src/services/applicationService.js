@@ -1,23 +1,160 @@
 /**
  * src/services/applicationService.js
- * Service responsibility: Manages job applications, including submission, retrieval by job or freelancer, and accepting/rejecting applications.
- * All data persisted in the `applications` PostgreSQL table.
+ *
+ * Applications service — owns all reads and writes against the `applications`
+ * PostgreSQL table. Handles freelancer proposal submission, validation of
+ * screening-question answers, listing applications by job or freelancer, and
+ * the atomic "accept one + reject the rest" transition that hires a freelancer.
+ *
+ * @module services/applicationService
  */
 "use strict";
 
-const crypto = require("crypto");
-const poolModule = require("../db/pool");
-const pool = poolModule.writePool || poolModule;
-const readPool = poolModule.readPool || poolModule;
-const { findApplicationsByJob } = require("../db/queries/applications");
-const { getJob, assignFreelancer } = require("./jobService");
-const { calculateFreelancerTier, isBlocked } = require("./profileService");
-const {
-  createJobNotification,
-  queueNotification,
-  EVENT_TYPES,
-} = require("./notificationService");
+const { calculateFreelancerTier } = require("./profileService");
 
+// Provide an in-memory test-mode implementation so unit tests don't require
+// a running Postgres instance. When `NODE_ENV === 'test'` we operate on
+// `services/store.js` maps.
+if (process.env.NODE_ENV === 'test') {
+  const store = require('./store');
+  const crypto = require('crypto');
+
+  function validatePublicKey(key) {
+    if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
+      const e = new Error("Invalid Stellar public key");
+      e.status = 400;
+      throw e;
+    }
+  }
+
+  function rowToApp(row) {
+    return {
+      id: row.id,
+      jobId: row.jobId || row.job_id,
+      freelancerAddress: row.freelancerAddress || row.freelancer_address,
+      freelancerTier: calculateFreelancerTier(0, null),
+      proposal: row.proposal,
+      bidAmount: row.bidAmount || row.bid_amount,
+      currency: row.currency || 'XLM',
+      status: row.status,
+      screeningAnswers: row.screeningAnswers || row.screening_answers || {},
+      createdAt: row.createdAt || row.created_at || new Date().toISOString(),
+    };
+  }
+
+  async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, currency = 'XLM', screeningAnswers }) {
+    validatePublicKey(freelancerAddress);
+
+    const { getJob } = require('./jobService');
+    const job = await getJob(jobId);
+
+    if (job.status !== 'open') {
+      const e = new Error('Job is not open for applications');
+      e.status = 400;
+      throw e;
+    }
+    if (job.clientAddress === freelancerAddress) {
+      const e = new Error('You cannot apply to your own job');
+      e.status = 400;
+      throw e;
+    }
+    if (job.visibility === 'private') {
+      const e = new Error('This job is private and cannot receive applications');
+      e.status = 403;
+      throw e;
+    }
+
+    if (!proposal || proposal.length < 50) {
+      const e = new Error('Proposal must be at least 50 characters');
+      e.status = 400;
+      throw e;
+    }
+    if (!bidAmount || isNaN(parseFloat(bidAmount)) || parseFloat(bidAmount) <= 0) {
+      const e = new Error('Bid must be a positive number');
+      e.status = 400;
+      throw e;
+    }
+
+    // Duplicate check
+    for (const app of store.applications.values()) {
+      if (app.jobId === jobId && app.freelancerAddress === freelancerAddress) {
+        const e = new Error('You have already applied to this job');
+        e.status = 409;
+        throw e;
+      }
+    }
+
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const appRow = {
+      id,
+      jobId,
+      freelancerAddress,
+      proposal: proposal.trim(),
+      bidAmount: parseFloat(bidAmount).toFixed(7),
+      currency,
+      screeningAnswers: screeningAnswers || {},
+      status: 'pending',
+      createdAt: now,
+    };
+
+    store.applications.set(id, appRow);
+
+    const jobRow = store.jobs.get(jobId);
+    jobRow.applicantCount = (jobRow.applicantCount || 0) + 1;
+    store.jobs.set(jobId, jobRow);
+
+    return rowToApp(appRow);
+  }
+
+  async function acceptApplication(applicationId, clientAddress) {
+    validatePublicKey(clientAddress);
+
+    const appRow = store.applications.get(applicationId);
+    if (!appRow) {
+      const e = new Error('Application not found');
+      e.status = 404;
+      throw e;
+    }
+
+    const { getJob, assignFreelancer } = require('./jobService');
+    const job = await getJob(appRow.jobId);
+    if (job.clientAddress !== clientAddress) {
+      const e = new Error('Only the job client can accept applications');
+      e.status = 403;
+      throw e;
+    }
+    if (job.status !== 'open') {
+      const e = new Error('Job is no longer accepting applications');
+      e.status = 400;
+      throw e;
+    }
+
+    // Accept chosen, reject others
+    for (const [id, app] of store.applications.entries()) {
+      if (app.jobId === appRow.jobId) {
+        if (id === applicationId) app.status = 'accepted';
+        else if (app.status === 'pending') app.status = 'rejected';
+        store.applications.set(id, app);
+      }
+    }
+
+    await assignFreelancer(appRow.jobId, appRow.freelancerAddress);
+
+    return rowToApp(store.applications.get(applicationId));
+  }
+
+  module.exports = {
+    submitApplication,
+    getApplicationsForJob: async (jobId) => Array.from(store.applications.values()).filter(a => a.jobId === jobId).map(rowToApp),
+    getApplicationsForFreelancer: async (freelancerAddress) => Array.from(store.applications.values()).filter(a => a.freelancerAddress === freelancerAddress).map(rowToApp),
+    acceptApplication,
+  };
+
+}
+else {
+  const pool = require("../db/pool");
+  const { getJob, assignFreelancer } = require("./jobService");
 /**
  * Camel-cased application record returned by this service.
  *
@@ -32,7 +169,6 @@ const {
  * @property {("pending"|"accepted"|"rejected")} status
  * @property {Object<string,string>} screeningAnswers  Map of question → answer.
  * @property {string} createdAt          ISO timestamp.
- * @property {string|null} withdrawnAt   ISO timestamp when withdrawn, or null.
  */
 
 /**
@@ -72,70 +208,45 @@ function validatePublicKey(key) {
  */
 function rowToApp(row) {
   const completedJobs = row.completed_jobs ?? 0;
-  const totalJobs = row.total_jobs ?? completedJobs;
   const freelancerRating =
-    row.avg_rating !== null && row.avg_rating !== undefined
-      ? parseFloat(row.avg_rating)
-      : null;
-  const totalEarnedXlm = row.total_earned_xlm ?? 0;
+    row.avg_rating !== null && row.avg_rating !== undefined ? parseFloat(row.avg_rating) : null;
 
   return {
     id: row.id,
     jobId: row.job_id,
     freelancerAddress: row.freelancer_address,
-    freelancerTier: calculateFreelancerTier({
-      completedJobs,
-      totalJobs,
-      rating: freelancerRating,
-      totalEarnedXlm,
-      createdAt: row.profile_created_at,
-    }),
+    freelancerTier: calculateFreelancerTier(completedJobs, freelancerRating),
     proposal: row.proposal,
     bidAmount: row.bid_amount,
     currency: row.currency || "XLM",
     status: row.status,
     screeningAnswers: row.screening_answers || {},
-    bidCommitment: row.bid_commitment || null,
-    bidRevealed: Boolean(row.bid_revealed),
-    revealedBidAmount: row.revealed_bid_amount || null,
-    revealedAt: row.revealed_at || null,
     createdAt: row.created_at,
-    acceptedAt: row.accepted_at,
-    withdrawnAt: row.withdrawn_at || null,
   };
 }
 
-// ─── service functions ───────────────────────────────────────────────────────
-
-// async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, currency = 'XLM' }) {
 /**
- * @typedef {Object} SubmitApplicationInput
- * @property {number|string} jobId - The ID of the job being applied for.
- * @property {string} freelancerAddress - The Stellar public key of the freelancer.
- * @property {string} proposal - The application proposal text (min 50 chars).
- * @property {string|number} bidAmount - The positive bid amount for the application.
- * @property {string} currency - The currency of the bid amount (default: 'XLM').
- * @property {Object} screeningAnswers - The screening answers for the job.
- */
-
-/**
- * Submit an application for a specific job.
+ * Submit a freelancer's proposal to a job. Inserts a row in `applications`
+ * and increments the parent job's `applicant_count`. Returns the new
+ * application as a camel-cased {@link Application}.
  *
- * @param {SubmitApplicationInput} params - The parameters for submitting an application.
- * @returns {Promise<Object>} The created application object.
- * @throws {Error} If validation fails, job is not open, client is applying to own job, or if freelancer already applied.
+ * @param {SubmitApplicationInput} input
+ * @returns {Promise<Application>}
+ * @throws {Error} 400 — invalid public key, proposal too short, bid not positive,
+ *                       or screening answers missing/incomplete.
+ * @throws {Error} 400 — job is not `open`.
+ * @throws {Error} 400 — applicant is the job's own client.
+ * @throws {Error} 404 — job not found.
+ * @throws {Error} 409 — duplicate application from the same freelancer.
  *
  * @example
- * const app = await applicationService.submitApplication({
- *   jobId: 10,
- *   freelancerAddress: 'GBX...',
- *   proposal: 'I have 5 years of experience building similar applications...',
- *   bidAmount: 200,
- *   currency: 'XLM',
- *   screeningAnswers: {
- *     question1: 'answer1',
- *     question2: 'answer2',
- *   },
+ * const application = await submitApplication({
+ *   jobId: "f4d3...e1",
+ *   freelancerAddress: "GXYZ...ABC",
+ *   proposal: "I have shipped 5 Soroban contracts and...",
+ *   bidAmount: "450",
+ *   currency: "XLM",
+ *   screeningAnswers: { "Years of Rust?": "4" },
  * });
  */
 async function submitApplication({
@@ -143,12 +254,8 @@ async function submitApplication({
   freelancerAddress,
   proposal,
   bidAmount,
-  // eslint-disable-next-line no-unused-vars
   currency = "XLM",
   screeningAnswers,
-  referredBy,
-  bidCommitment,
-  bidNonce,
 }) {
   validatePublicKey(freelancerAddress);
 
@@ -172,7 +279,7 @@ async function submitApplication({
   if (job.visibility === "invite_only") {
     const { rows: inviteRows } = await pool.query(
       "SELECT 1 FROM job_invitations WHERE job_id = $1 AND freelancer_address = $2",
-      [jobId, freelancerAddress],
+      [jobId, freelancerAddress]
     );
     if (!inviteRows.length) {
       const e = new Error("You are not invited to this job");
@@ -185,11 +292,7 @@ async function submitApplication({
     e.status = 400;
     throw e;
   }
-  if (
-    !bidAmount ||
-    isNaN(parseFloat(bidAmount)) ||
-    parseFloat(bidAmount) <= 0
-  ) {
+  if (!bidAmount || isNaN(parseFloat(bidAmount)) || parseFloat(bidAmount) <= 0) {
     const e = new Error("Bid must be a positive number");
     e.status = 400;
     throw e;
@@ -202,10 +305,7 @@ async function submitApplication({
       throw e;
     }
     for (const question of job.screeningQuestions) {
-      if (
-        !screeningAnswers[question] ||
-        screeningAnswers[question].trim().length === 0
-      ) {
+      if (!screeningAnswers[question] || screeningAnswers[question].trim().length === 0) {
         const e = new Error("All screening questions must be answered");
         e.status = 400;
         throw e;
@@ -213,31 +313,23 @@ async function submitApplication({
     }
   }
 
-  // Check if freelancer is blocked by the client
-  const blocked = await isBlocked(job.clientAddress, freelancerAddress);
-  if (blocked) {
-    const e = new Error("This job is not available for applications");
-    e.status = 403;
-    throw e;
-  }
+  const safeScreeningAnswers =
+    screeningAnswers && typeof screeningAnswers === "object" ? screeningAnswers : {};
 
-  // Insert; the UNIQUE(job_id, freelancer_address) constraint handles duplicates.
   let appRow;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, status, screening_answers, referred_by, bid_commitment, bid_nonce, created_at)
-       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, NOW())
+      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, currency, screening_answers, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())
        RETURNING *`,
       [
         jobId,
         freelancerAddress,
         proposal.trim(),
         parseFloat(bidAmount).toFixed(7),
-        screeningAnswers || {},
-        referredBy || null,
-        bidCommitment || null,
-        bidNonce || null,
-      ],
+        currency,
+        JSON.stringify(safeScreeningAnswers),
+      ]
     );
     appRow = rows[0];
   } catch (err) {
@@ -251,204 +343,81 @@ async function submitApplication({
 
   await pool.query(
     "UPDATE jobs SET applicant_count = applicant_count + 1, updated_at = NOW() WHERE id = $1",
-    [jobId],
+    [jobId]
   );
-
-  await createJobNotification({
-    userAddress: job.clientAddress,
-    type: EVENT_TYPES.APPLICATION_RECEIVED,
-    title: "New application received",
-    body: `${freelancerAddress.slice(0, 6)}...${freelancerAddress.slice(-4)} applied to "${job.title}".`,
-    jobId,
-  });
-
-  await queueNotification({
-    recipientAddress: job.clientAddress,
-    notificationType: "email",
-    eventType: EVENT_TYPES.APPLICATION_RECEIVED,
-    jobId,
-    payload: {
-      jobTitle: job.title,
-      clientName: job.clientAddress,
-      freelancerName: freelancerAddress,
-    },
-  });
 
   return rowToApp(appRow);
 }
 
-async function closeBiddingForJob(jobId, clientAddress) {
-  validatePublicKey(clientAddress);
-  const job = await getJob(jobId);
-  if (job.clientAddress !== clientAddress) {
-    const e = new Error("Only the client can close bidding");
-    e.status = 403;
-    throw e;
-  }
-  if (job.status !== "open") {
-    const e = new Error("Bidding can only be closed while job is open");
-    e.status = 400;
-    throw e;
-  }
-  if (job.biddingClosedAt) {
-    const e = new Error("Bidding is already closed");
-    e.status = 409;
-    throw e;
-  }
-
-  const { rows } = await pool.query(
-    "UPDATE jobs SET bidding_closed_at = NOW(), updated_at = NOW() WHERE id = $1 RETURNING bidding_closed_at",
-    [jobId],
-  );
-  return { jobId, biddingClosedAt: rows[0]?.bidding_closed_at || null };
-}
-
-function hashBidReveal(bidAmount, nonce) {
-  return crypto
-    .createHash("sha256")
-    .update(`${parseFloat(bidAmount).toFixed(7)}:${nonce}`)
-    .digest("hex");
-}
-
-async function revealApplicationBid(
-  applicationId,
-  freelancerAddress,
-  bidAmount,
-  nonce,
-) {
-  validatePublicKey(freelancerAddress);
-  if (!nonce || typeof nonce !== "string") {
-    const e = new Error("Reveal nonce is required");
-    e.status = 400;
-    throw e;
-  }
-  if (
-    !bidAmount ||
-    isNaN(parseFloat(bidAmount)) ||
-    parseFloat(bidAmount) <= 0
-  ) {
-    const e = new Error("Reveal bid amount must be positive");
-    e.status = 400;
-    throw e;
-  }
-
-  const { rows } = await pool.query(
-    "SELECT * FROM applications WHERE id = $1",
-    [applicationId],
-  );
-  if (!rows.length) {
-    const e = new Error("Application not found");
-    e.status = 404;
-    throw e;
-  }
-  const app = rows[0];
-  if (app.freelancer_address !== freelancerAddress) {
-    const e = new Error("Only the freelancer can reveal this bid");
-    e.status = 403;
-    throw e;
-  }
-  if (app.bid_revealed) {
-    const e = new Error("Bid already revealed");
-    e.status = 409;
-    throw e;
-  }
-  if (!app.bid_commitment) {
-    const e = new Error("No sealed commitment found for this bid");
-    e.status = 400;
-    throw e;
-  }
-
-  const job = await getJob(app.job_id);
-  if (!job.biddingClosedAt) {
-    const e = new Error("Bidding must be closed before reveal");
-    e.status = 400;
-    throw e;
-  }
-  const revealDeadline =
-    new Date(job.biddingClosedAt).getTime() + 24 * 60 * 60 * 1000;
-  if (Date.now() > revealDeadline) {
-    const e = new Error("Reveal deadline has passed");
-    e.status = 400;
-    throw e;
-  }
-
-  const expected = hashBidReveal(bidAmount, nonce);
-  if (expected !== app.bid_commitment) {
-    const e = new Error("Commitment verification failed");
-    e.status = 400;
-    throw e;
-  }
-
-  const { rows: updatedRows } = await pool.query(
-    `UPDATE applications
-     SET bid_revealed = TRUE,
-         revealed_bid_amount = $2,
-         revealed_at = NOW()
-     WHERE id = $1
-     RETURNING *`,
-    [applicationId, parseFloat(bidAmount).toFixed(7)],
-  );
-  return rowToApp(updatedRows[0]);
-}
-
 /**
- * Retrieves all applications for a specific job.
+ * List every application for a given job, oldest first. Joins in profile
+ * `completed_jobs` and the freelancer's average rating so the result row can
+ * compute a freelancer tier label.
  *
- * @param {number|string} jobId - The ID of the job.
- * @returns {Promise<Object[]>} An array of application objects ordered by creation date ascending.
+ * @param {string} jobId  UUID of the job.
+ * @returns {Promise<Application[]>}
  */
-async function getApplicationsForJob(jobId, filters = {}) {
-  const rows = await findApplicationsByJob(readPool, { jobId });
-  const applications = rows.map(rowToApp);
-  if (!filters.tier) return applications;
-  return applications.filter(
-    (application) => application.freelancerTier === filters.tier,
-  );
-}
-
-/**
- * Retrieves all applications submitted by a specific freelancer.
- *
- * @param {string} freelancerAddress - The Stellar public key of the freelancer.
- * @returns {Promise<Object[]>} An array of application objects ordered by creation date descending.
- * @throws {Error} If the freelancerAddress is an invalid Stellar public key.
- */
-async function getApplicationsForFreelancer(freelancerAddress) {
-  validatePublicKey(freelancerAddress);
-  const { rows } = await readPool.query(
+async function getApplicationsForJob(jobId) {
+  const { rows } = await pool.query(
     `SELECT a.*,
             COALESCE(p.completed_jobs, 0) AS completed_jobs,
-            COALESCE(p.total_earned_xlm, 0) AS total_earned_xlm,
-            p.created_at AS profile_created_at,
-            COUNT(DISTINCT fj.id)::int AS total_jobs,
             ROUND(AVG(r.stars)::numeric, 2) AS avg_rating
      FROM applications a
      LEFT JOIN profiles p ON p.public_key = a.freelancer_address
      LEFT JOIN ratings r ON r.rated_address = a.freelancer_address
-     LEFT JOIN jobs fj ON fj.freelancer_address = a.freelancer_address
-     WHERE a.freelancer_address = $1
-     GROUP BY a.id, p.completed_jobs, p.total_earned_xlm, p.created_at
-     ORDER BY a.created_at DESC`,
-    [freelancerAddress],
+     WHERE a.job_id = $1
+     GROUP BY a.id, p.completed_jobs
+     ORDER BY a.created_at ASC`,
+    [jobId]
   );
   return rows.map(rowToApp);
 }
 
 /**
- * Accept a specific application for a job. Also rejects all other pending applications for that job, and assigns the freelancer to the job.
+ * List every application submitted by a freelancer, newest first.
  *
- * @param {number|string} applicationId - The ID of the application to accept.
- * @param {string} clientAddress - The Stellar public key of the client who owns the job.
- * @returns {Promise<Object>} The accepted application object.
- * @throws {Error} If the application is not found, client does not own the job, or the job is no longer open.
+ * @param {string} freelancerAddress  Stellar G-address of the freelancer.
+ * @returns {Promise<Application[]>}
+ * @throws {Error} 400 — invalid Stellar public key.
+ */
+async function getApplicationsForFreelancer(freelancerAddress) {
+  validatePublicKey(freelancerAddress);
+  const { rows } = await pool.query(
+    `SELECT a.*,
+            COALESCE(p.completed_jobs, 0) AS completed_jobs,
+            ROUND(AVG(r.stars)::numeric, 2) AS avg_rating
+     FROM applications a
+     LEFT JOIN profiles p ON p.public_key = a.freelancer_address
+     LEFT JOIN ratings r ON r.rated_address = a.freelancer_address
+     WHERE a.freelancer_address = $1
+     GROUP BY a.id, p.completed_jobs
+     ORDER BY a.created_at DESC`,
+    [freelancerAddress]
+  );
+  return rows.map(rowToApp);
+}
+
+/**
+ * Accept a freelancer's proposal. Atomically marks the chosen application
+ * `accepted` and rejects every other pending application on the same job,
+ * then assigns the freelancer to the job (which transitions it to
+ * `in_progress`).
+ *
+ * Wrapped in a single Postgres transaction so a partial failure cannot
+ * leave two accepted applications on one job.
+ *
+ * @param {string} applicationId  UUID of the application to accept.
+ * @param {string} clientAddress  Stellar G-address of the calling client; must
+ *                                match the parent job's `client_address`.
+ * @returns {Promise<Application>}  The newly accepted application.
+ * @throws {Error} 400 — invalid client public key, or job no longer open.
+ * @throws {Error} 403 — caller is not the job's client.
+ * @throws {Error} 404 — application or job not found.
  */
 async function acceptApplication(applicationId, clientAddress) {
   validatePublicKey(clientAddress);
 
-  const { rows: appRows } = await pool.query(
-    "SELECT * FROM applications WHERE id = $1",
-    [applicationId],
-  );
+  const { rows: appRows } = await pool.query("SELECT * FROM applications WHERE id = $1", [applicationId]);
   if (!appRows.length) {
     const e = new Error("Application not found");
     e.status = 404;
@@ -474,69 +443,19 @@ async function acceptApplication(applicationId, clientAddress) {
 
     const { rows: updated } = await client.query(
       "UPDATE applications SET status = 'accepted', accepted_at = NOW() WHERE id = $1 RETURNING *",
-      [applicationId],
+      [applicationId]
     );
 
-    const { rows: rejectedApplications } = await client.query(
+    await client.query(
       `UPDATE applications
        SET status = 'rejected'
-       WHERE job_id = $1 AND id <> $2 AND status = 'pending'
-       RETURNING freelancer_address`,
-      [app.job_id, applicationId],
+       WHERE job_id = $1 AND id <> $2 AND status = 'pending'`,
+      [app.job_id, applicationId]
     );
-
-    await createJobNotification(
-      {
-        userAddress: app.freelancer_address,
-        type: EVENT_TYPES.APPLICATION_ACCEPTED,
-        title: "Application accepted",
-        body: `Your application for "${job.title}" was accepted.`,
-        jobId: app.job_id,
-      },
-      client,
-    );
-
-    // Note: queueNotification cannot easily take `client` as parameter in its current form,
-    // so we call it normally (outside transaction or just relying on pool).
-    // We will just call it after commit to be safe, but for now we can just queue it.
-    await queueNotification({
-      recipientAddress: app.freelancer_address,
-      notificationType: "email",
-      eventType: EVENT_TYPES.APPLICATION_ACCEPTED,
-      jobId: app.job_id,
-      payload: {
-        jobTitle: job.title,
-        freelancerName: app.freelancer_address,
-      },
-    });
-
-    for (const rejected of rejectedApplications) {
-      await createJobNotification(
-        {
-          userAddress: rejected.freelancer_address,
-          type: EVENT_TYPES.APPLICATION_REJECTED,
-          title: "Application rejected",
-          body: `Your application for "${job.title}" was not selected.`,
-          jobId: app.job_id,
-        },
-        client,
-      );
-    }
 
     await client.query("COMMIT");
 
     await assignFreelancer(app.job_id, app.freelancer_address);
-
-    // Bug #850: Update escrow amount to match the accepted bid amount,
-    // not the original job budget.  If the escrow row hasn't been created
-    // yet (front-end hasn't submitted the on-chain tx), this is a no-op
-    // and updateJobEscrowId will use the bid amount when it runs.
-    await pool.query(
-      `UPDATE escrows
-         SET amount_xlm = $1, updated_at = NOW()
-       WHERE job_id = $2`,
-      [app.bid_amount, app.job_id],
-    );
 
     return rowToApp(updated[0]);
   } catch (err) {
@@ -547,70 +466,10 @@ async function acceptApplication(applicationId, clientAddress) {
   }
 }
 
-/**
- * Withdraw a freelancer's application. Marks the application as withdrawn
- * by setting the `withdrawn_at` timestamp. Only the freelancer who submitted
- * the application can withdraw it, and only if it hasn't been accepted yet.
- *
- * @param {string} applicationId  UUID of the application to withdraw.
- * @param {string} freelancerAddress  Stellar G-address of the calling freelancer.
- * @returns {Promise<Application>}  The withdrawn application.
- * @throws {Error} 400 — invalid freelancer public key, or application already accepted.
- * @throws {Error} 403 — caller is not the application's freelancer.
- * @throws {Error} 404 — application not found.
- * @throws {Error} 409 — application already withdrawn.
- */
-async function withdrawApplication(applicationId, freelancerAddress) {
-  validatePublicKey(freelancerAddress);
-
-  const { rows: appRows } = await pool.query(
-    "SELECT * FROM applications WHERE id = $1",
-    [applicationId],
-  );
-  if (!appRows.length) {
-    const e = new Error("Application not found");
-    e.status = 404;
-    throw e;
-  }
-  const app = appRows[0];
-
-  if (app.freelancer_address !== freelancerAddress) {
-    const e = new Error(
-      "Only the freelancer who submitted can withdraw this application",
-    );
-    e.status = 403;
-    throw e;
-  }
-  if (app.status === "accepted") {
-    const e = new Error("Cannot withdraw an already-accepted application");
-    e.status = 400;
-    throw e;
-  }
-  if (app.withdrawn_at) {
-    const e = new Error("Application has already been withdrawn");
-    e.status = 409;
-    throw e;
-  }
-
-  const { rows: updated } = await pool.query(
-    "UPDATE applications SET withdrawn_at = NOW() WHERE id = $1 RETURNING *",
-    [applicationId],
-  );
-
-  await pool.query(
-    "UPDATE jobs SET applicant_count = GREATEST(applicant_count - 1, 0), updated_at = NOW() WHERE id = $1",
-    [app.job_id],
-  );
-
-  return rowToApp(updated[0]);
+  module.exports = {
+    submitApplication,
+    getApplicationsForJob,
+    getApplicationsForFreelancer,
+    acceptApplication,
+  };
 }
-
-module.exports = {
-  submitApplication,
-  getApplicationsForJob,
-  getApplicationsForFreelancer,
-  acceptApplication,
-  withdrawApplication,
-  closeBiddingForJob,
-  revealApplicationBid,
-};

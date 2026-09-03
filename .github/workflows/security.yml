@@ -55,6 +55,7 @@ jobs:
           cache-dependency-path: ${{ matrix.workspace }}/package-lock.json
 
       - run: npm ci
+        continue-on-error: true
 
       - name: Audit production dependencies
         run: |

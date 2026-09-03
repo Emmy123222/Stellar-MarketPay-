@@ -133,7 +133,7 @@ function metricsAuth(req, res, next) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  let clientIp = "";
+  let clientIp;
   try {
     clientIp = getClientIp(req);
   } catch {

@@ -15,7 +15,7 @@
 "use strict";
 
 // ─── Mock the cache utility so tests don't need a live Redis ─────────────────
-const store = new Map();
+
 
 jest.mock("../../utils/cache", () => {
   const store = new Map();
@@ -170,6 +170,10 @@ jest.mock("../../middleware/jsonbValidator", () => ({
 }));
 
 jest.mock("../../schemas/milestones.schema", () => ({}));
+
+jest.mock("../../db/migrate", () => ({
+  migrate: jest.fn().mockResolvedValue(undefined),
+}));
 
 jest.mock("../../services/cacheService", () => require("../../utils/cache"));
 

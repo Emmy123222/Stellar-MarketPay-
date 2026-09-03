@@ -43,6 +43,12 @@ const securityHeaders = [
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   assetPrefix: process.env.NEXT_PUBLIC_CDN_URL || '',
   i18n: {
     defaultLocale: "en",

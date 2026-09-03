@@ -47,7 +47,6 @@ jest.mock("../src/services/developerService", () => ({
   recordApiKeyUsageMinute: jest.fn().mockResolvedValue(undefined),
 }));
 
-const path = require("path");
 // Resolve the cacheService mock so apiKeyRateLimiter sees the same instance.
 const cache = require("../src/services/cacheService");
 

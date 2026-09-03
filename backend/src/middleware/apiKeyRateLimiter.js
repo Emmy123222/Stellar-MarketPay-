@@ -103,7 +103,6 @@ function apiKeyRateLimiter(endpointKey) {
       // asynchronously and never blocks the request hot path.
       recordApiKeyUsageMinute(apiKeyId, endpointPath, currentBucket).catch(
         (err) => {
-          // eslint-disable-next-line no-console
           console.warn(
             "[apiKeyRateLimiter] failed to persist usage:",
             err.message,
@@ -136,7 +135,6 @@ function apiKeyRateLimiter(endpointKey) {
     } catch (err) {
       // Defensive fail-open so the limiter never becomes a single point of
       // failure for the public API.
-      // eslint-disable-next-line no-console
       console.warn("[apiKeyRateLimiter] unexpected error:", err.message);
       return next();
     }

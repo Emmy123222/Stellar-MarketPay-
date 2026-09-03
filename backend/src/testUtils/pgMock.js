@@ -163,7 +163,7 @@ function defaultPriceAlertRow(overrides = {}) {
 
 // Helper: find the last occurrence of a numeric param placeholder like $1, $2, etc.
 // and extract the first non-null param index to use as the id for lookups.
-function findJobIdFromUpdate(text, params) {
+function _findJobIdFromUpdate(text, params) {
   // Look for WHERE id = $N pattern and get the corresponding param
   const match = text.match(/WHERE\s+id\s*=\s*\$\d+/i);
   if (match) {
@@ -390,9 +390,8 @@ function createPgMock() {
         deadline: params[7],
         timezone: params[8],
         screening_questions: params[9],
-        milestones:
-          typeof params[10] === "string" ? JSON.parse(params[10]) : params[10],
-        visibility: params[11] || "public",
+        visibility: params[10] || "public",
+        milestones: [],
       });
       jobs.set(row.id, row);
       return { rows: [formatJobRow(row)] };

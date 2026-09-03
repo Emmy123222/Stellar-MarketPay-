@@ -36,7 +36,6 @@ try {
     if (!overrides || typeof overrides !== "object") overrides = {};
   }
 } catch (err) {
-  // eslint-disable-next-line no-console
   console.warn("[apiRateLimits] failed to parse API_RATE_LIMITS_JSON:", err.message);
   overrides = {};
 }

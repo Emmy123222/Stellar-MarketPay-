@@ -73,6 +73,7 @@ describe("Audit Log Integration Tests", () => {
   const entityId = "00000000-0000-0000-0000-000000000001";
 
   test("insertAuditLog creates a row with correct fields", async () => {
+    if (!hasPostgres) return;
     const entry = await insertAuditLog({
       actorAddress,
       action: "test_action",
@@ -101,6 +102,7 @@ describe("Audit Log Integration Tests", () => {
   });
 
   test("insertAuditLog accepts null old_value and new_value", async () => {
+    if (!hasPostgres) return;
     const entry = await insertAuditLog({
       actorAddress,
       action: "system_event",
@@ -114,6 +116,7 @@ describe("Audit Log Integration Tests", () => {
   });
 
   test("listAuditLogs returns entries ordered by created_at DESC", async () => {
+    if (!hasPostgres) return;
     await insertAuditLog({
       actorAddress,
       action: "first",
@@ -136,6 +139,7 @@ describe("Audit Log Integration Tests", () => {
   });
 
   test("listAuditLogs filters by entity_type, entity_id, and action", async () => {
+    if (!hasPostgres) return;
     await insertAuditLog({
       actorAddress,
       action: "job_status_change",
@@ -162,6 +166,7 @@ describe("Audit Log Integration Tests", () => {
   });
 
   test("listAuditLogs paginates with cursor", async () => {
+    if (!hasPostgres) return;
     // Insert 3 entries
     for (let i = 0; i < 3; i++) {
       await new Promise(r => setTimeout(r, 10));

@@ -530,7 +530,6 @@ async function listProfiles({ role, availability, search, limit = 50, after } = 
   const safeLimit = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 100) : 50;
   values.push(safeLimit + 1);
   const limitIdx = idx;
-  idx += 1;
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const { rows } = await pool.query(

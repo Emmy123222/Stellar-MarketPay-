@@ -7,7 +7,7 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db/pool");
 
-const { createRateLimiter, createDisputeRateLimiter } = require("../middleware/rateLimiter");
+const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT } = require("../middleware/auth");
 const jobService = require("../services/jobService");
 const {
@@ -49,6 +49,7 @@ const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per
 const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per minute
 const reportJobRateLimiter = createRateLimiter(20, 1);
 const suggestRateLimiter = createRateLimiter(20, 1);
+const createDisputeRateLimiter = createRateLimiter(10, 1);
 
 const jobReports = new Map();
 
