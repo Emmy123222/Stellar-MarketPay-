@@ -9,7 +9,7 @@ const TEST_USER_1 = "GAXJ4S6F7W2K3H5N8D9P0Q2R4T6V8W1Z3X5C7V9B2N4M6P8R0T2V4X6Z8";
 const TEST_USER_2 = "GBYJ4S6F7W2K3H5N8D9P0Q2R4T6V8W1Z3X5C7V9B2N4M6P8R0T2V4X6Z9";
 
 // ── Prevent process.exit from killing the test runner ─────────────────────
-const realExit = process.exit;
+const _realExit = process.exit;
 process.exit = jest.fn((code) => {
   const err = new Error(`process.exit called with ${code}`);
   Error.captureStackTrace(err, process.exit);
@@ -122,6 +122,7 @@ describe("WebSocket real-time notification delivery", () => {
     jest.clearAllMocks();
     app._ws.userClients.clear();
     app._ws.realtimeClients.clear();
+    if (app._ws.userLastSeen) app._ws.userLastSeen.clear();
   });
 
   function wsConnect(userAddress) {
