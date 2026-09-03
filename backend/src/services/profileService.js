@@ -1039,6 +1039,11 @@ async function purgeDeletedProfiles(days = 90) {
 
 module.exports = {
   getProfile,
+  getProfileStats,
+  getResponseTime,
+  isBlocked,
+  blockFreelancer,
+  unblockFreelancer,
   upsertProfile,
   updateAvailability,
   listProfiles,

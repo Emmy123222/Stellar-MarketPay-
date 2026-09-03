@@ -5,6 +5,7 @@
 
 const express = require("express");
 const router = express.Router();
+const pool = require("../db/pool");
 
 const { createRateLimiter, createDisputeRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT } = require("../middleware/auth");

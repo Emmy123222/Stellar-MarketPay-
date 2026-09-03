@@ -56,9 +56,16 @@ const {
 } = require("../services/profileMigrationService");
 const { validateProfileMigration } = require("../validators/profileMigrationValidator");
 const {
-  upsertPriceAlertPreference,
-  getPriceAlertPreference,
-} = require("../services/priceAlertService");
+  getProfile,
+  upsertProfile,
+  updateAvailability,
+  getProfileStats,
+  getResponseTime,
+  blockFreelancer,
+  unblockFreelancer,
+  getSkillEndorsements,
+  endorseSkill,
+} = require("../services/profileService");
 
 /**
  * @swagger
