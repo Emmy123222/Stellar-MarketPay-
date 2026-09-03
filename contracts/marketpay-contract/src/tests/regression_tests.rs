@@ -149,3 +149,35 @@ fn test_partial_release() {
     // Total = 396 + 594 = 990
     assert_eq!(token_client.balance(&freelancer), 990);
 }
+
+#[test]
+#[should_panic(expected = "Insufficient admin signatures to unfreeze")]
+fn test_unfreeze_rejects_below_threshold() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(MarketPayContract, ());
+    let client = MarketPayContractClient::new(&env, &id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &Address::generate(&env));
+    client.freeze_contract(&admin);
+    let signatures = Vec::from_array(&env, [admin]);
+    client.unfreeze_contract(&signatures);
+}
+
+#[test]
+// Soroban rejects duplicate authorization entries before contract execution
+// when both entries are the same address; this is still a valid rejection.
+#[should_panic(expected = "ExistingValue")]
+fn test_unfreeze_rejects_duplicate_signatures() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(MarketPayContract, ());
+    let client = MarketPayContractClient::new(&env, &id);
+    let admin = Address::generate(&env);
+    let second_admin = Address::generate(&env);
+    client.initialize(&admin, &Address::generate(&env));
+    client.add_admin(&admin, &second_admin);
+    client.freeze_contract(&admin);
+    let signatures = Vec::from_array(&env, [admin.clone(), admin]);
+    client.unfreeze_contract(&signatures);
+}
