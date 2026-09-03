@@ -148,6 +148,19 @@ function defaultOnboardingRow(overrides = {}) {
   };
 }
 
+function defaultPriceAlertRow(overrides = {}) {
+  return {
+    id: overrides.id || `alert-${Date.now()}`,
+    user_address: overrides.user_address || "G" + "A".repeat(55),
+    condition: overrides.condition || "above",
+    threshold: overrides.threshold != null ? String(overrides.threshold) : "0.1500000",
+    one_time: overrides.one_time ?? true,
+    triggered: overrides.triggered ?? false,
+    triggered_at: overrides.triggered_at || null,
+    created_at: overrides.created_at || new Date().toISOString(),
+  };
+}
+
 // Helper: find the last occurrence of a numeric param placeholder like $1, $2, etc.
 // and extract the first non-null param index to use as the id for lookups.
 function findJobIdFromUpdate(text, params) {
@@ -190,6 +203,7 @@ function createPgMock() {
   const escrows = new Map();
   const escrowExtensions = new Map();
   const onboardingProgress = new Map();
+  const priceAlerts = new Map();
   const timelineEvents = [];
 
   function formatJobRow(row) {
@@ -1285,6 +1299,44 @@ function createPgMock() {
       return { rows };
     }
 
+    // Price alert queries
+    if (text.startsWith("INSERT INTO price_alerts")) {
+      const row = defaultPriceAlertRow({
+        id: `alert-${priceAlerts.size + 1}`,
+        user_address: params[0],
+        condition: params[1],
+        threshold: String(params[2]),
+        one_time: Boolean(params[3]),
+      });
+      priceAlerts.set(row.id, row);
+      return { rows: [row] };
+    }
+
+    if (text.includes("FROM price_alerts") && text.includes("COUNT(*)")) {
+      const userAddress = params[0];
+      const count = [...priceAlerts.values()].filter(
+        (alert) => alert.user_address === userAddress && !alert.triggered,
+      ).length;
+      return { rows: [{ cnt: count }] };
+    }
+
+    if (text.includes("FROM price_alerts") && text.includes("WHERE user_address = $1")) {
+      const userAddress = params[0];
+      const rows = [...priceAlerts.values()]
+        .filter((alert) => alert.user_address === userAddress)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      return { rows };
+    }
+
+    if (text.startsWith("DELETE FROM price_alerts") && text.includes("WHERE id = $1")) {
+      const alert = priceAlerts.get(params[0]);
+      if (!alert || alert.user_address !== params[1]) {
+        return { rows: [], rowCount: 0 };
+      }
+      priceAlerts.delete(params[0]);
+      return { rows: [], rowCount: 1 };
+    }
+
     return { rows: [] };
   });
 
@@ -1312,6 +1364,7 @@ function createPgMock() {
     escrows.clear();
     escrowExtensions.clear();
     onboardingProgress.clear();
+    priceAlerts.clear();
     timelineEvents.length = 0;
     query.mockClear();
     connect.mockClear();
@@ -1330,6 +1383,7 @@ function createPgMock() {
     escrows,
     escrowExtensions,
     onboardingProgress,
+    priceAlerts,
     reset,
     end: jest.fn(),
   };
@@ -1349,4 +1403,5 @@ module.exports = {
   defaultEscrowRow,
   defaultEscrowExtensionRow,
   defaultOnboardingRow,
+  defaultPriceAlertRow,
 };
