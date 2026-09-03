@@ -299,7 +299,8 @@ let createJob = async function ({
     e.status = 400;
     throw e;
   }
-  if (!budget || isNaN(parseFloat(budget)) || parseFloat(budget) <= 0) {
+  const numericBudget = parseFloat(budget);
+  if (budget === undefined || budget === null || isNaN(numericBudget) || numericBudget <= 0) {
     const e = new Error("Budget must be a positive number");
     e.status = 400;
     throw e;
