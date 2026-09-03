@@ -8,7 +8,6 @@ Welcome to Stellar MarketPay documentation. This index helps you find what you n
 
 **New to Stellar MarketPay?** Start here:
 
-- **[Quick Start Guide](../QUICK_START_NEW_FEATURES.md)** - Get up and running with new features
 - **[Getting Started](./getting-started.md)** - Initial setup and installation
 - **[README](../README.md)** - Project overview and features
 
@@ -207,20 +206,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 - Next steps and roadmap
 - References and support
 
----
 
-### Quick Start for New Features
-
-**File**: [../QUICK_START_NEW_FEATURES.md](../QUICK_START_NEW_FEATURES.md)
-
-**Contents**:
-
-- Quick reference for each feature
-- How to use each feature
-- Code locations
-- Testing instructions
-- Troubleshooting tips
-- Implementation checklist
 
 ---
 
@@ -260,7 +246,6 @@ stellar-marketpay/
 │   ├── deployment.md
 │   └── getting-started.md
 ├── IMPLEMENTATION_SUMMARY.md
-├── QUICK_START_NEW_FEATURES.md
 ├── README.md
 ├── ROADMAP.md
 ├── CONTRIBUTING.md
@@ -333,7 +318,6 @@ stellar-marketpay/
 
 - [FAQ](./FAQ.md)
 - [Getting Started](./getting-started.md)
-- [Quick Start](../QUICK_START_NEW_FEATURES.md)
 
 **Disputes & Evidence**
 
@@ -376,7 +360,6 @@ stellar-marketpay/
 - ✅ FAQ: 50+ Questions
 - ✅ Pinata IPFS Setup Guide
 - ✅ Implementation Summary
-- ✅ Quick Start Guide
 
 ### Planned Updates
 

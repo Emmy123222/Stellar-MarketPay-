@@ -95,7 +95,6 @@ describe("assertUniqueVersions()", () => {
     expect(v6).toHaveLength(1);
     expect(v6[0].name).toBe("V6__private_message_nonce_unique");
   });
-
   it("V10 migration prefix is used by exactly one migration (issue #1068)", () => {
     const migrations = loadMigrationPairs();
     const v10 = migrations.filter((m) => m.version === 10);
