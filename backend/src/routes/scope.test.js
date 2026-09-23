@@ -118,4 +118,175 @@ describe("Scope Routes Suite (/api/scope)", () => {
       expect(res.body.error).toBe("Database connection lost");
     });
   });
+
+  // =========================================================================
+  // 2. POST /api/scope — create a collaborative proposal session (#1552)
+  // =========================================================================
+  describe("POST /api/scope", () => {
+    it("201 — creates a session with a server-generated id and a share path", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [
+          {
+            session_id: "server-generated-id",
+            content: "draft",
+            finalized: false,
+            finalized_payload: { jobId: "job-42", createdBy: "GABC" },
+            expires_at: "2026-08-26T12:00:00.000Z",
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .post("/api/scope")
+        .set("X-CSRF-Token", "dummy-csrf-token")
+        .send({ jobId: "job-42", createdBy: "GABC", content: "draft" });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.sessionId).toBe("server-generated-id");
+      expect(res.body.sharePath).toBe("/scope/server-generated-id");
+      expect(res.body.expiresAt).toBe("2026-08-26T12:00:00.000Z");
+
+      expect(pool.query).toHaveBeenCalledTimes(1);
+      const [sql, params] = pool.query.mock.calls[0];
+      expect(sql).toContain("INSERT INTO scope_sessions");
+      // Session id is generated server-side (not supplied by the client).
+      expect(typeof params[0]).toBe("string");
+      expect(params[0].length).toBeGreaterThan(0);
+      expect(params[1]).toBe("draft");
+      expect(params[2]).toContain("job-42");
+    });
+
+    it("201 — tolerates an empty body", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [
+          {
+            session_id: "empty-body-id",
+            content: "",
+            finalized: false,
+            finalized_payload: { jobId: null, createdBy: null },
+            expires_at: "2026-08-26T12:00:00.000Z",
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .post("/api/scope")
+        .set("X-CSRF-Token", "dummy-csrf-token")
+        .send({});
+
+      expect(res.status).toBe(201);
+      const [, params] = pool.query.mock.calls[0];
+      expect(params[1]).toBe("");
+    });
+  });
+
+  // =========================================================================
+  // 3. POST /api/scope/:sessionId/finalize — lock to proposal submission
+  // =========================================================================
+  describe("POST /api/scope/:sessionId/finalize", () => {
+    it("200 — locks the session and returns a deterministic content hash", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [
+          {
+            session_id: TEST_SESSION_ID,
+            content: "final proposal text",
+            finalized: true,
+            finalized_hash: null,
+            finalized_payload: { jobId: "job-42" },
+            expires_at: "2026-08-26T12:00:00.000Z",
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .post(`/api/scope/${TEST_SESSION_ID}/finalize`)
+        .set("X-CSRF-Token", "dummy-csrf-token")
+        .send({ content: "final proposal text", payload: { jobId: "job-42" } });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.finalized).toBe(true);
+      expect(res.body.sessionId).toBe(TEST_SESSION_ID);
+      // sha256 hex digest of the supplied content
+      expect(res.body.finalizedHash).toMatch(/^[0-9a-f]{64}$/);
+
+      const [sql, params] = pool.query.mock.calls[0];
+      expect(sql).toContain("UPDATE scope_sessions");
+      expect(sql).toContain("finalized = true");
+      expect(sql).toContain("WHERE session_id = $1 AND expires_at > NOW()");
+      expect(params[0]).toBe(TEST_SESSION_ID);
+      expect(params[1]).toBe("final proposal text");
+    });
+
+    it("200 — honours a caller-supplied finalizedHash", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [
+          {
+            session_id: TEST_SESSION_ID,
+            content: "text",
+            finalized: true,
+            finalized_hash: "a".repeat(64),
+            finalized_payload: null,
+            expires_at: "2026-08-26T12:00:00.000Z",
+          },
+        ],
+      });
+
+      const res = await request(app)
+        .post(`/api/scope/${TEST_SESSION_ID}/finalize`)
+        .set("X-CSRF-Token", "dummy-csrf-token")
+        .send({ content: "text", finalizedHash: "a".repeat(64) });
+
+      expect(res.status).toBe(200);
+      expect(res.body.finalizedHash).toBe("a".repeat(64));
+    });
+
+    it("404 — not-found path when the session is missing or expired", async () => {
+      pool.query.mockResolvedValueOnce({ rows: [] });
+
+      const res = await request(app)
+        .post("/api/scope/missing/finalize")
+        .set("X-CSRF-Token", "dummy-csrf-token")
+        .send({ content: "x" });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe("Session not found or already expired");
+    });
+
+    it("propagates a lock to connected collaborators via app.locals", async () => {
+      pool.query.mockResolvedValueOnce({
+        rows: [
+          {
+            session_id: TEST_SESSION_ID,
+            content: "locked",
+            finalized: true,
+            finalized_hash: null,
+            finalized_payload: null,
+            expires_at: "2026-08-26T12:00:00.000Z",
+          },
+        ],
+      });
+
+      const sendJson = jest.fn();
+      const socket = { readyState: 1 };
+      const sockets = new Set([socket]);
+      app.locals.scopeSessionClients = new Map([[TEST_SESSION_ID, sockets]]);
+      app.locals.sendJson = sendJson;
+
+      const res = await request(app)
+        .post(`/api/scope/${TEST_SESSION_ID}/finalize`)
+        .set("X-CSRF-Token", "dummy-csrf-token")
+        .send({ content: "locked" });
+
+      expect(res.status).toBe(200);
+      expect(sendJson).toHaveBeenCalledTimes(1);
+      expect(sendJson.mock.calls[0][0]).toBe(socket);
+      expect(sendJson.mock.calls[0][1]).toBe("scope:finalized");
+      expect(sendJson.mock.calls[0][2].finalized).toBe(true);
+
+      delete app.locals.scopeSessionClients;
+      delete app.locals.sendJson;
+    });
+  });
 });

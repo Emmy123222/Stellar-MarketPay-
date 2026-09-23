@@ -390,8 +390,9 @@ function createPgMock() {
         deadline: params[7],
         timezone: params[8],
         screening_questions: params[9],
-        visibility: params[10] || "public",
-        milestones: [],
+        milestones:
+          typeof params[10] === "string" ? JSON.parse(params[10]) : params[10],
+        visibility: params[11] || "public",
       });
       jobs.set(row.id, row);
       return { rows: [formatJobRow(row)] };
@@ -854,6 +855,20 @@ function createPgMock() {
       let rows = [...jobs.values()].filter(
         (job) => job.visibility === "public",
       );
+
+      // Cursor pagination — params are (createdAt, id, limit) at the tail.
+      if (text.includes("created_at < $")) {
+        const cursorCreatedAt = params[params.length - 3];
+        const cursorId = params[params.length - 2];
+        if (cursorCreatedAt && cursorId) {
+          rows = rows.filter((job) => {
+            if (job.created_at < cursorCreatedAt) return true;
+            if (job.created_at === cursorCreatedAt && job.id < cursorId) return true;
+            return false;
+          });
+        }
+      }
+
       if (text.includes("deleted_at IS NULL")) {
         rows = rows.filter((job) => !job.deleted_at);
       }
@@ -875,8 +890,7 @@ function createPgMock() {
         const category = params[categoryIndex];
         if (category) rows = rows.filter((job) => job.category === category);
       }
-      const limit = params[params.length - 1] ?? 50;
-      // Sort by created_at DESC, id DESC to match real SQL ORDER BY
+      // Sort by created_at DESC, id DESC to match the real SQL ORDER BY.
       rows.sort((a, b) => {
         if (a.created_at > b.created_at) return -1;
         if (a.created_at < b.created_at) return 1;

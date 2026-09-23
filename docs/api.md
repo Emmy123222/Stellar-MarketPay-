@@ -463,6 +463,8 @@ Collaborative scope session management.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| POST | `/api/scope` | Create a collaborative scope session (returns `sessionId` + `sharePath`) |
+| POST | `/api/scope/:sessionId/finalize` | Lock a scope session when its proposal is submitted |
 | POST | `/api/scope/:sessionId/renew` | Extend a scope session by 24 hours |
 
 ---
