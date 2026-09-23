@@ -1,4 +1,4 @@
-# Architecture Decision Records (ADRs)
+﻿# Architecture Decision Records (ADRs)
 
 This directory contains Architecture Decision Records (ADRs) for Stellar MarketPay. ADRs document significant architectural decisions made during the development of the platform.
 
@@ -15,16 +15,16 @@ An Architecture Decision Record (ADR) is a document that captures an important a
 
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
-| [ADR-001](../ADR-001-soroban-escrow-design.md) | Soroban Smart Contract for Escrow Management | Accepted | 2026-05-28 |
+| [ADR-001](./adr-001-soroban-escrow-design.md) | Soroban Smart Contract for Escrow Management | Accepted | 2026-05-28 |
 |  | Horizon API for Transaction Indexing | Accepted | 2026-05-28 |
 |  | Database Schema for Escrow State Management | Accepted | 2026-05-28 |
-| [ADR-004](../ADR-004-sep10-authentication.md) | SEP-10 vs OAuth for Authentication | Accepted | 2026-05-28 |
-| [ADR-005](../ADR-005-nacl-message-encryption.md) | NaCl Box Encryption for Private Messages | Accepted | 2026-05-28 |
-| [ADR-006](../ADR-006-ipfs-dispute-evidence.md) | IPFS for Dispute Evidence Storage | Accepted | 2026-05-28 |
-| [ADR-007](../ADR-007-webauthn-secondary-auth.md) | WebAuthn as Secondary Authentication | Accepted | 2026-05-28 |
-| [ADR-008](../ADR-008-redis-session-cache.md) | Redis for Session and Cache Management | Accepted | 2026-05-28 |
-| [ADR-009](../ADR-009-websocket-vs-sse.md) | WebSocket vs SSE for Real-Time Updates | Accepted | 2026-05-28 |
-| [ADR-010](../ADR-010-cursor-pagination.md) | Cursor-Based Pagination | Accepted | 2026-05-28 |
+| [ADR-004](./adr-004-sep10-authentication.md) | SEP-10 vs OAuth for Authentication | Accepted | 2026-05-28 |
+| [ADR-005](./adr-005-nacl-message-encryption.md) | NaCl Box Encryption for Private Messages | Accepted | 2026-05-28 |
+| [ADR-006](./adr-006-ipfs-dispute-evidence.md) | IPFS for Dispute Evidence Storage | Accepted | 2026-05-28 |
+| [ADR-007](./adr-007-webauthn-secondary-auth.md) | WebAuthn as Secondary Authentication | Accepted | 2026-05-28 |
+| [ADR-008](./adr-008-redis-session-cache.md) | Redis for Session and Cache Management | Accepted | 2026-05-28 |
+| [ADR-009](./adr-009-websocket-vs-sse.md) | WebSocket vs SSE for Real-Time Updates | Accepted | 2026-05-28 |
+| [ADR-010](./adr-010-cursor-pagination.md) | Cursor-Based Pagination | Accepted | 2026-05-28 |
 
 ## ADR Categories
 

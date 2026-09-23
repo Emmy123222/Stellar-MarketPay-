@@ -1,4 +1,4 @@
-# Documentation Index
+﻿# Documentation Index
 
 Welcome to Stellar MarketPay documentation. This index helps you find what you need.
 
@@ -44,7 +44,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ### ADR-001: Soroban Smart Contract for Escrow Management
 
-**File**: [ADR-001-soroban-escrow-design.md](./ADR-001-soroban-escrow-design.md)
+**File**: [adr/adr-001-soroban-escrow-design.md](./adr/adr-001-soroban-escrow-design.md)
 
 **Decision**: Use Soroban smart contracts for trustless escrow management
 
@@ -235,11 +235,11 @@ Decisions that shaped Stellar MarketPay's architecture:
 stellar-marketpay/
 ├── docs/
 │   ├── INDEX.md (this file)
-│   ├── ADR-001-soroban-escrow-design.md
-│   ├── ADR-002-horizon-api-indexing.md
-│   ├── ADR-003-database-schema-escrow.md
+│   ├── adr/adr-001-soroban-escrow-design.md
+│   ├── adr/adr-002-horizon-api-indexing.md
+│   ├── adr/adr-003-database-schema-escrow.md
 │   ├── FAQ.md
-│   ├── PINATA_IPFS_SETUP.md
+│   ├── ipfs-setup.md
 │   ├── architecture.md
 │   ├── API_DOCUMENTATION.md
 │   ├── api.md
@@ -275,7 +275,7 @@ stellar-marketpay/
 1. [Architecture Overview](./architecture.md)
 2. [Contributing Guide](../CONTRIBUTING.md)
 3. [Database Schema & ERD](./database-schema.md)
-4. [ADR-001: Escrow Design](./ADR-001-soroban-escrow-design.md)
+4. [ADR-001: Escrow Design](./adr/adr-001-soroban-escrow-design.md)
 5. 
 6. 
 7. 
@@ -297,7 +297,7 @@ stellar-marketpay/
 
 **Blockchain & Stellar**
 
-- [ADR-001: Soroban Escrow](./ADR-001-soroban-escrow-design.md)
+- [ADR-001: Soroban Escrow](./adr/adr-001-soroban-escrow-design.md)
 - 
 - [FAQ: Technical Questions](./FAQ.md#technical-questions)
 
