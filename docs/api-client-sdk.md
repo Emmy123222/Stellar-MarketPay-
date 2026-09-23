@@ -647,7 +647,7 @@ git push origin v1.0.0
 For SDK issues, questions, or feature requests:
 
 - **GitHub Issues**: [github.com/stellar-marketpay/issues](https://github.com/stellar-marketpay/issues)
-- **API Documentation**: 
+- **API Documentation**: [docs/api-documentation.md](./api-documentation.md)
 - **OpenAPI Spec**: [backend/docs/openapi.json](../backend/docs/openapi.json)
 
 ## Contributing
