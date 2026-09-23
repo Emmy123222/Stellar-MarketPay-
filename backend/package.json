@@ -12,6 +12,7 @@
         "test:unit": "jest",
         "test:integration": "jest --selectProjects integration --runInBand --testTimeout=30000 --forceExit",
         "test:property": "jest --testPathPatterns='\\.property\\.test\\.js$'",
+        "stryker": "stryker run",
         "generate-openapi": "node scripts/generate-openapi.js",
         "build": "npm run generate-openapi && npm run lint",
         "migrate": "node src/db/migrate.js",

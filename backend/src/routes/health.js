@@ -28,6 +28,7 @@ const express = require("express");
 const pool = require("../db/pool");
 const { getPoolStats } = require("../db/pool");
 const cacheService = require("../services/cacheService");
+const { getServer: getSorobanServer } = require("../services/sorobanClient");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const router = express.Router();
@@ -108,6 +109,24 @@ async function checkHorizon() {
 }
 
 /**
+ * Verify that the configured Soroban RPC endpoint is reachable.
+ * @returns {Promise<'up'|'down'>}
+ */
+async function checkSoroban() {
+  try {
+    const result = await Promise.race([
+      getSorobanServer().getLatestLedger(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Soroban check timed out")), CHECK_TIMEOUT_MS),
+      ),
+    ]);
+    return result?.sequence != null ? "up" : "down";
+  } catch {
+    return "down";
+  }
+}
+
+/**
  * @swagger
  * /api/health:
  *   get:
@@ -149,19 +168,25 @@ async function checkHorizon() {
  *         description: One or more dependencies are down
  */
 router.get("/", healthRateLimiter, async (req, res) => {
-  const [postgres, redis, horizon] = await Promise.all([
+  const [postgres, redis, horizon, soroban] = await Promise.all([
     checkPostgres(),
     checkRedis(),
     checkHorizon(),
+    checkSoroban(),
   ]);
 
-  const allUp = postgres === "up" && redis === "up" && horizon === "up";
+  const allUp =
+    postgres === "up" &&
+    redis === "up" &&
+    horizon === "up" &&
+    soroban === "up";
 
   const body = {
     status: allUp ? "healthy" : "degraded",
     database: postgres,
     redis,
     stellar: horizon,
+    soroban,
     uptime_seconds: Math.floor((Date.now() - SERVER_START) / 1000),
     version: VERSION,
     indexer: req.app.locals.indexerService

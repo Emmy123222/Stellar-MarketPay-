@@ -107,6 +107,9 @@ jobs:
         run: npx jest --selectProjects unit --forceExit
         continue-on-error: true
 
+      - name: Mutation tests
+        run: npm run stryker
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:

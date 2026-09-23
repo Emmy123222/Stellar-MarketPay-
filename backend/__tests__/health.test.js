@@ -21,6 +21,12 @@ jest.mock("../src/services/cacheService", () => ({
   set: jest.fn(),
 }));
 
+jest.mock("../src/services/sorobanClient", () => ({
+  getServer: () => ({
+    getLatestLedger: jest.fn().mockResolvedValue({ sequence: 123 }),
+  }),
+}));
+
 // Mock fetch for Horizon checks
 const mockFetch = jest.fn();
 
@@ -101,6 +107,7 @@ describe("GET /health", () => {
         database: "up",
         redis: "up",
         stellar: "up",
+        soroban: "up",
       });
       expect(res.body).toHaveProperty("uptime_seconds");
       expect(res.body).toHaveProperty("version");
