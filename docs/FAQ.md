@@ -298,7 +298,7 @@ Stellar MarketPay uses Soroban smart contracts to manage escrow.
 - **Pinata**: A service that makes IPFS easy to use
 - **Use case**: Store dispute evidence, portfolio files, etc.
 
-See [Pinata IPFS Setup Guide](./PINATA_IPFS_SETUP.md) for details.
+See  for details.
 
 ### What is a wallet?
 
