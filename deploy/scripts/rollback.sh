@@ -8,6 +8,7 @@ NGINX_CONF="${4:-nginx/nginx.conf}"
 
 echo "=== Automated Rollback ==="
 echo "Failed environment: $FAILED_ENV"
+
 echo "Restoring active environment: $ACTIVE_ENV"
 
 echo "--- Stopping failed environment ($FAILED_ENV) ---"

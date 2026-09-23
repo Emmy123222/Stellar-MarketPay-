@@ -1598,6 +1598,20 @@ exports[`async component snapshots ReferralDashboard empty: ReferralDashboard em
       % of their earnings.
     </p>
   </div>
+  <div
+    class="mt-3 flex items-center justify-between text-xs"
+  >
+    <span
+      class="text-amber-700"
+    >
+      Track milestones and stage progression:
+    </span>
+    <a
+      href="/referrals"
+    >
+      Open Full Referral Pipeline Dashboard →
+    </a>
+  </div>
 </div>
 `;
 
