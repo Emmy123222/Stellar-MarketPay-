@@ -19,6 +19,10 @@ spec:
         - name: postgres
           image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
           imagePullPolicy: {{ .Values.postgres.image.pullPolicy }}
+          {{- if .Values.postgres.resources }}
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+          {{- end }}
           ports:
             - name: postgres
               containerPort: 5432

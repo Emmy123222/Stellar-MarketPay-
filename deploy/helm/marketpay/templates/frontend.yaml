@@ -21,6 +21,10 @@ spec:
         - name: frontend
           image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
           imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          {{- if .Values.frontend.resources }}
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: 3000

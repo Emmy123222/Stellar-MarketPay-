@@ -12,6 +12,13 @@ frontend:
   service:
     type: ClusterIP
     port: 3000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
 
 backend:
   image:
@@ -31,6 +38,13 @@ backend:
     periodSeconds: 5
     timeoutSeconds: 3
     failureThreshold: 3
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
 
 redis:
   image:
@@ -53,3 +67,10 @@ postgres:
     username: stellarwork
     password: stellarwork_dev
     database: stellarwork
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+    requests:
+      cpu: 500m
+      memory: 512Mi
