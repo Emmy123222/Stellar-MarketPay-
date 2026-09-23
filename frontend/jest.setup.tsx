@@ -71,4 +71,4 @@ jest.mock("@react-pdf/renderer", () => ({
 }));
 
 // Mock HTMLCanvasElement for jest-axe tests
-HTMLCanvasElement.prototype.getContext = jest.fn();
+HTMLCanvasElement.prototype.getContext = jest.fn() as any;
