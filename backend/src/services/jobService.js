@@ -752,67 +752,6 @@ if (process.env.NODE_ENV === 'test') {
     ).toString("base64");
   }
 
-  /**
-   * Decode a base64 pagination cursor produced by {@link encodeCursor}.
-   *
-   * @param {string} cursor  Base64-encoded JSON cursor.
-   * @returns {{ createdAt: string, id: string }}
-   * @throws {Error} 400 — when the cursor cannot be parsed.
-   */
-  function decodeCursor(cursor) {
-    try {
-      const decoded = JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
-      if (!decoded.createdAt || !decoded.id) throw new Error("Invalid cursor");
-      return decoded;
-    } catch (_) {
-      const e = new Error("Invalid cursor");
-      e.status = 400;
-      throw e;
-    }
-  }
-
-  /**
-   * Page through jobs, with optional filtering and ordering.
-   *
-   * Boosted (Featured) listings sort first; ties break on `created_at DESC, id DESC`.
-   * Cursor pagination is keyset-based — pass {@link JobListPage.nextCursor} from the
-   * previous page to fetch the next slice.
-   *
-   * @param {Object}  [opts]
-   * @param {string}  [opts.category]               Restrict to a category from {@link VALID_CATEGORIES}.
-   * @param {("open"|"in_progress"|"completed"|"cancelled")} [opts.status="open"]
-   * @param {number}  [opts.limit=50]               Page size (clamped to 1..100).
-   * @param {string}  [opts.search]                 Substring search over title, description, and skills.
-   * @param {string}  [opts.cursor]                 Opaque cursor from the previous page.
-   * @param {string}  [opts.timezone]               IANA timezone of the viewer; only jobs whose
-   *                                                timezone is within ±3h are returned.
-   * @returns {Promise<JobListPage>}
-   * @throws {Error} 400 — when `cursor` is malformed.
-   */
-  async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone, viewerAddress } = {}) {
-    const conditions = [];
-    const params = [];
-
-    if (status) {
-      params.push(status);
-      conditions.push(`status = $${params.length}`);
-    }
-
-    if (category) {
-      params.push(category);
-      conditions.push(`category = $${params.length}`);
-    }
-
-    if (search) {
-      params.push(`%${search.toLowerCase()}%`);
-      const idx = params.length;
-      conditions.push(
-        `(LOWER(title) LIKE $${idx} OR LOWER(description) LIKE $${idx} OR EXISTS (
-         SELECT 1 FROM unnest(skills) s WHERE LOWER(s) LIKE $${idx}
-       ))`
-      );
-    }
-
 /**
  * Decode a base64 pagination cursor produced by {@link encodeCursor}.
  *
@@ -1389,6 +1328,8 @@ async function listJobs({
     getExpiringJobs,
     getJobAnalytics,
   };
+}
+
 }
 
 const _pool = require("../db/pool");
