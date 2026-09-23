@@ -170,9 +170,7 @@ app.get("/api/indexer/health", (req, res) => {
     status: "ok",
     indexer: indexerService.getHealth(),
   });
-  return router;
-})());
-app.use("/api/contributors",    contributorRoutes);
+});
 app.use("/api/gas-estimate",    gasEstimatorRoutes);
 app.use("/api/transactions",   transactionRoutes);
 app.use("/api/dao",            daoRoutes);
