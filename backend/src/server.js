@@ -45,6 +45,7 @@ const migrate           = require("./db/migrate");
 const IndexerService    = require("./services/indexerService");
 const { PriceAlertService } = require("./services/priceAlertService");
 const pool              = require("./db/pool");
+const { cleanupExpiredScopeSessions } = require("./services/scopeSessionCleanup");
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
@@ -91,10 +92,6 @@ async function loadScopeSession(sessionId) {
     [sessionId]
   );
   return rows[0] || null;
-}
-
-async function cleanupExpiredScopeSessions() {
-  await pool.query("DELETE FROM scope_sessions WHERE expires_at <= NOW()");
 }
 
 setInterval(() => {
@@ -663,6 +660,7 @@ app._ws.userLastSeen = userLastSeen;
 app._ws.scopeSessionClients = scopeSessionClients;
 app._ws.broadcastRealtime = broadcastRealtime;
 app._ws.broadcastToUser = broadcastToUser;
+app._cleanupExpiredScopeSessions = cleanupExpiredScopeSessions;
 
 app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
 

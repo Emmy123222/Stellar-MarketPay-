@@ -628,4 +628,57 @@ describe("WebSocket chaos & reconnection resilience (#888)", () => {
       ws2.close();
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Requirement 5 — server restart and room re-subscription
+  // ─────────────────────────────────────────────────────────────────────────
+  test("reconnects after a server restart and re-subscribes to its scope room", async () => {
+    const sessionId = "restart-room-1489";
+    let client;
+    let stopped = false;
+    let reconnectTimer;
+    const messages = [];
+
+    const connect = () => {
+      client = new WsClient(
+        `ws://localhost:${port}/ws/scope/${sessionId}?participantId=restart-client`,
+      );
+      client.on("message", (data) => messages.push(JSON.parse(data.toString())));
+      client.on("error", () => {});
+      client.on("close", () => {
+        if (!stopped) reconnectTimer = setTimeout(connect, 100);
+      });
+    };
+
+    connect();
+    await new Promise((resolve) => client.once("open", resolve));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(messages.filter((message) => message.event === "scope:init")).toHaveLength(1);
+
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) return reject(error);
+        server.listen(port, resolve);
+      });
+      client.terminate();
+    });
+
+    const deadline = Date.now() + 5_000;
+    while (messages.filter((message) => message.event === "scope:init").length < 2) {
+      if (Date.now() >= deadline) throw new Error("client did not reconnect within 5 seconds");
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    const initMessages = messages.filter((message) => message.event === "scope:init");
+    expect(initMessages).toHaveLength(2);
+    expect(initMessages[1].payload.sessionId).toBe(sessionId);
+
+    client.send(JSON.stringify({ type: "scope:update", content: "after-restart", cursors: {} }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(messages.filter((message) => message.event === "scope:update")).toHaveLength(1);
+
+    stopped = true;
+    clearTimeout(reconnectTimer);
+    client.close();
+  }, 10_000);
 });
