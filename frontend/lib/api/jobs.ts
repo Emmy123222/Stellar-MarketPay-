@@ -34,6 +34,7 @@ export async function fetchJobs(params?: {
     next_cursor: string | null;
     nextCursor: string | null;
     has_more: boolean;
+    total?: number | null;
   }>("/api/jobs", {
     params: {
       ...rest,
@@ -52,6 +53,7 @@ export async function fetchJobs(params?: {
     jobs: data.data,
     nextCursor: data.nextCursor ?? data.next_cursor ?? null,
     hasMore: data.has_more ?? Boolean(data.nextCursor ?? data.next_cursor),
+    total: data.total ?? null,
   };
 }
 

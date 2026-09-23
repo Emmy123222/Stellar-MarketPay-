@@ -99,6 +99,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   const [recLoading, setRecLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [totalJobs, setTotalJobs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
@@ -369,7 +370,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
           const result = await fetchJobs({
             category: category || undefined,
             status: status || undefined,
-            limit: 20,
+            limit: 10,
             search: activeSearch,
             cursor,
             timezone: activeTimezoneRef.current || undefined,
@@ -395,6 +396,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
 
         if (!isCancelled) {
           setJobs(allJobs);
+          setTotalJobs(result.total ?? null);
           setNextCursorTracked(loadedNextCursor);
           setCurrentPage(pagesLoaded);
         }
@@ -556,7 +558,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
       const result = await fetchJobs({
         category: category || undefined,
         status: status || undefined,
-        limit: 20,
+        limit: 10,
         search: search.trim() || undefined,
         cursor: requestCursor,
         timezone: activeTimezone || undefined,
@@ -583,6 +585,9 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
         return prev.concat(uniqueNewJobs);
       });
       setNextCursorTracked(result.nextCursor);
+      if (result.total !== undefined && result.total !== null) {
+        setTotalJobs(result.total);
+      }
 
       const nextPage = currentPage + 1;
       setCurrentPage(nextPage);
@@ -742,7 +747,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="font-display text-3xl font-bold text-amber-100 mb-1">{t("jobs.title")}</h1>
-          <p className="text-amber-800 text-sm">{loading ? t("jobs.loading") : `${filtered.length} ${filtered.length !== 1 ? t("jobs.foundPlural") : t("jobs.found")}`}</p>
+          <p className="text-amber-800 text-sm">{loading ? t("jobs.loading") : `Showing ${filtered.length} of ${totalJobs ?? filtered.length} jobs`}</p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {publicKey && hasActiveFilters && (
@@ -1236,11 +1241,10 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
               </div>
 
               {loadingMore && (
-                <div className="mt-8 flex justify-center">
-                  <div className="flex items-center gap-2 text-amber-800 text-sm">
-                    <SpinnerIcon className="w-4 h-4 animate-spin" />
-                    {t("jobs.loading")}
-                  </div>
+                <div className="mt-8 grid sm:grid-cols-2 gap-4" aria-live="polite" aria-label="Loading more jobs">
+                  {Array.from({ length: 2 }).map((_, i) => (
+                    <JobCardSkeleton key={`more-job-skeleton-${i}`} />
+                  ))}
                 </div>
               )}
             </div>
