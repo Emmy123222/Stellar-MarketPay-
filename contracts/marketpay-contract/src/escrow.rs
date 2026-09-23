@@ -818,3 +818,59 @@ pub(crate) fn boost_job(
         (job_id, boost_expiry, amount),
     );
 }
+
+/// Permissionless resolution after timeout.
+/// Refunds the client if status is Locked; pays freelancer pro-rata if status is InProgress.
+pub(crate) fn resolve_timeout(env: Env, job_id: String) {
+    check_not_frozen(&env);
+
+    let mut escrow: Escrow = env
+        .storage()
+        .instance()
+        .get(&DataKey::Escrow(job_id.clone()))
+        .expect("Escrow not found");
+
+    let current_timestamp = env.ledger().timestamp() as u32;
+    let timeout_timestamp: Option<u32> = env
+        .storage()
+        .instance()
+        .get(&DataKey::TimeoutTimestamp(job_id.clone()));
+    let expired = if let Some(timeout_timestamp) = timeout_timestamp {
+        current_timestamp >= timeout_timestamp
+    } else {
+        env.ledger().sequence() >= escrow.timeout_ledger
+    };
+
+    if !expired {
+        panic!("Error(Contract, 2014): Timeout period has not expired yet"); // NotExpired
+    }
+
+    match escrow.status {
+        EscrowStatus::Locked => {
+            let token_client = token::Client::new(&env, &escrow.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &escrow.client,
+                &escrow.amount,
+            );
+
+            escrow.status = EscrowStatus::Refunded;
+            env.storage()
+                .instance()
+                .set(&DataKey::Escrow(job_id.clone()), &escrow);
+
+            env.events().publish(
+                (symbol_short!("escrow_rf"), job_id.clone()),
+                (
+                    escrow.client.clone(),
+                    escrow.freelancer.clone(),
+                    escrow.amount,
+                ),
+            );
+        },
+        EscrowStatus::InProgress => {
+            crate::escrow::release_escrow_core(env, job_id, escrow);
+        },
+        _ => panic!("Cannot resolve timeout in current status"),
+    }
+}

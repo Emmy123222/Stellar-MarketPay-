@@ -96,6 +96,8 @@ pub enum ContractError {
     OnlyClientCanTimeoutRefund = 2012,
     /// "Timeout period has not expired yet"
     TimeoutNotExpired = 2013,
+    /// "Timeout period has not expired yet"
+    NotExpired = 2014,
 
     // ── 3xxx: Milestones ──────────────────────────────────────────────────
     /// "Maximum 5 milestones allowed"
@@ -275,6 +277,7 @@ impl ContractError {
             Self::CanOnlyRefundLocked => "Can only refund before work has started",
             Self::OnlyClientCanTimeoutRefund => "Only the client can request a timeout refund",
             Self::TimeoutNotExpired => "Timeout period has not expired yet",
+            Self::NotExpired => "Timeout period has not expired yet",
             // 3xxx
             Self::MaxMilestones => "Maximum 5 milestones allowed",
             Self::MilestonePercentagePositive => "Milestone percentage must be positive",
