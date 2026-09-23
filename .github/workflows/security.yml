@@ -95,7 +95,7 @@ jobs:
       # RUSTSEC-2020-0071 (time 0.1 segfault) is unreachable here: it arrives
       # only as a transitive dev-dependency and never runs in the contract.
       - name: Audit
-        run: cargo audit --allowlist RUSTSEC-2020-0071
+        run: cargo audit --ignore RUSTSEC-2020-0071
 
   filesystem-scan:
     name: Trivy filesystem scan
@@ -113,5 +113,6 @@ jobs:
           trivyignores: .trivyignore
           exit-code: "1"
           format: table
+
 
 
