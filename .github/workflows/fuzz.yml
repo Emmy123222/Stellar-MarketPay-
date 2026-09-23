@@ -9,6 +9,9 @@ on:
     branches: [main]
     paths:
       - "contracts/**"
+  schedule:
+    # Nightly at 02:00 UTC
+    - cron: "0 2 * * *"
 
 concurrency:
   group: fuzz-${{ github.ref }}
@@ -16,6 +19,10 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  # PR / push: 10 min (600 s) — scheduled nightly: 30 min (1800 s)
+  FUZZ_TIME: ${{ github.event_name == 'schedule' && '1800' || '600' }}
 
 jobs:
   fuzz:
@@ -31,14 +38,16 @@ jobs:
     defaults:
       run:
         working-directory: contracts/marketpay-contract/fuzz
+
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy, rustfmt
 
-      - uses: actions/cache@v6
+      # ── Cargo / build cache ────────────────────────────────────────────────
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -48,8 +57,31 @@ jobs:
           key: ${{ runner.os }}-cargo-fuzz-${{ hashFiles('contracts/**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-fuzz-
 
+      # ── Fuzz corpus cache (shared between runs for seed reuse) ─────────────
+      - name: Restore fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: contracts/marketpay-contract/fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.sha }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.target }}-
+
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
 
-      - name: Fuzz ${{ matrix.target }} (60s)
-        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=60
+      - name: Fuzz ${{ matrix.target }} (${{ env.FUZZ_TIME }}s)
+        run: |
+          cargo fuzz run ${{ matrix.target }} \
+            -- \
+            -max_total_time=${{ env.FUZZ_TIME }} \
+            -artifact_prefix=../crashes/${{ matrix.target }}/
+
+      # ── Upload crash artifacts on failure ─────────────────────────────────
+      - name: Upload crash inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-${{ matrix.target }}-${{ github.run_id }}
+          path: contracts/marketpay-contract/crashes/${{ matrix.target }}/
+          if-no-files-found: ignore
+          retention-days: 30
