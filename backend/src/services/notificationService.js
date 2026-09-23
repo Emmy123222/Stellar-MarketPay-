@@ -37,6 +37,7 @@ const EVENT_TYPES = {
   JOB_COMPLETED: "job_completed",
   JOB_INVITED: "job_invited",
   USDC_AUTO_CONVERTED: "usdc_auto_converted",
+  TALENT_POOL_SAVED: "talent_pool_saved",
 };
 
 function rowToInAppNotification(row) {
@@ -118,6 +119,7 @@ const PUSH_NOTIFICATION_EVENTS = new Set([
   EVENT_TYPES.JOB_INVITED,
   EVENT_TYPES.NEW_MESSAGE,
   EVENT_TYPES.USDC_AUTO_CONVERTED,
+  EVENT_TYPES.TALENT_POOL_SAVED,
 ]);
 
 async function sendPushNotificationForEvent(userAddress, { type, title, body, jobId, linkPath }) {
