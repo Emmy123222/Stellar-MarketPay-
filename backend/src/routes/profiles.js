@@ -55,17 +55,6 @@ const {
   migrateProfile,
 } = require("../services/profileMigrationService");
 const { validateProfileMigration } = require("../validators/profileMigrationValidator");
-const {
-  getProfile,
-  upsertProfile,
-  updateAvailability,
-  getProfileStats,
-  getResponseTime,
-  blockFreelancer,
-  unblockFreelancer,
-  getSkillEndorsements,
-  endorseSkill,
-} = require("../services/profileService");
 
 /**
  * @swagger
@@ -1053,4 +1042,3 @@ router.delete("/:publicKey/data", verifyJWT, profileUpdateRateLimiter, async (re
 });
 
 module.exports = router;
-
