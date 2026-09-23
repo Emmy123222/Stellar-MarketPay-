@@ -301,6 +301,7 @@ CREATE TABLE IF NOT EXISTS escrows (
   status              TEXT        NOT NULL DEFAULT 'funded',   -- funded | released | refunded | timeout_refunded
   released_at         TIMESTAMPTZ,                 -- When the escrow was released
   timeout_at          TIMESTAMPTZ,                 -- Issue #175: Ledger timeout mapped to wall-clock (approx)
+  next_billing_date   TIMESTAMPTZ,                 -- Issue #1453: DST-aware recurring billing date
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
