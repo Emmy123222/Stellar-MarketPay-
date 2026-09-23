@@ -41,10 +41,11 @@ const referralRoutes       = require("./routes/referrals");
 const reputationRoutes     = require("./routes/reputation");
 const autoConvertRoutes    = require("./routes/autoConvert");
 
-const migrate           = require("./db/migrate");
-const IndexerService    = require("./services/indexerService");
+const migrate               = require("./db/migrate");
+const IndexerService        = require("./services/indexerService");
 const { PriceAlertService } = require("./services/priceAlertService");
-const pool              = require("./db/pool");
+const pool                  = require("./db/pool");
+const { scheduleStatsRefresh } = require("./services/statsService");
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
@@ -372,6 +373,9 @@ async function bootstrap() {
   await cleanupExpiredScopeSessions();
   await indexerService.start();
   priceAlertService.start();
+
+  // Issue #232 perf: start the 5-minute stats MV refresh cycle after migrations
+  scheduleStatsRefresh();
 
   // Start job expiry checker - run every hour
   startJobExpiryChecker();
