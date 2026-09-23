@@ -6,10 +6,10 @@
 # Spin everything up, seed data, then drive the API with k6:
 #
 #   docker compose -f docker-compose.loadtest.yml up -d
-#   node k6/seed-data.js                       # populates test-fixtures.json
-#   docker run --rm --network host \
-#     -v "$PWD":/work -w /work \
-#     grafana/k6 run /work/k6/get-jobs.js
+#   DATABASE_URL=postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork \
+#     npm run seed-db                         # seeds DB (jobs, profiles, escrows)
+#   node k6/seed-data.js                      # populates test-fixtures.json
+#   docker compose -f docker-compose.loadtest.yml run --rm k6 run scripts/jobs-listing.js
 #   docker compose -f docker-compose.loadtest.yml down -v
 #
 # Notable tuning vs. docker-compose.yml:

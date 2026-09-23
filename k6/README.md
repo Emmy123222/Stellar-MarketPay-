@@ -41,32 +41,93 @@ Thresholds are enforced by k6 — a run **exits non-zero** if the SLA is broken.
 
 ---
 
+## Prerequisites
+
+The load-test scripts assume the target API already has data to query and
+write against. A fresh environment starts with an **empty database** — no jobs,
+profiles, or escrows — so `GET /api/jobs` returns an empty listing,
+`GET /api/profiles/:publicKey` 404s on seeded keys, and `POST /api/applications`
+(which requires existing open jobs *and* freelancer profiles) errors out. The
+database must be seeded **before** running any load test, in two steps.
+
+### 1. Seed the database — `npm run seed-db`
+
+Populates the database directly (no HTTP) via [`scripts/seed-db.js`](../scripts/seed-db.js),
+which requires `DATABASE_URL` in `backend/.env` (or exported) pointing at the
+target database. The script is **idempotent** — re-running it never creates
+duplicates.
+
+```bash
+npm run seed-db
+```
+
+Minimum required data it guarantees (the exact counts it seeds):
+
+| Data                             | Minimum count |
+|----------------------------------|---------------|
+| Users (2 clients + 3 freelancers) | 5             |
+| Open jobs                        | 20            |
+| Applications                     | 10            |
+| In-progress jobs with escrow     | 3             |
+
+### 2. Generate load-test volume — `node k6/seed-data.js`
+
+`seed-db` provides enough data for development, but the load tests need a much
+larger pool of open jobs and freelancers (so `POST /api/applications` can issue
+many unique `(job, freelancer)` pairs) plus a `test-fixtures.json` the scripts
+load via `SharedArray`. `k6/seed-data.js` seeds that volume through the REST
+API and writes [`k6/test-fixtures.json`](k6/test-fixtures.json).
+
+```bash
+JWT_SECRET=<same-as-backend> node k6/seed-data.js
+```
+
+Expected DB state **after** `seed-data.js` runs (defaults tune via
+`SEED_JOBS` / `SEED_FREELANCERS`):
+
+| Data                      | Count after seed                 |
+|---------------------------|----------------------------------|
+| Client profile (job owner)| 1                                |
+| Open public jobs          | 30 (default `SEED_JOBS`)         |
+| Freelancer profiles       | 5000 (default `SEED_FREELANCERS`)|
+
+It also writes `k6/test-fixtures.json` with `clientKey`, `jobIds` (one per open
+job) and `profileKeys` (one per freelancer) — consumed by `get-profiles.js` and
+`scripts/apply-to-job.js`.
+
+---
+
 ## Run locally (Docker)
 
-The easiest path mirrors CI exactly — a throwaway stack + the official k6 image:
+The easiest path mirrors CI exactly — a throwaway stack + the official k6 image.
+Ensure the [Prerequisites](#prerequisites) are complete first:
 
 ```bash
 # 1. Start a production-like stack (Postgres + Redis + backend, tuned for load)
 docker compose -f docker-compose.loadtest.yml up -d --build
 
-# 2. Seed deterministic test data (writes k6/test-fixtures.json)
+# 2. Seed the database (idempotent; Prerequisites step 1) against the load-test Postgres
+DATABASE_URL=postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork \
+npm run seed-db
+
+# 3. Seed deterministic test data (writes k6/test-fixtures.json)
 JWT_SECRET=loadtest-jwt-secret-with-sufficient-length-for-signing \
 K6_BASE_URL=http://localhost:4000 \
   node k6/seed-data.js
 
-# 3. Run a script
+# 4. Run a script (runs inside the compose `k6` service, cwd = k6/)
 docker compose -f docker-compose.loadtest.yml run --rm k6 run scripts/jobs-listing.js
 
-# 4. Compare to a previous run (optional)
+# 5. Compare to a previous run (optional)
 node k6/lib/trend-report.js --current k6/results --previous k6/previous-results
 
-# 5. Tear down
+# 6. Tear down
 docker compose -f docker-compose.loadtest.yml down -v
 ```
 
-> **k6 must run with its working directory set to `k6/`** (the `-w /work` flag
-> above mounts `k6/` to `/work`). Relative fixture and result paths resolve from
-> there.
+> **k6 must run with its working directory set to `k6/`** — the compose `k6`
+> service above mounts `./k6` at `/work` (with `working_dir: /work`), so
+> relative fixture and result paths resolve from there.
 
 ### Run with a local k6 binary
 

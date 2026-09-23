@@ -6,7 +6,8 @@
   "license": "MIT",
   "scripts": {
     "prepare": "husky",
-    "lint-staged": "lint-staged"
+    "lint-staged": "lint-staged",
+    "seed-db": "node scripts/seed-db.js"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
