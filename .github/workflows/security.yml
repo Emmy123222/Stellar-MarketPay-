@@ -59,7 +59,7 @@ jobs:
 
       - name: Audit production dependencies
         run: |
-          npx audit-ci@^6.0.0 --high --skip-dev --ignore GHSA-h25m-26qc-wcjf --ignore GHSA-q4gf-8mx6-v5v3 --ignore GHSA-8h8q-6873-q5fj --ignore GHSA-c4j6-fc7j-m34r --ignore GHSA-36qx-fr4f-26g5 --ignore GHSA-m99w-x7hq-7vfj --ignore GHSA-89xv-2m56-2m9x --ignore GHSA-p9j2-gv94-2wf4 --ignore GHSA-p293-qw3h-jr36 --ignore GHSA-2xp9-vwfh-vxw4 --ignore GHSA-6g55-p6wh-862q --ignore GHSA-r28c-9q8g-f849 --ignore GHSA-82x6-q7mm-w9cf --ignore GHSA-v5mp-jgw5-2x6j --ignore GHSA-6hxq-p678-4hr2
+          npx audit-ci@^6.0.0 --high --skip-dev --allowlist GHSA-h25m-26qc-wcjf --allowlist GHSA-q4gf-8mx6-v5v3 --allowlist GHSA-8h8q-6873-q5fj --allowlist GHSA-c4j6-fc7j-m34r --allowlist GHSA-36qx-fr4f-26g5 --allowlist GHSA-m99w-x7hq-7vfj --allowlist GHSA-89xv-2m56-2m9x --allowlist GHSA-p9j2-gv94-2wf4 --allowlist GHSA-p293-qw3h-jr36 --allowlist GHSA-2xp9-vwfh-vxw4 --allowlist GHSA-6g55-p6wh-862q --allowlist GHSA-r28c-9q8g-f849 --allowlist GHSA-82x6-q7mm-w9cf --allowlist GHSA-v5mp-jgw5-2x6j --allowlist GHSA-6hxq-p678-4hr2
 
       - name: Audit all dependencies (advisory)
         run: npm audit --audit-level=moderate
@@ -95,7 +95,7 @@ jobs:
       # RUSTSEC-2020-0071 (time 0.1 segfault) is unreachable here: it arrives
       # only as a transitive dev-dependency and never runs in the contract.
       - name: Audit
-        run: cargo audit --ignore RUSTSEC-2020-0071
+        run: cargo audit --allowlist RUSTSEC-2020-0071
 
   filesystem-scan:
     name: Trivy filesystem scan
@@ -113,4 +113,5 @@ jobs:
           trivyignores: .trivyignore
           exit-code: "1"
           format: table
+
 
