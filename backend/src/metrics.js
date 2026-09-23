@@ -136,6 +136,13 @@ const notificationQueuePending = createMetric(promClient.Gauge, {
   help: "Pending notifications in the queue",
 });
 
+// ─── XLM price metrics ──────────────────────────────────────────────────────
+/** Current XLM price in USD, updated on each successful CoinGecko fetch. */
+const xlmPriceUsd = createMetric(promClient.Gauge, {
+  name: "xlm_price_usd",
+  help: "Current XLM price in USD from CoinGecko",
+});
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const SQL_VERB = /^[\s(]*(select|insert|update|delete|with|begin|commit|rollback|create|alter|drop|truncate|copy|explain|set|listen|notify)\b/i;
@@ -265,6 +272,21 @@ function setWebsocketConnections(channel, count) {
 }
 
 /**
+ * Update the XLM price gauge. Never throws — metrics must not break the
+ * price path. Ignores non-finite values.
+ *
+ * @param {number} priceUsd current XLM price in USD
+ */
+function setXlmPriceUsd(priceUsd) {
+  if (!Number.isFinite(priceUsd)) return;
+  try {
+    xlmPriceUsd.set(priceUsd);
+  } catch {
+    // Swallow — observability must not fail requests
+  }
+}
+
+/**
  * Render the registry in Prometheus text exposition format.
  *
  * @returns {Promise<string>} metrics payload
@@ -289,6 +311,7 @@ module.exports = {
   pgPoolIdle,
   pgPoolWaiting,
   notificationQueuePending,
+  xlmPriceUsd,
   // legacy aliases
   legacyHttpRequestsTotal,
   legacyHttpRequestDurationSeconds,
@@ -300,5 +323,6 @@ module.exports = {
   observeHttpRequest,
   observePoolQuery,
   setWebsocketConnections,
+  setXlmPriceUsd,
   renderMetrics,
 };
