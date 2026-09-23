@@ -227,7 +227,7 @@ Deploy or upgrade the Soroban escrow contract using [docs/contract-deployment.md
 - **[API Client SDKs](docs/api-client-sdk.md)** — TypeScript, Python, and Go client libraries
 - **[Troubleshooting Guide](docs/troubleshooting.md)** — Common issues and solutions
 - **[Production Deployment](docs/deployment-production.md)** — Deploy to AWS, GCP, or DigitalOcean
-- **** — Complete API reference
+- **[API Documentation](docs/api-documentation.md)** — Complete API reference
 - **[Contract Deployment](docs/contract-deployment.md)** — Deploy Soroban smart contracts
 
 ## 🤝 Contributing
