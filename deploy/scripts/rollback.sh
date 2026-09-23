@@ -58,4 +58,4 @@ docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -s reload 2>/dev/null || t
 
 echo "=== Rollback complete ==="
 echo "Traffic restored to $ACTIVE_ENV environment."
-exit 1
+exit 0
