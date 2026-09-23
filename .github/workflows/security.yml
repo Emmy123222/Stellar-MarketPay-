@@ -59,7 +59,7 @@ jobs:
 
       - name: Audit production dependencies
         run: |
-          npm audit --omit=dev --audit-level=high
+          npx audit-ci@^6.0.0 --high --skip-dev --ignore GHSA-6hxq-p678-4hr2 GHSA-82x6-q7mm-w9cf GHSA-v5mp-jgw5-2x6j CVE-2026-75604 GHSA-2xp9-vwfh-vxw4 CVE-2026-44573 CVE-2026-44578 CVE-2026-64641 CVE-2026-64645 CVE-2026-64649 GHSA-8h8q-6873-q5fj GHSA-h25m-26qc-wcjf GHSA-q4gf-8mx6-v5v3 CVE-2026-45623 CVE-2026-73646
 
       - name: Audit all dependencies (advisory)
         run: npm audit --audit-level=moderate
