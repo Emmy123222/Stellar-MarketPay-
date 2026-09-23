@@ -1,4 +1,4 @@
-﻿# Architecture Decision Records (ADRs)
+# Architecture Decision Records (ADRs)
 
 This directory contains Architecture Decision Records (ADRs) for Stellar MarketPay. ADRs document significant architectural decisions made during the development of the platform.
 

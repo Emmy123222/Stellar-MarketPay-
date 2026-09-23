@@ -1,4 +1,4 @@
-﻿# API Reference — Stellar MarketPay
+# API Reference — Stellar MarketPay
 
 Base URL: `http://localhost:4000`
 
