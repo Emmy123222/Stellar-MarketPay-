@@ -92,7 +92,7 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - run: npm ci
+      - run: npm install
         continue-on-error: true
 
       - name: Lint
@@ -169,7 +169,7 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - run: npm ci
+      - run: npm install
         continue-on-error: true
 
       - name: Run migrations
@@ -205,7 +205,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      - run: npm install
         continue-on-error: true
 
       - name: Lint
@@ -251,7 +251,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      - run: npm install
         continue-on-error: true
 
       - name: Install Playwright browsers
