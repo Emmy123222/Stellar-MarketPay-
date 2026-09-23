@@ -131,6 +131,11 @@ const pgPoolWaiting = createMetric(promClient.Gauge, {
   help: "Waiting PostgreSQL pool requests",
 });
 
+const pgPoolWaitingConnections = createMetric(promClient.Gauge, {
+  name: "pg_pool_waiting_connections",
+  help: "Waiting PostgreSQL pool requests",
+});
+
 const notificationQueuePending = createMetric(promClient.Gauge, {
   name: "notification_queue_pending",
   help: "Pending notifications in the queue",
@@ -288,6 +293,7 @@ module.exports = {
   pgPoolTotal,
   pgPoolIdle,
   pgPoolWaiting,
+  pgPoolWaitingConnections,
   notificationQueuePending,
   // legacy aliases
   legacyHttpRequestsTotal,

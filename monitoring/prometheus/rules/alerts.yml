@@ -84,6 +84,23 @@ groups:
           summary: "PostgreSQL p95 query latency above 500ms"
           description: "pool_query_duration_ms p95 has exceeded 500ms for more than 10 minutes."
 
+      - alert: DBPoolExhausted
+        expr: pg_pool_waiting_connections{job="marketpay-backend"} > 10
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL connection pool is exhausted"
+          description: "More than 10 requests have been waiting for a PostgreSQL connection for over 30 seconds."
+
+      - alert: DBPoolUtilizationHigh
+        expr: (pg_pool_total{job="marketpay-backend"} - pg_pool_idle{job="marketpay-backend"}) / clamp_min(pg_pool_total{job="marketpay-backend"}, 1) > 0.8
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL connection pool utilization is above 80%"
+          description: "More than 80% of PostgreSQL pool connections are currently in use."
+
       - alert: WebSocketConnectionsSpike
         expr: sum(active_websocket_connections{job="marketpay-backend"}) > 5000
         for: 15m
