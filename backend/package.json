@@ -23,7 +23,7 @@
         "@bull-board/api": "^9.5.0",
         "@bull-board/express": "^9.4.0",
         "@simplewebauthn/server": "^9.0.3",
-        "@stellar/stellar-sdk": "^17.1.0",
+        "@stellar/stellar-sdk": "^12.3.0",
         "ajv-formats": "^3.0.1",
         "axios": "^1.20.0",
         "bull": "^4.16.5",
@@ -65,6 +65,7 @@
     },
     "overrides": {
         "qs": "^6.14.0",
+        "toml": "npm:@iarna/toml@^2.2.5",
         "bull": {
             "uuid": "^11.1.1"
         },
