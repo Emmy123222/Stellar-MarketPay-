@@ -195,7 +195,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ### Implementation Summary
 
-**File**: [../IMPLEMENTATION_SUMMARY.md](../IMPLEMENTATION_SUMMARY.md)
+**File**: IMPLEMENTATION_SUMMARY.md (Removed)
 
 **Contents**:
 
@@ -217,7 +217,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 - **[README](../README.md)** - Project overview
 - **[ROADMAP](../ROADMAP.md)** - Feature roadmap
 - **[CONTRIBUTING](../CONTRIBUTING.md)** - Contribution guidelines
-- **[TODO](../TODO.md)** - Outstanding tasks
+- **TODO (Removed)** - Outstanding tasks
 
 ### External Resources
 
@@ -339,7 +339,7 @@ stellar-marketpay/
 ### Contributing
 
 - See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines
-- Check [TODO.md](../TODO.md) for outstanding tasks
+- Check TODO.md (Removed) for outstanding tasks
 - Review [ROADMAP.md](../ROADMAP.md) for planned features
 
 ---
