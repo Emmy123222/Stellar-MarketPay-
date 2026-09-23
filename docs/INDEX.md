@@ -1,4 +1,4 @@
-﻿# Documentation Index
+# Documentation Index
 
 Welcome to Stellar MarketPay documentation. This index helps you find what you need.
 
