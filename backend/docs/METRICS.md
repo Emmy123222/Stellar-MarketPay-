@@ -20,6 +20,8 @@ text exposition format (`text/plain; version=0.0.4`).
 | `pg_pool_total` / `pg_pool_idle` / `pg_pool_waiting` | gauge | Pool saturation |
 | `marketpay_db_connections{state}` | gauge | Pool counts by state |
 | `notification_queue_pending` | gauge | Outbound notification backlog |
+| `marketpay_escrow_releases_total{result}` | counter | Escrow release attempts (`success` / `error`) |
+| `marketpay_escrow_release_errors_total{reason}` | counter | Failed escrow releases by reason (`network`, `insufficient_balance`, `not_found`, `contract_error`) |
 | `marketpay_*` | various | Node.js/process default metrics |
 
 Legacy series (`marketpay_http_requests_total`,
@@ -73,8 +75,9 @@ Then uncomment the `authorization` block in
 | File | Purpose |
 | --- | --- |
 | `monitoring/prometheus/prometheus.yml` | `marketpay-backend` scrape job (`backend:4000/metrics`, 15s) |
-| `monitoring/prometheus/rules/alerts.yml` | Alerts on latency, error rate, slow queries, WS spikes, scrape failure |
+| `monitoring/prometheus/rules/alerts.yml` | Alerts on latency, error rate, escrow release failure rate, slow queries, WS spikes, scrape failure |
 | `monitoring/grafana/dashboards/marketpay-backend-metrics.json` | 17-panel dashboard (uid `marketpay-backend-metrics`) |
+| `monitoring/grafana/dashboards/marketpay-overview.json` | Request/latency/error overview incl. the **Escrow Release Error Rate** panel (uid `marketpay-overview`) |
 
 Grafana auto-provisions dashboards from `/var/lib/grafana/dashboards`, which
 `docker-compose.prod.yml` already mounts from `monitoring/grafana/dashboards`.

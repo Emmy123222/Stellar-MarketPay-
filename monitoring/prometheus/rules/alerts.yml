@@ -19,6 +19,15 @@ groups:
           summary: "MarketPay error rate is above 5%"
           description: "More than 5% of API requests are returning 5xx responses."
 
+      - alert: EscrowReleaseErrorRateHigh
+        expr: 100 * sum(rate(marketpay_escrow_release_errors_total[5m])) / clamp_min(sum(rate(marketpay_escrow_releases_total[5m])), 0.001) > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Escrow release error rate is above 5%"
+          description: "More than 5% of escrow release attempts have failed over the last 5 minutes — investigate Horizon/network errors, insufficient balances or contract rejections."
+
       - alert: HighDatabaseConnections
         expr: marketpay_db_connections{state="total"} > 80
         for: 10m
