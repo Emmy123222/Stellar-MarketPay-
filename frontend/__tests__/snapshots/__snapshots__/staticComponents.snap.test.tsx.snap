@@ -494,10 +494,37 @@ exports[`static component snapshots FreelancerCard default: FreelancerCard 1`] =
           </div>
         </div>
         <div
-          class="flex items-center gap-2"
+          class="flex flex-wrap items-center gap-1.5"
         >
+          <div
+            class="relative inline-block"
+          >
+            <span
+              class="inline-flex items-center rounded-full font-medium border transition-all cursor-default select-none text-amber-700 bg-ink-800/80 border-market-500/15 text-[10px] px-2 py-0.5 gap-1"
+            >
+              <svg
+                class="flex-shrink-0 fill-current w-2.5 h-2.5"
+                viewBox="0 0 20 20"
+              >
+                <path
+                  d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"
+                />
+              </svg>
+              <span>
+                —
+              </span>
+              <span
+                class="opacity-80"
+              >
+                ·
+              </span>
+              <span>
+                New
+              </span>
+            </span>
+          </div>
           <span
-            class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+            class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
           >
             Available
           </span>
@@ -1912,6 +1939,29 @@ exports[`static component snapshots Navbar logged in: Navbar logged in 1`] = `
           </svg>
         </button>
       </div>
+      <a
+        href="/settings"
+      >
+        <svg
+          class="w-4 h-4"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.75"
+          />
+          <path
+            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.75"
+          />
+        </svg>
+      </a>
       <div
         class="flex items-center gap-1 sm:gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity text-xs sm:text-sm px-2 py-2 sm:px-3 sm:py-2 min-h-[44px]"
       >
@@ -2830,7 +2880,7 @@ exports[`static component snapshots RealtimeBidComparison with applications: Rea
           class="text-xs text-amber-800"
         >
           Applied 
-          8 months ago
+          9 months ago
         </p>
       </div>
     </div>

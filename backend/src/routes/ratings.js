@@ -13,6 +13,7 @@ const router  = express.Router();
 const pool    = require("../db/pool");
 const { createRating, getRatingsForUser } = require("../services/ratingService");
 const { verifyJWT } = require("../middleware/auth");
+const { scheduleReputationRecalc } = require("../services/reputationService");
 
 /**
  * @swagger
@@ -106,6 +107,7 @@ router.post("/", verifyJWT, async (req, res, next) => {
     }
 
     const rating = await createRating({ jobId, raterAddress, ratedAddress, stars: parsedStars, review });
+    scheduleReputationRecalc(ratedAddress);
     res.status(201).json({ success: true, data: rating });
   } catch (e) { next(e); }
 });

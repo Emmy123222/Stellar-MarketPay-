@@ -4,6 +4,7 @@
  */
 import Link from "next/link";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
+import ReputationBadge from "@/components/ReputationBadge";
 import { availabilityBadgeClass, availabilityStatusLabel, formatXLM, shortenAddress } from "@/utils/format";
 import type { UserProfile } from "@/utils/types";
 
@@ -27,8 +28,9 @@ export default function FreelancerCard({ profile }: FreelancerCardProps) {
         <span className="inline-flex">{shortenAddress(profile.publicKey, 4)}</span>
       </div>
     </div>
-    <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${availabilityBadgeClass(availabilityStatus)}`}>
+    <div className="flex flex-wrap items-center gap-1.5">
+              <ReputationBadge userId={profile.publicKey} size="sm" />
+              <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${availabilityBadgeClass(availabilityStatus)}`}>
                 {availabilityStatusLabel(availabilityStatus)}
               </span>
               {profile.tier ? <FreelancerTierBadge tier={profile.tier} className="hidden sm:inline-flex" /> : null}

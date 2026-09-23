@@ -29,6 +29,7 @@ const {
 
 const { logContractInteraction } = require("../services/contractAuditService");
 const { getClientReputation } = require("../services/profileService");
+const { scheduleReputationRecalcForJob } = require("../services/reputationService");
 const cache = require("../utils/cache");
 const jobDraftService = require("../services/jobDraftService");
 const recommendationService = require("../services/recommendationService");
@@ -795,6 +796,7 @@ router.post(
       }
 
       const job = await resolveDispute(req.params.id);
+      scheduleReputationRecalcForJob(req.params.id);
       res.json({ success: true, data: job });
     } catch (e) {
       next(e);

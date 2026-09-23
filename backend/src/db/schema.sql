@@ -604,3 +604,63 @@ CREATE INDEX IF NOT EXISTS audit_log_entity_idx     ON audit_log(entity_type, en
 CREATE INDEX IF NOT EXISTS audit_log_actor_idx      ON audit_log(actor_address);
 CREATE INDEX IF NOT EXISTS audit_log_action_idx     ON audit_log(action);
 CREATE INDEX IF NOT EXISTS audit_log_created_idx    ON audit_log(created_at DESC);
+
+-- ─────────────────────────────────────────
+-- reputation_scores  (V55 — Issue #1561)
+-- ─────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS reputation_scores (
+  user_id             TEXT          PRIMARY KEY REFERENCES profiles(public_key) ON DELETE CASCADE,
+  score               NUMERIC(5,2)  NOT NULL DEFAULT 0 CHECK (score BETWEEN 0 AND 100),
+  completed_jobs      INTEGER       NOT NULL DEFAULT 0,
+  dispute_rate        NUMERIC(5,4)  NOT NULL DEFAULT 0 CHECK (dispute_rate BETWEEN 0 AND 1),
+  avg_response_hours  NUMERIC(10,2),                -- NULL until the user has replied to at least one message/application
+  avg_rating          NUMERIC(3,2),                 -- NULL until first rating
+  rating_count        INTEGER       NOT NULL DEFAULT 0,
+  referral_quality    NUMERIC(5,4)  NOT NULL DEFAULT 0 CHECK (referral_quality BETWEEN 0 AND 1),
+  updated_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS reputation_scores_score_idx ON reputation_scores (score DESC);
+
+-- ─────────────────────────────────────────
+-- USDC auto-convert  (V56 — Issue #1560)
+-- ─────────────────────────────────────────
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS auto_convert_usdc BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Maximum slippage the freelancer accepts on the swap, in basis points (100 = 1%).
+  ADD COLUMN IF NOT EXISTS auto_convert_slippage_bps INTEGER NOT NULL DEFAULT 100
+    CHECK (auto_convert_slippage_bps BETWEEN 10 AND 1000);
+
+-- Payment history for auto-conversions. A row is created in 'pending' state when
+-- an escrow is released to a freelancer who has opted in; the freelancer's
+-- wallet then signs a pathPaymentStrictSend (XLM -> USDC, to self) and the
+-- result (tx hash, amounts, effective rate) is recorded here.
+CREATE TABLE IF NOT EXISTS usdc_auto_conversions (
+  id                  UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_address        TEXT          NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
+  job_id              UUID          REFERENCES jobs(id) ON DELETE SET NULL,
+  milestone_index     INTEGER,                    -- NULL for a full escrow release
+  source_amount_xlm   NUMERIC(20,7) NOT NULL CHECK (source_amount_xlm > 0),
+  quoted_usdc         NUMERIC(20,7),              -- best path quote at release time
+  dest_min_usdc       NUMERIC(20,7),              -- min USDC after slippage
+  received_usdc       NUMERIC(20,7),              -- actual USDC received on-chain
+  exchange_rate       NUMERIC(20,7),              -- USDC per XLM actually obtained
+  tx_hash             TEXT,
+  status              TEXT          NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'completed', 'failed', 'skipped')),
+  error               TEXT,
+  created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  completed_at        TIMESTAMPTZ
+);
+
+-- One conversion per release: full release (milestone_index NULL) or per milestone.
+CREATE UNIQUE INDEX IF NOT EXISTS usdc_auto_conversions_release_uniq
+  ON usdc_auto_conversions (user_address, job_id, (COALESCE(milestone_index, -1)));
+
+CREATE INDEX IF NOT EXISTS usdc_auto_conversions_user_created_idx
+  ON usdc_auto_conversions (user_address, created_at DESC);
+CREATE INDEX IF NOT EXISTS usdc_auto_conversions_pending_idx
+  ON usdc_auto_conversions (user_address) WHERE status = 'pending';
+CREATE UNIQUE INDEX IF NOT EXISTS usdc_auto_conversions_tx_hash_idx
+  ON usdc_auto_conversions (tx_hash) WHERE tx_hash IS NOT NULL;

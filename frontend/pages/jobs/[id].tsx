@@ -1,6 +1,7 @@
 import TimeTracker from "@/components/TimeTracker";
 import FeeEstimationModal from "@/components/FeeEstimationModal";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import ReputationBadge from "@/components/ReputationBadge";
 import { useCallback, useEffect, useState } from "react";
 import { useRealtimeBids } from "@/hooks/useRealtimeBids";
 import { useRouter } from "next/router";
@@ -633,14 +634,17 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
                         {formatUSDEquivalent(job.budget, xlmPriceUsd)}
                       </p>
                     )}
-                    <a
-                      href={accountUrl(job.clientAddress)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 mt-2 text-xs sm:text-sm text-amber-700 hover:text-market-400 transition-colors"
-                    >
-                      Client: {shortenAddress(job.clientAddress)} ↗
-                    </a>
+                    <div className="flex flex-col sm:items-end gap-1.5 mt-2">
+                      <a
+                        href={accountUrl(job.clientAddress)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs sm:text-sm text-amber-700 hover:text-market-400 transition-colors"
+                      >
+                        Client: {shortenAddress(job.clientAddress)} ↗
+                      </a>
+                      <ReputationBadge userId={job.clientAddress} size="sm" />
+                    </div>
                   </div>
                 </div>
             </div>

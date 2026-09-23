@@ -36,6 +36,7 @@ const EVENT_TYPES = {
   NEW_MESSAGE: "new_message",
   JOB_COMPLETED: "job_completed",
   JOB_INVITED: "job_invited",
+  USDC_AUTO_CONVERTED: "usdc_auto_converted",
 };
 
 function rowToInAppNotification(row) {
@@ -116,6 +117,7 @@ const PUSH_NOTIFICATION_EVENTS = new Set([
   EVENT_TYPES.DISPUTE_OPENED,
   EVENT_TYPES.JOB_INVITED,
   EVENT_TYPES.NEW_MESSAGE,
+  EVENT_TYPES.USDC_AUTO_CONVERTED,
 ]);
 
 async function sendPushNotificationForEvent(userAddress, { type, title, body, jobId, linkPath }) {
@@ -431,6 +433,11 @@ function generateEmailContent(eventType, data) {
       text: `A client has invited you to apply to their job: "${jobTitle}".\n\nBudget: ${amount} ${currency}\nJob: ${jobUrl}\n\nView the job and apply directly from the link above.`,
       html: `<h2>Job Invitation</h2><p>A client has invited you to apply to their job: "<strong>${jobTitle}</strong>".</p><p><strong>Budget:</strong> ${amount} ${currency}</p><p><a href="${jobUrl}">View Job &amp; Apply</a></p>`,
     },
+    [EVENT_TYPES.USDC_AUTO_CONVERTED]: {
+      subject: `Earnings auto-converted to USDC: ${jobTitle}`,
+      text: `Your earnings for "${jobTitle}" were automatically converted to USDC.\n\nSent: ${data.sourceAmountXlm} XLM\nReceived: ${data.receivedUsdc} USDC\nRate: 1 XLM = ${data.exchangeRate} USDC\nTransaction: ${data.txHash}\n\nYou can turn auto-convert off at any time in Settings: ${baseUrl}/settings`,
+      html: `<h2>Earnings converted to USDC</h2><p>Your earnings for "<strong>${jobTitle}</strong>" were automatically converted to USDC.</p><p><strong>Sent:</strong> ${data.sourceAmountXlm} XLM<br/><strong>Received:</strong> ${data.receivedUsdc} USDC<br/><strong>Rate:</strong> 1 XLM = ${data.exchangeRate} USDC<br/><strong>Transaction:</strong> <code>${data.txHash}</code></p><p><a href="${baseUrl}/settings">Manage auto-convert</a></p>`,
+    },
   };
 
   return templates[eventType] || {
@@ -485,6 +492,10 @@ function generateInAppContent(eventType, data) {
     [EVENT_TYPES.JOB_COMPLETED]: {
       title: "Job completed",
       body: `"${jobLabel}" was marked complete.`,
+    },
+    [EVENT_TYPES.USDC_AUTO_CONVERTED]: {
+      title: "Earnings converted to USDC",
+      body: `${data.sourceAmountXlm} XLM from "${jobLabel}" was converted to ${data.receivedUsdc} USDC (1 XLM = ${data.exchangeRate} USDC).`,
     },
   };
 

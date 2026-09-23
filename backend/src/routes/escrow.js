@@ -23,6 +23,8 @@ const {
   EVENT_TYPES,
 } = require("../services/notificationService");
 const { processReferralPayout } = require("../services/referralService");
+const { scheduleReputationRecalcForJob } = require("../services/reputationService");
+const { queueAutoConversion } = require("../services/autoConvertService");
 const {
   timeoutRefund,
   releaseMilestone,
@@ -100,6 +102,13 @@ router.post("/:jobId/release", async (req, res, next) => {
     );
     await updateJobStatus(jobId, "completed");
 
+    // Issue #1561: refresh reputation for both parties (and the referrer whose
+    // referral quality may have changed) in the background.
+    scheduleReputationRecalcForJob(jobId, referralResult?.referrer);
+
+    // Issue #1560: queue an XLM→USDC swap if the freelancer opted in.
+    const autoConversion = await queueAutoConversion({ jobId, amountXlm });
+
     // Audit log the escrow release event
     try {
       await insertAuditLog({
@@ -121,6 +130,13 @@ router.post("/:jobId/release", async (req, res, next) => {
         referralBonus: {
           referrer: referralResult.referrer,
           bonusXlm: referralResult.bonusXlm,
+        },
+      }),
+      ...(autoConversion && {
+        autoConversion: {
+          id: autoConversion.id,
+          status: autoConversion.status,
+          sourceAmountXlm: autoConversion.sourceAmountXlm,
         },
       }),
     });
@@ -187,6 +203,8 @@ router.post(
         },
       });
 
+      scheduleReputationRecalcForJob(jobId);
+
       res.json({ success: true, message: "Escrow released and job completed" });
     } catch (e) {
       next(e);
@@ -217,7 +235,25 @@ router.post(
         clientAddress,
         contractTxHash,
       );
-      res.json({ success: true, data: result });
+
+      scheduleReputationRecalcForJob(jobId);
+      const autoConversion = await queueAutoConversion({
+        jobId,
+        amountXlm: result.milestone?.amount,
+        milestoneIndex: Number(milestoneIndex),
+      });
+
+      res.json({
+        success: true,
+        data: result,
+        ...(autoConversion && {
+          autoConversion: {
+            id: autoConversion.id,
+            status: autoConversion.status,
+            sourceAmountXlm: autoConversion.sourceAmountXlm,
+          },
+        }),
+      });
     } catch (e) {
       next(e);
     }
@@ -249,7 +285,25 @@ router.post(
         clientAddress,
         contractTxHash,
       );
-      res.json({ success: true, data: result });
+
+      scheduleReputationRecalcForJob(jobId);
+      const autoConversion = await queueAutoConversion({
+        jobId,
+        amountXlm: result.milestone?.amount,
+        milestoneIndex: Number(milestoneIndex),
+      });
+
+      res.json({
+        success: true,
+        data: result,
+        ...(autoConversion && {
+          autoConversion: {
+            id: autoConversion.id,
+            status: autoConversion.status,
+            sourceAmountXlm: autoConversion.sourceAmountXlm,
+          },
+        }),
+      });
     } catch (e) {
       next(e);
     }

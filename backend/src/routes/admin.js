@@ -15,6 +15,7 @@ const router = express.Router();
 const pool = require("../db/pool");
 const { verifyJWT, requireAdminRole, requireAdmin2FA } = require("../middleware/auth");
 const { updateJobStatus, listJobs } = require("../services/jobService");
+const { scheduleReputationRecalcForJob } = require("../services/reputationService");
 const { logContractInteraction } = require("../services/contractAuditService");
 const { getApiKeyUsageStats } = require("../services/developerService");
 const { listAuditLogs } = require("../services/auditLogService");
@@ -522,6 +523,7 @@ router.patch("/disputes/:jobId/resolve", verifyJWT, requireAdminRole, requireAdm
     // Update job status
     const newJobStatus = releaseTo === "client" ? "cancelled" : "completed";
     await updateJobStatus(jobId, newJobStatus);
+    scheduleReputationRecalcForJob(jobId);
 
     await logAdminAction({
       action: "resolve_dispute",

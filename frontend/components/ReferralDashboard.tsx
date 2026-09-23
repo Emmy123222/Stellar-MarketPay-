@@ -9,6 +9,7 @@
  *  - Payout history table
  */
 import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import { fetchReferralStats } from "@/lib/api";
 import type {
   ReferralStats,
@@ -226,6 +227,16 @@ export default function ReferralDashboard({
                 </>
               )}
             </button>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between text-xs">
+            <span className="text-amber-700">Track milestones and stage progression:</span>
+            <Link
+              href="/referrals"
+              className="text-market-400 hover:text-market-300 font-semibold inline-flex items-center gap-1 transition-colors"
+            >
+              Open Full Referral Pipeline Dashboard →
+            </Link>
           </div>
         </div>
       </div>

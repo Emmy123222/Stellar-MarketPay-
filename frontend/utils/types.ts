@@ -445,3 +445,96 @@ export interface PasskeyCredential {
   created_at: string;
 }
 
+// ─── Referral Pipeline (Issue #1559) ─────────────────────────────────────────
+
+export type PipelineStatus = "registered" | "first_job_completed" | "credit_paid";
+
+export interface PipelineReferee {
+  id: string;
+  refereeAddress: string;
+  refereeDisplayName: string | null;
+  status: PipelineStatus;
+  registeredAt: string;
+  firstJobId: string | null;
+  firstJobTitle: string | null;
+  firstJobCompletedAt: string | null;
+  creditXlm: string | null;
+  paidAt: string | null;
+}
+
+export interface MyReferralStats {
+  referralLink: string;
+  bonusBps: number;
+  totalReferred: number;
+  pendingCreditsXlm: string | null;
+  paidCreditsXlm: string | null;
+  pipeline: {
+    registered: number;
+    firstJobCompleted: number;
+    creditPaid: number;
+  };
+  referees: PipelineReferee[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+// ─── Auto-Convert XLM to USDC (Issue #1560) ──────────────────────────────────
+
+export interface AutoConvertSettings {
+  enabled: boolean;
+  slippageBps: number;
+  usdcIssuer: string;
+}
+
+export interface AutoConversion {
+  id: string;
+  userAddress: string;
+  jobId: string | null;
+  jobTitle: string | null;
+  milestoneIndex: number | null;
+  sourceAmountXlm: string;
+  quotedUsdc: string | null;
+  destMinUsdc: string | null;
+  receivedUsdc: string | null;
+  exchangeRate: string | null;
+  txHash: string | null;
+  status: "pending" | "completed" | "failed" | "skipped";
+  error: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  path?: Array<{ type: string; code?: string; issuer?: string }>;
+  quoteAvailable?: boolean;
+}
+
+export interface AutoConvertHistory {
+  conversions: AutoConversion[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+// ─── On-Chain Reputation (Issue #1561) ───────────────────────────────────────
+
+export type ReputationLabel = "New" | "Building" | "Established" | "Trusted" | "Excellent";
+
+export interface ReputationScore {
+  userId: string;
+  score: number;
+  scoreBps: number;
+  label: ReputationLabel;
+  completedJobs: number;
+  disputeRate: number;
+  avgResponseHours: number | null;
+  avgRating: number | null;
+  ratingCount: number;
+  referralQuality: number;
+  updatedAt: string;
+}
+

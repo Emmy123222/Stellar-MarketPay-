@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
+import ReputationBadge from "@/components/ReputationBadge";
 import FreelancerProfileSkeleton from "@/components/FreelancerProfileSkeleton";
 import {
   fetchPublicProfile,
@@ -294,7 +295,8 @@ export default function PublicFreelancerProfilePage({
                   {state.profile.displayName?.trim() ||
                     shortenAddress(state.profile.publicKey)}
                 </h1>
-                <div className="flex items-center gap-2 mt-3">
+                <div className="flex flex-wrap items-center gap-2 mt-3">
+                  <ReputationBadge userId={state.profile.publicKey} size="md" />
                   <FreelancerTierBadge
                     tier={state.profile.tier}
                     className="text-sm"

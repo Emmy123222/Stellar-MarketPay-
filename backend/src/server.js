@@ -37,6 +37,9 @@ const proposalTemplateRoutes = require("./routes/proposalTemplates");
 const priceAlertRoutes     = require("./routes/priceAlerts");
 const nftRoutes            = require("./routes/nft");
 const turretRoutes         = require("./routes/turrets");
+const referralRoutes       = require("./routes/referrals");
+const reputationRoutes     = require("./routes/reputation");
+const autoConvertRoutes    = require("./routes/autoConvert");
 
 const migrate           = require("./db/migrate");
 const IndexerService    = require("./services/indexerService");
@@ -180,6 +183,9 @@ app.use("/api/price-alerts",      priceAlertRoutes);
 app.use("/api/ai",                aiScorerRoutes);
 app.use("/api/nft",               nftRoutes);
 app.use("/api/turrets",           turretRoutes);
+app.use("/api/referrals",         referralRoutes);
+app.use("/api/reputation",        reputationRoutes);
+app.use("/api/auto-convert",      autoConvertRoutes);
 
 // 404 handler — must come after all routes
 app.use((req, res) => {
