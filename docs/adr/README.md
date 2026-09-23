@@ -16,8 +16,8 @@ An Architecture Decision Record (ADR) is a document that captures an important a
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
 | [ADR-001](../ADR-001-soroban-escrow-design.md) | Soroban Smart Contract for Escrow Management | Accepted | 2026-05-28 |
-| [ADR-002](../ADR-002-horizon-api-indexing.md) | Horizon API for Transaction Indexing | Accepted | 2026-05-28 |
-| [ADR-003](../ADR-003-database-schema-escrow.md) | Database Schema for Escrow State Management | Accepted | 2026-05-28 |
+|  | Horizon API for Transaction Indexing | Accepted | 2026-05-28 |
+|  | Database Schema for Escrow State Management | Accepted | 2026-05-28 |
 | [ADR-004](../ADR-004-sep10-authentication.md) | SEP-10 vs OAuth for Authentication | Accepted | 2026-05-28 |
 | [ADR-005](../ADR-005-nacl-message-encryption.md) | NaCl Box Encryption for Private Messages | Accepted | 2026-05-28 |
 | [ADR-006](../ADR-006-ipfs-dispute-evidence.md) | IPFS for Dispute Evidence Storage | Accepted | 2026-05-28 |

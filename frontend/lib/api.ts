@@ -661,3 +661,7 @@ export * from "./api/referrals";
 export * from "./api/autoConvert";
 export * from "./api/reputation";
 
+
+ 
+ 
+export * from "./api/xlmPrice";
