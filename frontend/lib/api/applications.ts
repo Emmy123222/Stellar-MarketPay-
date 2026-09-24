@@ -2,13 +2,17 @@ import { api } from "./client";
 import type { Application } from "@/utils/types";
 
 export async function fetchApplicationsPage(jobId: string, tier?: string, cursor?: string, limit = 20) {
+  if (!/^[a-zA-Z0-9-]+$/.test(jobId)) {
+    throw new Error("Invalid job ID");
+  }
+  const safeJobId = encodeURIComponent(jobId);
   const { data } = await api.get<{
     success: boolean;
     data: Application[];
     applications?: Application[];
     nextCursor: string | null;
   }>(
-    `/api/applications/job/${jobId}`,
+    `/api/applications/job/${safeJobId}`,
     { params: { ...(tier ? { tier } : {}), limit, ...(cursor ? { cursor } : {}) } },
   );
   return { applications: data.applications ?? data.data, nextCursor: data.nextCursor };
