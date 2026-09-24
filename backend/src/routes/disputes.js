@@ -94,9 +94,10 @@ router.get("/:jobId/onchain-cids", readOnchainRateLimiter, async (req, res, next
  *         description: Job not found
  */
 // GET /api/disputes/:jobId
-router.get("/:jobId", readRateLimiter, async (req, res, next) => {
+router.get("/:jobId", verifyJWT, readRateLimiter, async (req, res, next) => {
   try {
     const { jobId } = req.params;
+    const requesterAddress = req.user.publicKey;
 
     const { rows: jobRows } = await pool.query(
       `SELECT id, title, status, client_address, freelancer_address, created_at
@@ -106,6 +107,15 @@ router.get("/:jobId", readRateLimiter, async (req, res, next) => {
 
     if (!jobRows.length) {
       throw createError(ErrorCodes.JOB_NOT_FOUND, "Job not found", 404);
+    }
+
+    // Dispute evidence is private to the dispute. This route had no
+    // authentication at all, so anyone holding the job id could list the
+    // evidence and read the IPFS CID plus a gateway URL that resolves to the
+    // file itself. Check the caller before the evidence query, not after.
+    const { client_address, freelancer_address } = jobRows[0];
+    if (requesterAddress !== client_address && requesterAddress !== freelancer_address) {
+      throw createError(ErrorCodes.FORBIDDEN, "Only the client or freelancer can view dispute evidence", 403);
     }
 
     const { rows: evidence } = await pool.query(

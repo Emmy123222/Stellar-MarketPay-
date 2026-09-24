@@ -203,13 +203,27 @@ describe("Dispute Routes Suite (/api/disputes)", () => {
 
       const res = await request(app)
         .get(`/api/disputes/${JOB_ID}`)
-        .set("X-CSRF-Token", "dummy-token");
+        .set("Authorization", `Bearer ${makeToken(CLIENT_ADDRESS)}`);
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.job.id).toBe(JOB_ID);
       expect(res.body.data.evidence).toHaveLength(1);
       expect(res.body.data.evidence[0].fileName).toBe("document.pdf");
+    });
+
+    it("200 — the freelancer can list the evidence too", async () => {
+      const job = seedJob();
+
+      pool.query.mockResolvedValueOnce({ rows: [job] });
+      pool.query.mockResolvedValueOnce({ rows: [fakeEvidenceRow()] });
+
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}`)
+        .set("Authorization", `Bearer ${makeToken(FREELANCER_ADDRESS)}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.evidence).toHaveLength(1);
     });
 
     it("200 — returns empty evidence array when no evidence uploaded", async () => {
@@ -222,16 +236,49 @@ describe("Dispute Routes Suite (/api/disputes)", () => {
 
       const res = await request(app)
         .get(`/api/disputes/${JOB_ID}`)
-        .set("X-CSRF-Token", "dummy-token");
+        .set("Authorization", `Bearer ${makeToken(CLIENT_ADDRESS)}`);
 
       expect(res.status).toBe(200);
       expect(res.body.data.evidence).toEqual([]);
     });
 
+    it("401 — rejects when no JWT is supplied", async () => {
+      const res = await request(app).get(`/api/disputes/${JOB_ID}`);
+
+      expect(res.status).toBe(401);
+    });
+
+    it("403 — rejects a caller who is not party to the dispute", async () => {
+      const job = seedJob();
+      pool.query.mockResolvedValueOnce({ rows: [job] });
+
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}`)
+        .set("Authorization", `Bearer ${makeToken(OTHER_ADDRESS)}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/client or freelancer/);
+    });
+
+    it("403 — does not leak evidence to a non-party even when evidence exists", async () => {
+      const job = seedJob();
+      pool.query.mockResolvedValueOnce({ rows: [job] });
+
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}`)
+        .set("Authorization", `Bearer ${makeToken(OTHER_ADDRESS)}`);
+
+      expect(res.status).toBe(403);
+      // The evidence query is never reached, so no CID or gateway URL is exposed.
+      expect(pool.query).toHaveBeenCalledTimes(1);
+    });
+
     it("404 — returns 404 when job not found", async () => {
+      pool.query.mockResolvedValueOnce({ rows: [] });
+
       const res = await request(app)
         .get("/api/disputes/non-existent-job")
-        .set("X-CSRF-Token", "dummy-token");
+        .set("Authorization", `Bearer ${makeToken(CLIENT_ADDRESS)}`);
 
       expect(res.status).toBe(404);
       expect(res.body.error).toMatch(/Job not found/);
