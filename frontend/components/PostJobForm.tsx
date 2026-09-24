@@ -11,7 +11,19 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { createJob, getJwtToken, updateJobEscrowId, deleteJob, saveDraft, updateDraft, fetchSkillSuggestions, fetchMyJobs } from "@/lib/api";
+import {
+  createJob,
+  getJwtToken,
+  updateJobEscrowId,
+  deleteJob,
+  saveDraft,
+  updateDraft,
+  fetchSkillSuggestions,
+  fetchMyJobs,
+  fetchJobTemplates,
+  createJobTemplate,
+  type JobTemplate,
+} from "@/lib/api";
 import { performSEP0010Auth } from "@/lib/wallet";
 import { createEscrowOnChain } from "@/lib/stellar";
 import { usePriceContext } from "@/contexts/PriceContext";
@@ -30,6 +42,7 @@ interface PostJobFormProps {
   publicKey: string;
   initialCategory?: string;
   suggestedFreelancer?: string;
+  initialTemplateId?: string;
 }
 
 const DRAFT_STORAGE_KEY = "marketpay_post_job_draft";
@@ -158,8 +171,21 @@ function AnimatedStep({ children, visible }: { children: React.ReactNode; visibl
 export default function PostJobForm({
   publicKey,
   initialCategory = "",
+  initialTemplateId = "",
 }: PostJobFormProps) {
   const { xlmPriceUsd } = usePriceContext();
+
+  // Issue #1556: Job Templates state
+  const [templates, setTemplates] = useState<JobTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(initialTemplateId || "");
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+  const [templateAppliedNotice, setTemplateAppliedNotice] = useState<string | null>(null);
+
+  // Save template on confirmation page state
+  const [showSaveTemplateForm, setShowSaveTemplateForm] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [saveTemplateStatus, setSaveTemplateStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveTemplateError, setSaveTemplateError] = useState<string | null>(null);
 
   const [form, setForm] = useState<JobFormData>(() => {
     const draft = loadLocalDraft();
@@ -189,6 +215,7 @@ export default function PostJobForm({
   const [jobId, setJobId] = useState<string | null>(null);
   const [postedBudget, setPostedBudget] = useState<string>("");
   const [postedCurrency, setPostedCurrency] = useState<string>("");
+  const [postedJobData, setPostedJobData] = useState<JobFormData | null>(null);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -257,6 +284,87 @@ export default function PostJobForm({
 
   function handleDismissDuplicate() {
     setDismissedDuplicate(true);
+  }
+
+  // ── Job Templates (Issue #1556) ───────────────────────────────────────────
+  const applyTemplate = useCallback((tpl: JobTemplate) => {
+    setSelectedTemplateId(tpl.id);
+    setForm((prev) => ({
+      ...prev,
+      title: tpl.title || prev.title,
+      description: tpl.description || prev.description,
+      category: tpl.category || prev.category,
+      budget: tpl.budget !== undefined && tpl.budget !== null ? String(tpl.budget) : prev.budget,
+      currency: tpl.currency || prev.currency,
+      skills: Array.isArray(tpl.skills)
+        ? tpl.skills.join(", ")
+        : (typeof tpl.skills === "string" ? tpl.skills : prev.skills),
+      milestones: Array.isArray(tpl.milestones) && tpl.milestones.length > 0
+        ? tpl.milestones.map((m) => ({ description: m.description, amount: String(m.amount) }))
+        : prev.milestones,
+      screeningQuestions: Array.isArray(tpl.screeningQuestions) && tpl.screeningQuestions.length > 0
+        ? tpl.screeningQuestions
+        : prev.screeningQuestions,
+    }));
+    setTemplateAppliedNotice(`Loaded details from template "${tpl.name}"`);
+    setTimeout(() => setTemplateAppliedNotice(null), 4000);
+  }, []);
+
+  useEffect(() => {
+    if (!publicKey || typeof fetchJobTemplates !== "function") return;
+    setIsLoadingTemplates(true);
+    fetchJobTemplates(publicKey)
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        setTemplates(list);
+        if (initialTemplateId) {
+          const match = list.find((t) => t.id === initialTemplateId);
+          if (match) applyTemplate(match);
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to load job templates:", err);
+      })
+      .finally(() => {
+        setIsLoadingTemplates(false);
+      });
+  }, [publicKey, initialTemplateId, applyTemplate]);
+
+  function handleSelectTemplate(id: string) {
+    setSelectedTemplateId(id);
+    if (!id) return;
+    const match = templates.find((t) => t.id === id);
+    if (match) applyTemplate(match);
+  }
+
+  async function handleSaveAsTemplate() {
+    const sourceData = postedJobData || form;
+    const nameToSave = templateName.trim() || sourceData.title || "Job Template";
+    setSaveTemplateStatus("saving");
+    setSaveTemplateError(null);
+    try {
+      const skillsArray = typeof sourceData.skills === "string"
+        ? sourceData.skills.split(",").map((s) => s.trim()).filter(Boolean)
+        : sourceData.skills;
+
+      const created = await createJobTemplate({
+        name: nameToSave,
+        title: sourceData.title,
+        description: sourceData.description,
+        category: sourceData.category,
+        budget: sourceData.budget,
+        currency: sourceData.currency,
+        skills: skillsArray,
+        milestones: sourceData.milestones,
+        screeningQuestions: sourceData.screeningQuestions.filter((q) => q.trim().length > 0),
+        clientId: publicKey,
+      });
+      setTemplates((prev) => [created, ...prev]);
+      setSaveTemplateStatus("saved");
+    } catch (err: any) {
+      setSaveTemplateError(err?.message || "Failed to save template");
+      setSaveTemplateStatus("error");
+    }
   }
 
   const isMockMode = process.env.NEXT_PUBLIC_USE_CONTRACT_MOCK === "true";
@@ -470,6 +578,7 @@ export default function PostJobForm({
       });
       await updateJobEscrowId(createdJobId, hash);
       setTxHash(hash);
+      setPostedJobData({ ...form });
       setPostedBudget(form.budget);
       setPostedCurrency(form.currency);
       setSubmitStep("complete");
@@ -517,6 +626,11 @@ export default function PostJobForm({
     setSaveStatus("idle");
     setSuggestions([]);
     setShowSuggestions(false);
+    setShowSaveTemplateForm(false);
+    setSaveTemplateStatus("idle");
+    setSaveTemplateError(null);
+    setTemplateName("");
+    setPostedJobData(null);
     setForm({
       title: "",
       description: "",
@@ -566,6 +680,67 @@ export default function PostJobForm({
         {jobId && (
           <a href={`/jobs/${jobId}`} className="btn-primary text-sm inline-block px-8 py-2.5">View Job →</a>
         )}
+
+        {/* Issue #1556: Save as template button on confirmation page */}
+        <div className="pt-2 border-t border-gray-100 dark:border-market-500/10 space-y-2">
+          {saveTemplateStatus === "saved" ? (
+            <div className="p-3 bg-green-500/10 border border-green-500/20 text-green-400 rounded-xl text-sm font-medium flex items-center justify-center gap-2">
+              <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span>Saved as template!</span>
+            </div>
+          ) : !showSaveTemplateForm ? (
+            <button
+              type="button"
+              onClick={() => {
+                setTemplateName((postedJobData?.title || form.title) || "Job Template");
+                setShowSaveTemplateForm(true);
+              }}
+              className="btn-secondary text-sm px-6 py-2.5 w-full flex items-center justify-center gap-2"
+            >
+              <svg className="w-4 h-4 text-market-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+              </svg>
+              Save as template
+            </button>
+          ) : (
+            <div className="p-4 bg-gray-50 dark:bg-ink-700 rounded-xl text-left space-y-3">
+              <label htmlFor="template-name-input" className="block text-xs font-semibold text-gray-700 dark:text-amber-200">
+                Template Name
+              </label>
+              <input
+                id="template-name-input"
+                type="text"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder="e.g. Monthly React component work"
+                className="w-full rounded-lg border border-gray-300 dark:border-market-500/20 bg-white dark:bg-ink-800 px-3 py-2 text-sm text-gray-900 dark:text-amber-100 placeholder-gray-400 dark:placeholder-amber-900/50"
+              />
+              {saveTemplateError && (
+                <p className="text-xs text-red-500">{saveTemplateError}</p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveAsTemplate}
+                  disabled={saveTemplateStatus === "saving"}
+                  className="btn-primary text-xs px-4 py-2 flex-1"
+                >
+                  {saveTemplateStatus === "saving" ? "Saving..." : "Save Template"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSaveTemplateForm(false)}
+                  className="btn-secondary text-xs px-3 py-2"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
         <button onClick={handleReset} className="btn-secondary text-sm px-6 py-2 block w-full">Post Another Job</button>
       </div>
     );
@@ -604,6 +779,42 @@ export default function PostJobForm({
           completedSteps={completedSteps}
           onStepClick={(step) => setCurrentStep(step as FormStep)}
         />
+
+        {/* Issue #1556: Job Template Picker */}
+        <div className="mb-5 p-3.5 bg-amber-500/5 dark:bg-ink-700/50 border border-amber-500/20 rounded-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-market-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              <label htmlFor="template-picker" className="text-xs font-semibold text-gray-900 dark:text-amber-100">
+                Job Template Library
+              </label>
+            </div>
+            <div className="sm:w-64">
+              <select
+                id="template-picker"
+                data-testid="template-picker"
+                aria-label="Select job template"
+                value={selectedTemplateId}
+                onChange={(e) => handleSelectTemplate(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 dark:border-market-500/20 bg-white dark:bg-ink-800 px-3 py-1.5 text-xs text-gray-900 dark:text-amber-100 focus:outline-none focus:ring-2 focus:ring-market-400"
+              >
+                <option value="">Choose a template to pre-fill...</option>
+                {templates.map((tpl) => (
+                  <option key={tpl.id} value={tpl.id}>
+                    {tpl.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {templateAppliedNotice && (
+            <p className="text-xs text-market-400 font-medium mt-2 flex items-center gap-1">
+              <span>✓</span> {templateAppliedNotice}
+            </p>
+          )}
+        </div>
 
         {/* Error banner */}
         {submitStep === "error" && (

@@ -723,3 +723,44 @@ WITH DATA;
 
 CREATE UNIQUE INDEX IF NOT EXISTS platform_stats_mv_singleton_idx
   ON platform_stats_mv ((1));
+
+-- ─────────────────────────────────────────
+-- sponsorship_credits (Issue #1554)
+-- ─────────────────────────────────────────
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE TABLE IF NOT EXISTS sponsorship_credits (
+  freelancer_id VARCHAR(64) PRIMARY KEY,
+  credits_remaining INTEGER NOT NULL DEFAULT 5 CHECK (credits_remaining >= 0),
+  total_sponsored INTEGER NOT NULL DEFAULT 0 CHECK (total_sponsored >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS sponsorship_credits_freelancer_idx ON sponsorship_credits(freelancer_id);
+
+-- ─────────────────────────────────────────
+-- job_templates (Issue #1556)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS job_templates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_address VARCHAR(64) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  category VARCHAR(100),
+  budget NUMERIC(20, 7),
+  currency VARCHAR(10) DEFAULT 'XLM',
+  skills TEXT[] DEFAULT '{}',
+  screening_questions JSONB DEFAULT '[]'::jsonb,
+  milestones JSONB DEFAULT '[]'::jsonb,
+  visibility VARCHAR(20) DEFAULT 'public',
+  is_recurring BOOLEAN DEFAULT false,
+  interval_days VARCHAR(20) DEFAULT '30',
+  total_releases VARCHAR(20) DEFAULT '12',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS job_templates_client_address_idx ON job_templates(client_address);

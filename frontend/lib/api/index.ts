@@ -41,3 +41,5 @@ export * from "./priceAlerts";
 export * from "./aiScorer";
 export * from "./autoConvert";
 export * from "./reputation";
+export * from "./sponsorship";
+export * from "./jobTemplates";
