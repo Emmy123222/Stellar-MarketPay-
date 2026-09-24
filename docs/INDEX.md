@@ -31,7 +31,7 @@ Welcome to Stellar MarketPay documentation. This index helps you find what you n
 
 ### API Documentation
 
-- **[API Documentation](./api-documentation.md)** - REST API endpoints
+- **[API Documentation](./api.md)** - REST API endpoints
 - **[API Reference](./api.md)** - Detailed API reference
 - **[Smart Contract API Reference](./contract-api-reference.md)** - Every public function, event, and error in the Soroban contract
 - **[Scope WebSocket Protocol](./websocket-scope-protocol.md)** - Realtime session protocol and client schema
@@ -44,7 +44,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ### ADR-001: Soroban Smart Contract for Escrow Management
 
-**File**: [adr/adr-001-soroban-escrow-design.md](./adr/adr-001-soroban-escrow-design.md)
+**File**: [ADR-001-soroban-escrow-design.md](./adr/adr-001-soroban-escrow-design.md)
 
 **Decision**: Use Soroban smart contracts for trustless escrow management
 
@@ -61,7 +61,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ### ADR-002: Horizon API for Transaction Indexing
 
-**File**: [adr/adr-002-horizon-api-indexing.md](./adr/adr-002-horizon-api-indexing.md)
+**File**: [ADR-002-horizon-api-indexing.md](./adr/adr-002-horizon-api-indexing.md)
 
 **Decision**: Use Horizon REST API as primary transaction data source
 
@@ -79,7 +79,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ### ADR-003: Database Schema for Escrow State Management
 
-**File**: [adr/adr-003-database-schema-escrow.md](./adr/adr-003-database-schema-escrow.md)
+**File**: [ADR-003-database-schema-escrow.md](./adr/adr-003-database-schema-escrow.md)
 
 **Decision**: Maintain off-chain escrow state in PostgreSQL
 
@@ -129,7 +129,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ### Pinata IPFS Setup for Dispute Evidence
 
-**File**: [ipfs-setup.md](./ipfs-setup.md)
+**File**: [PINATA_IPFS_SETUP.md](./ipfs-setup.md)
 
 **Purpose**: Store dispute evidence on decentralized IPFS network
 
@@ -193,22 +193,6 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ## 📋 Implementation Guides
 
-### Implementation Summary
-
-**File**: ../IMPLEMENTATION_SUMMARY.md
-
-**Contents**:
-
-- Overview of all 4 features
-- Detailed implementation for each feature
-- Integration checklist
-- File structure
-- Next steps and roadmap
-- References and support
-
-
-
----
 
 ## 🔗 Related Documentation
 
@@ -217,7 +201,6 @@ Decisions that shaped Stellar MarketPay's architecture:
 - **[README](../README.md)** - Project overview
 - **[ROADMAP](../ROADMAP.md)** - Feature roadmap
 - **[CONTRIBUTING](../CONTRIBUTING.md)** - Contribution guidelines
-- **TODO** - Outstanding tasks
 
 ### External Resources
 
@@ -235,13 +218,13 @@ Decisions that shaped Stellar MarketPay's architecture:
 stellar-marketpay/
 ├── docs/
 │   ├── INDEX.md (this file)
-│   ├── adr/adr-001-soroban-escrow-design.md
-│   ├── adr/adr-002-horizon-api-indexing.md
-│   ├── adr/adr-003-database-schema-escrow.md
+│   ├── ADR-001-soroban-escrow-design.md
+│   ├── ADR-002-horizon-api-indexing.md
+│   ├── ADR-003-database-schema-escrow.md
 │   ├── FAQ.md
-│   ├── ipfs-setup.md
+│   ├── PINATA_IPFS_SETUP.md
 │   ├── architecture.md
-│   ├── api-documentation.md
+│   ├── API_DOCUMENTATION.md
 │   ├── api.md
 │   ├── deployment.md
 │   └── getting-started.md
@@ -278,7 +261,7 @@ stellar-marketpay/
 4. [ADR-001: Escrow Design](./adr/adr-001-soroban-escrow-design.md)
 5. [ADR-002: Horizon API](./adr/adr-002-horizon-api-indexing.md)
 6. [ADR-003: Database Schema](./adr/adr-003-database-schema-escrow.md)
-7. [API Documentation](./api-documentation.md)
+7. [API Documentation](./api.md)
 8. [Pinata IPFS Setup](./ipfs-setup.md)
 9. [Deployment Guide](./deployment.md)
 
@@ -305,7 +288,7 @@ stellar-marketpay/
 
 - [Database Schema & ERD](./database-schema.md)
 - [ADR-003: Database Schema](./adr/adr-003-database-schema-escrow.md)
-- [API Documentation](./api-documentation.md)
+- [API Documentation](./api.md)
 - [Deployment Guide](./deployment.md)
 
 **Frontend & UI**
@@ -339,7 +322,7 @@ stellar-marketpay/
 ### Contributing
 
 - See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines
-- Check TODO.md for outstanding tasks
+- Check [TODO.md](../TODO.md) for outstanding tasks
 - Review [ROADMAP.md](../ROADMAP.md) for planned features
 
 ---
