@@ -97,7 +97,11 @@ fn test_reveal_before_close_rejected() {
     let freelancer = Address::generate(&env);
     let nonce = BytesN::from_array(&env, &[9u8; 32]);
     let amount = 400_i128;
-    client.submit_bid_commitment(&job_id, &freelancer, &bid_commitment(&env, amount, nonce.clone()));
+    client.submit_bid_commitment(
+        &job_id,
+        &freelancer,
+        &bid_commitment(&env, amount, nonce.clone()),
+    );
     client.reveal_bid(&job_id, &freelancer, &amount, &nonce);
 }
 
@@ -109,7 +113,11 @@ fn test_double_reveal_rejected() {
     let freelancer = Address::generate(&env);
     let nonce = BytesN::from_array(&env, &[8u8; 32]);
     let amount = 400_i128;
-    client.submit_bid_commitment(&job_id, &freelancer, &bid_commitment(&env, amount, nonce.clone()));
+    client.submit_bid_commitment(
+        &job_id,
+        &freelancer,
+        &bid_commitment(&env, amount, nonce.clone()),
+    );
     client.close_bidding(&job_id, &owner);
     client.reveal_bid(&job_id, &freelancer, &amount, &nonce);
     client.reveal_bid(&job_id, &freelancer, &amount, &nonce);

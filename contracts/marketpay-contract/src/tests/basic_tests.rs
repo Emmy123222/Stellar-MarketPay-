@@ -120,9 +120,16 @@ fn test_governance_rejects_double_vote() {
     client.initialize(&admin, &Address::generate(&env));
     let voter = Address::generate(&env);
     env.as_contract(&id, || {
-        env.storage().instance().set(&DataKey::CompletedJobs(voter.clone()), &1u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::CompletedJobs(voter.clone()), &1u32);
     });
-    let pid = client.create_proposal(&admin, &String::from_str(&env, "p"), &String::from_str(&env, "d"), &10);
+    let pid = client.create_proposal(
+        &admin,
+        &String::from_str(&env, "p"),
+        &String::from_str(&env, "d"),
+        &10,
+    );
     client.cast_vote(&voter, &pid, &true);
     client.cast_vote(&voter, &pid, &false);
 }
@@ -138,9 +145,16 @@ fn test_governance_rejects_vote_after_resolution() {
     client.initialize(&admin, &Address::generate(&env));
     let voter = Address::generate(&env);
     env.as_contract(&id, || {
-        env.storage().instance().set(&DataKey::CompletedJobs(voter.clone()), &1u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::CompletedJobs(voter.clone()), &1u32);
     });
-    let pid = client.create_proposal(&admin, &String::from_str(&env, "p"), &String::from_str(&env, "d"), &10);
+    let pid = client.create_proposal(
+        &admin,
+        &String::from_str(&env, "p"),
+        &String::from_str(&env, "d"),
+        &10,
+    );
     let mut ledger = env.ledger().get();
     ledger.sequence_number += 10;
     env.ledger().set(ledger);

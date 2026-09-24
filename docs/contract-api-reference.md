@@ -705,6 +705,22 @@ Client-only. Callable while escrow status is `InProgress`/`Locked`/`Disputed`. F
 **Auth required:** `client` — `OnlyClientCanReleaseMilestone (3004)`
 **Panics:** `CannotReleaseMilestoneStatus (3005)`, `MilestoneAlreadyCompleted (3007)`, invalid id → `"Invalid milestone id"` (not in `errors.rs`'s canonical `error_code_from_panic` mapping — see [Error Reference](#error-reference) caveat)
 
+### `release_all_milestones`
+
+```rust
+pub fn release_all_milestones(env: Env, job_id: String, client: Address)
+```
+
+Client-only bulk release (Issue #1480). Releases every milestone that has not already been released in a single call, so a client approving a 5-milestone project no longer needs to submit 5 separate transactions. Equivalent to invoking `release_milestone` once per outstanding milestone in ascending id order — each milestone's share is paid out net of the platform fee (`plat_fee` emitted when fee > 0) and a `milestone_released` event is emitted per milestone. Skipping already-released milestones means a partially released escrow can be finished off with one call. Once every milestone is released the escrow transitions to `Released` and `CompletedJobs` is incremented once for both parties.
+
+**Guard rails (checked before any payout):**
+- only the escrow client may call it — `OnlyClientCanReleaseMilestone (3004)`
+- escrow status must be `InProgress` / `Locked` / `Disputed` — `CannotReleaseMilestoneStatus (3005)`
+- **every** milestone must have `rejected == false`; if any milestone was rejected the call panics with `"Cannot batch release: a milestone was rejected"`
+- an escrow with no milestones panics with `"Escrow has no milestones"` (releasing it would otherwise close the escrow while funds stayed locked)
+
+**Auth required:** `client`
+
 ### `reject_milestone`
 
 ```rust

@@ -410,6 +410,15 @@ impl MarketPayContract {
         milestones::release_milestone(env, job_id, milestone_id, client)
     }
 
+    /// Release every outstanding milestone of an escrow in a single call.
+    ///
+    /// Only callable by the escrow client, and only while no milestone has
+    /// been rejected. Equivalent to calling `release_milestone` for each
+    /// unreleased milestone.
+    pub fn release_all_milestones(env: Env, job_id: String, client: Address) {
+        milestones::release_all_milestones(env, job_id, client)
+    }
+
     /// Partial milestone refund — the client rejects a single milestone.
     pub fn reject_milestone(env: Env, job_id: String, milestone_index: u32, client: Address) {
         milestones::reject_milestone(env, job_id, milestone_index, client)

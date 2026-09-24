@@ -34,6 +34,7 @@ This Soroban smart contract manages trustless escrow between clients and freelan
 | `upgrade(new_wasm_hash)` | Admin only | Upgrade contract WASM, bumps version and preserves storage |
 | `get_version()` | Anyone | Return current contract version number |
 | `release_milestone(job_id, milestone_id, client)` | Client | Release a single milestone's funds |
+| `release_all_milestones(job_id, client)` | Client | Release every outstanding milestone in one call (blocked if any milestone was rejected) |
 | `reject_milestone(job_id, milestone_id, client)` | Client | Reject and refund a single milestone |
 
 ## Build & Test
