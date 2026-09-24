@@ -2,6 +2,10 @@
  * components/BuyXLMModal.tsx
  * SEP-0024 deposit flow — converts fiat to XLM via a Stellar anchor.
  * (Issue #220)
+ *
+ * When the installed Freighter extension supports requestBuy() (>= 5.0.0),
+ * the native on-ramp UI is opened directly. Older versions and missing/
+ * disconnected Freighter fall back to the SEP-0024 anchor flow.
  */
 import { useEffect, useRef, useState } from "react"
 import {
@@ -11,6 +15,7 @@ import {
   pollAnchorTransaction,
   type AnchorTransactionRecord,
 } from "@/lib/anchors";
+import { supportsRequestBuy, freighterRequestBuy } from "@/lib/wallet";
 import { useToast } from "@/components/Toast";
 import { usePriceContext } from "@/contexts/PriceContext";
 
@@ -30,10 +35,19 @@ export default function BuyXLMModal({ publicKey, onClose, onComplete }: BuyXLMMo
   const [availableAssets, setAvailableAssets] = useState<string[]>(["XLM"]);
   const [interactiveUrl, setInteractiveUrl] = useState<string | null>(null);
   const [transaction, setTransaction] = useState<AnchorTransactionRecord | null>(null);
+  // Three-state: null = not yet checked, true/false = checked
+  const [canUseFreighterOnRamp, setCanUseFreighterOnRamp] = useState<boolean | null>(null);
   const cancelRef = useRef(false);
   const popupRef = useRef<Window | null>(null);
   const toast = useToast();
   const { xlmPriceUsd } = usePriceContext();
+
+  // Check Freighter on-ramp support on mount
+  useEffect(() => {
+    supportsRequestBuy()
+      .then(setCanUseFreighterOnRamp)
+      .catch(() => setCanUseFreighterOnRamp(false));
+  }, []);
 
   useEffect(() => {
     fetchAnchorEndpoints()
@@ -52,6 +66,36 @@ export default function BuyXLMModal({ publicKey, onClose, onComplete }: BuyXLMMo
       popupRef.current?.close();
     };
   }, [assetCode]);
+
+  // ── Freighter native on-ramp ──────────────────────────────────────────────
+
+  const startFreighterOnRamp = async () => {
+    setPhase("loading");
+    setErrorMessage(null);
+    try {
+      await freighterRequestBuy("XLM");
+      // requestBuy resolves once the user completes or closes the Freighter UI.
+      setPhase("completed");
+      toast.success("XLM purchase initiated via Freighter.");
+      onComplete?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // User cancelled — treat as a non-error dismissal
+      if (
+        msg.toLowerCase().includes("cancel") ||
+        msg.toLowerCase().includes("declined") ||
+        msg.toLowerCase().includes("rejected") ||
+        msg.toLowerCase().includes("closed")
+      ) {
+        setPhase("idle");
+      } else {
+        setPhase("error");
+        setErrorMessage(msg || "Freighter on-ramp failed.");
+      }
+    }
+  };
+
+  // ── SEP-0024 anchor fallback ──────────────────────────────────────────────
 
   const startDeposit = async () => {
     setPhase("loading");
@@ -123,12 +167,36 @@ export default function BuyXLMModal({ publicKey, onClose, onComplete }: BuyXLMMo
         </button>
 
         <h2 className="font-display text-xl font-bold text-amber-100 mb-1">Buy XLM with Fiat</h2>
-        <p className="text-xs text-amber-700 mb-5">
-          Powered by <span className="font-mono">{ANCHOR_HOME_DOMAIN}</span> via SEP-0024.
-        </p>
 
-        {phase === "idle" && (
+        {/* Freighter on-ramp path */}
+        {canUseFreighterOnRamp === true && phase === "idle" && (
           <div className="space-y-4">
+            <p className="text-xs text-amber-700 mb-5">
+              Your Freighter wallet supports a built-in purchase flow.
+            </p>
+            <button
+              onClick={startFreighterOnRamp}
+              className="btn-primary w-full"
+              data-testid="freighter-onramp-btn"
+            >
+              Buy XLM via Freighter
+            </button>
+            <button
+              onClick={() => setCanUseFreighterOnRamp(false)}
+              className="btn-secondary w-full text-xs"
+              data-testid="use-anchor-fallback-btn"
+            >
+              Use exchange list instead
+            </button>
+          </div>
+        )}
+
+        {/* Anchor/exchange fallback path */}
+        {(canUseFreighterOnRamp === false || canUseFreighterOnRamp === null) && phase === "idle" && (
+          <div className="space-y-4">
+            <p className="text-xs text-amber-700 mb-5">
+              Powered by <span className="font-mono">{ANCHOR_HOME_DOMAIN}</span> via SEP-0024.
+            </p>
             <label className="block">
               <span className="label mb-1 block">Asset to receive</span>
               <select
@@ -146,14 +214,20 @@ export default function BuyXLMModal({ publicKey, onClose, onComplete }: BuyXLMMo
               payment details. The funds arrive in this wallet ({publicKey.slice(0, 6)}…
               {publicKey.slice(-4)}) once the anchor confirms the deposit.
             </p>
-            <button onClick={startDeposit} className="btn-primary w-full">
+            <button
+              onClick={startDeposit}
+              className="btn-primary w-full"
+              data-testid="anchor-deposit-btn"
+            >
               Continue
             </button>
           </div>
         )}
 
         {phase === "loading" && (
-          <p className="text-amber-200 text-sm">Authenticating with the anchor…</p>
+          <p className="text-amber-200 text-sm" data-testid="loading-msg">
+            {canUseFreighterOnRamp ? "Opening Freighter…" : "Authenticating with the anchor…"}
+          </p>
         )}
 
         {(phase === "interactive" || phase === "polling") && (
@@ -187,25 +261,29 @@ export default function BuyXLMModal({ publicKey, onClose, onComplete }: BuyXLMMo
           </div>
         )}
 
-        {phase === "completed" && transaction && (
+        {phase === "completed" && (
           <div className="space-y-3">
-            <p className="text-emerald-400 text-sm font-medium">Deposit complete.</p>
-            <dl className="text-xs text-amber-200 space-y-1">
-              <div className="flex justify-between"><dt>Received</dt><dd>{transaction.amount_out} {assetCode} {usdNote && <span className="text-amber-700">({usdNote})</span>}</dd></div>
-              {transaction.stellar_transaction_id && (
-                <div className="flex justify-between">
-                  <dt>Stellar tx</dt>
-                  <dd className="font-mono">{transaction.stellar_transaction_id.slice(0, 10)}…</dd>
-                </div>
-              )}
-            </dl>
+            <p className="text-emerald-400 text-sm font-medium" data-testid="completed-msg">
+              {transaction ? "Deposit complete." : "Purchase initiated via Freighter."}
+            </p>
+            {transaction && (
+              <dl className="text-xs text-amber-200 space-y-1">
+                <div className="flex justify-between"><dt>Received</dt><dd>{transaction.amount_out} {assetCode} {usdNote && <span className="text-amber-700">({usdNote})</span>}</dd></div>
+                {transaction.stellar_transaction_id && (
+                  <div className="flex justify-between">
+                    <dt>Stellar tx</dt>
+                    <dd className="font-mono">{transaction.stellar_transaction_id.slice(0, 10)}…</dd>
+                  </div>
+                )}
+              </dl>
+            )}
             <button onClick={onClose} className="btn-primary w-full">Done</button>
           </div>
         )}
 
         {phase === "error" && (
           <div className="space-y-3">
-            <p className="text-red-400 text-sm">{errorMessage || "Something went wrong."}</p>
+            <p className="text-red-400 text-sm" data-testid="error-msg">{errorMessage || "Something went wrong."}</p>
             <button onClick={() => setPhase("idle")} className="btn-secondary w-full">
               Try again
             </button>
