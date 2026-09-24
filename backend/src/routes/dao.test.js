@@ -35,7 +35,7 @@ app.use("/api/dao", daoRoutes);
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   const status = err.statusCode || err.status || 500;
   res.status(status).json({
-    error: err.message,
+    error: err.message, stack: err.stack,
     code: err.code || "INTERNAL_ERROR",
   });
 });
@@ -354,6 +354,30 @@ describe("DAO Route Suite (/api/dao)", () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.id).toBe("prop-vote-1");
       expect(res.body.data.votesFor).toBe(50);
+    });
+    it("409 — rejects vote if voter has already voted on the proposal", async () => {
+      const prop = defaultDaoProposalRow({
+        id: "prop-vote-2",
+        status: "active",
+        voting_ends_at: new Date(Date.now() + 86400000).toISOString(),
+      });
+      pool.daoProposals.set(prop.id, prop);
+      const userToken = makeUserToken();
+
+      // First vote should succeed
+      await request(app)
+        .post("/api/dao/proposals/prop-vote-2/vote")
+        .set("Authorization", `Bearer ${userToken}`)
+        .send({ support: true, weight: 10 });
+
+      // Second vote should fail with 409
+      const res = await request(app)
+        .post("/api/dao/proposals/prop-vote-2/vote")
+        .set("Authorization", `Bearer ${userToken}`)
+        .send({ support: false, weight: 20 });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("User has already voted on this proposal");
     });
 
     it("401 — rejects unauthenticated vote", async () => {

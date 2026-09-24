@@ -192,13 +192,20 @@ async function castVote({ proposalId, voter, support, weight, txHash }) {
 
   const voteWeight = Math.max(parseFloat(weight) || 1, 0.0000001);
 
-  await pool.query(
-    `INSERT INTO dao_votes (proposal_id, voter, support, weight, tx_hash)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (proposal_id, voter)
-     DO UPDATE SET support = EXCLUDED.support, weight = EXCLUDED.weight, tx_hash = EXCLUDED.tx_hash`,
-    [proposalId, voter, Boolean(support), voteWeight, txHash || null],
-  );
+  try {
+    await pool.query(
+      `INSERT INTO dao_votes (proposal_id, voter, support, weight, tx_hash)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [proposalId, voter, Boolean(support), voteWeight, txHash || null],
+    );
+  } catch (err) {
+    if (err.code === "23505") { // unique_violation
+      const conflictErr = new Error("User has already voted on this proposal");
+      conflictErr.status = 409;
+      throw conflictErr;
+    }
+    throw err;
+  }
 
   return getProposal(proposalId);
 }

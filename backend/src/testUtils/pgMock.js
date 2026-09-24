@@ -866,21 +866,44 @@ function createPgMock() {
         }
       }
 
-      if (text.includes("category = $")) {
-        const categoryIndex = text.indexOf("category = $2") >= 0 ? 1 : 0;
-        const category = params[categoryIndex];
-        if (category) rows = rows.filter((job) => job.category === category);
+      if (
+        text.includes("category = $") ||
+        text.includes("c.slug = $") ||
+        text.includes("jobs.category = $")
+      ) {
+        const catParam = params.find(
+          (p) =>
+            typeof p === "string" &&
+            (DEFAULT_CATEGORIES.some(
+              (c) =>
+                c.name.toLowerCase() === p.toLowerCase() ||
+                c.slug.toLowerCase() === p.toLowerCase(),
+            ) ||
+              [...jobs.values()].some((j) => j.category === p)),
+        );
+        if (catParam) {
+          rows = rows.filter(
+            (job) =>
+              (job.category &&
+                job.category.toLowerCase() === catParam.toLowerCase()) ||
+              (job.category_slug &&
+                job.category_slug.toLowerCase() === catParam.toLowerCase()) ||
+              DEFAULT_CATEGORIES.some(
+                (c) =>
+                  (c.slug === catParam.toLowerCase() ||
+                    c.name.toLowerCase() === catParam.toLowerCase()) &&
+                  job.category &&
+                  job.category.toLowerCase() === c.name.toLowerCase(),
+              ),
+          );
+        }
       }
-      const limit = params[params.length - 1] ?? 50;
-      // Sort by created_at DESC, id DESC to match real SQL ORDER BY
-      rows.sort((a, b) => {
-        if (a.created_at > b.created_at) return -1;
-        if (a.created_at < b.created_at) return 1;
-        if (a.id > b.id) return -1;
-        if (a.id < b.id) return 1;
-        return 0;
-      });
-      return { rows: rows.slice(0, limit) };
+      const limitVal = params[params.length - 1] ?? 50;
+      return {
+        rows: rows
+          .slice(0, typeof limitVal === "number" ? limitVal : 50)
+          .map(formatJobRow),
+      };
     }
 
     // Job invitations check
@@ -1189,8 +1212,13 @@ function createPgMock() {
       return { rows };
     }
 
-    if (text.startsWith("INSERT INTO dao_votes")) {
+    if (text.trim().startsWith("INSERT INTO dao_votes")) {
       const voteKey = `${params[0]}:${params[1]}`;
+      if (daoVotes.has(voteKey)) {
+        const err = new Error("duplicate key value violates unique constraint");
+        err.code = "23505";
+        throw err;
+      }
       const row = {
         proposal_id: params[0],
         voter: params[1],
@@ -1364,6 +1392,7 @@ function createPgMock() {
   mock.readPool = { query };
   mock.writePool = mock;
   return mock;
+
 }
 
 module.exports = {
@@ -1378,3 +1407,4 @@ module.exports = {
   defaultOnboardingRow,
   defaultPriceAlertRow,
 };
+
