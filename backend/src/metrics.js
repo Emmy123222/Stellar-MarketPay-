@@ -143,6 +143,20 @@ const xlmPriceUsd = createMetric(promClient.Gauge, {
   help: "Current XLM price in USD (updated on every successful CoinGecko fetch)",
 });
 
+// ─── Cache metrics ──────────────────────────────────────────────────────────
+/** Cache hit/miss counters for Redis-backed caches, labeled by cache name. */
+const cacheHitsTotal = createMetric(promClient.Counter, {
+  name: "marketpay_cache_hits_total",
+  help: "Total cache hits, labeled by cache name",
+  labelNames: ["cache"],
+});
+
+const cacheMissesTotal = createMetric(promClient.Counter, {
+  name: "marketpay_cache_misses_total",
+  help: "Total cache misses, labeled by cache name",
+  labelNames: ["cache"],
+});
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const SQL_VERB = /^[\s(]*(select|insert|update|delete|with|begin|commit|rollback|create|alter|drop|truncate|copy|explain|set|listen|notify)\b/i;
