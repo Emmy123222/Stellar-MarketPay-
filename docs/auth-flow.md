@@ -7,6 +7,7 @@
 - [Error Flows](#error-flows)
 - [Multi-Factor Authentication Extension](#multi-factor-authentication-extension)
 - [WebAuthn (Passkey) Flow](#webauthn-passkey-flow)
+- [Freighter On-Ramp (requestBuy)](#freighter-on-ramp-requestbuy)
 - [Token Lifecycle](#token-lifecycle)
 - [API Specification](#api-specification)
 - [Frontend Integration](#frontend-integration)
@@ -235,6 +236,55 @@ sequenceDiagram
     BE-->>FE: { token: "<jwt>" }
     FE-->>U: Authenticated
 ```
+
+---
+
+## Freighter On-Ramp (`requestBuy`)
+
+Freighter extensions **≥ 5.0.0** expose a `requestBuy()` method that opens the wallet's built-in fiat-to-XLM purchase UI directly, without redirecting the user to an external anchor.
+
+### Minimum Version
+
+| Feature | Minimum Freighter Extension Version |
+|---|---|
+| `requestBuy()` on-ramp | **5.0.0** |
+
+The constant `FREIGHTER_REQUEST_BUY_MIN_VERSION = "5.0.0"` in `frontend/lib/wallet.ts` is the single source of truth. Update it if Freighter ships a breaking change to the API.
+
+### Detection Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U  as User
+    participant FE as BuyXLMModal
+    participant W  as window.freighter
+
+    FE->>W: getVersion()
+    W-->>FE: "5.2.1" (or null / absent)
+    FE->>FE: isVersionAtLeast(version, "5.0.0")?
+
+    alt Version supported AND requestBuy() present
+        FE-->>U: Show "Buy XLM via Freighter" button
+        U->>FE: Click button
+        FE->>W: requestBuy({ assetCode: "XLM" })
+        W-->>U: Freighter on-ramp UI opens
+        W-->>FE: resolves (success) or throws (cancel/error)
+    else Older version, not installed, or no requestBuy()
+        FE-->>U: Show SEP-0024 anchor deposit flow (existing behaviour)
+    end
+```
+
+### Fallback
+
+When Freighter is absent, not connected, or below version 5.0.0, `BuyXLMModal` falls back to the existing SEP-0024 interactive deposit flow via `startInteractiveDeposit()`. The fallback is based on an explicit version check — **not** a try/catch swallowing a missing-method error — so the correct UI path is always selected before the user clicks anything.
+
+### Implementation References
+
+- Version detection: `frontend/lib/wallet.ts` — `getFreighterVersion()`, `supportsRequestBuy()`
+- On-ramp call: `frontend/lib/wallet.ts` — `freighterRequestBuy()`
+- UI integration: `frontend/components/BuyXLMModal.tsx`
+- Tests: `frontend/__tests__/BuyXLMModal.test.tsx`, `frontend/__tests__/wallet-freighter-requestbuy.test.ts`
 
 ---
 

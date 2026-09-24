@@ -221,6 +221,12 @@ jest.mock("@/lib/wallet", () => ({
   getConnectedPublicKey: jest.fn().mockResolvedValue(null),
   subscribeToAccountChanges: jest.fn().mockReturnValue(() => {}),
   signTransactionWithWallet: jest.fn().mockResolvedValue({ signedXDR: "MOCK_XDR", error: null }),
+  supportsRequestBuy: jest.fn().mockResolvedValue(false),
+  freighterRequestBuy: jest.fn().mockResolvedValue(undefined),
+  getFreighterVersion: jest.fn().mockResolvedValue(null),
+  FREIGHTER_REQUEST_BUY_MIN_VERSION: "5.0.0",
+  parseVersion: jest.fn().mockReturnValue([0, 0, 0]),
+  isVersionAtLeast: jest.fn().mockReturnValue(false),
 }));
 
 jest.mock("@/lib/sorobanFees", () => ({
