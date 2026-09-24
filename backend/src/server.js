@@ -27,25 +27,51 @@ const eventRoutes       = require("./routes/events");
 const statsRoutes       = require("./routes/stats");
 const contributorRoutes = require("./routes/contributors");
 const verificationRoutes = require("./routes/verification");
-const nftRoutes         = require("./routes/nft");
+const nftRoutes            = require("./routes/nft");
 const aiScorerRoutes    = require("./routes/aiScorer");
-const contributorRoutes  = require("./routes/contributors");
 const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
 const priceAlertRoutes     = require("./routes/priceAlerts");
-const nftRoutes            = require("./routes/nft");
 const turretRoutes         = require("./routes/turrets");
 const referralRoutes       = require("./routes/referrals");
 const reputationRoutes     = require("./routes/reputation");
 const autoConvertRoutes    = require("./routes/autoConvert");
+const adminRoutes          = require("./routes/admin");
+const admin2faRoutes       = require("./routes/admin2fa");
+const assessmentRoutes     = require("./routes/assessments");
+const auditRoutes          = require("./routes/audit");
+const categoryRoutes       = require("./routes/categories");
+const certificateRoutes    = require("./routes/certificates");
+const developerRoutes      = require("./routes/developer");
+const disputeRoutes        = require("./routes/disputes");
+const faucetRoutes         = require("./routes/faucet");
+const insightRoutes        = require("./routes/insights");
+const invitationRoutes     = require("./routes/invitations");
+const messageRoutes        = require("./routes/messageRoutes");
+const notificationRoutes   = require("./routes/notifications");
+const onboardingRoutes     = require("./routes/onboarding");
+const publicRoutes         = require("./routes/public");
+const publicJobBoardRoutes = require("./routes/publicJobBoard");
+const savedSearchRoutes    = require("./routes/savedSearches");
+const scopeRoutes          = require("./routes/scope");
+const skillRoutes          = require("./routes/skills");
+const timeEntryRoutes      = require("./routes/timeEntries");
+const tokenRoutes          = require("./routes/tokens");
+const webauthnRoutes       = require("./routes/webauthn");
+const webhookRoutes        = require("./routes/webhooks");
 
-const migrate               = require("./db/migrate");
+const { migrate }          = require("./db/migrate");
 const IndexerService        = require("./services/indexerService");
 const { PriceAlertService } = require("./services/priceAlertService");
 const pool                  = require("./db/pool");
 const { scheduleStatsRefresh } = require("./services/statsService");
+const { setWebsocketConnections } = require("./metrics");
+const { createServiceLogger, logError } = require("./utils/logger");
+const { sendEmail }         = require("./utils/email");
+const { startEscrowTimeoutChecker } = require("./services/escrowService");
+const jwt                   = require("jsonwebtoken");
 
 // Start audit worker — processes fire-and-forget audit log writes
 require("./workers/auditWorker");
@@ -58,12 +84,36 @@ const WS_OPEN = 1;
 const realtimeClients = new Set();
 const scopeSessionClients = new Map();
 
+// Per-wallet realtime sockets + last-seen timestamps (missed-notification replay)
+const userClients = new Map();   // userAddress -> Set<ws>
+const userLastSeen = new Map();  // userAddress -> Date
+
 function broadcastRealtime(event, payload) {
   const message = JSON.stringify({ event, payload });
   for (const ws of realtimeClients) {
     if (ws.readyState === WS_OPEN) ws.send(message);
   }
 }
+
+function broadcastToUser(userAddress, event, payload) {
+  const sockets = userClients.get(userAddress);
+  if (!sockets) return;
+  const message = JSON.stringify({ event, payload });
+  for (const ws of sockets) {
+    if (ws.readyState === WS_OPEN) ws.send(message);
+  }
+}
+
+// Refresh the active_websocket_connections gauges (channels: realtime, scope)
+function refreshWsMetrics() {
+  let scopeCount = 0;
+  for (const clients of scopeSessionClients.values()) scopeCount += clients.size;
+  setWebsocketConnections("realtime", realtimeClients.size);
+  setWebsocketConnections("scope", scopeCount);
+}
+
+// Push in-app notifications to the user's open realtime sockets
+require("./services/notificationService").setBroadcastToUser(broadcastToUser);
 
 async function upsertScopeSession(sessionId, patch) {
   const content = typeof patch.content === "string" ? patch.content : "";
@@ -176,20 +226,41 @@ app.get("/api/indexer/health", (req, res) => {
     status: "ok",
     indexer: indexerService.getHealth(),
   });
-  return router;
-})());
-app.use("/api/contributors",    contributorRoutes);
+});
 app.use("/api/gas-estimate",    gasEstimatorRoutes);
 app.use("/api/transactions",   transactionRoutes);
 app.use("/api/dao",            daoRoutes);
 app.use("/api/proposal-templates", proposalTemplateRoutes);
 app.use("/api/price-alerts",      priceAlertRoutes);
 app.use("/api/ai",                aiScorerRoutes);
-app.use("/api/nft",               nftRoutes);
 app.use("/api/turrets",           turretRoutes);
 app.use("/api/referrals",         referralRoutes);
 app.use("/api/reputation",        reputationRoutes);
 app.use("/api/auto-convert",      autoConvertRoutes);
+app.use("/api/admin",             adminRoutes);
+app.use("/api/admin/2fa",         admin2faRoutes);
+app.use("/api/assessments",       assessmentRoutes);
+app.use("/api/audit",             auditRoutes);
+app.use("/api/categories",        categoryRoutes);
+app.use("/api/certificates",      certificateRoutes);
+app.use("/api/developer",         developerRoutes);
+app.use("/api/disputes",          disputeRoutes);
+app.use("/api/faucet",            faucetRoutes);
+app.use("/api/health",            healthRoutes);
+app.use("/api/insights",          insightRoutes);
+app.use("/api/invitations",       invitationRoutes);
+app.use("/api/messages",          messageRoutes);
+app.use("/api/notifications",     notificationRoutes);
+app.use("/api/onboarding",        onboardingRoutes);
+app.use("/api/public",            publicRoutes);
+app.use("/api/v1/public",         publicJobBoardRoutes);
+app.use("/api/saved-searches",    savedSearchRoutes);
+app.use("/api/scope",             scopeRoutes);
+app.use("/api/skills",            skillRoutes);
+app.use("/api/time-entries",      timeEntryRoutes);
+app.use("/api/tokens",            tokenRoutes);
+app.use("/api/webauthn",          webauthnRoutes);
+app.use("/api/webhooks",          webhookRoutes);
 
 // 404 handler — must come after all routes
 app.use((req, res) => {
@@ -232,6 +303,28 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
+    // Optional wallet auth: ?token=<jwt> associates this socket with a user so
+    // targeted events and missed-notification replay can be delivered.
+    let userAddress = null;
+    const token = url.searchParams.get("token");
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        userAddress = decoded.publicKey || decoded.sub || null;
+      } catch {
+        userAddress = null;
+      }
+    }
+    if (userAddress) {
+      let sockets = userClients.get(userAddress);
+      if (!sockets) {
+        sockets = new Set();
+        userClients.set(userAddress, sockets);
+      }
+      sockets.add(ws);
+      userLastSeen.set(userAddress, new Date());
+    }
+
     realtimeClients.add(ws);
     sendJson(ws, "connected", { channel: "realtime" });
 
@@ -372,24 +465,31 @@ wsServer.on("connection", async (ws, request) => {
 
 async function bootstrap() {
   try {
-  await migrate();
-  await cleanupExpiredScopeSessions();
-  await indexerService.start();
-  priceAlertService.start();
+    await migrate();
+    await cleanupExpiredScopeSessions();
+    await indexerService.start();
+    priceAlertService.start();
 
-  // Issue #232 perf: start the 5-minute stats MV refresh cycle after migrations
-  scheduleStatsRefresh();
+    // Issue #232 perf: start the 5-minute stats MV refresh cycle after migrations
+    scheduleStatsRefresh();
 
-  // Start job expiry checker - run every hour
-  startJobExpiryChecker();
+    // Start job expiry checker - run every hour
+    startJobExpiryChecker();
 
-  server.listen(PORT, () => {
-    console.log(`
+    // Escrow timeout checker — hourly scan for funded escrows older than 7 days
+    await startEscrowTimeoutChecker();
+
+    // Notification dispatcher — drains the notification queue every 2 minutes
+    // (in-app push over WebSocket, outbound webhooks, email, push subscriptions)
+    startNotificationProcessor();
+
+    server.listen(PORT, () => {
+      console.log(`
   🏪 Stellar MarketPay API
   🚀 Running at http://localhost:${PORT}
   🌐 Network: ${process.env.STELLAR_NETWORK || "testnet"}
   `);
-  });
+    });
   } catch (err) {
     console.error("Failed to bootstrap server:", err.message);
     process.exit(1);
@@ -439,8 +539,6 @@ async function startJobExpiryChecker() {
     }
   }, 60 * 60 * 1000).unref();
 }
-
-bootstrap();
 
 /**
  * Periodically process pending notifications (runs every 2 minutes).

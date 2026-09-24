@@ -23,6 +23,100 @@ The Stellar MarketPay API uses OpenAPI 3.0 specification with Swagger UI for int
 - **Swagger UI**: https://api.stellarmarketpay.com/api/docs
 - **OpenAPI JSON**: https://api.stellarmarketpay.com/api/docs/json
 
+## Dispute Evidence Endpoints
+
+Dispute evidence lives in the `dispute_evidence` table and is stored on IPFS.
+All three endpoints below are also described in `backend/docs/openapi.yaml`
+under the `Disputes` tag.
+
+### `POST /api/disputes/:jobId/evidence` — upload evidence
+
+| | |
+| --- | --- |
+| **Auth** | Bearer JWT (`bearerAuth`) — only the job's client or freelancer |
+| **Request** | `multipart/form-data` with a single `file` part (JPEG/PNG/GIF/MP4/PDF, max 10 MB, max 5 files per party) |
+| **Success** | `201` → `{ success: true, data: DisputeEvidence }` |
+
+`DisputeEvidence` fields: `id`, `uploaderAddress`, `fileName`, `fileSize`,
+`mimeType`, `fileUrl` (IPFS CID), `gatewayUrl`, `createdAt`.
+
+**Errors:** `400` no file / unsupported type / per-party file limit reached ·
+`401` missing or invalid JWT · `403` requester is not a party to the job ·
+`404` job not found · `503` IPFS upload failed.
+
+### `GET /api/disputes/:jobId/evidence` — list evidence
+
+| | |
+| --- | --- |
+| **Auth** | None (same visibility as `GET /api/disputes/:jobId`), rate-limited |
+| **Request** | Path param `jobId` (UUID) |
+| **Success** | `200` → `{ success: true, data: DisputeEvidence[] }` in upload order |
+
+**Errors:** `404` job not found · `429` rate limited.
+
+### `DELETE /api/disputes/:jobId/evidence/:hash` — delete evidence
+
+| | |
+| --- | --- |
+| **Auth** | Bearer JWT (`bearerAuth`) — only the uploader of that evidence |
+| **Request** | Path params `jobId` (UUID) and `hash` (IPFS CID / content hash of the file) |
+| **Success** | `200` → `{ success: true, data: { jobId, hash, deleted: true } }` |
+
+**Errors:** `401` missing or invalid JWT · `403` requester is not the uploader ·
+`404` job or evidence not found · `429` rate limited.
+
+> Supporting endpoints: `GET /api/disputes/:jobId` returns the dispute with
+> its evidence list; `GET /api/disputes/:jobId/evidence/:id/url` issues a
+> 15-minute signed URL that `GET /api/disputes/:jobId/evidence/:id/proxy`
+> verifies before streaming the file from IPFS.
+
+## Webhook Signatures
+
+Every outbound `POST` webhook delivery includes an `X-Webhook-Signature`
+header so recipients can verify authenticity and integrity:
+
+```text
+X-Webhook-Signature: sha256=<HMAC-SHA256(raw_request_body, webhook_secret)>
+```
+
+- The **secret is set per endpoint** when you register the webhook
+  (`POST /api/webhooks` requires `secret` — minimum 8 characters) and is used
+  as the HMAC-SHA256 key for every delivery to that endpoint.
+- The signature covers the **exact raw JSON request body**; compute the HMAC
+  over the raw bytes, not a re-serialized object.
+
+### Verifying a signature (Node.js)
+
+```javascript
+const crypto = require("crypto");
+
+function verifyWebhook(rawBody, header, secret) {
+  const expected = `sha256=${crypto
+    .createHmac("sha256", secret)
+    .update(rawBody)
+    .digest("hex")}`;
+  const a = Buffer.from(header || "", "utf8");
+  const b = Buffer.from(expected, "utf8");
+  // Constant-time comparison to avoid timing attacks
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Express example
+app.post("/webhooks/marketpay", (req, res) => {
+  const ok = verifyWebhook(
+    JSON.stringify(req.body), // or capture the raw body before parsing
+    req.headers["x-webhook-signature"],
+    process.env.WEBHOOK_SECRET,
+  );
+  if (!ok) return res.status(400).send("invalid signature");
+  // ... handle event
+  res.sendStatus(200);
+});
+```
+
+Reject deliveries whose signature does not match in constant time, and
+consider replay protection by rejecting bodies you have already processed.
+
 ## Adding Documentation
 
 When adding new API endpoints, follow these steps:

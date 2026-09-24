@@ -54,6 +54,35 @@ const uploadRateLimiter = createRateLimiter(5, 1);
  *     responses:
  *       200:
  *         description: On-chain CIDs
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     jobId:
+ *                       type: string
+ *                       format: uuid
+ *                     cids:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *       404:
+ *         description: Job not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: Job not found
  */
 // GET /api/disputes/:jobId/onchain-cids
 const readOnchainRateLimiter = createRateLimiter(15, 1);
@@ -90,8 +119,34 @@ router.get("/:jobId/onchain-cids", readOnchainRateLimiter, async (req, res, next
  *     responses:
  *       200:
  *         description: Dispute detail with evidence list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job:
+ *                       type: object
+ *                     evidence:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/DisputeEvidence'
  *       404:
  *         description: Job not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: Job not found
  */
 // GET /api/disputes/:jobId
 router.get("/:jobId", readRateLimiter, async (req, res, next) => {
@@ -138,6 +193,87 @@ router.get("/:jobId", readRateLimiter, async (req, res, next) => {
 /**
  * @swagger
  * /api/disputes/{jobId}/evidence:
+ *   get:
+ *     summary: List dispute evidence files
+ *     description: Returns every evidence file uploaded by either party for the job, in upload order.
+ *     tags: [Disputes]
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Evidence list for the dispute
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/DisputeEvidence'
+ *       404:
+ *         description: Job not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: Job not found
+ *                 code:
+ *                   type: string
+ *                   example: JOB_NOT_FOUND
+ */
+// GET /api/disputes/:jobId/evidence
+router.get("/:jobId/evidence", readRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+
+    const { rows: jobRows } = await pool.query(
+      "SELECT id FROM jobs WHERE id = $1",
+      [jobId]
+    );
+    if (!jobRows.length) {
+      throw createError(ErrorCodes.JOB_NOT_FOUND, "Job not found", 404);
+    }
+
+    const { rows: evidence } = await pool.query(
+      `SELECT id, uploader_address, file_name, file_size, mime_type, ipfs_cid, created_at
+       FROM dispute_evidence
+       WHERE job_id = $1
+       ORDER BY created_at ASC`,
+      [jobId]
+    );
+
+    res.json({
+      success: true,
+      data: evidence.map((ev) => ({
+        id:              ev.id,
+        uploaderAddress: ev.uploader_address,
+        fileName:        ev.file_name,
+        fileSize:        ev.file_size,
+        mimeType:        ev.mime_type,
+        fileUrl:         ev.ipfs_cid,
+        gatewayUrl:      ipfsService.getGatewayUrl(ev.ipfs_cid),
+        createdAt:       ev.created_at,
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * @swagger
+ * /api/disputes/{jobId}/evidence:
  *   post:
  *     summary: Upload dispute evidence file
  *     tags: [Disputes]
@@ -167,8 +303,20 @@ router.get("/:jobId", readRateLimiter, async (req, res, next) => {
  *         description: Evidence uploaded
  *       400:
  *         description: File limit reached or invalid file
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: No file provided
+ *       401:
+ *         description: Missing or invalid JWT
  *       403:
  *         description: Only client or freelancer can upload
+ *       404:
+ *         description: Job not found
  */
 // POST /api/disputes/:jobId/evidence
 router.post(
@@ -273,6 +421,41 @@ router.post(
  *     responses:
  *       200:
  *         description: Signed proxy URL (valid 15 min)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     url:
+ *                       type: string
+ *                     expiresAt:
+ *                       type: string
+ *                       format: date-time
+ *                     fileName:
+ *                       type: string
+ *                     mimeType:
+ *                       type: string
+ *       401:
+ *         description: Missing or invalid JWT
+ *       403:
+ *         description: Only the client or freelancer can access evidence URLs
+ *       404:
+ *         description: Job or evidence not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: Job not found
  */
 // GET /api/disputes/:jobId/evidence/:id/url — generate signed URL
 router.get("/:jobId/evidence/:id/url", verifyJWT, readRateLimiter, async (req, res, next) => {
@@ -357,6 +540,110 @@ router.get("/:jobId/evidence/:id/proxy", readRateLimiter, async (req, res, next)
     res.set("Cache-Control", "no-store");
 
     stream.pipe(res);
+  } catch (e) { next(e); }
+});
+
+/**
+ * @swagger
+ * /api/disputes/{jobId}/evidence/{hash}:
+ *   delete:
+ *     summary: Delete a dispute evidence file by content hash
+ *     description: Removes the evidence record identified by its IPFS CID (content hash). Only the uploader may delete their own evidence.
+ *     tags: [Disputes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: hash
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: IPFS CID (content hash) of the evidence file
+ *     responses:
+ *       200:
+ *         description: Evidence deleted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     jobId:
+ *                       type: string
+ *                       format: uuid
+ *                     hash:
+ *                       type: string
+ *                       example: QmT78zSuBmuS4z925WZfrqQ1qHaJ56DQaTfyMUF7F8ff5o
+ *                     deleted:
+ *                       type: boolean
+ *                       example: true
+ *       401:
+ *         description: Missing or invalid JWT
+ *       403:
+ *         description: Only the uploader may delete their evidence
+ *       404:
+ *         description: Job or evidence not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: Job not found
+ *                 code:
+ *                   type: string
+ *                   example: JOB_NOT_FOUND
+ */
+// DELETE /api/disputes/:jobId/evidence/:hash — delete evidence by IPFS CID
+router.delete("/:jobId/evidence/:hash", verifyJWT, uploadRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId, hash } = req.params;
+    const requesterAddress = req.user.publicKey;
+
+    const { rows: jobRows } = await pool.query(
+      "SELECT id FROM jobs WHERE id = $1",
+      [jobId]
+    );
+    if (!jobRows.length) {
+      throw createError(ErrorCodes.JOB_NOT_FOUND, "Job not found", 404);
+    }
+
+    const { rows: evRows } = await pool.query(
+      "SELECT id, uploader_address FROM dispute_evidence WHERE job_id = $1 AND ipfs_cid = $2",
+      [jobId, hash]
+    );
+    if (!evRows.length) {
+      throw createError(ErrorCodes.EVIDENCE_NOT_FOUND, "Evidence not found", 404);
+    }
+
+    const evidence = evRows[0];
+    if (evidence.uploader_address !== requesterAddress) {
+      throw createError(ErrorCodes.FORBIDDEN, "Only the uploader can delete their evidence", 403);
+    }
+
+    await pool.query("DELETE FROM dispute_evidence WHERE id = $1", [evidence.id]);
+
+    // Audit trail — non-fatal if the audit table schema differs
+    await pool.query(
+      `INSERT INTO audit_log (action, resource_type, resource_id, actor_address, metadata)
+       VALUES ('evidence_deleted', 'dispute_evidence', $1, $2, $3::jsonb)`,
+      [evidence.id, requesterAddress, JSON.stringify({ jobId, hash })]
+    ).catch(() => {});
+
+    res.json({ success: true, data: { jobId, hash, deleted: true } });
   } catch (e) { next(e); }
 });
 

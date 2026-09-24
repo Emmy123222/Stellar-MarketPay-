@@ -15,6 +15,17 @@ function isTimezoneCompatible(jobTimezone, userTimezone) {
   if (!jobTimezone) return true;
   if (!userTimezone) return true;
 
+  try {
+    const now = new Date();
+    const userOffset = getTimezoneOffset(userTimezone, now);
+    const jobOffset = getTimezoneOffset(jobTimezone, now);
+    const diffHours = Math.abs(userOffset - jobOffset) / (1000 * 60 * 60);
+    return diffHours <= 3;
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Input shape accepted by {@link createJob}.
  *
@@ -1430,3 +1441,4 @@ async function getJobTimeline(jobId) {
 }
 
 Object.assign(module.exports, { TIMELINE_EVENT_TYPES, recordTimelineEvent, getJobTimeline });
+} // close if (NODE_ENV === 'test') / else branch
