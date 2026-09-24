@@ -1,56 +1,145 @@
 /**
- * pages/freelancers/[publicKey].tsx
- * Public freelancer profile (read-only, from GET /api/profiles/:publicKey).
+ * pages/freelancers/[username].tsx
+ * Public developer portfolio (Issue #1553) — read-only, entirely public.
+ *
+ * Reachable without authentication: the page never wraps itself in an
+ * auth guard, tolerates a null/unauthenticated `publicKey` session, and
+ * never force-redirects a guest visitor.
+ *
+ * The [username] param accepts either a Stellar account id (how every
+ * in-app link is built) or a display-name slug such as /freelancers/jane-doe.
+ *
+ * Privacy guard: the "Verified work history" section maps over the
+ * freelancer's completed jobs and renders a record ONLY when that job's own
+ * escrow record carries `client_consent_public === true`. Missing or
+ * unreachable escrow records fail closed, so nothing is ever exposed
+ * without explicit client consent.
  */
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { mutate } from "swr";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
 import ReputationBadge from "@/components/ReputationBadge";
 import FreelancerProfileSkeleton from "@/components/FreelancerProfileSkeleton";
-import {
-  fetchPublicProfile,
-  fetchProfileStats,
-  fetchProfileResponseTime,
-  verifyIdentity,
-  fetchSkillEndorsements,
-  endorseSkill,
-  fetchSkillBadges,
-  fetchResponseTime,
-  fetchUserCertificates,
-  fetchRatings,
-  fetchFreelancerEarnings,
-  type CertificateData,
-  type EarningPayment,
-} from "@/lib/api";
 import StateMessage from "@/components/StateMessage";
 import { useToast } from "@/components/Toast";
+import { useApi } from "@/hooks/useApi";
 import {
+  endorseSkill,
+  fetchEscrow,
+  fetchFreelancerEarnings,
+  fetchFreelancerNftCertificates,
+  fetchProfiles,
+  fetchPublicProfile,
+  fetchRatings,
+  fetchSkillBadges,
+  fetchSkillEndorsements,
+  fetchUserCertificates,
+  verifyIdentity,
+  type CertificateData,
+  type EarningPayment,
+  type NftCertificateData,
+} from "@/lib/api";
+import { accountUrl, explorerUrl, isValidStellarAddress } from "@/lib/stellar";
+import {
+  availabilityBadgeClass,
   availabilityStatusLabel,
   availabilitySummary,
   formatXLM,
   shortenAddress,
-  availabilityBadgeClass,
 } from "@/utils/format";
-import { accountUrl, isValidStellarAddress } from "@/lib/stellar";
 import type {
-  AvailabilityStatus,
   PortfolioItem,
-  ProfileStats,
   Rating,
-  ResponseTime,
   SkillBadge,
   SkillEndorsement,
   UserProfile,
 } from "@/utils/types";
 
-type LoadState =
-  | { status: "loading" }
-  | { status: "invalid" }
-  | { status: "not_found" }
-  | { status: "error"; message: string }
-  | { status: "ok"; profile: UserProfile };
+// ─── Data helpers ───────────────────────────────────────────────────────────
+
+/** Newest-first cap so a very long history can't trigger a request storm. */
+const WORK_HISTORY_SCAN_LIMIT = 20;
+
+/**
+ * Subset of the escrow row returned by GET /api/escrow/:jobId.
+ * `client_consent_public` is the flag that gates public rendering of a job.
+ */
+interface EscrowRecord {
+  job_id?: string;
+  status?: string;
+  amount_xlm?: string;
+  client_consent_public?: boolean;
+}
+
+function slugifyDisplayName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+/**
+ * Resolve the [username] route param to a profile payload.
+ * Accepts a Stellar account id (how in-app links are built) or a
+ * display-name slug resolved against the freelancer directory.
+ */
+async function fetchPortfolioProfile(
+  username: string,
+): Promise<UserProfile | null> {
+  if (isValidStellarAddress(username)) {
+    return fetchPublicProfile(username);
+  }
+
+  const { profiles } = await fetchProfiles({
+    role: "freelancer",
+    search: username,
+    limit: 20,
+  });
+
+  const wanted = username.toLowerCase();
+  return (
+    profiles.find(
+      (candidate) => candidate.displayName?.trim().toLowerCase() === wanted,
+    ) ??
+    profiles.find(
+      (candidate) =>
+        candidate.displayName != null &&
+        slugifyDisplayName(candidate.displayName) === wanted,
+    ) ??
+    null
+  );
+}
+
+/**
+ * Historical completed jobs joined with their on-chain escrow records,
+ * filtered through the strict privacy guard: a job is returned ONLY when
+ * its own escrow record explicitly sets `client_consent_public === true`.
+ * Missing or unreachable escrow records fail closed (job stays hidden).
+ */
+async function fetchConsentedWorkHistory(
+  publicKey: string,
+): Promise<EarningPayment[]> {
+  const earnings = await fetchFreelancerEarnings(publicKey);
+  const payments = earnings.payments ?? [];
+
+  const joined = await Promise.all(
+    payments.slice(0, WORK_HISTORY_SCAN_LIMIT).map(async (payment) => {
+      const escrow: EscrowRecord | null = await fetchEscrow(
+        payment.jobId,
+      ).catch(() => null);
+      return { payment, escrow };
+    }),
+  );
+
+  return joined
+    .filter(({ escrow }) => escrow?.client_consent_public === true)
+    .map(({ payment }) => payment);
+}
+
+// ─── Portfolio helpers ──────────────────────────────────────────────────────
 
 function getPortfolioHref(item: PortfolioItem) {
   if (item.type === "stellar_tx") {
@@ -72,41 +161,84 @@ function getPortfolioTypeLabel(item: PortfolioItem) {
   }
 }
 
+// ─── Page ───────────────────────────────────────────────────────────────────
 
-export default function PublicFreelancerProfilePage({
+export default function PublicDeveloperPortfolioPage({
   publicKey,
 }: {
+  /** Connected wallet — may be null for public/guest visitors. */
   publicKey: string | null;
 }) {
   const router = useRouter();
   const toast = useToast();
-  const rawKey =
-    typeof router.query.publicKey === "string" ? router.query.publicKey : "";
-
-  const [state, setState] = useState<LoadState>({ status: "loading" });
   const [verifying, setVerifying] = useState(false);
-  const [endorsements, setEndorsements] = useState<SkillEndorsement[]>([]);
   const [endorsingSkill, setEndorsingSkill] = useState<string | null>(null);
-  const [badges, setBadges] = useState<SkillBadge[]>([]);
-  const [certificates, setCertificates] = useState<CertificateData[]>([]);
-  const [stats, setStats] = useState<{ totalApplications: number; acceptedApplications: number } | null>(null);
-  const [responseTime, setResponseTime] = useState<{ averageDays: number | null } | null>(null);
-  const [ratings, setRatings] = useState<Rating[]>([]);
-  const [completedJobs, setCompletedJobs] = useState<EarningPayment[]>([]);
 
-  const isOwner = publicKey && rawKey === publicKey;
+  const rawParam = router.query.username;
+  const username = typeof rawParam === "string" ? rawParam.trim() : "";
+
+  // Cache keys stay null until the route has hydrated, so guest sessions
+  // and SSR renders never trigger a fetch, throw, or redirect.
+  const profileKey =
+    router.isReady && username ? `portfolio:profile:${username}` : null;
+  const { data: profile, error: profileError } = useApi<UserProfile | null>(
+    profileKey,
+    () => fetchPortfolioProfile(username),
+  );
+
+  const profileAddress = profile?.publicKey ?? null;
+  const isOwner = Boolean(
+    publicKey && profileAddress && publicKey === profileAddress,
+  );
+
+  const { data: endorsements = [] } = useApi<SkillEndorsement[]>(
+    profileAddress ? `portfolio:endorsements:${profileAddress}` : null,
+    () => fetchSkillEndorsements(profileAddress!),
+  );
+  const { data: allBadges = [] } = useApi<SkillBadge[]>(
+    profileAddress ? `portfolio:badges:${profileAddress}` : null,
+    () => fetchSkillBadges(profileAddress!),
+  );
+  const badges = allBadges.filter((badge) => badge.passed);
+  const { data: skillCertificates = [] } = useApi<CertificateData[]>(
+    profileAddress ? `portfolio:certificates:${profileAddress}` : null,
+    () => fetchUserCertificates(profileAddress!),
+  );
+  const { data: ratings = [] } = useApi<Rating[]>(
+    profileAddress ? `portfolio:ratings:${profileAddress}` : null,
+    () => fetchRatings(profileAddress!),
+  );
+  const { data: nftCertificates = [] } = useApi<NftCertificateData[]>(
+    profileAddress ? `portfolio:nft-certificates:${profileAddress}` : null,
+    () => fetchFreelancerNftCertificates(profileAddress!),
+  );
+  const { data: workHistory = [] } = useApi<EarningPayment[]>(
+    profileAddress ? `portfolio:work-history:${profileAddress}` : null,
+    () => fetchConsentedWorkHistory(profileAddress!),
+  );
+
+  // ── Load-state derivation (guest-safe: no auth redirect, no throw) ──
+  const routeMissing = router.isReady && !username;
+  const notFound = routeMissing || (profileKey !== null && profile === null);
+  const loadError =
+    profile === undefined && profileError != null ? profileError : null;
+  const loading =
+    !router.isReady ||
+    (!routeMissing &&
+      profileKey !== null &&
+      profile === undefined &&
+      profileError == null);
 
   const handleVerifyIdentity = async () => {
-    if (!publicKey) return;
+    if (!profileAddress || !profileKey) return;
     setVerifying(true);
     try {
       // Mocking DID verification flow (e.g. SpruceID/Rebase)
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
-      const mockDidHash = `did:pkh:stellar:${rawKey}#marketpay-kyc-${Date.now()}`;
-      const updatedProfile = await verifyIdentity(rawKey, mockDidHash);
-
-      setState({ status: "ok", profile: updatedProfile });
+      const mockDidHash = `did:pkh:stellar:${profileAddress}#marketpay-kyc-${Date.now()}`;
+      const updatedProfile = await verifyIdentity(profileAddress, mockDidHash);
+      await mutate(profileKey, updatedProfile, { revalidate: false });
     } catch (error) {
       console.error("Verification error:", error);
     } finally {
@@ -115,124 +247,74 @@ export default function PublicFreelancerProfilePage({
   };
 
   const handleEndorse = async (skill: string) => {
-    if (!publicKey || isOwner) return;
+    if (!publicKey || !profileAddress || isOwner) return;
     setEndorsingSkill(skill);
     try {
-      await endorseSkill(rawKey, skill);
-      const refreshed = await fetchSkillEndorsements(rawKey);
-      setEndorsements(refreshed);
+      await endorseSkill(profileAddress, skill);
+      await mutate(`portfolio:endorsements:${profileAddress}`);
     } catch (error: unknown) {
       console.error("Endorsement error:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to endorse skill");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to endorse skill",
+      );
     } finally {
       setEndorsingSkill(null);
     }
   };
 
+  const displayName = profile?.displayName?.trim() ?? "";
+
+  // ── OpenGraph / social-preview meta ──
   const titleBase = useMemo(() => {
-    if (state.status === "ok" && state.profile.displayName?.trim()) {
-      return `${state.profile.displayName.trim()} · MarketPay`;
+    if (displayName) {
+      return `${displayName} · Developer Portfolio | Stellar MarketPay`;
     }
-    if (rawKey && isValidStellarAddress(rawKey)) {
-      return `${shortenAddress(rawKey)} · MarketPay`;
+    if (profileAddress) {
+      return `${shortenAddress(profileAddress)} · Developer Portfolio | Stellar MarketPay`;
     }
-    return "Freelancer profile · MarketPay";
-  }, [state, rawKey]);
+    if (username) {
+      return `${username} · Developer Portfolio | Stellar MarketPay`;
+    }
+    return "Developer Portfolio · Stellar MarketPay";
+  }, [displayName, profileAddress, username]);
 
   const metaDescription = useMemo(() => {
-    if (state.status === "ok" && state.profile.bio?.trim()) {
-      const bio = state.profile.bio.trim();
-      return bio.length > 160 ? `${bio.slice(0, 157)}...` : bio;
+    const bio = profile?.bio?.trim();
+    if (bio) return bio.length > 160 ? `${bio.slice(0, 157)}...` : bio;
+    const name =
+      displayName ||
+      (profileAddress ? shortenAddress(profileAddress) : "This developer");
+    return `${name}'s verified work history, skills, and on-chain certificates on Stellar MarketPay.`;
+  }, [profile, displayName, profileAddress]);
+
+  const ogImage = `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(
+    profileAddress || username || "marketpay",
+  )}`;
+
+  // ── Average platform review rating ──
+  const ratingAverage = useMemo(() => {
+    if (profile?.rating != null) return profile.rating;
+    if (ratings.length > 0) {
+      return (
+        ratings.reduce((sum, rating) => sum + rating.stars, 0) / ratings.length
+      );
     }
-    return "View freelancer profile on Stellar MarketPay.";
-  }, [state]);
+    return null;
+  }, [profile?.rating, ratings]);
+  const ratingCount = profile?.ratingCount ?? ratings.length;
 
-  useEffect(() => {
-    if (!router.isReady) return;
-
-    if (!rawKey) {
-      setState({ status: "not_found" });
-      return;
-    }
-
-    if (!isValidStellarAddress(rawKey)) {
-      setState({ status: "invalid" });
-      return;
-    }
-
-    let cancelled = false;
-    setState({ status: "loading" });
-
-    (async () => {
-      try {
-        const [profile, endorsementsData, profileStats, profileResponseTime, badgeData] =
-          await Promise.all([
-            fetchPublicProfile(rawKey),
-            fetchSkillEndorsements(rawKey).catch(() => [] as SkillEndorsement[]),
-            fetchProfileStats(rawKey).catch(() => null),
-            fetchResponseTime(rawKey).catch(() => null),
-            fetchSkillBadges(rawKey).catch(() => [] as SkillBadge[]),
-          ]);
-
-        if (cancelled) return;
-        setEndorsements(endorsementsData);
-        setStats(profileStats);
-        setResponseTime(profileResponseTime);
-        setBadges(badgeData.filter((b) => b.passed));
-
-        if (profile === null) setState({ status: "not_found" });
-        else setState({ status: "ok", profile });
-      } catch (error: unknown) {
-        if (cancelled) return;
-        const message =
-          error instanceof Error ? error.message : "Could not load profile.";
-        setState({ status: "error", message });
-      }
-    })();
-
-    // Fetch badges separately (non-blocking)
-    fetchSkillBadges(rawKey)
-      .then((data) => { if (!cancelled) setBadges(data.filter((b) => b.passed)); })
-      .catch(() => {});
-
-    // Fetch certificates separately (non-blocking)
-    fetchUserCertificates(rawKey)
-      .then((data) => { if (!cancelled) setCertificates(data); })
-      .catch(() => {});
-
-    // Fetch profile stats and response time separately (non-blocking)
-    fetchProfileStats(rawKey)
-      .then((data) => { if (!cancelled) setStats(data); })
-      .catch(() => {});
-    fetchProfileResponseTime(rawKey)
-      .then((data) => { if (!cancelled) setResponseTime(data); })
-      .catch(() => {});
-
-    // Fetch ratings and completed job history (non-blocking)
-    fetchRatings(rawKey)
-      .then((data) => { if (!cancelled) setRatings(data); })
-      .catch(() => {});
-    fetchFreelancerEarnings(rawKey)
-      .then((data) => { if (!cancelled) setCompletedJobs(data.payments.slice(0, 5)); })
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
-    };
-  }, [router.isReady, rawKey]);
-
-  const explorerHref =
-    rawKey && isValidStellarAddress(rawKey) ? accountUrl(rawKey) : "#";
+  const explorerHref = profileAddress ? accountUrl(profileAddress) : "#";
 
   return (
     <>
       <Head>
         <title>{titleBase}</title>
         <meta name="description" content={metaDescription} />
+        {/* OpenGraph card — rich preview when the portfolio URL is shared */}
         <meta property="og:title" content={titleBase} />
         <meta property="og:description" content={metaDescription} />
         <meta property="og:type" content="profile" />
-        <meta property="og:image" content={`https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(rawKey)}`} />
+        <meta property="og:image" content={ogImage} />
         <meta name="twitter:card" content="summary" />
         <meta name="twitter:title" content={titleBase} />
         <meta name="twitter:description" content={metaDescription} />
@@ -246,30 +328,16 @@ export default function PublicFreelancerProfilePage({
           ← Back to Jobs
         </Link>
 
-        {state.status === "loading" && (
-          <FreelancerProfileSkeleton />
-        )}
+        {loading && <FreelancerProfileSkeleton />}
 
-        {state.status === "invalid" && (
-          <div className="card border-amber-900/30 text-center py-12 sm:py-16">
-            <p className="font-display text-xl text-amber-100 mb-2">
-              Invalid address
-            </p>
-            <p className="text-amber-800 text-sm max-w-md mx-auto">
-              This URL does not contain a valid Stellar public key. Check the
-              link and try again.
-            </p>
-          </div>
-        )}
-
-        {state.status === "not_found" && (
+        {!loading && routeMissing && (
           <div className="card border-market-500/20 text-center py-12 sm:py-16">
             <p className="font-display text-xl text-amber-100 mb-2">
               Profile not found
             </p>
             <p className="text-amber-800 text-sm max-w-md mx-auto mb-6">
-              No profile exists for this wallet yet. The freelancer may not have
-              set up their profile.
+              This URL does not reference a developer profile. Check the link
+              and try again.
             </p>
             <Link href="/jobs" className="btn-secondary text-sm inline-flex">
               Browse jobs
@@ -277,36 +345,60 @@ export default function PublicFreelancerProfilePage({
           </div>
         )}
 
-        {state.status === "error" && (
+        {!loading && !routeMissing && notFound && (
+          <div className="card border-market-500/20 text-center py-12 sm:py-16">
+            <p className="font-display text-xl text-amber-100 mb-2">
+              Profile not found
+            </p>
+            <p className="text-amber-800 text-sm max-w-md mx-auto mb-6">
+              No profile exists for this username or wallet yet. The developer
+              may not have set up their profile.
+            </p>
+            <Link href="/jobs" className="btn-secondary text-sm inline-flex">
+              Browse jobs
+            </Link>
+          </div>
+        )}
+
+        {!loading && loadError && (
           <div className="space-y-4">
             <FreelancerProfileSkeleton />
             <div className="text-center">
-              <p className="text-red-400/90 text-sm max-w-md mx-auto mb-2">{state.message}</p>
-              <button onClick={() => router.replace(router.asPath)} className="btn-primary text-sm">Retry</button>
+              <p className="text-red-400/90 text-sm max-w-md mx-auto mb-2">
+                {loadError.message || "Could not load profile."}
+              </p>
+              <button
+                onClick={() => {
+                  if (profileKey) mutate(profileKey);
+                }}
+                className="btn-primary text-sm"
+              >
+                Retry
+              </button>
             </div>
           </div>
         )}
 
-        {state.status === "ok" && (
+        {!loading && !loadError && profile && (
           <article className="card border-market-500/15 overflow-hidden">
             <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6 mb-6">
               <div className="flex-1 min-w-0">
                 <h1 className="font-display text-2xl sm:text-3xl font-bold text-amber-100 break-words">
-                  {state.profile.displayName?.trim() ||
-                    shortenAddress(state.profile.publicKey)}
+                  {displayName || shortenAddress(profile.publicKey)}
                 </h1>
                 <div className="flex flex-wrap items-center gap-2 mt-3">
-                  <ReputationBadge userId={state.profile.publicKey} size="md" />
+                  <ReputationBadge userId={profile.publicKey} size="md" />
                   <FreelancerTierBadge
-                    tier={state.profile.tier}
+                    tier={profile.tier}
                     className="text-sm"
                   />
-                  {state.profile.isKycVerified && (
+                  {profile.isKycVerified && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold uppercase tracking-wider">
                       <svg
                         className="w-3 h-3"
                         fill="currentColor"
                         viewBox="0 0 20 20"
+                        aria-hidden="true"
                       >
                         <path
                           fillRule="evenodd"
@@ -319,7 +411,7 @@ export default function PublicFreelancerProfilePage({
                   )}
                 </div>
                 <p className="text-xs sm:text-sm text-amber-800 mt-2 font-mono break-all">
-                  {state.profile.publicKey}
+                  {profile.publicKey}
                 </p>
               </div>
               <div className="flex flex-col sm:items-end gap-2 shrink-0 w-full sm:w-auto">
@@ -331,7 +423,7 @@ export default function PublicFreelancerProfilePage({
                 >
                   View on Stellar Expert →
                 </a>
-                {isOwner && !state.profile.isKycVerified && (
+                {isOwner && !profile.isKycVerified && (
                   <button
                     onClick={handleVerifyIdentity}
                     disabled={verifying}
@@ -342,6 +434,7 @@ export default function PublicFreelancerProfilePage({
                         <svg
                           className="animate-spin h-4 w-4"
                           viewBox="0 0 24 24"
+                          aria-hidden="true"
                         >
                           <circle
                             className="opacity-25"
@@ -373,23 +466,23 @@ export default function PublicFreelancerProfilePage({
                 <h2 className="label !mb-0">Availability</h2>
                 <span
                   className={`text-xs px-2.5 py-1 rounded-full border ${availabilityBadgeClass(
-                    state.profile.availability?.status,
+                    profile.availability?.status,
                   )}`}
                 >
-                  {availabilityStatusLabel(state.profile.availability?.status)}
+                  {availabilityStatusLabel(profile.availability?.status)}
                 </span>
               </div>
               <p className="text-sm text-amber-700/90">
-                {availabilitySummary(state.profile.availability) ||
+                {availabilitySummary(profile.availability) ||
                   "Availability has not been set yet."}
               </p>
             </div>
 
-            {state.profile.bio?.trim() ? (
+            {profile.bio?.trim() ? (
               <div className="mb-6 sm:mb-8">
                 <h2 className="label mb-2">Bio</h2>
                 <p className="text-amber-700/90 text-sm sm:text-base leading-relaxed whitespace-pre-wrap">
-                  {state.profile.bio.trim()}
+                  {profile.bio.trim()}
                 </p>
               </div>
             ) : (
@@ -402,45 +495,44 @@ export default function PublicFreelancerProfilePage({
               <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
                 <p className="label mb-1">Completed jobs</p>
                 <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
-                  {state.profile.completedJobs ?? 0}
+                  {profile.completedJobs ?? 0}
                 </p>
               </div>
               <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
                 <p className="label mb-1">Total earned</p>
                 <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
-                  {formatXLM(state.profile.totalEarnedXLM ?? "0")}
+                  {formatXLM(profile.totalEarnedXLM ?? "0")}
                 </p>
               </div>
               <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
                 <p className="label mb-1">Freelancer tier</p>
-                <FreelancerTierBadge
-                  tier={state.profile.tier}
-                  className="mt-2"
-                />
+                <FreelancerTierBadge tier={profile.tier} className="mt-2" />
               </div>
-              {state.profile.rating == null ? (
+              {ratingAverage == null ? (
                 <StateMessage
                   type="empty"
                   title="No reviews yet"
                   description="Be the first to hire this freelancer"
                   ctaLabel="Hire now"
-                  onCta={() => router.push(`/jobs?search=${state.profile.publicKey}`)}
+                  onCta={() => router.push(`/jobs?search=${profile.publicKey}`)}
                 />
               ) : (
                 <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
                   <p className="label mb-1">Average rating</p>
                   <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
-                    {state.profile.rating?.toFixed(2) ?? "New"}
+                    {ratingAverage.toFixed(2)}
                   </p>
-                  {state.profile.ratingCount != null && state.profile.ratingCount > 0 && (
-                    <p className="text-xs text-amber-800 mt-1">{state.profile.ratingCount} review{state.profile.ratingCount !== 1 ? "s" : ""}</p>
+                  {ratingCount > 0 && (
+                    <p className="text-xs text-amber-800 mt-1">
+                      {ratingCount} review{ratingCount !== 1 ? "s" : ""}
+                    </p>
                   )}
                 </div>
               )}
               <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
                 <p className="label mb-1">Success rate</p>
                 <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
-                  {state.profile.completedJobs || 0} completed
+                  {profile.completedJobs || 0} completed
                 </p>
               </div>
               <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
@@ -455,22 +547,22 @@ export default function PublicFreelancerProfilePage({
               <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
                 <p className="label mb-1">Referrals</p>
                 <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
-                  {state.profile.referralCount ?? 0}
+                  {profile.referralCount ?? 0}
                 </p>
               </div>
               <div className="rounded-xl bg-ink-900/50 border border-market-500/10 p-4">
                 <p className="label mb-1">Reputation Bonus</p>
                 <p className="font-display text-2xl sm:text-3xl font-bold text-market-400">
-                  +{state.profile.reputationPoints ?? 0}
+                  +{profile.reputationPoints ?? 0}
                 </p>
               </div>
             </div>
 
             <div className="mb-6 sm:mb-8">
               <h2 className="label mb-3">Skills</h2>
-              {state.profile.skills && state.profile.skills.length > 0 ? (
+              {profile.skills && profile.skills.length > 0 ? (
                 <ul className="flex flex-wrap gap-2">
-                  {state.profile.skills.map((skill) => {
+                  {profile.skills.map((skill) => {
                     const end = endorsements.find((e) => e.skill === skill);
                     const count = end?.count ?? 0;
                     return (
@@ -485,6 +577,7 @@ export default function PublicFreelancerProfilePage({
                               className="w-3 h-3"
                               fill="currentColor"
                               viewBox="0 0 20 20"
+                              aria-hidden="true"
                             >
                               <path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z" />
                             </svg>
@@ -502,6 +595,7 @@ export default function PublicFreelancerProfilePage({
                               <svg
                                 className="w-3 h-3 animate-spin"
                                 viewBox="0 0 24 24"
+                                aria-hidden="true"
                               >
                                 <circle
                                   className="opacity-25"
@@ -523,6 +617,7 @@ export default function PublicFreelancerProfilePage({
                                 className="w-3 h-3"
                                 fill="currentColor"
                                 viewBox="0 0 20 20"
+                                aria-hidden="true"
                               >
                                 <path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z" />
                               </svg>
@@ -569,18 +664,22 @@ export default function PublicFreelancerProfilePage({
               <div className="mb-6 sm:mb-8">
                 <h2 className="label mb-3">Verified Skills</h2>
                 <ul className="flex flex-wrap gap-2">
-                  {badges.map((b) => {
-                    const cert = certificates.find(
-                      (c) => c.skill.toLowerCase() === b.skill.toLowerCase(),
+                  {badges.map((badge) => {
+                    const cert = skillCertificates.find(
+                      (c) =>
+                        c.skill.toLowerCase() === badge.skill.toLowerCase(),
                     );
                     return (
-                      <li key={b.skill} className="relative group">
+                      <li key={badge.skill} className="relative group">
                         <span className="inline-flex items-center gap-1.5 text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-3 py-1.5 rounded-full">
-                          ✓ {b.skill.charAt(0).toUpperCase() + b.skill.slice(1)}
+                          ✓{" "}
+                          {badge.skill.charAt(0).toUpperCase() +
+                            badge.skill.slice(1)}
                         </span>
                         {/* Score tooltip */}
                         <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg bg-ink-900 border border-market-500/20 px-2.5 py-1 text-xs text-amber-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-10">
-                          Score: {b.score}% · {new Date(b.taken_at).toLocaleDateString()}
+                          Score: {badge.score}% ·{" "}
+                          {new Date(badge.taken_at).toLocaleDateString()}
                           {cert && (
                             <>
                               <br />
@@ -609,18 +708,17 @@ export default function PublicFreelancerProfilePage({
               </div>
             )}
 
-            <div>
+            <div className="mb-6 sm:mb-8">
               <div className="flex items-center justify-between gap-3 mb-3">
                 <h2 className="label">Portfolio</h2>
                 <p className="text-xs text-amber-800">
-                  {(state.profile.portfolioItems || []).length}/10
+                  {(profile.portfolioItems || []).length}/10
                 </p>
               </div>
 
-              {state.profile.portfolioItems &&
-              state.profile.portfolioItems.length > 0 ? (
+              {profile.portfolioItems && profile.portfolioItems.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {state.profile.portfolioItems.map((item, index) => (
+                  {profile.portfolioItems.map((item, index) => (
                     <a
                       key={`${item.type}-${item.url}-${index}`}
                       href={getPortfolioHref(item)}
@@ -649,12 +747,12 @@ export default function PublicFreelancerProfilePage({
               )}
             </div>
 
-            {/* Completed job history */}
-            {completedJobs.length > 0 && (
-              <div className="mt-6 sm:mt-8">
-                <h2 className="label mb-3">Recent completed jobs</h2>
+            {/* Verified on-chain work history — client consent required (Issue #1553) */}
+            <div className="mt-6 sm:mt-8">
+              <h2 className="label mb-3">Verified work history</h2>
+              {workHistory.length > 0 ? (
                 <ul className="space-y-3">
-                  {completedJobs.map((payment) => (
+                  {workHistory.map((payment) => (
                     <li
                       key={payment.id}
                       className="flex items-center justify-between gap-3 rounded-xl border border-market-500/10 bg-ink-900/50 px-4 py-3"
@@ -678,8 +776,68 @@ export default function PublicFreelancerProfilePage({
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
+              ) : (
+                <p className="text-amber-900/80 text-sm italic">
+                  No completed jobs have been shared publicly yet.
+                </p>
+              )}
+            </div>
+
+            {/* Earned NFT certificates */}
+            <div className="mt-6 sm:mt-8">
+              <h2 className="label mb-3">Earned certificates</h2>
+              {nftCertificates.length > 0 ? (
+                <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {nftCertificates.map((cert) => (
+                    <li
+                      key={cert.id}
+                      className="rounded-xl border border-market-500/15 bg-ink-900/50 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <p className="text-xs uppercase tracking-[0.18em] text-market-300/80">
+                          NFT Certificate
+                        </p>
+                        {cert.txHash && (
+                          <a
+                            href={explorerUrl(cert.txHash)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-market-400 hover:text-market-300 underline shrink-0"
+                          >
+                            On-chain proof
+                          </a>
+                        )}
+                      </div>
+                      <h3 className="text-amber-100 font-medium text-base break-words mb-1">
+                        {cert.jobTitle || shortenAddress(cert.jobId)}
+                      </h3>
+                      <p className="text-xs text-amber-800">
+                        {cert.completionDate
+                          ? new Date(cert.completionDate).toLocaleDateString()
+                          : "—"}
+                        {cert.amountXlm
+                          ? ` · ${formatXLM(cert.amountXlm)}`
+                          : ""}
+                      </p>
+                      {cert.verifyUrl && (
+                        <a
+                          href={cert.verifyUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block mt-2 text-xs text-market-400 hover:text-market-300 underline"
+                        >
+                          Verify certificate
+                        </a>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-amber-900/80 text-sm italic">
+                  No certificates earned yet.
+                </p>
+              )}
+            </div>
 
             {/* Ratings & reviews */}
             <div className="mt-6 sm:mt-8">
@@ -693,30 +851,38 @@ export default function PublicFreelancerProfilePage({
               </h2>
               {ratings.length > 0 ? (
                 <ul className="space-y-4">
-                  {ratings.map((r) => (
+                  {ratings.map((rating) => (
                     <li
-                      key={r.id}
+                      key={rating.id}
                       className="rounded-xl border border-market-500/10 bg-ink-900/50 p-4"
                     >
                       <div className="flex items-center justify-between gap-2 mb-2">
-                        <span className="text-market-400 font-semibold text-sm" aria-label={`${r.stars} stars`}>
-                          {"★".repeat(r.stars)}{"☆".repeat(5 - r.stars)}
+                        <span
+                          className="text-market-400 font-semibold text-sm"
+                          aria-label={`${rating.stars} stars`}
+                        >
+                          {"★".repeat(rating.stars)}
+                          {"☆".repeat(5 - rating.stars)}
                         </span>
                         <span className="text-xs text-amber-800">
-                          {new Date(r.createdAt).toLocaleDateString()}
+                          {new Date(rating.createdAt).toLocaleDateString()}
                         </span>
                       </div>
-                      {r.review ? (
-                        <p className="text-sm text-amber-700/90 leading-relaxed">{r.review}</p>
+                      {rating.review ? (
+                        <p className="text-sm text-amber-700/90 leading-relaxed">
+                          {rating.review}
+                        </p>
                       ) : null}
                       <p className="text-xs text-amber-900/70 font-mono mt-2">
-                        {shortenAddress(r.raterAddress)}
+                        {shortenAddress(rating.raterAddress)}
                       </p>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-amber-900/80 text-sm italic">No reviews yet.</p>
+                <p className="text-amber-900/80 text-sm italic">
+                  No reviews yet.
+                </p>
               )}
             </div>
           </article>
