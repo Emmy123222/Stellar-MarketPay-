@@ -520,6 +520,24 @@ export interface AutoConvertHistory {
   };
 }
 
+// ─── Manual XLM → USDC Swap (Issue #1547) ────────────────────────────────────
+
+export interface SwapQuote {
+  sourceAmountXlm: string;
+  destinationAmount: string;
+  destMinUsdc: string;
+  rate: string;
+  feeXlm: string;
+  slippageBps: number;
+  path?: Array<{ type: string; code?: string; issuer?: string }>;
+  usdcIssuer: string;
+}
+
+export interface ManualSwapStart {
+  conversion: AutoConversion;
+  quote: SwapQuote;
+}
+
 // ─── On-Chain Reputation (Issue #1561) ───────────────────────────────────────
 
 export type ReputationLabel = "New" | "Building" | "Established" | "Trusted" | "Excellent";

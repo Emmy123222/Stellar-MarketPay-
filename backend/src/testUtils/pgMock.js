@@ -894,10 +894,10 @@ function createPgMock() {
           );
         }
       }
-      const limit = params[params.length - 1] ?? 50;
+      const limitVal = params[params.length - 1] ?? 50;
       return {
         rows: rows
-          .slice(0, typeof limit === "number" ? limit : 50)
+          .slice(0, typeof limitVal === "number" ? limitVal : 50)
           .map(formatJobRow),
       };
     }
@@ -1315,6 +1315,7 @@ function createPgMock() {
     }
 
     return { rows: [] };
+  }
   });
 
   const connect = jest.fn(async () => ({
@@ -1382,3 +1383,5 @@ module.exports = {
   defaultOnboardingRow,
   defaultPriceAlertRow,
 };
+
+}

@@ -17,6 +17,8 @@ proptest = "1"
 
 [features]
 testutils = ["soroban-sdk/testutils"]
+# Enables the property-based test suites (proptest itself is a dev-dependency).
+proptest = []
 
 [profile.release]
 opt-level = "z"

@@ -8,7 +8,7 @@
  *     Use this before building a transaction so you can pre-populate the fee field.
  */
 
-import { Transaction, SorobanRpc } from "@stellar/stellar-sdk";
+import { Transaction, rpc as SorobanRpc } from "@stellar/stellar-sdk";
 import { sorobanServer, NETWORK_PASSPHRASE } from "./stellar";
 import { parseContractError } from "./contractErrors";
 

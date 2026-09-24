@@ -173,7 +173,7 @@ router.post(
       const txInfo = await verifyOnChainTransaction(contractTxHash);
       const txHashInner = contractTxHash || `offchain-${Date.now()}`;
 
-      await logContractInteraction({
+      logContractInteraction({
         functionName: "partial_release",
         callerAddress: clientAddress,
         jobId,
@@ -355,7 +355,7 @@ router.post("/:jobId/refund", async (req, res, next) => {
     const txInfo = await verifyOnChainTransaction(contractTxHash);
     const txHashInner = contractTxHash || `offchain-${Date.now()}`;
 
-    await logContractInteraction({
+    logContractInteraction({
       functionName: "refund_escrow",
       callerAddress: clientAddress,
       jobId,
