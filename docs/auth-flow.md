@@ -5,7 +5,7 @@
 - [SEP-10 Standard](#sep-10-standard)
 - [Primary Flow — Happy Path](#primary-flow--happy-path)
 - [Error Flows](#error-flows)
-- [Multi-Factor Authentication Extension](#multi-factor-authentication-extension)
+- [Two-Factor Authentication (TOTP)](#two-factor-authentication-totp)
 - [WebAuthn (Passkey) Flow](#webauthn-passkey-flow)
 - [Token Lifecycle](#token-lifecycle)
 - [API Specification](#api-specification)
@@ -70,8 +70,27 @@ sequenceDiagram
     BE->>SN: Load account (verify it exists on network)
     SN-->>BE: Account record (signers, thresholds)
     BE->>BE: Verify signature against account signers<br/>Check nonce freshness (≤ 5 min old)<br/>Check home_domain matches server config
-    BE->>BE: Upsert profile record for G...<br/>Issue JWT { sub: G..., iat, exp: +1h }
-    BE-->>FE: { token: "<jwt>" }
+    BE->>BE: Upsert profile record for G...<br/>Stamp last_login_at
+
+    Note over U,SN: 2FA decision (see "Two-Factor Authentication (TOTP)" below)
+
+    alt Admin account with TOTP 2FA enabled
+        BE->>BE: Issue JWT { sub: G..., role: "admin",<br/>2fa_verified: false }
+        BE-->>FE: { token: "<jwt>" }
+        FE-->>U: Prompt for a 6-digit TOTP code (or passkey)
+        U->>FE: Enter TOTP code / approve passkey
+        FE->>BE: POST /api/admin/2fa/verify { token: "123456" }
+        alt TOTP valid
+            BE->>BE: Issue upgraded JWT<br/>{ sub: G..., 2fa_verified: true }
+            BE-->>FE: { token: "<upgraded jwt>" }
+        else TOTP invalid
+            BE-->>FE: 400 { error: "Invalid verification code" }
+            FE-->>U: "Invalid code, try again"
+        end
+    else No 2FA enabled (or non-admin account)
+        BE->>BE: Issue JWT { sub: G..., iat, exp: +1h }
+        BE-->>FE: { token: "<jwt>" }
+    end
 
     Note over U,SN: ── Phase 4: Authenticated Session ──────────────────────
 
@@ -162,42 +181,112 @@ sequenceDiagram
 
 ---
 
-## Multi-Factor Authentication Extension
+## Two-Factor Authentication (TOTP)
 
-When a user has enrolled TOTP 2FA, the login flow adds a second step after SEP-10 succeeds.
+TOTP is currently an **admin** second factor; regular users authenticate with
+SEP-10 only. The primary flow above branches on this: an admin with TOTP enabled
+receives a JWT whose `2fa_verified` claim is `false`, and must complete a second
+step before calling routes guarded by `requireAdmin2FA`. Accounts without 2FA
+enabled skip the second step entirely and go straight to an authenticated session.
+
+The second factor is provided by `speakeasy` TOTP (6-digit codes, `window: 1`).
+
+### Enrollment (one-time setup)
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant U  as User
+    participant U  as Admin
+    participant FE as Frontend
+    participant BE as Backend API
+    participant DB as admin_profiles
+
+    U->>FE: Open "Enable 2FA"
+    FE->>BE: POST /api/admin/2fa/setup
+    BE->>BE: generateSecret(publicKey)
+    BE->>DB: Store encrypted totp_secret (totp_enabled = false)
+    BE-->>FE: { qrCode (data URL), manualEntryKey }
+    FE-->>U: Show QR code / manual key
+    U->>FE: Scan with authenticator app, enter 6-digit code
+    FE->>BE: POST /api/admin/2fa/verify { token, setup: true }
+    BE->>BE: speakeasy.totp.verify(secret, token, window: 1)
+    alt Code valid
+        BE->>DB: totp_enabled = true, store hashed backup codes
+        BE->>BE: Sign upgraded JWT { role: "admin", 2fa_verified: true }
+        BE-->>FE: { token, data.backupCodes }  (shown exactly once)
+    else Code invalid
+        BE-->>FE: 400 { error: "Invalid verification code" }
+    end
+```
+
+### Login verification (step-up)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U  as Admin
     participant FE as Frontend
     participant BE as Backend API
 
-    Note over U,BE: SEP-10 phase completes successfully (steps 1–12 of primary flow)
+    Note over U,BE: SEP-10 succeeds (primary flow, phases 1-3)
 
-    BE->>BE: User has 2FA enabled?
-    BE-->>FE: { mfa_required: true, mfa_token: "<short-lived-mfa-token>" }
-
-    FE-->>U: Show TOTP input prompt
-    U->>FE: Enter 6-digit TOTP code
-    FE->>BE: POST /api/2fa/verify { mfa_token, totp_code }
-    BE->>BE: Verify TOTP code against stored secret<br/>Check code not already used (anti-replay)
-
+    BE-->>FE: { token: "<jwt>" } (claim: 2fa_verified = false)
+    FE-->>U: Prompt for the 6-digit TOTP code
+    U->>FE: Enter code
+    FE->>BE: POST /api/admin/2fa/verify { token: "123456" }
     alt TOTP valid
-        BE->>BE: Issue full JWT { sub: G..., exp: +1h, mfa: true }
-        BE-->>FE: { token: "<jwt>" }
-        FE-->>U: Authenticated
-    else TOTP invalid
-        BE-->>FE: 401 { error: "Invalid TOTP code" }
-        FE-->>U: "Invalid code, try again"
+        BE-->>FE: { token: "<upgraded jwt>" } (2fa_verified = true)
+        FE->>BE: Retry admin calls with the upgraded token
+    else TOTP invalid or locked
+        BE-->>FE: 400 { error: "Invalid verification code" }
     end
 ```
+
+### How the server enforces 2FA
+
+`requireAdmin2FA` (`backend/src/middleware/auth.js`) guards admin-only routes:
+
+1. Non-admin callers pass through — this middleware never affects regular users.
+2. Admins with no TOTP configured (`totp_enabled = false`) pass through.
+3. Otherwise **at least one** of the following must hold:
+   - the JWT carries `2fa_verified: true` (session step-up), **or**
+   - the request supplies a valid `X-2FA-Token: <6-digit-code>` header (stateless per-request verification).
+
+If neither holds the response is `403 { "error": "2FA required", "requires2FA": true }`
+and the client must complete the step-up. `POST /api/admin/2fa/verify` returns the
+upgraded token; `POST /api/admin/2fa/disable` turns 2FA off with a valid TOTP code
+or a single-use backup code.
+
+### Recovery
+
+Enabling 2FA returns ten single-use backup codes, shown exactly once. If the
+authenticator device is lost, the user disables 2FA with
+`POST /api/admin/2fa/disable { "backupCode": "..." }`. Failed TOTP attempts
+increment `totp_attempts` and lock verification after repeated failures.
+
+### TOTP vs WebAuthn
+
+| | TOTP (`speakeasy`) | WebAuthn passkey |
+|---|---|---|
+| Secret storage | Shared secret, encrypted server-side | Public key only; private key stays on the device |
+| Phishing resistance | Code can be relayed by a proxy | Origin-bound — not relayable |
+| Hardware | Any authenticator app | Platform authenticator or security key |
+| Recovery | 10 single-use backup codes | Other registered passkeys |
+| Scope today | Admin accounts | Any account |
+
+Either factor can satisfy the "second step" in the primary flow.
 
 ---
 
 ## WebAuthn (Passkey) Flow
 
-WebAuthn is an optional second factor (or standalone auth method) using hardware keys or platform authenticators.
+WebAuthn (passkeys) is the phishing-resistant **alternative to TOTP** for the
+second step of authentication. It can act as a second factor or as a standalone
+authentication method, using a platform authenticator (Touch ID, Windows Hello)
+or a hardware security key. Where TOTP stores a shared secret on the server,
+WebAuthn stores only a **public key** — the private key never leaves the user's
+device — and each assertion is bound to the site's origin, so it cannot be
+relayed by a phishing proxy.
 
 ```mermaid
 sequenceDiagram
@@ -209,27 +298,27 @@ sequenceDiagram
 
     Note over U,BE: ── Registration (one-time setup) ──────────────────────────────
 
-    FE->>BE: POST /api/webauthn/register/begin { stellarAddress }
+    FE->>BE: POST /api/webauthn/register/begin { publicKey }
     BE->>BE: Generate registration challenge
     BE-->>FE: { challenge, rp, user, pubKeyCredParams }
     FE->>B: navigator.credentials.create(options)
     B->>U: Touch / biometric prompt
     U->>B: Approve
     B-->>FE: PublicKeyCredential (attestation)
-    FE->>BE: POST /api/webauthn/register/complete { credential }
+    FE->>BE: POST /api/webauthn/register/finish { credential }
     BE->>BE: Verify attestation, store credential_id + public key
     BE-->>FE: { success: true }
 
     Note over U,BE: ── Authentication ─────────────────────────────────────────────
 
-    FE->>BE: POST /api/webauthn/authenticate/begin { stellarAddress }
+    FE->>BE: POST /api/webauthn/login/begin { publicKey }
     BE->>BE: Generate assertion challenge
     BE-->>FE: { challenge, allowCredentials, timeout }
     FE->>B: navigator.credentials.get(options)
     B->>U: Touch / biometric prompt
     U->>B: Approve
     B-->>FE: PublicKeyCredential (assertion)
-    FE->>BE: POST /api/webauthn/authenticate/complete { credential }
+    FE->>BE: POST /api/webauthn/login/finish { credential, publicKey }
     BE->>BE: Verify assertion signature + counter<br/>Update credential counter (replay protection)
     BE->>BE: Issue JWT
     BE-->>FE: { token: "<jwt>" }
@@ -259,7 +348,7 @@ sequenceDiagram
   "sub": "GABC...XYZ",   // Stellar public key — the authenticated identity
   "iat": 1719273600,     // Issued-at (Unix seconds)
   "exp": 1719277200,     // Expiry (iat + 3600)
-  "mfa": true            // Present only if 2FA was completed
+  "2fa_verified": true   // Admin claim: true once the TOTP step-up completed
 }
 ```
 
@@ -334,13 +423,12 @@ Submit the signed challenge to obtain a JWT.
 }
 ```
 
-If the account has 2FA enabled:
-```json
-{
-  "mfa_required": true,
-  "mfa_token": "<short-lived-mfa-token>"
-}
-```
+For an **admin** account that has TOTP enabled, the JWT is still issued, but its
+`2fa_verified` claim is `false` until the step-up in
+`POST /api/admin/2fa/verify` succeeds. Admin routes guarded by
+`requireAdmin2FA` then answer `403 { "error": "2FA required", "requires2FA": true }`
+until the upgraded token is used (or the `X-2FA-Token` header is supplied).
+Accounts without 2FA receive a fully usable token immediately.
 
 **Error responses:**
 
@@ -353,24 +441,58 @@ If the account has 2FA enabled:
 
 ---
 
-### `POST /api/2fa/verify`
+### `POST /api/admin/2fa/setup`
 
-Complete TOTP 2FA after SEP-10 succeeds.
+Begin TOTP enrollment. Returns a QR code (data URL) and the manual entry key.
+Requires admin access; returns `400` if 2FA is already enabled.
+
+### `POST /api/admin/2fa/verify`
+
+Verify a 6-digit TOTP code. On first enrollment (`setup: true`) it enables 2FA and
+returns the backup codes; on later calls it performs the login step-up.
 
 **Request body:**
 ```json
 {
-  "mfa_token": "<short-lived-mfa-token>",
-  "totp_code": "123456"
+  "token": "123456",
+  "setup": true
 }
 ```
 
 **Response `200`:**
 ```json
-{ "token": "<jwt>" }
+{
+  "success": true,
+  "token": "<upgraded jwt>",
+  "data": { "backupCodes": ["A1B2C3", "..."] }
+}
 ```
 
-**Error `401`:** `{ "error": "Invalid TOTP code" }`
+**Error `400`:** `{ "error": "Invalid verification code" }`
+
+### `POST /api/admin/2fa/disable`
+
+Disable 2FA. Requires a valid `token` (TOTP code) or `backupCode`.
+
+### `GET /api/admin/2fa/status`
+
+Returns `{ "success": true, "data": { "totp_enabled": true } }`.
+
+### `X-2FA-Token` header
+
+Stateless alternative to the step-up JWT: send the current 6-digit code as
+`X-2FA-Token` on any `requireAdmin2FA`-guarded request.
+
+### WebAuthn endpoints
+
+| Method & path | Purpose |
+|---|---|
+| `POST /api/webauthn/register/begin` | Start passkey registration (auth required) |
+| `POST /api/webauthn/register/finish` | Complete registration, store the credential |
+| `POST /api/webauthn/login/begin` | Start passkey authentication |
+| `POST /api/webauthn/login/finish` | Verify the assertion and issue a JWT |
+| `GET /api/webauthn/credentials` | List the caller's registered passkeys |
+| `DELETE /api/webauthn/credentials/:id` | Remove a passkey |
 
 ---
 
@@ -423,14 +545,31 @@ export async function login(): Promise<string> {
     throw new Error(error ?? "Authentication failed");
   }
 
-  const { token, mfa_required } = await loginRes.json();
+  const { token } = await loginRes.json();
+  return token;
+}
 
-  if (mfa_required) {
-    // Caller handles the 2FA prompt with the mfa_token
-    return token; // mfa_token in this case
+/**
+ * Admin step-up: call this once the user has entered a 6-digit TOTP code.
+ * Returns an upgraded JWT whose `2fa_verified` claim satisfies requireAdmin2FA.
+ */
+export async function verifyTotp(token: string, code: string): Promise<string> {
+  const res = await fetch(`${API_URL}/api/admin/2fa/verify`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ token: code }),
+  });
+
+  if (!res.ok) {
+    const { error } = await res.json();
+    throw new Error(error ?? "Invalid 2FA code");
   }
 
-  return token;
+  const { token: upgraded } = await res.json();
+  return upgraded;
 }
 
 export function logout(): void {
@@ -589,6 +728,11 @@ const signedXdr = tx.toEnvelope().toXDR("base64");
 
 ---
 
-*For WebAuthn credential management see `backend/src/routes/webauthn.js`.*
-*For 2FA enrollment see `backend/src/routes/twoFactor.js`.*
-*For rate limiting configuration see `backend/src/middleware/rateLimiter.js`.*
+**Implementation files**
+
+- SEP-10 challenge/response: `backend/src/routes/auth.js`
+- JWT verification and 2FA enforcement: `backend/src/middleware/auth.js`
+- Token issuance, refresh, and rotation: `backend/src/services/authTokens.js`
+- Admin TOTP 2FA: `backend/src/routes/admin2fa.js`, `backend/src/services/twoFactorService.js`
+- WebAuthn passkeys: `backend/src/routes/webauthn.js`, `backend/src/services/webauthnService.js`
+- Rate limiting: `backend/src/middleware/rateLimiter.js`
