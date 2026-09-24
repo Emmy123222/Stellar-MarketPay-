@@ -136,25 +136,11 @@ const notificationQueuePending = createMetric(promClient.Gauge, {
   help: "Pending notifications in the queue",
 });
 
-// ─── Escrow metrics ───────────────────────────────────────────────────────────
-/**
- * Total escrow release attempts.
- *
- * `result="success"` for a released escrow, `result="error"` for a failed
- * attempt. Failures are ALSO counted in `marketpay_escrow_release_errors_total`
- * so the release failure rate can be expressed as errors / total releases.
- */
-const escrowReleasesTotal = createMetric(promClient.Counter, {
-  name: "marketpay_escrow_releases_total",
-  help: "Total escrow release attempts by result",
-  labelNames: ["result"],
-});
-
-/** Failed escrow release attempts, by bounded failure reason. */
-const escrowReleaseErrorsTotal = createMetric(promClient.Counter, {
-  name: "marketpay_escrow_release_errors_total",
-  help: "Failed escrow release attempts by reason",
-  labelNames: ["reason"],
+// ─── XLM price gauge ──────────────────────────────────────────────────────────
+/** Current XLM/USD spot price, updated on every successful CoinGecko fetch. */
+const xlmPriceUsd = createMetric(promClient.Gauge, {
+  name: "xlm_price_usd",
+  help: "Current XLM price in USD (updated on every successful CoinGecko fetch)",
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -345,6 +331,7 @@ module.exports = {
   pgPoolIdle,
   pgPoolWaiting,
   notificationQueuePending,
+  xlmPriceUsd,
   // legacy aliases
   legacyHttpRequestsTotal,
   legacyHttpRequestDurationSeconds,
