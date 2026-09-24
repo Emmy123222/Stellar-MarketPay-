@@ -95,30 +95,34 @@ pub(crate) fn create_escrow_internal(
         }
     }
 
-    // Validate milestones if provided
+    // Validate milestones if provided. An empty list is allowed: it is
+    // equivalent to `None` and creates a single-payment escrow, so the
+    // sum-to-100 rule only applies once at least one milestone exists.
     let mut milestone_list = soroban_sdk::Vec::new(&env);
     if let Some(ms) = milestones {
         if ms.len() > 5 {
             panic!("Maximum 5 milestones allowed");
         }
-        let mut total_percentage: u32 = 0;
-        for (next_id, m) in (0_u32..).zip(ms.iter()) {
-            if m.percentage == 0 {
-                panic!("Milestone percentage must be positive");
+        if !ms.is_empty() {
+            let mut total_percentage: u32 = 0;
+            for (next_id, m) in (0_u32..).zip(ms.iter()) {
+                if m.percentage == 0 {
+                    panic!("Milestone percentage must be positive");
+                }
+                total_percentage = total_percentage
+                    .checked_add(m.percentage)
+                    .expect("Arithmetic overflow");
+                milestone_list.push_back(Milestone {
+                    id: next_id,
+                    description: m.description.clone(),
+                    percentage: m.percentage,
+                    released: false,
+                    rejected: false,
+                });
             }
-            total_percentage = total_percentage
-                .checked_add(m.percentage)
-                .expect("Arithmetic overflow");
-            milestone_list.push_back(Milestone {
-                id: next_id,
-                description: m.description.clone(),
-                percentage: m.percentage,
-                released: false,
-                rejected: false,
-            });
-        }
-        if total_percentage != 100 {
-            panic!("Milestone percentages must sum to 100");
+            if total_percentage != 100 {
+                panic!("Milestone percentages must sum to 100");
+            }
         }
     }
 
