@@ -661,3 +661,84 @@ export * from "./api/referrals";
 export * from "./api/autoConvert";
 export * from "./api/reputation";
 
+
+export type Timeframe = "1D" | "7D" | "30D";
+export interface PriceHistoryPoint {
+  timestamp: number;
+  priceUsd: number;
+}
+export interface PriceHistory {
+  points: PriceHistoryPoint[];
+  currentPriceUsd: number | null;
+  change24hPercent: number | null;
+}
+const XLM_TIMEFRAME_CONFIG: Record<
+  Timeframe,
+  { resolution: number; lookback: number }
+> = {
+  "1D": {
+    resolution: 3_600_000,
+    lookback: 24 * 60 * 60 * 1000,
+  },
+  "7D": {
+    resolution: 86_400_000,
+    lookback: 7 * 24 * 60 * 60 * 1000,
+  },
+  "30D": {
+    resolution: 86_400_000,
+    lookback: 30 * 24 * 60 * 60 * 1000,
+  },
+};
+export async function fetchXlmPriceHistory(
+  timeframe: Timeframe = "7D",
+): Promise<PriceHistory> {
+  const config = XLM_TIMEFRAME_CONFIG[timeframe];
+  const endTime = Date.now();
+  const startTime = endTime - config.lookback;
+  const horizonUrl = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
+  const url = new URL(
+    ${horizonUrl.replace(/\/$/, "")}/trade_aggregations,
+  );
+  url.searchParams.set("base_asset_type", "native");
+  url.searchParams.set("counter_asset_type", "credit_alphanum4");
+  url.searchParams.set("counter_asset_code", "USDC");
+  url.searchParams.set("resolution", String(config.resolution));
+  url.searchParams.set("start_time", String(startTime));
+  url.searchParams.set("end_time", String(endTime));
+  url.searchParams.set("order", "asc");
+  url.searchParams.set("limit", "200");
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    throw new Error("Horizon API error: ${response.status}");
+  }
+  const body = (await response.json()) as {
+    _embedded?: {
+      records?: Array<{
+        timestamp: string | number;
+        close: string | number;
+      }>;
+    };
+  };
+  const points = (body._embedded?.records ?? [])
+    .map((record) => ({
+      timestamp: Number(record.timestamp),
+      priceUsd: Number(record.close),
+    }))
+    .filter(
+      (point) =>
+        Number.isFinite(point.timestamp) && Number.isFinite(point.priceUsd),
+    );
+  const currentPriceUsd =
+    points.length > 0 ? points[points.length - 1].priceUsd : null;
+  const change24hPercent =
+    points.length >= 2 && points[0].priceUsd !== 0
+      ? ((points[points.length - 1].priceUsd - points[0].priceUsd) /
+          points[0].priceUsd) *
+        100
+      : null;
+  return {
+    points,
+    currentPriceUsd,
+    change24hPercent,
+  };
+}
