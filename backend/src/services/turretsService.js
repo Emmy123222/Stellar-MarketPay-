@@ -5,7 +5,7 @@
 "use strict";
 
 const axios = require("axios");
-const { Server } = require("@stellar/stellar-sdk");
+const { Horizon } = require("@stellar/stellar-sdk");
 const crypto = require("crypto");
 
 // Configuration
@@ -185,7 +185,7 @@ async function submitTransaction(transactionXDR, options = {}) {
     
     // Fallback to direct Horizon submission
     try {
-      const server = new Server(HORIZON_URL);
+      const server = new Horizon.Server(HORIZON_URL);
       const result = await server.submitTransaction(transactionXDR);
       
       return {

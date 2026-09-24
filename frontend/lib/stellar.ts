@@ -11,7 +11,7 @@ import {
   BASE_FEE,
   Memo,
 } from "@stellar/stellar-sdk";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 import { fetchGasEstimateSafe, tierToTransactionFee } from "./sorobanFees";
 import { parseContractError } from "./contractErrors";
 import { getUsdcContractId } from "./config/tokens";
@@ -35,7 +35,7 @@ export const NETWORK_PASSPHRASE =
 export const server = new Horizon.Server(HORIZON_URL, {
   allowHttp: SOROBAN_RPC_URL.startsWith("http://"),
 });
-export const sorobanServer = new SorobanRpc.Server(SOROBAN_RPC_URL, {
+export const sorobanServer = new rpc.Server(SOROBAN_RPC_URL, {
   allowHttp: SOROBAN_RPC_URL.startsWith("http://"),
 });
 
@@ -203,11 +203,11 @@ export async function buildCreateEscrowTx(
   // Simulate to populate the soroban data / auth entries
   const simResponse = await sorobanServer.simulateTransaction(tx);
 
-  if (SorobanRpc.Api.isSimulationError(simResponse)) {
+  if (rpc.Api.isSimulationError(simResponse)) {
     throw new Error(`Soroban simulation failed: ${parseContractError(simResponse.error)}`);
   }
 
-  const assembledTx = SorobanRpc.assembleTransaction(tx, simResponse).build();
+  const assembledTx = rpc.assembleTransaction(tx, simResponse).build();
 
   return assembledTx.toXDR();
 }
@@ -234,7 +234,7 @@ export async function signAndSubmitEscrowTx(
           .signedTransaction
       : (signResult as unknown as string);
 
-  const server = new SorobanRpc.Server(SOROBAN_RPC_URL, {
+  const server = new rpc.Server(SOROBAN_RPC_URL, {
     allowHttp: false,
   });
 
@@ -260,7 +260,7 @@ export async function signAndSubmitEscrowTx(
   let polls = 0;
 
   while (
-    getResponse.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND &&
+    getResponse.status === rpc.Api.GetTransactionStatus.NOT_FOUND &&
     polls < MAX_POLLS
   ) {
     await new Promise((r) => setTimeout(r, 1500));
@@ -268,7 +268,7 @@ export async function signAndSubmitEscrowTx(
     polls++;
   }
 
-  if (getResponse.status !== SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+  if (getResponse.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
     throw new Error(
       `Transaction did not succeed. Status: ${getResponse.status}`,
     );
@@ -347,11 +347,11 @@ export async function buildPublishMessageTx(
 
   const simResponse = await sorobanServer.simulateTransaction(tx);
 
-  if (SorobanRpc.Api.isSimulationError(simResponse)) {
+  if (rpc.Api.isSimulationError(simResponse)) {
     throw new Error(`Soroban simulation failed: ${parseContractError(simResponse.error)}`);
   }
 
-  const assembledTx = SorobanRpc.assembleTransaction(tx, simResponse).build();
+  const assembledTx = rpc.assembleTransaction(tx, simResponse).build();
   return assembledTx.toXDR();
 }
 
@@ -386,7 +386,7 @@ async function signAndSubmitToSoroban(preparedXdr: string): Promise<string> {
   let polls = 0;
 
   while (
-    getResponse.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND &&
+    getResponse.status === rpc.Api.GetTransactionStatus.NOT_FOUND &&
     polls < MAX_POLLS
   ) {
     await new Promise((r) => setTimeout(r, 1500));
@@ -394,7 +394,7 @@ async function signAndSubmitToSoroban(preparedXdr: string): Promise<string> {
     polls++;
   }
 
-  if (getResponse.status !== SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+  if (getResponse.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
     throw new Error(
       `Transaction did not succeed. Status: ${getResponse.status}`,
     );
@@ -476,11 +476,11 @@ export async function buildBoostJobTx({
     .build();
 
   const simResponse = await sorobanServer.simulateTransaction(tx);
-  if (SorobanRpc.Api.isSimulationError(simResponse)) {
+  if (rpc.Api.isSimulationError(simResponse)) {
     throw new Error(`Soroban simulation failed: ${parseContractError(simResponse.error)}`);
   }
 
-  return SorobanRpc.assembleTransaction(tx, simResponse).build().toXDR();
+  return rpc.assembleTransaction(tx, simResponse).build().toXDR();
 }
 
 // ---------------------------------------------------------------------------
@@ -517,10 +517,10 @@ export async function signAndSubmitSorobanTx(
   const maxAttempts = 90;
   for (let i = 0; i < maxAttempts; i += 1) {
     const info = await sorobanServer.getTransaction(hash);
-    if (info.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+    if (info.status === rpc.Api.GetTransactionStatus.SUCCESS) {
       return hash;
     }
-    if (info.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
+    if (info.status === rpc.Api.GetTransactionStatus.FAILED) {
       throw new Error(
         "The on-chain transaction failed. Open the explorer link to see details, or verify the escrow state matches this job.",
       );
@@ -564,10 +564,10 @@ export async function buildReleaseEscrowTransaction(
     .build();
 
   const sim = await sorobanServer.simulateTransaction(tx);
-  if (SorobanRpc.Api.isSimulationError(sim)) {
+  if (rpc.Api.isSimulationError(sim)) {
     throw new Error(`Simulation failed: ${parseContractError(sim.error)}`);
   }
-  return SorobanRpc.assembleTransaction(tx, sim).build();
+  return rpc.assembleTransaction(tx, sim).build();
 }
 
 export async function buildPartialReleaseTransaction(
@@ -596,10 +596,10 @@ export async function buildPartialReleaseTransaction(
     .build();
 
   const sim = await sorobanServer.simulateTransaction(tx);
-  if (SorobanRpc.Api.isSimulationError(sim)) {
+  if (rpc.Api.isSimulationError(sim)) {
     throw new Error(`Simulation failed: ${sim.error}`);
   }
-  return SorobanRpc.assembleTransaction(tx, sim).build();
+  return rpc.assembleTransaction(tx, sim).build();
 }
 
 export async function submitSignedSorobanTransaction(
@@ -652,10 +652,10 @@ export async function buildMintCertificateTx(
     .build();
 
   const sim = await sorobanServer.simulateTransaction(tx);
-  if (SorobanRpc.Api.isSimulationError(sim)) {
+  if (rpc.Api.isSimulationError(sim)) {
     throw new Error(`Simulation failed: ${sim.error}`);
   }
-  return SorobanRpc.assembleTransaction(tx, sim).build();
+  return rpc.assembleTransaction(tx, sim).build();
 }
 
 async function simulateContractView(
@@ -691,7 +691,7 @@ async function simulateContractView(
       .build();
 
     const simResponse = await sorobanServer.simulateTransaction(tx);
-    if (SorobanRpc.Api.isSimulationError(simResponse)) {
+    if (rpc.Api.isSimulationError(simResponse)) {
       return null;
     }
 

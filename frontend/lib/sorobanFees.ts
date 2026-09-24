@@ -8,7 +8,7 @@
  *     Use this before building a transaction so you can pre-populate the fee field.
  */
 
-import { Transaction, SorobanRpc } from "@stellar/stellar-sdk";
+import { Transaction, rpc } from "@stellar/stellar-sdk";
 import { sorobanServer, NETWORK_PASSPHRASE } from "./stellar";
 import { parseContractError } from "./contractErrors";
 
@@ -46,7 +46,7 @@ export async function estimateSorobanFee(
 ): Promise<FeeEstimate> {
   const sim = await sorobanServer.simulateTransaction(tx);
 
-  if (SorobanRpc.Api.isSimulationError(sim)) {
+  if (rpc.Api.isSimulationError(sim)) {
     throw new Error(`Could not estimate fee — the contract rejected the call: ${parseContractError(sim.error)}`);
   }
 
@@ -76,7 +76,7 @@ export async function fetchActualFee(txHash: string): Promise<{
 } | null> {
   try {
     const info = await sorobanServer.getTransaction(txHash);
-    if (info.status !== SorobanRpc.Api.GetTransactionStatus.SUCCESS) return null;
+    if (info.status !== rpc.Api.GetTransactionStatus.SUCCESS) return null;
     const meta = (info as unknown as { resultMetaXdr?: unknown }).resultMetaXdr;
     if (!meta) return null;
     const feeChargedRaw = (info as unknown as { feeCharged?: string | number }).feeCharged;

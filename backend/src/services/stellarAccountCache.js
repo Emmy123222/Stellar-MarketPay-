@@ -1,6 +1,6 @@
 "use strict";
 
-const { Server } = require("@stellar/stellar-sdk");
+const { Horizon } = require("@stellar/stellar-sdk");
 
 const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
 const CACHE_TTL_MS = 30_000;
@@ -9,7 +9,7 @@ const cache = new Map();
 const inFlight = new Map();
 
 function getServer() {
-  return new Server(HORIZON_URL);
+  return new Horizon.Server(HORIZON_URL);
 }
 
 async function getAccount(publicKey) {

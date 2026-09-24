@@ -1,6 +1,6 @@
 "use strict";
 
-const { SorobanRpc, Contract } = require("@stellar/stellar-sdk");
+const { rpc, Contract, TransactionBuilder } = require("@stellar/stellar-sdk");
 
 const SOROBAN_RPC_URL =
   process.env.SOROBAN_RPC_URL ||
@@ -12,7 +12,7 @@ let _server = null;
 
 function getServer() {
   if (!_server) {
-    _server = new SorobanRpc.Server(SOROBAN_RPC_URL);
+    _server = new rpc.Server(SOROBAN_RPC_URL);
   }
   return _server;
 }
@@ -26,7 +26,7 @@ async function readContractValue(contractId, method, args = []) {
   const contract = getContract(contractId);
 
   const result = await server.simulateTransaction(
-    new SorobanRpc.TransactionBuilder(undefined, {
+    new TransactionBuilder(undefined, {
       networkPassphrase:
         process.env.STELLAR_NETWORK === "mainnet"
           ? "Public Global Stellar Network ; September 2015"
@@ -36,7 +36,7 @@ async function readContractValue(contractId, method, args = []) {
       .build(),
   );
 
-  if (SorobanRpc.Api.isSimulationError(result)) {
+  if (rpc.Api.isSimulationError(result)) {
     throw new Error(
       `Soroban simulation failed for ${method}: ${result.error}`,
     );

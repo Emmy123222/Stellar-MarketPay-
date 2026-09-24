@@ -76,7 +76,8 @@ Minimum required data it guarantees (the exact counts it seeds):
 larger pool of open jobs and freelancers (so `POST /api/applications` can issue
 many unique `(job, freelancer)` pairs) plus a `test-fixtures.json` the scripts
 load via `SharedArray`. `k6/seed-data.js` seeds that volume through the REST
-API and writes [`k6/test-fixtures.json`](k6/test-fixtures.json).
+API and writes `k6/test-fixtures.json` (generated at run time; not present in
+the repo checkout).
 
 ```bash
 JWT_SECRET=<same-as-backend> node k6/seed-data.js

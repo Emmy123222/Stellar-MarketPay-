@@ -1,5 +1,12 @@
 import "@testing-library/jest-dom";
 import "jest-axe/extend-expect";
+import { TextDecoder, TextEncoder } from "node:util";
+
+// The ESM build of @stellar/stellar-sdk uses TextEncoder/TextDecoder, which
+// jsdom exposes only as inert stubs. Install Node's real implementations so
+// both CJS and VM-module loads behave as in a browser.
+global.TextEncoder = TextEncoder as unknown as typeof globalThis.TextEncoder;
+global.TextDecoder = TextDecoder as unknown as typeof globalThis.TextDecoder;
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,
