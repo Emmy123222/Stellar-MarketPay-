@@ -3,6 +3,8 @@ import type {
   AutoConvertSettings,
   AutoConversion,
   AutoConvertHistory,
+  SwapQuote,
+  ManualSwapStart,
 } from "@/utils/types";
 
 /**
@@ -64,6 +66,36 @@ export async function dismissAutoConversion(
   const { data } = await api.post<{ success: boolean; data: AutoConversion }>(
     `/api/auto-convert/${encodeURIComponent(id)}/dismiss`,
     opts,
+  );
+  return data.data;
+}
+
+/**
+ * Live XLM → USDC quote (rate, estimated receive, network fee) for the
+ * dashboard "Swap earnings" flow (Issue #1547).
+ */
+export async function fetchSwapQuote(
+  amountXlm: string,
+  slippageBps?: number,
+): Promise<SwapQuote> {
+  const { data } = await api.post<{ success: boolean; data: SwapQuote }>(
+    "/api/auto-convert/quote",
+    { amountXlm, slippageBps },
+  );
+  return data.data;
+}
+
+/**
+ * Start a manual XLM → USDC swap. Returns a pending conversion whose quote the
+ * wallet signs with pathPaymentStrictSend before completing it.
+ */
+export async function createManualSwap(
+  amountXlm: string,
+  slippageBps?: number,
+): Promise<ManualSwapStart> {
+  const { data } = await api.post<{ success: boolean; data: ManualSwapStart }>(
+    "/api/auto-convert/manual",
+    { amountXlm, slippageBps },
   );
   return data.data;
 }

@@ -125,7 +125,7 @@ pub(crate) fn resolve_proposal(env: Env, proposal_id: u32) {
     }
 
     proposal.resolved = true;
-    proposal.result = proposal.votes_for > proposal.votes_against;
+    proposal.result = quorum_met(&env, &proposal) && proposal.votes_for > proposal.votes_against;
 
     env.storage()
         .instance()
@@ -134,6 +134,118 @@ pub(crate) fn resolve_proposal(env: Env, proposal_id: u32) {
     env.events().publish(
         (symbol_short!("resolved"), proposal_id),
         (proposal.result, proposal.votes_for, proposal.votes_against),
+    );
+}
+
+/// Cross-multiplied so fractional requirements round up without floats:
+/// 15 eligible voters at 1000 bps need 2 votes, not 1.
+fn quorum_met(env: &Env, proposal: &Proposal) -> bool {
+    let eligible: u32 = env
+        .storage()
+        .instance()
+        .get(&DataKey::EligibleVoterCount)
+        .unwrap_or(0);
+    let turnout = proposal.votes_for as u64 + proposal.votes_against as u64;
+    turnout * 10_000 >= eligible as u64 * get_quorum_threshold_bps(env.clone()) as u64
+}
+
+/// Single write path for `CompletedJobs` so `EligibleVoterCount` (the quorum
+/// denominator) stays in sync with who is allowed to vote.
+pub(crate) fn record_completed_job(env: &Env, account: &Address) {
+    let key = DataKey::CompletedJobs(account.clone());
+    let jobs: u32 = env.storage().instance().get(&key).unwrap_or(0);
+    if jobs == 0 {
+        let eligible: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::EligibleVoterCount)
+            .unwrap_or(0);
+        env.storage().instance().set(
+            &DataKey::EligibleVoterCount,
+            &eligible.checked_add(1).expect("Counter overflow"),
+        );
+    }
+    env.storage()
+        .instance()
+        .set(&key, &jobs.checked_add(1).expect("Counter overflow"));
+}
+
+fn validate_quorum_bps(new_threshold_bps: u32) {
+    if new_threshold_bps > MAX_QUORUM_THRESHOLD_BPS {
+        panic!("Quorum cannot exceed 50% (5000 bps)");
+    }
+}
+
+pub(crate) fn get_quorum_threshold_bps(env: Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::QuorumThresholdBps)
+        .unwrap_or(DEFAULT_QUORUM_THRESHOLD_BPS)
+}
+
+pub(crate) fn get_eligible_voter_count(env: Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::EligibleVoterCount)
+        .unwrap_or(0)
+}
+
+/// Opens a regular proposal bound to `new_threshold_bps`; `set_quorum` can
+/// only apply that exact value once this proposal has passed.
+pub(crate) fn propose_quorum_change(
+    env: Env,
+    proposer: Address,
+    new_threshold_bps: u32,
+    description: String,
+    duration_ledgers: u32,
+) -> u32 {
+    validate_quorum_bps(new_threshold_bps);
+
+    let title = String::from_str(&env, "Quorum threshold change");
+    let proposal_id = create_proposal(env.clone(), proposer, title, description, duration_ledgers);
+
+    env.storage().instance().set(
+        &DataKey::PendingQuorumChange(proposal_id),
+        &new_threshold_bps,
+    );
+    env.events()
+        .publish((symbol_short!("q_prop"), proposal_id), new_threshold_bps);
+
+    proposal_id
+}
+
+pub(crate) fn set_quorum(env: Env, admin: Address, proposal_id: u32, new_threshold_bps: u32) {
+    admin.require_auth();
+    check_not_frozen(&env);
+
+    let stored_admin: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .expect("Not initialized");
+    if stored_admin != admin {
+        panic!("Only admin can set the quorum");
+    }
+    validate_quorum_bps(new_threshold_bps);
+
+    let proposal = get_proposal(env.clone(), proposal_id);
+    if !proposal.resolved || !proposal.result {
+        panic!("Quorum change proposal has not passed");
+    }
+
+    let pending_key = DataKey::PendingQuorumChange(proposal_id);
+    let pending: Option<u32> = env.storage().instance().get(&pending_key);
+    if pending != Some(new_threshold_bps) {
+        panic!("No matching quorum change proposal");
+    }
+
+    env.storage().instance().remove(&pending_key);
+    env.storage()
+        .instance()
+        .set(&DataKey::QuorumThresholdBps, &new_threshold_bps);
+    env.events().publish(
+        (symbol_short!("quorum"), admin),
+        (proposal_id, new_threshold_bps),
     );
 }
 
