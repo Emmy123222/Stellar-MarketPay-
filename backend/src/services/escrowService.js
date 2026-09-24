@@ -198,7 +198,7 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
     [jobId, clientAddress, txHash],
   );
 
-  await logContractInteraction({
+  logContractInteraction({
     functionName: "release_escrow",
     callerAddress: clientAddress,
     jobId,
@@ -268,7 +268,7 @@ async function refundClient(jobId, clientAddress, contractTxHash) {
   const txInfo = await verifyOnChainTransaction(contractTxHash);
   const txHash = contractTxHash || `offchain-${Date.now()}`;
 
-  await logContractInteraction({
+  logContractInteraction({
     functionName: "refund_escrow",
     callerAddress: clientAddress,
     jobId,
@@ -349,7 +349,7 @@ async function timeoutRefund(jobId, clientAddress, contractTxHash, req = null) {
   const txInfo = await verifyOnChainTransaction(contractTxHash);
   const txHash = contractTxHash || `offchain-${Date.now()}`;
 
-  await logContractInteraction({
+  logContractInteraction({
     functionName: "timeout_refund",
     callerAddress: getServicePublicKey(),
     jobId,
@@ -448,7 +448,7 @@ async function releaseMilestone(jobId, milestoneIndex, clientAddress, contractTx
   };
   await persistMilestones(jobId, milestones);
 
-  await logContractInteraction({
+  logContractInteraction({
     functionName: "release_milestone",
     callerAddress: clientAddress,
     jobId,
@@ -531,7 +531,7 @@ async function rejectMilestone(jobId, milestoneIndex, clientAddress, contractTxH
   };
   await persistMilestones(jobId, milestones);
 
-  await logContractInteraction({
+  logContractInteraction({
     functionName: "reject_milestone",
     callerAddress: clientAddress,
     jobId,
@@ -785,7 +785,7 @@ async function requestEscrowExtension(jobId, requestedBy, newTimeoutLedger, cont
   const txInfo = await verifyOnChainTransaction(contractTxHash);
   const txHash = contractTxHash || `offchain-${Date.now()}`;
 
-  await logContractInteraction({
+  logContractInteraction({
     functionName: "request_extension",
     callerAddress: requestedBy,
     jobId,
@@ -852,7 +852,7 @@ async function approveEscrowExtension(jobId, approvedBy, contractTxHash) {
   const txInfo = await verifyOnChainTransaction(contractTxHash);
   const txHash = contractTxHash || `offchain-${Date.now()}`;
 
-  await logContractInteraction({
+  logContractInteraction({
     functionName: "approve_extension",
     callerAddress: approvedBy,
     jobId,
