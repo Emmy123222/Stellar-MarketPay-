@@ -107,6 +107,10 @@ tags:
     description: Skill certificates
   - name: Turrets
     description: Stellar Turrets for serverless contract execution
+  - name: Reputation
+    description: Reputation scores for clients and freelancers
+  - name: AutoConvert
+    description: Opt-in XLM → USDC conversion of earnings
 components:
   securitySchemes:
     bearerAuth:
@@ -1103,6 +1107,64 @@ paths:
       responses:
         200:
           description: Search deleted
+  /api/reputation/{userId}:
+    get:
+      summary: Get a user's reputation score
+      tags: ['Reputation']
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          description: Stellar public key (G...)
+      responses:
+        200:
+          description: Reputation score
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      userId:
+                        type: string
+                      score:
+                        type: number
+                        description: "0–100"
+                      scoreBps:
+                        type: integer
+                        description: "0–10000, for contract use"
+                      label:
+                        type: string
+                        enum: ['New', 'Building', 'Established', 'Trusted', 'Excellent']
+                      completedJobs:
+                        type: integer
+                      disputeRate:
+                        type: number
+                        description: "0–1"
+                      avgResponseHours:
+                        type: number
+                        nullable: true
+                      avgRating:
+                        type: number
+                        nullable: true
+                      ratingCount:
+                        type: integer
+                      referralQuality:
+                        type: number
+                        description: "0–1"
+                      updatedAt:
+                        type: string
+                        format: date-time
+        400:
+          description: Invalid public key
+        404:
+          description: No profile for this address
   /api/referrals/info:
     get:
       summary: Get referral bonus info (public)
@@ -1126,6 +1188,40 @@ paths:
                         type: string
                       description:
                         type: string
+  /api/referrals/my-stats:
+    get:
+      summary: Referral dashboard stats for the authenticated referrer
+      description: "Returns total referred users, pending and paid credits, the caller's referral link and a paginated table of referees with their pipeline status (registered / first_job_completed / credit_paid).
+"
+      tags: ['Referrals']
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: ['registered', 'first_job_completed', 'credit_paid']
+      responses:
+        200:
+          description: Referral dashboard stats
+        400:
+          description: Invalid query parameter
+        401:
+          description: Unauthorized
   /api/referrals/{publicKey}:
     get:
       summary: Get referral stats and history
@@ -1780,6 +1876,56 @@ paths:
           description: Profile marked for deletion
         403:
           description: Can only delete own profile
+  /api/profiles/migrate:
+    post:
+      summary: Merge an old Stellar account into a new one (identity migration)
+      description: "Proves ownership of BOTH accounts via ed25519 signatures over the
+canonical challenge string `MARKETPAY-ACCOUNT-MERGE\\n<old>\\n<new>\\n<issuedAt>`
+(one signature per key, hex or base64). On success, in one transaction:
+profile identity/reputation is carried to the new address, all history
+tables (jobs, applications, ratings, referrals, payouts, messages,
+progress updates, dispute evidence, archives, certificates, push
+subscriptions, API keys) are re-pointed old -> new, and the old
+address is marked `migrated_to = new` (kept searchable; lookups of the
+old address report the redirect target).
+"
+      tags: ['Profiles']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ['oldPublicKey', 'newPublicKey', 'oldSignature', 'newSignature', 'issuedAt']
+              properties:
+                oldPublicKey:
+                  type: string
+                newPublicKey:
+                  type: string
+                oldSignature:
+                  type: string
+                  description: ed25519 signature of the challenge by the OLD secret key (hex/base64)
+                newSignature:
+                  type: string
+                  description: ed25519 signature of the challenge by the NEW secret key (hex/base64)
+                issuedAt:
+                  type: string
+                  format: date-time
+                  description: ISO timestamp embedded in the challenge (10-minute validity)
+                network:
+                  type: string
+                  enum: ['testnet', 'mainnet']
+      responses:
+        200:
+          description: Migration complete; returns per-table transferred-row counts
+        400:
+          description: Validation error (bad address/signature format, expired challenge)
+        401:
+          description: A signature does not prove ownership of its address
+        404:
+          description: Old profile not found
+        409:
+          description: Old address already migrated, or new address is itself migrated
   /api/onboarding:
     patch:
       summary: Update onboarding progress
@@ -2964,6 +3110,123 @@ paths:
                           type: string
                         children:
                           type: array
+  /api/auto-convert/settings:
+    get:
+      summary: Get auto-convert settings for the authenticated user
+      tags: ['AutoConvert']
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Settings
+    patch:
+      summary: Update auto-convert settings
+      tags: ['AutoConvert']
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                slippageBps:
+                  type: integer
+                  minimum: 10
+                  maximum: 1000
+      responses:
+        200:
+          description: Updated settings
+  /api/auto-convert/pending:
+    get:
+      summary: List pending XLM → USDC conversions with fresh path quotes
+      tags: ['AutoConvert']
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Pending conversions
+  /api/auto-convert/history:
+    get:
+      summary: Paginated auto-conversion payment history
+      tags: ['AutoConvert']
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+            maximum: 50
+      responses:
+        200:
+          description: Conversion history
+  /api/auto-convert/{id}/complete:
+    post:
+      summary: Record a submitted pathPaymentStrictSend swap
+      description: Verifies the transaction on Horizon and stores amounts and exchange rate.
+      tags: ['AutoConvert']
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ['txHash']
+              properties:
+                txHash:
+                  type: string
+      responses:
+        200:
+          description: Conversion recorded
+        400:
+          description: Transaction does not match the pending conversion
+        409:
+          description: Conversion is not pending or tx already recorded
+  /api/auto-convert/{id}/dismiss:
+    post:
+      summary: Mark a pending conversion as failed or skipped
+      tags: ['AutoConvert']
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: ['failed', 'skipped']
+                error:
+                  type: string
+      responses:
+        200:
+          description: Conversion dismissed
   /api/auth/csrf-token:
     get:
       summary: Issue a CSRF token for double-submit protection
