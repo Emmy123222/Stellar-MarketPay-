@@ -1,5 +1,6 @@
 use soroban_sdk::{symbol_short, token, Address, BytesN, Env, String};
 
+use crate::governance::record_completed_job;
 use crate::helpers::check_not_frozen;
 use crate::types::*;
 
@@ -292,28 +293,8 @@ pub(crate) fn release_escrow_core(env: Env, job_id: String, mut escrow: Escrow) 
     }
     escrow.milestones = updated_ms;
 
-    // Increment CompletedJobs for the freelancer and client
-    let freelancer_jobs: u32 = env
-        .storage()
-        .instance()
-        .get(&DataKey::CompletedJobs(escrow.freelancer.clone()))
-        .unwrap_or(0);
-    let new_freelancer_jobs = freelancer_jobs.checked_add(1).expect("Counter overflow");
-    env.storage().instance().set(
-        &DataKey::CompletedJobs(escrow.freelancer.clone()),
-        &new_freelancer_jobs,
-    );
-
-    let client_jobs: u32 = env
-        .storage()
-        .instance()
-        .get(&DataKey::CompletedJobs(escrow.client.clone()))
-        .unwrap_or(0);
-    let new_client_jobs = client_jobs.checked_add(1).expect("Counter overflow");
-    env.storage().instance().set(
-        &DataKey::CompletedJobs(escrow.client.clone()),
-        &new_client_jobs,
-    );
+    record_completed_job(&env, &escrow.freelancer);
+    record_completed_job(&env, &escrow.client);
 
     escrow.status = EscrowStatus::Released;
     env.storage()
@@ -515,26 +496,8 @@ pub(crate) fn release_with_conversion(
     }
     escrow.milestones = updated_ms;
 
-    // Update jobs count
-    let f_jobs: u32 = env
-        .storage()
-        .instance()
-        .get(&DataKey::CompletedJobs(escrow.freelancer.clone()))
-        .unwrap_or(0);
-    env.storage().instance().set(
-        &DataKey::CompletedJobs(escrow.freelancer.clone()),
-        &(f_jobs.checked_add(1).unwrap()),
-    );
-
-    let c_jobs: u32 = env
-        .storage()
-        .instance()
-        .get(&DataKey::CompletedJobs(escrow.client.clone()))
-        .unwrap_or(0);
-    env.storage().instance().set(
-        &DataKey::CompletedJobs(escrow.client.clone()),
-        &(c_jobs.checked_add(1).unwrap()),
-    );
+    record_completed_job(&env, &escrow.freelancer);
+    record_completed_job(&env, &escrow.client);
 
     escrow.status = EscrowStatus::Released;
     env.storage()

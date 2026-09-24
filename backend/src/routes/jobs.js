@@ -600,7 +600,7 @@ router.patch(
         ? { amount: acceptedApplications[0].bid_amount }
         : {};
       const job = await updateJobEscrowId(req.params.id, escrowContractId, options);
-      await logContractInteraction({
+      logContractInteraction({
         functionName: "create_escrow",
         callerAddress: req.user.publicKey,
         jobId: req.params.id,
