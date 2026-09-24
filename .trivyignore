@@ -6,7 +6,6 @@
 # Example:
 # # Ignored because it only affects devDependencies and is mitigated in our runtime
 # CVE-2021-3807
-
 # Ignored because updating requires major version bump to Next.js 15+ which contains breaking changes.
 CVE-2026-75604
 GHSA-2xp9-vwfh-vxw4
