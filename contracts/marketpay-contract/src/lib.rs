@@ -257,6 +257,18 @@ impl MarketPayContract {
         admin::unfreeze_contract(env, admins)
     }
 
+    /// Admin freezes a single escrow, blocking all state-changing
+    /// operations on that job until `unfreeze_escrow()` is called.
+    pub fn freeze_escrow(env: Env, job_id: String, admin: Address) {
+        admin::freeze_escrow(env, job_id, admin)
+    }
+
+    /// Admin unfreezes a previously frozen escrow, restoring the status
+    /// it had before freezing.
+    pub fn unfreeze_escrow(env: Env, job_id: String, admin: Address) {
+        admin::unfreeze_escrow(env, job_id, admin)
+    }
+
     /// Add a new admin address to the multi-sig admin list.
     pub fn add_admin(env: Env, admin: Address, new_admin: Address) {
         admin::add_admin(env, admin, new_admin)

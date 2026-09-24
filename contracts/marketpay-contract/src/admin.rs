@@ -383,6 +383,98 @@ pub(crate) fn unfreeze_contract(env: Env, admins: Vec<Address>) {
         .publish((symbol_short!("unfroz"), threshold), admins.len());
 }
 
+/// Admin freezes a single escrow. Puts the escrow into
+/// `EscrowStatus::Frozen`, blocking all state-changing operations on that
+/// job (see `helpers::check_escrow_not_frozen`) until
+/// `unfreeze_escrow()` restores the status the escrow had before freezing.
+///
+/// Only callable by an admin in the stored admin list. Freezing an already
+/// frozen escrow, or one that has already settled (Released/Refunded),
+/// panics.
+pub(crate) fn freeze_escrow(env: Env, job_id: String, admin: Address) {
+    admin.require_auth();
+
+    let admins: Vec<Address> = env
+        .storage()
+        .instance()
+        .get(&DataKey::Admins)
+        .expect("Not initialized");
+    if !admins.contains(&admin) {
+        panic!("Only an admin can freeze the escrow");
+    }
+
+    let mut escrow: Escrow = env
+        .storage()
+        .instance()
+        .get(&DataKey::Escrow(job_id.clone()))
+        .expect("Escrow not found");
+
+    if escrow.status == EscrowStatus::Frozen {
+        panic!("Escrow is already frozen");
+    }
+    if escrow.status == EscrowStatus::Released || escrow.status == EscrowStatus::Refunded {
+        panic!("Cannot freeze a resolved escrow");
+    }
+
+    // Remember the pre-freeze status so unfreeze_escrow can restore it.
+    env.storage()
+        .instance()
+        .set(&DataKey::PreFreezeStatus(job_id.clone()), &escrow.status);
+
+    escrow.status = EscrowStatus::Frozen;
+    env.storage()
+        .instance()
+        .set(&DataKey::Escrow(job_id.clone()), &escrow);
+
+    env.events()
+        .publish((symbol_short!("esc_frz"), job_id.clone()), admin);
+}
+
+/// Admin unfreezes a previously frozen escrow, restoring the status it had
+/// before `freeze_escrow()` was called.
+///
+/// Only callable by an admin in the stored admin list. Unfreezing an
+/// escrow that is not frozen panics.
+pub(crate) fn unfreeze_escrow(env: Env, job_id: String, admin: Address) {
+    admin.require_auth();
+
+    let admins: Vec<Address> = env
+        .storage()
+        .instance()
+        .get(&DataKey::Admins)
+        .expect("Not initialized");
+    if !admins.contains(&admin) {
+        panic!("Only an admin can freeze the escrow");
+    }
+
+    let mut escrow: Escrow = env
+        .storage()
+        .instance()
+        .get(&DataKey::Escrow(job_id.clone()))
+        .expect("Escrow not found");
+
+    if escrow.status != EscrowStatus::Frozen {
+        panic!("Escrow is not frozen");
+    }
+
+    let pre_freeze_status: EscrowStatus = env
+        .storage()
+        .instance()
+        .get(&DataKey::PreFreezeStatus(job_id.clone()))
+        .expect("Escrow is not frozen");
+
+    escrow.status = pre_freeze_status;
+    env.storage()
+        .instance()
+        .set(&DataKey::Escrow(job_id.clone()), &escrow);
+    env.storage()
+        .instance()
+        .remove(&DataKey::PreFreezeStatus(job_id.clone()));
+
+    env.events()
+        .publish((symbol_short!("esc_unfr"), job_id.clone()), admin);
+}
+
 /// Add a new admin address to the multi-sig admin list.
 /// Requires auth from an existing admin.
 pub(crate) fn add_admin(env: Env, admin: Address, new_admin: Address) {

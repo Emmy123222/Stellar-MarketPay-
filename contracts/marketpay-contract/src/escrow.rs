@@ -1,6 +1,6 @@
 use soroban_sdk::{symbol_short, token, Address, BytesN, Env, String};
 
-use crate::helpers::check_not_frozen;
+use crate::helpers::{check_escrow_not_frozen, check_not_frozen};
 use crate::types::*;
 
 /// Creates an escrow for a job between a client and freelancer.
@@ -200,6 +200,7 @@ pub(crate) fn create_escrow_internal(
 pub(crate) fn start_work(env: Env, job_id: String, freelancer: Address) {
     freelancer.require_auth();
     check_not_frozen(&env);
+    check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -229,6 +230,7 @@ pub(crate) fn start_work(env: Env, job_id: String, freelancer: Address) {
 pub(crate) fn release_escrow(env: Env, job_id: String, client: Address) {
     client.require_auth();
     check_not_frozen(&env);
+    check_escrow_not_frozen(&env, &job_id);
 
     let escrow: Escrow = env
         .storage()
@@ -429,6 +431,7 @@ pub(crate) fn release_with_conversion(
 ) {
     client.require_auth();
     check_not_frozen(&env);
+    check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -558,6 +561,7 @@ pub(crate) fn release_with_conversion(
 pub(crate) fn refund_escrow(env: Env, job_id: String, client: Address) {
     client.require_auth();
     check_not_frozen(&env);
+    check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -601,6 +605,7 @@ pub(crate) fn refund_escrow(env: Env, job_id: String, client: Address) {
 pub(crate) fn timeout_refund(env: Env, job_id: String, client: Address) {
     client.require_auth();
     check_not_frozen(&env);
+    check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -660,6 +665,7 @@ pub(crate) fn request_extension(
     new_timeout_ledger: u32,
 ) {
     caller.require_auth();
+    check_escrow_not_frozen(&env, &job_id);
 
     let escrow: Escrow = env
         .storage()
@@ -704,6 +710,7 @@ pub(crate) fn request_extension(
 /// timeout_ledger and TimeoutTimestamp atomically.
 pub(crate) fn approve_extension(env: Env, job_id: String, caller: Address) {
     caller.require_auth();
+    check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -783,6 +790,7 @@ pub(crate) fn boost_job(
 ) {
     client.require_auth();
     check_not_frozen(&env);
+    check_escrow_not_frozen(&env, &job_id);
 
     if amount <= 0 {
         panic!("Boost amount must be positive");

@@ -293,6 +293,8 @@ pub enum DataKey {
     DisputeBondConfig,
     /// Per-job locked dispute bond record
     DisputeBond(String),
+    /// Status an escrow had before it was frozen, restored on unfreeze
+    PreFreezeStatus(String),
 }
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
