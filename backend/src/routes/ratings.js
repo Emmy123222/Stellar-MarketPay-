@@ -106,6 +106,19 @@ router.post("/", verifyJWT, async (req, res, next) => {
       return res.status(403).json({ error: "Only job participants can submit a rating" });
     }
 
+    const { rows: existingRatings } = await pool.query(
+      `SELECT 1
+         FROM ratings
+        WHERE job_id = $1
+          AND rater_address = $2
+          AND rated_address = $3
+        LIMIT 1`,
+      [jobId, raterAddress, ratedAddress]
+    );
+    if (existingRatings.length) {
+      return res.status(409).json({ error: "Rating already submitted for this job" });
+    }
+
     const rating = await createRating({ jobId, raterAddress, ratedAddress, stars: parsedStars, review });
     scheduleReputationRecalc(ratedAddress);
     res.status(201).json({ success: true, data: rating });
