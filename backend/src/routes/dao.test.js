@@ -110,6 +110,83 @@ describe("DAO Route Suite (/api/dao)", () => {
       expect(res.body.data[0].id).toBe("prop-active");
       expect(res.body.data[0].status).toBe("active");
     });
+
+    describe("cursor pagination (#1405)", () => {
+      function seedProposals(count) {
+        const base = Date.parse("2026-01-01T00:00:00.000Z");
+        for (let i = 1; i <= count; i++) {
+          const row = defaultDaoProposalRow({
+            id: `prop-${String(i).padStart(3, "0")}`,
+            status: "passed",
+            created_at: new Date(base + i * 60000).toISOString(),
+          });
+          pool.daoProposals.set(row.id, row);
+        }
+      }
+
+      it("200 — returns first page newest-first with nextCursor when more exist", async () => {
+        seedProposals(25);
+
+        const res = await request(app).get("/api/dao/proposals").query({ limit: 20 });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data).toHaveLength(20);
+        expect(res.body.data[0].id).toBe("prop-025");
+        expect(res.body.data[19].id).toBe("prop-006");
+        expect(typeof res.body.nextCursor).toBe("string");
+      });
+
+      it("200 — following nextCursor returns the remaining page with null nextCursor", async () => {
+        seedProposals(25);
+
+        const first = await request(app).get("/api/dao/proposals").query({ limit: 20 });
+        const second = await request(app)
+          .get("/api/dao/proposals")
+          .query({ limit: 20, cursor: first.body.nextCursor });
+
+        expect(second.status).toBe(200);
+        expect(second.body.data.map((p) => p.id)).toEqual([
+          "prop-005", "prop-004", "prop-003", "prop-002", "prop-001",
+        ]);
+        expect(second.body.nextCursor).toBeNull();
+        const firstIds = new Set(first.body.data.map((p) => p.id));
+        expect(second.body.data.some((p) => firstIds.has(p.id))).toBe(false);
+      });
+
+      it("200 — nextCursor is null when results exactly fill the page", async () => {
+        seedProposals(20);
+
+        const res = await request(app).get("/api/dao/proposals").query({ limit: 20 });
+
+        expect(res.body.data).toHaveLength(20);
+        expect(res.body.nextCursor).toBeNull();
+      });
+
+      it("200 — omitting limit/cursor keeps the legacy unpaginated response", async () => {
+        seedProposals(25);
+
+        const res = await request(app).get("/api/dao/proposals");
+
+        expect(res.body.data).toHaveLength(25);
+        expect(res.body).not.toHaveProperty("nextCursor");
+      });
+
+      it("400 — rejects a malformed cursor", async () => {
+        const res = await request(app)
+          .get("/api/dao/proposals")
+          .query({ limit: 20, cursor: "not-a-cursor" });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("Invalid cursor");
+      });
+
+      it("400 — rejects a non-positive limit", async () => {
+        const res = await request(app).get("/api/dao/proposals").query({ limit: 0 });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("limit must be a positive integer");
+      });
+    });
   });
 
   // =========================================================================

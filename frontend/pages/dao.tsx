@@ -11,7 +11,7 @@ import { formatMoney, shortenAddress } from "@/utils/format";
 import { useToast } from "@/components/Toast";
 import { useTranslation } from "@/lib/i18n";
 import {
-  fetchDaoProposals,
+  fetchDaoProposalsPage,
   fetchDaoTreasury,
   fetchDaoArbitrators,
   createDaoProposal,
@@ -27,9 +27,13 @@ interface DAOProps {
   onConnect: (pk: string) => void;
 }
 
+const PROPOSALS_PAGE_SIZE = 20;
+
 export default function DAO({ publicKey, onConnect }: DAOProps) {
   const { t } = useTranslation("common");
   const [proposals, setProposals] = useState<DaoProposal[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [arbitrators, setArbitrators] = useState<DaoArbitrator[]>([]);
   const [disputePanel, setDisputePanel] = useState<DaoArbitrator[]>([]);
   const [treasury, setTreasury] = useState<{
@@ -55,12 +59,13 @@ export default function DAO({ publicKey, onConnect }: DAOProps) {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [propList, treas, arb] = await Promise.all([
-        fetchDaoProposals(),
+      const [page, treas, arb] = await Promise.all([
+        fetchDaoProposalsPage({ limit: PROPOSALS_PAGE_SIZE }),
         fetchDaoTreasury(),
         fetchDaoArbitrators(),
       ]);
-      setProposals(propList);
+      setProposals(page.proposals);
+      setNextCursor(page.nextCursor);
       setTreasury(treas);
       setArbitrators(arb.arbitrators);
       setDisputePanel(arb.disputePanel);
@@ -74,6 +79,26 @@ export default function DAO({ publicKey, onConnect }: DAOProps) {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const handleLoadMore = async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await fetchDaoProposalsPage({
+        limit: PROPOSALS_PAGE_SIZE,
+        cursor: nextCursor,
+      });
+      setProposals((prev) => {
+        const seen = new Set(prev.map((p) => p.id));
+        return [...prev, ...page.proposals.filter((p) => !seen.has(p.id))];
+      });
+      setNextCursor(page.nextCursor);
+    } catch {
+      toast.error("Failed to load more proposals");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     if (!publicKey) {
@@ -123,6 +148,9 @@ export default function DAO({ publicKey, onConnect }: DAOProps) {
         recipient: form.recipient || undefined,
       });
       setProposals((prev) => [created, ...prev]);
+      setTreasury((prev) =>
+        prev ? { ...prev, activeProposals: prev.activeProposals + 1 } : prev,
+      );
       setShowNewProposal(false);
       setForm({ title: "", description: "", type: "platform", amount: "", recipient: "" });
       toast.success("Proposal created");
@@ -230,7 +258,8 @@ export default function DAO({ publicKey, onConnect }: DAOProps) {
                 {t("dao.activeProposals")}
               </h3>
               <p className="font-mono font-bold text-2xl text-market-400">
-                {proposals.filter((p) => p.status === "active").length}
+                {treasury?.activeProposals ??
+                  proposals.filter((p) => p.status === "active").length}
               </p>
             </div>
             <div className="card">
@@ -472,7 +501,31 @@ export default function DAO({ publicKey, onConnect }: DAOProps) {
           {proposals.length === 0 && (
             <p className="text-amber-800 text-center py-8">No proposals yet.</p>
           )}
+          {loadingMore && (
+            <div data-testid="dao-proposals-loading-more" aria-hidden="true" className="space-y-6 animate-pulse">
+              {[1, 2].map((i) => (
+                <div key={i} className="h-32 bg-market-500/8 rounded-lg" />
+              ))}
+            </div>
+          )}
         </div>
+
+        <p className="sr-only" role="status" aria-live="polite">
+          {loadingMore ? t("dao.loadingMore") : ""}
+        </p>
+        {nextCursor && (
+          <div className="flex justify-center mt-8">
+            <button
+              type="button"
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              aria-busy={loadingMore}
+              className="btn-secondary disabled:opacity-50"
+            >
+              {loadingMore ? t("dao.loadingMore") : t("dao.loadMore")}
+            </button>
+          </div>
+        )}
       </div>
     </>
   );

@@ -34,6 +34,26 @@ export async function fetchDaoProposals(status?: string): Promise<DaoProposal[]>
   return data.data;
 }
 
+export interface DaoProposalPage {
+  proposals: DaoProposal[];
+  nextCursor: string | null;
+}
+
+/** Cursor-paginated proposal listing (newest first). */
+export async function fetchDaoProposalsPage(
+  opts: { limit?: number; cursor?: string | null; status?: string } = {},
+): Promise<DaoProposalPage> {
+  const params: Record<string, string | number> = { limit: opts.limit ?? 20 };
+  if (opts.cursor) params.cursor = opts.cursor;
+  if (opts.status) params.status = opts.status;
+  const { data } = await api.get<{
+    success: boolean;
+    data: DaoProposal[];
+    nextCursor?: string | null;
+  }>("/api/dao/proposals", { params });
+  return { proposals: data.data, nextCursor: data.nextCursor ?? null };
+}
+
 export async function createDaoProposal(body: {
   title: string;
   description: string;

@@ -819,26 +819,6 @@ function createPgMock() {
       return { rows: [row] };
     }
 
-    // listJobs-style query: FROM jobs ... ORDER BY ... (paginated)
-    if (text.includes("FROM jobs") && text.includes("ORDER BY") && !text.includes("WHERE id = $") && !text.includes("WHERE client_address = $1")) {
-      let rows = [...jobs.values()].filter((job) => job.visibility === "public");
-      // Apply cursor-based filtering if present in the SQL
-      if (text.includes("created_at < $")) {
-        // Cursor params are the two params before limit:
-        // params[params.length-3] = decoded.createdAt
-        // params[params.length-2] = decoded.id
-        // params[params.length-1] = limit
-        const cursorCreatedAt = params[params.length - 3];
-        const cursorId = params[params.length - 2];
-        if (cursorCreatedAt && cursorId) {
-          rows = rows.filter((job) => {
-            if (job.created_at < cursorCreatedAt) return true;
-            if (job.created_at === cursorCreatedAt && job.id < cursorId) return true;
-            return false;
-          });
-        }
-      }
-
     // ─── listJobs-style query: FROM jobs ... ORDER BY ... (paginated) ────
     if (
       !text.includes("FROM applications") &&
@@ -1202,6 +1182,19 @@ function createPgMock() {
       } else if (text.includes("p.status = $1") || text.includes("status = $1")) {
         list = list.filter((p) => p.status === params[0]);
       }
+      // Keyset-paginated listing (limit/cursor); unpaginated calls keep insertion order.
+      if (text.includes("ORDER BY p.created_at DESC, p.id DESC") && /LIMIT \$\d+/.test(text)) {
+        const key = (p) => [new Date(p.created_at).getTime(), String(p.id)];
+        const cmp = (a, b) => (a[0] - b[0]) || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0);
+        list.sort((a, b) => cmp(key(b), key(a)));
+        const cursorMatch = text.match(/\(p\.created_at, p\.id\) < \(\$(\d+), \$(\d+)\)/);
+        if (cursorMatch) {
+          const bound = [new Date(params[cursorMatch[1] - 1]).getTime(), String(params[cursorMatch[2] - 1])];
+          list = list.filter((p) => cmp(key(p), bound) < 0);
+        }
+        const limitMatch = text.match(/LIMIT \$(\d+)/);
+        if (limitMatch) list = list.slice(0, Number(params[limitMatch[1] - 1]));
+      }
       const rows = list.map((p) => {
         const votes = [...daoVotes.values()].filter((v) => v.proposal_id === p.id);
         const votesFor = votes.filter((v) => v.support).reduce((acc, v) => acc + Number(v.weight), 0);
@@ -1337,7 +1330,6 @@ function createPgMock() {
     }
 
     return { rows: [] };
-  }
   });
 
   const connect = jest.fn(async () => ({
@@ -1405,5 +1397,3 @@ module.exports = {
   defaultOnboardingRow,
   defaultPriceAlertRow,
 };
-
-}

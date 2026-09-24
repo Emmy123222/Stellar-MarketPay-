@@ -35,14 +35,62 @@ function rowToProposal(row) {
   };
 }
 
-async function listProposals({ status } = {}) {
+const MAX_PROPOSALS_PAGE = 100;
+
+function encodeProposalCursor(row) {
+  const createdAt = new Date(row.created_at).toISOString();
+  return Buffer.from(`${createdAt}|${row.id}`, "utf8").toString("base64");
+}
+
+function decodeProposalCursor(cursor) {
+  const decoded = Buffer.from(String(cursor), "base64").toString("utf8");
+  const sep = decoded.indexOf("|");
+  const createdAt = sep > 0 ? decoded.slice(0, sep) : "";
+  const id = sep > 0 ? decoded.slice(sep + 1) : "";
+  if (!id || Number.isNaN(Date.parse(createdAt))) {
+    const err = new Error("Invalid cursor");
+    err.statusCode = 400;
+    throw err;
+  }
+  return { createdAt, id };
+}
+
+/**
+ * Lists proposals newest first. Without `limit` the full list is returned
+ * (legacy behaviour). With `limit`, keyset pagination on (created_at, id) is
+ * applied and `{ proposals, nextCursor }` is returned instead.
+ */
+async function listProposals({ status, limit, cursor } = {}) {
+  const paginate = limit !== undefined || cursor !== undefined;
+  let pageSize = null;
+  if (paginate) {
+    pageSize = limit === undefined ? 20 : parseInt(limit, 10);
+    if (!Number.isInteger(pageSize) || pageSize < 1) {
+      const err = new Error("limit must be a positive integer");
+      err.statusCode = 400;
+      throw err;
+    }
+    pageSize = Math.min(pageSize, MAX_PROPOSALS_PAGE);
+  }
+
   const conditions = [];
   const params = [];
   if (status) {
     params.push(status);
     conditions.push(`p.status = $${params.length}`);
   }
+  if (cursor) {
+    const { createdAt, id } = decodeProposalCursor(cursor);
+    params.push(createdAt, id);
+    conditions.push(`(p.created_at, p.id) < ($${params.length - 1}, $${params.length})`);
+  }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  let limitClause = "";
+  if (paginate) {
+    // Fetch one extra row to know whether another page exists.
+    params.push(pageSize + 1);
+    limitClause = `LIMIT $${params.length}`;
+  }
 
   const { rows } = await pool.query(
     `SELECT p.*,
@@ -53,10 +101,19 @@ async function listProposals({ status } = {}) {
      LEFT JOIN dao_votes v ON v.proposal_id = p.id
      ${where}
      GROUP BY p.id
-     ORDER BY p.created_at DESC`,
+     ORDER BY p.created_at DESC, p.id DESC
+     ${limitClause}`,
     params,
   );
-  return rows.map(rowToProposal);
+
+  if (!paginate) return rows.map(rowToProposal);
+
+  const hasMore = rows.length > pageSize;
+  const pageRows = hasMore ? rows.slice(0, pageSize) : rows;
+  return {
+    proposals: pageRows.map(rowToProposal),
+    nextCursor: hasMore ? encodeProposalCursor(pageRows[pageRows.length - 1]) : null,
+  };
 }
 
 async function getProposal(id) {
