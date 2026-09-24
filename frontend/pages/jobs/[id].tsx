@@ -16,6 +16,7 @@ import { usePriceContext } from "@/contexts/PriceContext";
 import {
   fetchJob,
   fetchApplications,
+  fetchApplicationsPage,
   acceptApplication,
   releaseEscrow,
   raiseDispute,
@@ -177,6 +178,8 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
 
   const [job, setJob] = useState<Job | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [applicationsCursor, setApplicationsCursor] = useState<string | null>(null);
+  const [loadingMoreApplications, setLoadingMoreApplications] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showApplyForm, setShowApplyForm] = useState(false);
   const [optimisticallyApplied, setOptimisticallyApplied] = useState(false);
@@ -246,10 +249,11 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
       }
     }
 
-    Promise.all([fetchJob(jobId), fetchApplications(jobId)])
-      .then(([loadedJob, loadedApplications]) => {
+    Promise.all([fetchJob(jobId), fetchApplicationsPage(jobId)])
+      .then(([loadedJob, loadedApplicationsPage]) => {
         setJob(loadedJob);
-        setApplications(loadedApplications);
+        setApplications(loadedApplicationsPage.applications);
+        setApplicationsCursor(loadedApplicationsPage.nextCursor);
         addRecentJob(jobId);
       })
       .catch(() => router.push("/jobs"))
@@ -261,14 +265,27 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
     try {
       setActionError(null);
       await acceptApplication(applicationId, publicKey);
-      const [updatedJob, updatedApplications] = await Promise.all([
+      const [updatedJob, updatedApplicationsPage] = await Promise.all([
         fetchJob(jobId),
-        fetchApplications(jobId),
+        fetchApplicationsPage(jobId),
       ]);
       setJob(updatedJob);
-      setApplications(updatedApplications);
+      setApplications(updatedApplicationsPage.applications);
+      setApplicationsCursor(updatedApplicationsPage.nextCursor);
     } catch {
       setActionError("Failed to accept application.");
+    }
+  };
+
+  const loadMoreApplications = async () => {
+    if (!jobId || !applicationsCursor || loadingMoreApplications) return;
+    setLoadingMoreApplications(true);
+    try {
+      const nextPage = await fetchApplicationsPage(jobId, undefined, applicationsCursor);
+      setApplications((current) => [...current, ...nextPage.applications]);
+      setApplicationsCursor(nextPage.nextCursor);
+    } finally {
+      setLoadingMoreApplications(false);
     }
   };
 
@@ -716,6 +733,16 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
               fetchApplications={fetchAppsForJob}
               onAcceptApplication={handleAcceptApplication}
             />
+            {applicationsCursor && (
+              <button
+                type="button"
+                onClick={loadMoreApplications}
+                disabled={loadingMoreApplications}
+                className="btn-secondary mt-4 w-full"
+              >
+                {loadingMoreApplications ? "Loading applications..." : "Load more applications"}
+              </button>
+            )}
           </div>
         )}
 
@@ -746,7 +773,10 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
                 onRevert={() => setOptimisticallyApplied(false)}
                 onSuccess={() => {
                   setShowApplyForm(false);
-                  fetchApplications(job.id).then(setApplications);
+                  fetchApplicationsPage(job.id).then((page) => {
+                    setApplications(page.applications);
+                    setApplicationsCursor(page.nextCursor);
+                  });
                 }}
               />
             ) : (

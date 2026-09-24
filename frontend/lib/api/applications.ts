@@ -1,12 +1,21 @@
 import { api } from "./client";
 import type { Application } from "@/utils/types";
 
-export async function fetchApplications(jobId: string, tier?: string) {
-  const { data } = await api.get<{ success: boolean; data: Application[] }>(
+export async function fetchApplicationsPage(jobId: string, tier?: string, cursor?: string, limit = 20) {
+  const { data } = await api.get<{
+    success: boolean;
+    data: Application[];
+    applications?: Application[];
+    nextCursor: string | null;
+  }>(
     `/api/applications/job/${jobId}`,
-    { params: tier ? { tier } : undefined },
+    { params: { ...(tier ? { tier } : {}), limit, ...(cursor ? { cursor } : {}) } },
   );
-  return data.data;
+  return { applications: data.applications ?? data.data, nextCursor: data.nextCursor };
+}
+
+export async function fetchApplications(jobId: string, tier?: string) {
+  return (await fetchApplicationsPage(jobId, tier)).applications;
 }
 
 export async function submitApplication(payload: {
