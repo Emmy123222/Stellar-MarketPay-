@@ -21,11 +21,12 @@ Stellar MarketPay is a decentralized freelance marketplace built on the Stellar 
 5. [Docker Setup (Alternative)](#docker-setup-alternative)
 6. [Project Structure](#project-structure)
 7. [Testing](#testing)
-8. [Branch Naming](#branch-naming)
-9. [Commit Style](#commit-style)
-10. [Submitting a Pull Request](#submitting-a-pull-request)
-11. [Smart Contract Development](#smart-contract-development)
-12. [Pre-commit Hooks (husky + lint-staged)](#pre-commit-hooks-husky--lint-staged)
+8. [Adding a new API Endpoint](#adding-a-new-api-endpoint)
+9. [Branch Naming](#branch-naming)
+10. [Commit Style](#commit-style)
+11. [Submitting a Pull Request](#submitting-a-pull-request)
+12. [Smart Contract Development](#smart-contract-development)
+13. [Pre-commit Hooks (husky + lint-staged)](#pre-commit-hooks-husky--lint-staged)
 
 ---
 
@@ -286,6 +287,202 @@ cd backend && npm test && npm run lint
 # Frontend
 cd frontend && npm test && npm run lint && npx tsc --noEmit
 ```
+
+---
+
+## Adding a new API Endpoint
+
+This is the end-to-end recipe for adding a backend route (for example a new
+`favorites` or `certificates` resource). Do the five steps **in order** — each
+one maps to a piece of the request lifecycle, so nothing gets silently dropped.
+
+> **Worked examples from the project history**
+>
+> - [#391 — feat: faucet rate limit, skill endorsements, certificates, job expiry extension](https://github.com/Emmy123222/Stellar-MarketPay-/pull/391) — adds `backend/src/routes/certificates.js`, registers it in `backend/src/server.js`, and documents it with `@swagger`.
+> - [#908 — refactor(validation): extract route validation into shared Zod validators](https://github.com/Emmy123222/Stellar-MarketPay-/pull/908) — the canonical validator pattern (Steps 1–2).
+> - [#1311 — test: certificates route tests](https://github.com/Emmy123222/Stellar-MarketPay-/pull/1311) — the canonical route-test pattern (Step 5).
+
+### Step 1 — Create the route file
+
+Create `backend/src/routes/<resource>.js`. A router only wires HTTP to
+service/database calls — keep business logic in `backend/src/services/`, and
+delegate every error to `next(e)` so the central error handler formats it.
+
+```js
+// backend/src/routes/favorites.js
+"use strict";
+
+const express = require("express");
+const router  = express.Router();
+const pool    = require("../db/pool");
+const { verifyJWT } = require("../middleware/auth");
+const { generalRateLimiter } = require("../middleware/rateLimiter");
+const { validate, createFavoriteSchema } = require("../validators/favoriteValidator");
+
+/**
+ * @swagger
+ * tags:
+ *   name: Favorites
+ *   description: Saved jobs and freelancers
+ */
+
+/**
+ * @swagger
+ * /api/favorites:
+ *   post:
+ *     summary: Save an item to the caller's favorites
+ *     tags: [Favorites]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [jobId]
+ *             properties:
+ *               jobId:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       201:
+ *         description: Favorite created
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Missing or invalid token
+ */
+router.post("/", verifyJWT, generalRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = validate(createFavoriteSchema, req.body);
+    const { rows } = await pool.query(
+      `INSERT INTO favorites (public_key, job_id)
+       VALUES ($1, $2)
+       RETURNING id, job_id, created_at`,
+      [req.user.publicKey, jobId]
+    );
+    res.status(201).json({ success: true, data: rows[0] });
+  } catch (e) {
+    next(e); // → central error handler in server.js
+  }
+});
+
+module.exports = router;
+```
+
+If the endpoint mutates state and can be called with **cookie-based auth**, also
+apply the CSRF guard from `backend/src/middleware/csrf.js`
+(`doubleCsrfProtection`) so it matches the rest of the mutating surface.
+
+### Step 2 — Add the validation schema
+
+Never trust `req.body`. Schemas live in `backend/src/validators/` and use
+[Zod](https://zod.dev). `validate()` throws a structured `400` for you.
+
+```js
+// backend/src/validators/favoriteValidator.js
+"use strict";
+
+const { z } = require("zod");
+const { validate } = require("./index");
+
+const createFavoriteSchema = z
+  .object({
+    jobId: z.string({ message: "jobId is required" }).min(1, "jobId is required"),
+  })
+  .passthrough();
+
+module.exports = { validate, createFavoriteSchema };
+```
+
+Add a sibling unit test (`backend/src/validators/favoriteValidator.test.js`) that
+asserts the happy path **and** the rejection messages — mirror
+`jobValidator.test.js`.
+
+### Step 3 — Register the router in `server.js`
+
+`backend/src/server.js` is the only place routes are mounted. Add the `require`
+near the other route imports and mount it with the other `app.use(...)` calls:
+
+```js
+// near the other route requires
+const favoriteRoutes = require("./routes/favorites");
+
+// with the other app.use("/api/...") mounts
+app.use("/api/favorites", favoriteRoutes);
+```
+
+Mount **before** the 404 handler, otherwise every request will return
+`404 { "code": "NOT_FOUND" }`. A router that is never mounted is dead code —
+double-check the `app.use` line before opening the PR.
+
+### Step 4 — Add the OpenAPI spec entry
+
+The API reference is generated from the `@swagger` JSDoc blocks in
+`backend/src/routes/*.js` (see `apis` in `backend/scripts/generate-openapi.js`),
+so **Step 1's JSDoc is the spec** — one `@swagger` block per route.
+
+1. Add a `tags:` entry with a unique `name` (only once per router).
+2. If the tag group is new, add it to the `tags` array in
+   `backend/scripts/generate-openapi.js`; add any reusable response models to
+   `components.schemas` there too.
+3. Regenerate the checked-in spec:
+
+```bash
+cd backend
+npm run generate-openapi   # writes docs/openapi.json and docs/openapi.yaml
+```
+
+The generator warns about any route method without a matching `@swagger` block,
+so treat a warning as a failing step and fix it before committing.
+
+### Step 5 — Add unit tests
+
+Route tests live next to the router as
+`backend/src/routes/<resource>.test.js` and use
+[supertest](https://github.com/ladjs/supertest) against a minimal Express app
+with the database mocked.
+
+```js
+// backend/src/routes/favorites.test.js
+"use strict";
+
+jest.mock("../db/pool", () => {
+  const { createPgMock } = require("../testUtils/pgMock");
+  return createPgMock();
+});
+
+const express = require("express");
+const request = require("supertest");
+const pool = require("../db/pool");
+const favoriteRoutes = require("./favorites");
+
+const app = express();
+app.use(express.json());
+app.use("/api/favorites", favoriteRoutes);
+```
+
+Rules of thumb for the suite:
+
+- Mock the pool with `createPgMock()` from `../testUtils/pgMock` — never hit a
+  real database in a unit test.
+- For authenticated or mutating endpoints, build the request with
+  `authedAgent(app, { publicKey })` from `../testUtils/authedRequest`; it signs a
+  JWT and wires CSRF for you.
+- Cover the happy path, `400` (validation), `401` (missing/invalid token),
+  `404`, and error propagation to the structured error handler.
+
+### Adding-an-endpoint checklist
+
+- [ ] `backend/src/routes/<resource>.js` created and uses `next(e)` for errors
+- [ ] `backend/src/validators/<resource>Validator.js` created (+ validator test)
+- [ ] Router required and mounted in `backend/src/server.js`
+- [ ] `@swagger` block on **every** route method (and new tag added if needed)
+- [ ] `npm run generate-openapi` run and `backend/docs/openapi.*` committed
+- [ ] `backend/src/routes/<resource>.test.js` covering happy path + failures
+- [ ] Migration added if the endpoint introduces a table/column
+- [ ] `cd backend && npm run lint && npx jest --selectProjects unit --forceExit`
 
 ---
 
