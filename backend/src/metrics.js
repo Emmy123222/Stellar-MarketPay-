@@ -136,6 +136,13 @@ const notificationQueuePending = createMetric(promClient.Gauge, {
   help: "Pending notifications in the queue",
 });
 
+// ─── XLM price gauge ──────────────────────────────────────────────────────────
+/** Current XLM/USD spot price, updated on every successful CoinGecko fetch. */
+const xlmPriceUsd = createMetric(promClient.Gauge, {
+  name: "xlm_price_usd",
+  help: "Current XLM price in USD (updated on every successful CoinGecko fetch)",
+});
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const SQL_VERB = /^[\s(]*(select|insert|update|delete|with|begin|commit|rollback|create|alter|drop|truncate|copy|explain|set|listen|notify)\b/i;
@@ -289,6 +296,7 @@ module.exports = {
   pgPoolIdle,
   pgPoolWaiting,
   notificationQueuePending,
+  xlmPriceUsd,
   // legacy aliases
   legacyHttpRequestsTotal,
   legacyHttpRequestDurationSeconds,
