@@ -666,4 +666,24 @@
 /* eslint-disable */`n
 /* eslint-disable */`napp.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
 /* eslint-disable */`n
-/* eslint-disable */`nmodule.exports = app;
+/* eslint-disable */`nlet isShuttingDown = false;
+process.on('SIGTERM', () => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log('[server] SIGTERM received. Broadcasting server_shutdown...');
+  
+  if (typeof broadcastRealtime === 'function') {
+    broadcastRealtime('server_shutdown', { reconnectIn: 5 });
+  }
+
+  // Wait 5 seconds for clients to receive the message and initiate reconnection
+  setTimeout(() => {
+    console.log('[server] Shutting down gracefully...');
+    server.close(() => {
+      console.log('[server] HTTP server closed.');
+      process.exit(0);
+    });
+  }, 5000);
+});
+
+module.exports = app;

@@ -24,6 +24,7 @@ import {
 import type { Message } from "@/utils/types";
 import { shortenAddress, timeAgo } from "@/utils/format";
 import clsx from "clsx";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 interface MessageThreadProps {
   jobId: string;
@@ -127,6 +128,13 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
   const fileInputRef         = useRef<HTMLInputElement>(null);
   const isMountedRef         = useRef<boolean>(true);
 
+  const rowVirtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => messagesContainerRef.current,
+    estimateSize: () => 100,
+    overscan: 5,
+  });
+
   // Fetch messages on mount
   useEffect(() => {
     isMountedRef.current = true;
@@ -158,12 +166,20 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
   }, [currentUserAddress]);
 
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
+    if (messages.length > 0) {
+      rowVirtualizer.scrollToIndex(messages.length - 1, { align: "end", behavior: "auto" });
+    }
+  }, [messages.length, rowVirtualizer]);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
+    if (messages.length > 0 && messagesContainerRef.current) {
+      const scrollElement = messagesContainerRef.current;
+      const isScrolledNearBottom = scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight < 150;
+      if (isScrolledNearBottom || loading) {
+         scrollToBottom();
+      }
+    }
+  }, [messages.length, loading, scrollToBottom]);
 
   const handleSend = async (e: FormEvent) => {
     e.preventDefault();
@@ -299,47 +315,64 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
       {/* Messages list */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-[300px] max-h-[400px]"
+        className="flex-1 overflow-y-auto px-4 py-4 min-h-[300px] max-h-[400px]"
       >
         {messages.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-amber-800 text-sm">No messages yet. Start the conversation!</p>
           </div>
         ) : (
-          messages.map((msg) => {
-            const own = isOwnMessage(msg.senderAddress);
-            return (
-              <div
-                key={msg.id}
-                className={clsx(
-                  "flex flex-col max-w-[80%] rounded-2xl px-4 py-3",
-                  own
-                    ? "ml-auto bg-market-500/10 border border-market-500/15"
-                    : "bg-ink-800",
-                )}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-semibold text-market-400">
-                    {own ? "You" : shortenAddress(msg.senderAddress)}
-                  </span>
-                  <span className="text-[10px] text-amber-900">{timeAgo(msg.createdAt)}</span>
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const msg = messages[virtualRow.index];
+              const own = isOwnMessage(msg.senderAddress);
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  className="absolute top-0 left-0 w-full py-1.5"
+                  style={{
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div
+                    className={clsx(
+                      "flex flex-col max-w-[80%] rounded-2xl px-4 py-3",
+                      own
+                        ? "ml-auto bg-market-500/10 border border-market-500/15"
+                        : "bg-ink-800",
+                    )}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-market-400">
+                        {own ? "You" : shortenAddress(msg.senderAddress)}
+                      </span>
+                      <span className="text-[10px] text-amber-900">{timeAgo(msg.createdAt)}</span>
+                    </div>
+                    <p className="text-amber-100 text-sm leading-relaxed break-words">
+                      {msg.content}
+                    </p>
+                    {msg.attachmentCid && (
+                      <AttachmentLine
+                        cid={msg.attachmentCid}
+                        name={msg.attachmentName}
+                        mime={msg.attachmentMime}
+                        senderNaclPub={msg.senderNaclPub}
+                      />
+                    )}
+                  </div>
                 </div>
-                <p className="text-amber-100 text-sm leading-relaxed break-words">
-                  {msg.content}
-                </p>
-                {msg.attachmentCid && (
-                  <AttachmentLine
-                    cid={msg.attachmentCid}
-                    name={msg.attachmentName}
-                    mime={msg.attachmentMime}
-                    senderNaclPub={msg.senderNaclPub}
-                  />
-                )}
-              </div>
-            );
-          })
+              );
+            })}
+          </div>
         )}
-        <div ref={messagesEndRef} />
       </div>
 
       {/* Error banner (non-blocking) */}
