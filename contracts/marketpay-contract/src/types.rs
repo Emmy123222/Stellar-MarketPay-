@@ -293,7 +293,16 @@ pub enum DataKey {
     DisputeBondConfig,
     /// Per-job locked dispute bond record
     DisputeBond(String),
+    /// Minimum turnout for a proposal to pass, in bps of eligible voters
+    QuorumThresholdBps,
+    /// Number of distinct addresses with at least one completed job
+    EligibleVoterCount,
+    /// Quorum value (bps) a quorum-change proposal will apply once passed
+    PendingQuorumChange(u32),
 }
+
+pub(crate) const DEFAULT_QUORUM_THRESHOLD_BPS: u32 = 1_000;
+pub(crate) const MAX_QUORUM_THRESHOLD_BPS: u32 = 5_000;
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
 pub(crate) const REVEAL_WINDOW_LEDGERS: u32 = 17_280;

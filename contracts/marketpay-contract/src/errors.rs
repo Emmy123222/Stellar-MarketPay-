@@ -166,6 +166,14 @@ pub enum ContractError {
     AlreadyVoted = 6006,
     /// "Voting period is not over yet"
     VotingNotOver = 6007,
+    /// "Only admin can set the quorum"
+    OnlyAdminSetQuorum = 6008,
+    /// "Quorum cannot exceed 50% (5000 bps)"
+    QuorumExceedsMax = 6009,
+    /// "Quorum change proposal has not passed"
+    QuorumProposalNotPassed = 6010,
+    /// "No matching quorum change proposal"
+    NoMatchingQuorumProposal = 6011,
 
     // ── 7xxx: Disputes & arbitration ──────────────────────────────────────
     /// "Only participants can raise a dispute"
@@ -314,6 +322,10 @@ impl ContractError {
             Self::OnlyCompletedJobsCanVote => "Only users with completed jobs can vote",
             Self::AlreadyVoted => "Voter has already cast a vote",
             Self::VotingNotOver => "Voting period is not over yet",
+            Self::OnlyAdminSetQuorum => "Only admin can set the quorum",
+            Self::QuorumExceedsMax => "Quorum cannot exceed 50% (5000 bps)",
+            Self::QuorumProposalNotPassed => "Quorum change proposal has not passed",
+            Self::NoMatchingQuorumProposal => "No matching quorum change proposal",
             // 7xxx
             Self::OnlyParticipantsCanDispute => "Only participants can raise a dispute",
             Self::CannotDisputeResolved => {
@@ -463,6 +475,10 @@ pub fn error_code_from_panic(msg: &str) -> Option<u32> {
         "Only users with completed jobs can vote" => Some(6005),
         "Voter has already cast a vote" => Some(6006),
         "Voting period is not over yet" => Some(6007),
+        "Only admin can set the quorum" => Some(6008),
+        "Quorum cannot exceed 50% (5000 bps)" => Some(6009),
+        "Quorum change proposal has not passed" => Some(6010),
+        "No matching quorum change proposal" => Some(6011),
         // 7xxx
         "Only participants can raise a dispute" => Some(7001),
         "Cannot dispute a resolved, frozen, or already-disputed escrow" => Some(7002),
