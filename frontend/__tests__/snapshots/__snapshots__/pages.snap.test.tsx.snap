@@ -213,6 +213,11 @@ exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connec
       >
         Saved Searches
       </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
+        Talent Pool
+      </button>
     </div>
     <div
       class="sm:hidden mb-6"
@@ -291,6 +296,11 @@ exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connec
           value="saved_searches"
         >
           Saved Searches
+        </option>
+        <option
+          value="talent_pool"
+        >
+          Talent Pool
         </option>
       </select>
     </div>

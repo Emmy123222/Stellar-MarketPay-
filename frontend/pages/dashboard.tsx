@@ -13,10 +13,12 @@ import {
   fetchClientSpendingAnalytics, fetchPriceAlertPreference, upsertPriceAlertPreference,
   fetchSavedSearches, updateSavedSearch, deleteSavedSearch,
   createProposalTemplate, updateProposalTemplate, deleteProposalTemplate,
+  fetchTalentPool,
 } from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
 import { formatXLM, shortenAddress, copyToClipboard } from "@/utils/format";
 import type { Job, Application, ClientSpendingAnalytics, JobInvitation, BulkActionResponse } from "@/utils/types";
+import type { TalentPoolEntry } from "@/lib/api";
 import EditProfileForm from "@/components/EditProfileForm";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import WalletAddressDisplay from "@/components/WalletAddressDisplay";
@@ -36,6 +38,7 @@ import WithdrawalsTab from "@/components/dashboard-tabs/WithdrawalsTab";
 import SavedSearchesTab from "@/components/dashboard-tabs/SavedSearchesTab";
 import AnalyticsTab from "@/components/dashboard-tabs/AnalyticsTab";
 import ProposalComparison from "@/components/ProposalComparison";
+import TalentPoolTab from "@/components/dashboard-tabs/TalentPoolTab";
 import { usePriceContext } from "@/contexts/PriceContext";
 import ProfileCompletenessWidget from "@/components/ProfileCompletenessWidget";
 import { useOnboarding } from "@/hooks/useOnboarding";
@@ -66,7 +69,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "proposals" | "invitations" | "analytics" | "earnings" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals";
+type Tab = "posted" | "applied" | "proposals" | "invitations" | "analytics" | "earnings" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals" | "talent_pool";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 async function fetchBalances(
@@ -119,6 +122,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [myApplications, setMyApplications] = useState<Application[]>([]);
   const [jobApplications, setJobApplications] = useState<Map<string, Application[]>>(new Map());
   const [myInvitations, setMyInvitations] = useState<JobInvitation[]>([]);
+  const [talentPool, setTalentPool] = useState<TalentPoolEntry[]>([]);
   const [balance, setBalance]           = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance]   = useState<string | null>(null);
   const [notificationCount, setNotificationCount] = useState(0);
@@ -271,10 +275,11 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const loadDashboardData = useCallback(async () => {
     if (!publicKey) return null;
 
-    const [jobs, apps, invitations, bal, usdc] = await Promise.all([
+    const [jobs, apps, invitations, poolEntries, bal, usdc] = await Promise.all([
       fetchMyJobs(publicKey),
       fetchMyApplications(publicKey),
       fetchMyInvitations().catch((): JobInvitation[] => []),
+      fetchTalentPool().catch(() => []),
       getXLMBalance(publicKey),
       getUSDCBalance(publicKey),
     ]);
@@ -294,6 +299,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setMyApplications(apps);
     setJobApplications(jobApplications);
     setMyInvitations(invitations);
+    setTalentPool(poolEntries);
     setBalance(bal);
     setUsdcBalance(usdc);
     latestJobsRef.current = jobs;
@@ -649,6 +655,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       />
     ),
     referrals: <ReferralDashboard publicKey={publicKey} />,
+    talent_pool: (
+      <TalentPoolTab
+        entries={talentPool}
+        openJobs={myJobs.filter((j) => j.status === "open")}
+        onRemoved={(id) => setTalentPool((prev) => prev.filter((e) => e.id !== id))}
+        onInvited={() => toast.success("Invitation sent!")}
+      />
+    ),
   };
 
   return (
@@ -837,6 +851,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           "price_alerts",
           "withdrawals",
           "saved_searches",
+          "talent_pool",
         ];
         const tabLabel = (t: Tab): string =>
           t === "posted" ? `Jobs Posted (${myJobs.length})` :
@@ -851,6 +866,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           t === "price_alerts" ? "Price Alerts" :
           t === "withdrawals" ? `Withdrawals (${withdrawHistory.length})` :
           t === "saved_searches" ? `Saved Searches${savedSearches.length > 0 ? ` (${savedSearches.length})` : ""}` :
+          t === "talent_pool" ? `Talent Pool${talentPool.length > 0 ? ` (${talentPool.length})` : ""}` :
           "Edit Profile";
 
         return (
