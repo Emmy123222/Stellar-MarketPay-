@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ENV_NAME="${1:?Usage: health-check.sh <environment> [max_retries] [retry_interval]}"
-MAX_RETRIES="${2:-30}"
+MAX_RETRIES="${2:-3}"
 RETRY_INTERVAL="${3:-5}"
 BACKEND_PORT="${BACKEND_PORT:-4000}"
 HEALTH_ENDPOINT="${HEALTH_ENDPOINT:-/api/health}"
