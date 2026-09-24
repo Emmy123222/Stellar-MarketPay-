@@ -195,6 +195,14 @@
     {
       "name": "Turrets",
       "description": "Stellar Turrets for serverless contract execution"
+    },
+    {
+      "name": "Reputation",
+      "description": "Reputation scores for clients and freelancers"
+    },
+    {
+      "name": "AutoConvert",
+      "description": "Opt-in XLM → USDC conversion of earnings"
     }
   ],
   "components": {
@@ -676,6 +684,92 @@
               "approved",
               "rejected"
             ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DisputeEvidence": {
+        "type": "object",
+        "required": [
+          "id",
+          "uploaderAddress",
+          "fileName",
+          "fileUrl",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Evidence record ID"
+          },
+          "uploaderAddress": {
+            "type": "string",
+            "description": "Stellar address of the uploader"
+          },
+          "fileName": {
+            "type": "string",
+            "description": "Original file name"
+          },
+          "fileSize": {
+            "type": "integer",
+            "description": "File size in bytes"
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "MIME type of the file"
+          },
+          "fileUrl": {
+            "type": "string",
+            "description": "IPFS CID of the file (content hash)"
+          },
+          "gatewayUrl": {
+            "type": "string",
+            "description": "Public IPFS gateway URL"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PublicJob": {
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Job ID"
+          },
+          "title": {
+            "type": "string",
+            "description": "Job title"
+          },
+          "category": {
+            "type": "string",
+            "description": "Job category"
+          },
+          "budget": {
+            "type": "number",
+            "description": "Job budget"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Budget currency"
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Required skills"
           },
           "createdAt": {
             "type": "string",
@@ -1926,6 +2020,100 @@
         }
       }
     },
+    "/api/reputation/{userId}": {
+      "get": {
+        "summary": "Get a user's reputation score",
+        "tags": [
+          "Reputation"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stellar public key (G...)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reputation score",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "userId": {
+                          "type": "string"
+                        },
+                        "score": {
+                          "type": "number",
+                          "description": "0–100"
+                        },
+                        "scoreBps": {
+                          "type": "integer",
+                          "description": "0–10000, for contract use"
+                        },
+                        "label": {
+                          "type": "string",
+                          "enum": [
+                            "New",
+                            "Building",
+                            "Established",
+                            "Trusted",
+                            "Excellent"
+                          ]
+                        },
+                        "completedJobs": {
+                          "type": "integer"
+                        },
+                        "disputeRate": {
+                          "type": "number",
+                          "description": "0–1"
+                        },
+                        "avgResponseHours": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "avgRating": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "ratingCount": {
+                          "type": "integer"
+                        },
+                        "referralQuality": {
+                          "type": "number",
+                          "description": "0–1"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid public key"
+          },
+          "404": {
+            "description": "No profile for this address"
+          }
+        }
+      }
+    },
     "/api/referrals/info": {
       "get": {
         "summary": "Get referral bonus info (public)",
@@ -1961,6 +2149,64 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/referrals/my-stats": {
+      "get": {
+        "summary": "Referral dashboard stats for the authenticated referrer",
+        "description": "Returns total referred users, pending and paid credits, the caller's referral link and a paginated table of referees with their pipeline status (registered / first_job_completed / credit_paid).\n",
+        "tags": [
+          "Referrals"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 10
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "registered",
+                "first_job_completed",
+                "credit_paid"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Referral dashboard stats"
+          },
+          "400": {
+            "description": "Invalid query parameter"
+          },
+          "401": {
+            "description": "Unauthorized"
           }
         }
       }
@@ -3111,6 +3357,77 @@
           },
           "403": {
             "description": "Can only delete own profile"
+          }
+        }
+      }
+    },
+    "/api/profiles/migrate": {
+      "post": {
+        "summary": "Merge an old Stellar account into a new one (identity migration)",
+        "description": "Proves ownership of BOTH accounts via ed25519 signatures over the\ncanonical challenge string `MARKETPAY-ACCOUNT-MERGE\\\\n<old>\\\\n<new>\\\\n<issuedAt>`\n(one signature per key, hex or base64). On success, in one transaction:\nprofile identity/reputation is carried to the new address, all history\ntables (jobs, applications, ratings, referrals, payouts, messages,\nprogress updates, dispute evidence, archives, certificates, push\nsubscriptions, API keys) are re-pointed old -> new, and the old\naddress is marked `migrated_to = new` (kept searchable; lookups of the\nold address report the redirect target).\n",
+        "tags": [
+          "Profiles"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "oldPublicKey",
+                  "newPublicKey",
+                  "oldSignature",
+                  "newSignature",
+                  "issuedAt"
+                ],
+                "properties": {
+                  "oldPublicKey": {
+                    "type": "string"
+                  },
+                  "newPublicKey": {
+                    "type": "string"
+                  },
+                  "oldSignature": {
+                    "type": "string",
+                    "description": "ed25519 signature of the challenge by the OLD secret key (hex/base64)"
+                  },
+                  "newSignature": {
+                    "type": "string",
+                    "description": "ed25519 signature of the challenge by the NEW secret key (hex/base64)"
+                  },
+                  "issuedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "ISO timestamp embedded in the challenge (10-minute validity)"
+                  },
+                  "network": {
+                    "type": "string",
+                    "enum": [
+                      "testnet",
+                      "mainnet"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Migration complete; returns per-table transferred-row counts"
+          },
+          "400": {
+            "description": "Validation error (bad address/signature format, expired challenge)"
+          },
+          "401": {
+            "description": "A signature does not prove ownership of its address"
+          },
+          "404": {
+            "description": "Old profile not found"
+          },
+          "409": {
+            "description": "Old address already migrated, or new address is itself migrated"
           }
         }
       }
@@ -4545,7 +4862,55 @@
         ],
         "responses": {
           "200": {
-            "description": "On-chain CIDs"
+            "description": "On-chain CIDs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "jobId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "cids": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Job not found"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -4569,15 +4934,125 @@
         ],
         "responses": {
           "200": {
-            "description": "Dispute detail with evidence list"
+            "description": "Dispute detail with evidence list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "job": {
+                          "type": "object"
+                        },
+                        "evidence": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/DisputeEvidence"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           },
           "404": {
-            "description": "Job not found"
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Job not found"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/disputes/{jobId}/evidence": {
+      "get": {
+        "summary": "List dispute evidence files",
+        "description": "Returns every evidence file uploaded by either party for the job, in upload order.",
+        "tags": [
+          "Disputes"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Evidence list for the dispute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/DisputeEvidence"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Job not found"
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "JOB_NOT_FOUND"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "summary": "Upload dispute evidence file",
         "tags": [
@@ -4623,10 +5098,29 @@
             "description": "Evidence uploaded"
           },
           "400": {
-            "description": "File limit reached or invalid file"
+            "description": "File limit reached or invalid file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "No file provided"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT"
           },
           "403": {
             "description": "Only client or freelancer can upload"
+          },
+          "404": {
+            "description": "Job not found"
           }
         }
       }
@@ -4662,7 +5156,163 @@
         ],
         "responses": {
           "200": {
-            "description": "Signed proxy URL (valid 15 min)"
+            "description": "Signed proxy URL (valid 15 min)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "url": {
+                          "type": "string"
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "fileName": {
+                          "type": "string"
+                        },
+                        "mimeType": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT"
+          },
+          "403": {
+            "description": "Only the client or freelancer can access evidence URLs"
+          },
+          "404": {
+            "description": "Job or evidence not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Job not found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/disputes/{jobId}/evidence/{hash}": {
+      "delete": {
+        "summary": "Delete a dispute evidence file by content hash",
+        "description": "Removes the evidence record identified by its IPFS CID (content hash). Only the uploader may delete their own evidence.",
+        "tags": [
+          "Disputes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "path",
+            "name": "hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "IPFS CID (content hash) of the evidence file"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Evidence deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "jobId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "hash": {
+                          "type": "string",
+                          "example": "QmT78zSuBmuS4z925WZfrqQ1qHaJ56DQaTfyMUF7F8ff5o"
+                        },
+                        "deleted": {
+                          "type": "boolean",
+                          "example": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid JWT"
+          },
+          "403": {
+            "description": "Only the uploader may delete their evidence"
+          },
+          "404": {
+            "description": "Job or evidence not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Job not found"
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "JOB_NOT_FOUND"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -5205,6 +5855,218 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/auto-convert/settings": {
+      "get": {
+        "summary": "Get auto-convert settings for the authenticated user",
+        "tags": [
+          "AutoConvert"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Settings"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update auto-convert settings",
+        "tags": [
+          "AutoConvert"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "slippageBps": {
+                    "type": "integer",
+                    "minimum": 10,
+                    "maximum": 1000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated settings"
+          }
+        }
+      }
+    },
+    "/api/auto-convert/pending": {
+      "get": {
+        "summary": "List pending XLM → USDC conversions with fresh path quotes",
+        "tags": [
+          "AutoConvert"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pending conversions"
+          }
+        }
+      }
+    },
+    "/api/auto-convert/history": {
+      "get": {
+        "summary": "Paginated auto-conversion payment history",
+        "tags": [
+          "AutoConvert"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversion history"
+          }
+        }
+      }
+    },
+    "/api/auto-convert/{id}/complete": {
+      "post": {
+        "summary": "Record a submitted pathPaymentStrictSend swap",
+        "description": "Verifies the transaction on Horizon and stores amounts and exchange rate.",
+        "tags": [
+          "AutoConvert"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "txHash"
+                ],
+                "properties": {
+                  "txHash": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Conversion recorded"
+          },
+          "400": {
+            "description": "Transaction does not match the pending conversion"
+          },
+          "409": {
+            "description": "Conversion is not pending or tx already recorded"
+          }
+        }
+      }
+    },
+    "/api/auto-convert/{id}/dismiss": {
+      "post": {
+        "summary": "Mark a pending conversion as failed or skipped",
+        "tags": [
+          "AutoConvert"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "failed",
+                      "skipped"
+                    ]
+                  },
+                  "error": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Conversion dismissed"
           }
         }
       }

@@ -169,7 +169,90 @@ where noted.
 > function meant to be triggered by an external cron/scheduler (or in-container
 > cron) rather than a tight interval.
 
-## 6. External Integrations
+## 6. Real-Time Architecture
+
+The API process also hosts two WebSocket endpoints, handled by the `ws` package
+in `backend/src/server.js` (`WebSocketServer` with `noServer: true`). An HTTP
+`upgrade` handler accepts only these paths and destroys anything else:
+
+| Endpoint | Auth | Purpose |
+| -------- | ---- | ------- |
+| `/ws/realtime?token=<jwt>` | JWT in query string | Global event channel: bids, job status, contract/escrow events, notifications |
+| `/ws/scope/:sessionId?participantId=<id>` | Session + participant id | Collaborative scope documents (`scope_sessions` table, cursors) |
+
+See `docs/websocket-events.md` for the full realtime event catalogue and
+`docs/websocket-scope-protocol.md` for the scope message formats.
+
+### Event flow: rooms, broadcast, reconnect
+
+- **Connection.** The server keeps every open realtime socket in the
+  `realtimeClients` set and answers with `{ event: "connected", payload: {
+  channel: "realtime" } }`. Wallet sockets are additionally indexed per user
+  address so notification events can be targeted.
+- **Job rooms.** There is no server-side room join: producers (routes,
+  services, the Horizon indexer) call `broadcastRealtime(event, payload)` —
+  exposed as `app.locals.broadcastRealtime` — which serializes
+  `{ event, payload }` and fans it out to the channel. Clients **subscribe to
+  a job room by listening on job-scoped event names** such as
+  `job:{jobId}:bids`, `job:status-changed`, `contract:event`, and
+  `notification:created`, filtering client-side (see
+  `frontend/hooks/useRealtimeBids.ts`).
+- **Broadcast.** Escrow lifecycle changes flow: escrow/contract code or the
+  indexer observes the event → `broadcastRealtime` (or the notification
+  dispatcher, which emits `notification:created` per user) → every matching
+  open socket receives `{ event, payload }` as JSON.
+- **Reconnect.** On disconnect the socket is removed and the server records a
+  per-user `lastSeen` timestamp. On reconnect it replays the 20 most recent
+  notifications created after `lastSeen`, so missed alerts arrive in order.
+  Clients such as the bid feed fall back to 30-second polling while the
+  socket is down.
+- **Metrics.** `ws_connections_active` and friends are exported for
+  Prometheus; stale realtime event rows are pruned by
+  `wsEventCleanupService`.
+
+#### Sequence: connect → subscribe to job room → receive escrow event
+
+```mermaid
+sequenceDiagram
+    participant C as Client (job page)
+    participant S as API server<br/>(/ws/realtime)
+    participant R as Route / indexer<br/>(escrow code)
+    participant DB as PostgreSQL
+
+    C->>S: WS upgrade — GET /ws/realtime?token=&lt;jwt&gt;
+    S-->>C: { event: "connected", channel: "realtime" }
+    Note over C: subscribe to job room:<br/>listen for job:{jobId}:* events
+    R->>DB: persist escrow event / notification
+    R->>S: broadcastRealtime("job:{jobId}:escrow", payload)
+    S-->>C: { event: "job:{jobId}:escrow", payload }
+    R-->>S: notification dispatcher emits per-user event
+    S-->>C: { event: "notification:created", payload }
+    Note over C,S: on socket drop → reconnect replays<br/>notifications newer than lastSeen
+```
+
+### Scope session lifecycle
+
+Collaborative scope documents live in the `scope_sessions` table
+(`session_id`, `content`, `cursors` JSONB, `finalized`,
+`finalized_payload`, `expires_at`). Each connected socket for
+`/ws/scope/:sessionId` joins an in-memory per-session client set; updates are
+persisted and re-broadcast to every participant. `POST /api/scope/{sessionId}/renew`
+extends `expires_at`, and an hourly sweep deletes expired rows.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active: first connect — row created (expires in 24h), scope:init sent
+    Active --> Active: scope:update — content + cursors persisted, peers notified
+    Active --> Finalized: scope:finalize — payload stored, document locked
+    Finalized --> Active: scope:update — edit re-opens the document
+    Active --> Renewed: POST /api/scope/{sessionId}/renew (TTL +24h)
+    Renewed --> Active: continue editing
+    Active --> [*]: expires_at passes — hourly cleanup deletes row
+    Finalized --> [*]: expires_at passes — hourly cleanup deletes row
+    Active --> [*]: last client disconnects — cursor removed, row kept
+```
+
+## 7. External Integrations
 
 - **Stellar Horizon** (`HORIZON_URL`): verifies freelancer accounts exist
   (`verifyFreelancerAccount`), reads ledger/payment data for the indexer, and
@@ -183,7 +266,7 @@ where noted.
   messages, disputes, notifications, and audit logs (sequential migrations
   `V1`–`V49` via `npm run migrate`).
 
-## 7. Where to Start Reading
+## 8. Where to Start Reading
 
 - API entry point: `backend/src/server.js`
 - Auth: `backend/src/routes/auth.js`, `backend/src/services/authTokens.js`

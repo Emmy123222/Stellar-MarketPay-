@@ -81,6 +81,8 @@
         "fast-check": "^4.9.0",
         "globals": "^17.11.0",
         "jest": "^30.5.0",
+        "jest-openapi": "^0.14.2",
+        "js-yaml": "^4.3.2",
         "nodemailer-mock": "^2.0.14",
         "nodemon": "^3.1.2",
         "supertest": "^7.2.2",

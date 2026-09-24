@@ -60,20 +60,36 @@ describe("webhookService", () => {
   // buildSignature
   // =========================================================================
   describe("buildSignature", () => {
-    it("builds a deterministic HMAC-SHA256 signature", () => {
+    it("builds a deterministic HMAC-SHA256 signature in sha256=<hex> format", () => {
       const payload = JSON.stringify({ hello: "world" });
       const signature = buildSignature("secret", payload);
 
-      expect(signature).toHaveLength(64);
-      expect(signature).toMatch(/^[a-f0-9]+$/);
+      expect(signature).toMatch(/^sha256=[a-f0-9]{64}$/);
       // Deterministic: the same inputs always produce the same signature.
       expect(buildSignature("secret", payload)).toBe(signature);
       // And it matches a reference HMAC computed with the same secret.
-      const expected = crypto
+      const expectedDigest = crypto
         .createHmac("sha256", "secret")
         .update(payload)
         .digest("hex");
-      expect(signature).toBe(expected);
+      expect(signature).toBe(`sha256=${expectedDigest}`);
+    });
+
+    it("delivery header equals sha256=HMAC-SHA256(payload, secret)", async () => {
+      mockPost.mockResolvedValue({ status: 200 });
+      mockQuery.mockResolvedValue({ rows: [{ id: "delivery-1" }] });
+      const payload = { event: "escrow_released", jobId: "job-1" };
+
+      await deliverSingleWebhook(WEBHOOK_ROW, "escrow_released", payload);
+
+      const [, , config] = mockPost.mock.calls[0];
+      const header = config.headers["X-Webhook-Signature"];
+      const expected = crypto
+        .createHmac("sha256", SECRET)
+        .update(JSON.stringify(payload))
+        .digest("hex");
+      expect(header).toMatch(/^sha256=[a-f0-9]{64}$/);
+      expect(header).toBe(`sha256=${expected}`);
     });
 
     it("changes when the secret or the payload changes", () => {

@@ -254,6 +254,33 @@ List endpoints support cursor-based pagination via the \`after\` query parameter
             status: { type: 'string', enum: ['pending', 'approved', 'rejected'] },
             createdAt: { type: 'string', format: 'date-time' }
           }
+        },
+        DisputeEvidence: {
+          type: 'object',
+          required: ['id', 'uploaderAddress', 'fileName', 'fileUrl', 'createdAt'],
+          properties: {
+            id: { type: 'string', format: 'uuid', description: 'Evidence record ID' },
+            uploaderAddress: { type: 'string', description: 'Stellar address of the uploader' },
+            fileName: { type: 'string', description: 'Original file name' },
+            fileSize: { type: 'integer', description: 'File size in bytes' },
+            mimeType: { type: 'string', description: 'MIME type of the file' },
+            fileUrl: { type: 'string', description: 'IPFS CID of the file (content hash)' },
+            gatewayUrl: { type: 'string', description: 'Public IPFS gateway URL' },
+            createdAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        PublicJob: {
+          type: 'object',
+          required: ['id', 'title'],
+          properties: {
+            id: { type: 'string', format: 'uuid', description: 'Job ID' },
+            title: { type: 'string', description: 'Job title' },
+            category: { type: 'string', description: 'Job category' },
+            budget: { type: 'number', description: 'Job budget' },
+            currency: { type: 'string', description: 'Budget currency' },
+            skills: { type: 'array', items: { type: 'string' }, description: 'Required skills' },
+            createdAt: { type: 'string', format: 'date-time' }
+          }
         }
       }
     }

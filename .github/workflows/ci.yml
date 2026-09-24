@@ -107,6 +107,15 @@ jobs:
         run: npx jest --selectProjects unit --forceExit
         continue-on-error: true
 
+      # Blocking gate (issue #1496): jest-openapi probes every path+method in
+      # backend/docs/openapi.yaml through the app and validates the response
+      # against the documented schema. Any spec drift fails the build; known
+      # upstream spec gaps are listed in src/tests/contract/knownSpecGaps.js.
+      # The legacy api.contract*.test.js suites keep their own pre-existing
+      # failures and stay behind the non-blocking unit step above.
+      - name: OpenAPI contract tests
+        run: npx jest --selectProjects unit --forceExit --testPathPatterns='src/tests/contract/openapi.contract.test.js'
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:

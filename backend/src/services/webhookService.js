@@ -10,10 +10,12 @@ const MAX_RETRIES = 3;
 const BASE_BACKOFF_MS = 200;
 
 function buildSignature(secret, payload) {
-  return crypto
+  const digest = crypto
     .createHmac("sha256", secret)
     .update(payload)
     .digest("hex");
+  // Prefix so consumers can identify the algorithm: sha256=<hex>
+  return `sha256=${digest}`;
 }
 
 function wait(ms) {

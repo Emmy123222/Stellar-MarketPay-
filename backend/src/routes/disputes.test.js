@@ -21,6 +21,12 @@ jest.mock("../db/pool", () => {
   return createPgMock();
 });
 
+// Route-level rate limiters share one in-process bucket per IP; without this
+// mock, suites that make more than 5 requests/min to the same route get 429.
+jest.mock("../middleware/rateLimiter", () => ({
+  createRateLimiter: () => (req, res, next) => next(),
+}));
+
 jest.mock("../services/sorobanEvidence", () => ({
   getOnchainEvidenceCids: jest.fn(),
   recordEvidenceCidOnChain: jest.fn(),
@@ -231,6 +237,54 @@ describe("Dispute Routes Suite (/api/disputes)", () => {
     it("404 — returns 404 when job not found", async () => {
       const res = await request(app)
         .get("/api/disputes/non-existent-job")
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toMatch(/Job not found/);
+    });
+  });
+
+  // ===========================================================================
+  // 2b. GET /api/disputes/:jobId/evidence — list evidence files
+  // ===========================================================================
+  describe("GET /api/disputes/:jobId/evidence", () => {
+    it("200 — happy path: returns the evidence list", async () => {
+      seedJob();
+      getGatewayUrl.mockReturnValue(`https://gateway.pinata.cloud/ipfs/${VALID_CID}`);
+
+      // 1st query: job lookup → job exists
+      pool.query.mockResolvedValueOnce({ rows: [{ id: JOB_ID }] });
+      // 2nd query: evidence list
+      pool.query.mockResolvedValueOnce({ rows: [fakeEvidenceRow()] });
+
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}/evidence`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0].fileName).toBe("document.pdf");
+      expect(res.body.data[0].fileUrl).toBe(VALID_CID);
+      expect(res.body.data[0].gatewayUrl).toContain(VALID_CID);
+    });
+
+    it("200 — returns empty array when no evidence uploaded", async () => {
+      seedJob();
+      pool.query.mockResolvedValueOnce({ rows: [{ id: JOB_ID }] });
+      pool.query.mockResolvedValueOnce({ rows: [] });
+
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}/evidence`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([]);
+    });
+
+    it("404 — returns 404 when job not found", async () => {
+      const res = await request(app)
+        .get("/api/disputes/non-existent-job/evidence")
         .set("X-CSRF-Token", "dummy-token");
 
       expect(res.status).toBe(404);
@@ -510,6 +564,83 @@ describe("Dispute Routes Suite (/api/disputes)", () => {
 
       expect(res.status).toBe(403);
       expect(res.body.error).toMatch(/Token does not match/);
+    });
+  });
+
+  // ===========================================================================
+  // 6. DELETE /api/disputes/:jobId/evidence/:hash — delete evidence by CID
+  // ===========================================================================
+  describe("DELETE /api/disputes/:jobId/evidence/:hash", () => {
+    it("200 — happy path: uploader deletes their evidence", async () => {
+      seedJob();
+      pool.query.mockResolvedValueOnce({ rows: [{ id: JOB_ID }] });
+      pool.query.mockResolvedValueOnce({
+        rows: [{ id: EVIDENCE_ID, uploader_address: CLIENT_ADDRESS }],
+      });
+
+      const res = await request(app)
+        .delete(`/api/disputes/${JOB_ID}/evidence/${VALID_CID}`)
+        .set("Authorization", `Bearer ${makeToken(CLIENT_ADDRESS)}`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toEqual({ jobId: JOB_ID, hash: VALID_CID, deleted: true });
+      // DELETE FROM dispute_evidence issued with the evidence id
+      const deleteCall = pool.query.mock.calls.find(([sql]) =>
+        String(sql).includes("DELETE FROM dispute_evidence"),
+      );
+      expect(deleteCall).toBeDefined();
+      expect(deleteCall[1]).toEqual([EVIDENCE_ID]);
+    });
+
+    it("401 — rejects when no JWT is supplied", async () => {
+      const res = await request(app)
+        .delete(`/api/disputes/${JOB_ID}/evidence/${VALID_CID}`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toMatch(/Unauthorized/);
+    });
+
+    it("403 — rejects when the requester is not the uploader", async () => {
+      seedJob();
+      pool.query.mockResolvedValueOnce({ rows: [{ id: JOB_ID }] });
+      pool.query.mockResolvedValueOnce({
+        rows: [{ id: EVIDENCE_ID, uploader_address: CLIENT_ADDRESS }],
+      });
+
+      const res = await request(app)
+        .delete(`/api/disputes/${JOB_ID}/evidence/${VALID_CID}`)
+        .set("Authorization", `Bearer ${makeToken(OTHER_ADDRESS)}`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/uploader/);
+    });
+
+    it("404 — returns 404 when job not found", async () => {
+      const res = await request(app)
+        .delete(`/api/disputes/non-existent-job/evidence/${VALID_CID}`)
+        .set("Authorization", `Bearer ${makeToken()}`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toMatch(/Job not found/);
+    });
+
+    it("404 — returns 404 when evidence hash not found", async () => {
+      seedJob();
+      pool.query.mockResolvedValueOnce({ rows: [{ id: JOB_ID }] });
+      pool.query.mockResolvedValueOnce({ rows: [] });
+
+      const res = await request(app)
+        .delete(`/api/disputes/${JOB_ID}/evidence/${VALID_CID}`)
+        .set("Authorization", `Bearer ${makeToken(CLIENT_ADDRESS)}`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toMatch(/Evidence not found/);
     });
   });
 });
