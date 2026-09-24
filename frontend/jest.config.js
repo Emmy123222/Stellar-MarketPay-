@@ -16,7 +16,7 @@ const customJestConfig = {
     "^@/(.*)$": "<rootDir>/$1",
   },
   transformIgnorePatterns: [
-    "/node_modules/(?!(.*/node_modules/)?(@stellar|@exodus|@noble|uint8array-extras|eventsource|smol-toml|isomorphic-dompurify|dompurify|uuid|@react-pdf|react-pdf)/)",
+    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|@react-pdf|@react-pdf/renderer|react-pdf)/)",
   ],
 };
 

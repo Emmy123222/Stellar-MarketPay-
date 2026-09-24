@@ -26,7 +26,7 @@
     "@react-pdf/renderer": "^4.9.0",
     "@simplewebauthn/browser": "^9.0.1",
     "@stellar/freighter-api": "^2.0.0",
-    "@stellar/stellar-sdk": "^17.1.0",
+    "@stellar/stellar-sdk": "^15.1.0",
     "@tanstack/react-virtual": "^3.14.9",
     "@types/qrcode.react": "^1.0.5",
     "@vercel/og": "^0.11.1",
