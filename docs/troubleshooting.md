@@ -880,7 +880,7 @@ curl -X POST https://api.pinata.cloud/pinning/pinFileToIPFS \
 **Related Files**:
 - `frontend/lib/pinata.ts`
 - `frontend/components/DisputeEvidenceUpload.tsx`
-- `docs/PINATA_IPFS_SETUP.md`
+- `docs/ipfs-setup.md`
 
 ---
 
