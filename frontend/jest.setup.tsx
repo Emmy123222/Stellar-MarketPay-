@@ -76,3 +76,5 @@ jest.mock("@react-pdf/renderer", () => ({
   Page: ({ children }: any) => children,
   BlobProvider: ({ children }: any) => children({ blob: new Blob(), url: "" }),
 }));
+
+HTMLCanvasElement.prototype.getContext = jest.fn() as any;

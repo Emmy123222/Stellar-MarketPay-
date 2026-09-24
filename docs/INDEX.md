@@ -235,13 +235,13 @@ Decisions that shaped Stellar MarketPay's architecture:
 stellar-marketpay/
 ├── docs/
 │   ├── INDEX.md (this file)
-│   ├── ADR-001-soroban-escrow-design.md
-│   ├── ADR-002-horizon-api-indexing.md
-│   ├── ADR-003-database-schema-escrow.md
+│   ├── adr/adr-001-soroban-escrow-design.md
+│   ├── adr/adr-002-horizon-api-indexing.md
+│   ├── adr/adr-003-database-schema-escrow.md
 │   ├── FAQ.md
-│   ├── PINATA_IPFS_SETUP.md
+│   ├── ipfs-setup.md
 │   ├── architecture.md
-│   ├── API_DOCUMENTATION.md
+│   ├── api-documentation.md
 │   ├── api.md
 │   ├── deployment.md
 │   └── getting-started.md

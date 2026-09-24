@@ -2,6 +2,7 @@
 
 const crypto = require("crypto");
 const pool = require("../db/pool");
+const { auditQueue } = require("../utils/queue");
 
 function normalizeLabel(label) {
   if (typeof label !== "string") return "Developer key";
@@ -96,12 +97,17 @@ async function rotateApiKey(ownerPublicKey, keyId) {
 
   if (!rows.length) return null;
 
-  await pool.query(
-    `INSERT INTO audit_logs (actor_address, action, target, metadata)
-     VALUES ($1, 'api_key_rotated', $2,
-             $3::jsonb)`,
-    [ownerPublicKey, String(keyId), JSON.stringify({ keyId, rotatedAt: new Date().toISOString() })]
-  );
+  auditQueue
+    .add({
+      type: "audit_log",
+      payload: {
+        actorAddress: ownerPublicKey,
+        action: "api_key_rotated",
+        target: String(keyId),
+        metadata: { keyId, rotatedAt: new Date().toISOString() },
+      },
+    })
+    .catch(() => {});
 
   return {
     apiKey: newApiKey,
@@ -121,12 +127,17 @@ async function finalizeExpiredRotations() {
   );
 
   for (const row of rows) {
-    await pool.query(
-      `INSERT INTO audit_logs (actor_address, action, target, metadata)
-       VALUES ($1, 'api_key_rotation_finalized', $2,
-               $3::jsonb)`,
-      [row.owner_public_key, String(row.id), JSON.stringify({ keyId: row.id, finalizedAt: new Date().toISOString() })]
-    );
+    auditQueue
+      .add({
+        type: "audit_log",
+        payload: {
+          actorAddress: row.owner_public_key,
+          action: "api_key_rotation_finalized",
+          target: String(row.id),
+          metadata: { keyId: row.id, finalizedAt: new Date().toISOString() },
+        },
+      })
+      .catch(() => {});
   }
 
   return rows;
