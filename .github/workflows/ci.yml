@@ -310,6 +310,9 @@ jobs:
         run: cargo test
         continue-on-error: true
 
+      - name: Property-based tests (milestone percentages)
+        run: cargo test --features proptest milestone_pct_proptests
+
       - name: Release WASM build
         run: cargo build --target wasm32v1-none --release
         continue-on-error: true

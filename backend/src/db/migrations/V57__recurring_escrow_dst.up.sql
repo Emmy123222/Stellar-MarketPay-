@@ -1,0 +1,2 @@
+ALTER TABLE escrows
+  ADD COLUMN IF NOT EXISTS next_billing_date TIMESTAMPTZ;
