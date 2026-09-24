@@ -6,3 +6,7 @@
 # Example:
 # # Ignored because it only affects devDependencies and is mitigated in our runtime
 # CVE-2021-3807
+# CVE-2026-77465 affects toml-node 4.2.0.
+# Temporary exception: package is development-only and is not included in production artifacts.
+# Remove after the upstream dependency publishes a fixed release.
+CVE-2026-77465
