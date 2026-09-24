@@ -42,6 +42,7 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  transpilePackages: ["@stellar/stellar-sdk", "@stellar/js-xdr", "uint8array-extras"],
   reactStrictMode: true,
   typescript: {
     ignoreBuildErrors: true,
