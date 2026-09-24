@@ -1,16 +1,8 @@
 import "@testing-library/jest-dom";
 import "jest-axe/extend-expect";
-import { TextDecoder, TextEncoder } from "util";
+import { TextEncoder, TextDecoder } from "util";
 
-// jsdom does not expose the WHATWG TextEncoder/TextDecoder globals, but
-// components that hash payloads with WebCrypto (e.g. ApplicationForm's sealed
-// bid commitment) rely on them.
-if (typeof global.TextEncoder === "undefined") {
-  (global as unknown as { TextEncoder: typeof TextEncoder }).TextEncoder = TextEncoder;
-}
-if (typeof global.TextDecoder === "undefined") {
-  (global as unknown as { TextDecoder: typeof TextDecoder }).TextDecoder = TextDecoder;
-}
+Object.assign(global, { TextDecoder, TextEncoder });
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,
