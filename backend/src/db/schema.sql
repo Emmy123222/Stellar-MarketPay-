@@ -301,6 +301,7 @@ CREATE TABLE IF NOT EXISTS escrows (
   status              TEXT        NOT NULL DEFAULT 'funded',   -- funded | released | refunded | timeout_refunded
   released_at         TIMESTAMPTZ,                 -- When the escrow was released
   timeout_at          TIMESTAMPTZ,                 -- Issue #175: Ledger timeout mapped to wall-clock (approx)
+  next_billing_date   TIMESTAMPTZ,                 -- Issue #1453: DST-aware recurring billing date
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -664,3 +665,61 @@ CREATE INDEX IF NOT EXISTS usdc_auto_conversions_pending_idx
   ON usdc_auto_conversions (user_address) WHERE status = 'pending';
 CREATE UNIQUE INDEX IF NOT EXISTS usdc_auto_conversions_tx_hash_idx
   ON usdc_auto_conversions (tx_hash) WHERE tx_hash IS NOT NULL;
+
+-- ─────────────────────────────────────────
+-- Issue #232: stats endpoint query optimization (V57)
+-- B-tree indexes for COUNT(*) status filters and a materialized view that
+-- pre-computes platform stats so reads never touch base tables.
+-- ─────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_jobs_status
+  ON jobs (status)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status_completed
+  ON jobs (status)
+  WHERE status = 'completed' AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status_cancelled
+  ON jobs (status)
+  WHERE status = 'cancelled' AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_applications_status
+  ON applications (status);
+
+CREATE INDEX IF NOT EXISTS idx_escrows_status
+  ON escrows (status);
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS platform_stats_mv AS
+  SELECT
+    COUNT(*)                                                    AS total_jobs,
+    COUNT(DISTINCT client_address)                              AS total_clients,
+    COUNT(DISTINCT freelancer_address)
+      FILTER (WHERE freelancer_address IS NOT NULL)             AS total_freelancers,
+    (
+      SELECT COUNT(DISTINCT public_key)
+      FROM   profiles
+      WHERE  completed_jobs > 0 OR role = 'client'
+    )                                                           AS active_users,
+    COALESCE(
+      (SELECT SUM(amount_xlm) FROM escrows WHERE status = 'funded'),
+      0
+    )                                                           AS total_escrow_xlm,
+    COALESCE(
+      AVG(budget) FILTER (WHERE status IN ('assigned', 'in_progress', 'completed')),
+      0
+    )                                                           AS avg_job_budget,
+    COALESCE(
+      COUNT(*) FILTER (WHERE status = 'completed') * 100.0 /
+      NULLIF(
+        COUNT(*) FILTER (WHERE status IN ('completed', 'cancelled')),
+        0
+      ),
+      0
+    )                                                           AS completion_rate,
+    NOW()                                                       AS refreshed_at
+  FROM jobs
+  WHERE deleted_at IS NULL
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS platform_stats_mv_singleton_idx
+  ON platform_stats_mv ((1));

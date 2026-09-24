@@ -1,5 +1,8 @@
 import "@testing-library/jest-dom";
 import "jest-axe/extend-expect";
+import { TextEncoder, TextDecoder } from "util";
+
+Object.assign(global, { TextDecoder, TextEncoder });
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,
@@ -69,3 +72,5 @@ jest.mock("@react-pdf/renderer", () => ({
   Page: ({ children }: any) => children,
   BlobProvider: ({ children }: any) => children({ blob: new Blob(), url: "" }),
 }));
+
+HTMLCanvasElement.prototype.getContext = jest.fn() as any;
