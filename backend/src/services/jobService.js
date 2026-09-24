@@ -17,6 +17,17 @@ function isTimezoneCompatible(jobTimezone, userTimezone) {
   if (!jobTimezone) return true;
   if (!userTimezone) return true;
 
+  try {
+    const now = new Date();
+    const userOffset = getTimezoneOffset(userTimezone, now);
+    const jobOffset = getTimezoneOffset(jobTimezone, now);
+    const diffHours = Math.abs(userOffset - jobOffset) / (1000 * 60 * 60);
+    return diffHours <= 3;
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Input shape accepted by {@link createJob}.
  *
@@ -50,7 +61,7 @@ const VALID_STATUSES = [
   "disputed",
 ];
 
-// Single-pass skill aggregation via LEFT JOIN Ã¢â‚¬â€ eliminates the correlated
+// Single-pass skill aggregation via LEFT JOIN — eliminates the correlated
 // subquery that previously ran once per job row (N+1 pattern).
 const JOB_SELECT_CLAUSE = `
   SELECT jobs.*,
@@ -81,11 +92,11 @@ const VALID_CATEGORIES = [
 ];
 
 /**
- * Throws a 400 Error when `key` is not a valid Stellar G-address.
+ * Normalize milestone rows to a consistent shape.
  *
- * @param {string} key  Stellar account public key.
- * @returns {void}
- * @throws {Error}      `status === 400` if the key fails the G-address regex.
+ * @param {Array} milestones
+ * @param {string|number} budget
+ * @returns {Array}
  */
 function normalizeMilestoneRows(milestones, budget) {
   const fallbackAmount = parseFloat(budget || 0).toFixed(7);
@@ -110,6 +121,14 @@ function normalizeMilestoneRows(milestones, budget) {
   }));
 }
 
+/**
+ * Validate and normalize milestones.
+ *
+ * @param {Array} milestones
+ * @param {string|number} budget
+ * @returns {Array}
+ * @throws {Error} 400 — when milestones are invalid.
+ */
 function validateMilestones(milestones, budget) {
   const numericBudget = parseFloat(budget);
   if (!Array.isArray(milestones) || milestones.length === 0) {
@@ -159,6 +178,13 @@ function validateMilestones(milestones, budget) {
   return safeMilestones;
 }
 
+/**
+ * Throws a 400 Error when `key` is not a valid Stellar G-address.
+ *
+ * @param {string} key  Stellar account public key.
+ * @returns {void}
+ * @throws {Error}      `status === 400` if the key fails the G-address regex.
+ */
 function validatePublicKey(key) {
   if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
     const e = new Error("Invalid Stellar public key");
@@ -213,131 +239,6 @@ function rowToJob(row) {
     descriptionHeadline: row.headline_description || null,
   };
 }
-
-/**
- * @typedef {Object} CreateJobInput
- * @property {string} title - The title of the job (min 10 characters).
- * @property {string} description - The detailed description of the job (min 30 characters).
- * @property {string|number} budget - The positive budget amount for the job.
- * @property {string} [currency='XLM'] - The currency, either 'XLM' or 'USDC'.
- * @property {string} category - The category of the job (must be a valid category).
- * @property {string[]} [skills] - Array of relevant skills (max 8).
- * @property {Date|string} [deadline] - The deadline for the job.
- * @property {string} clientAddress - The Stellar public key of the client.
- */
-
-/**
- * Create a new job listing.
- * Note: client's profile row must already exist (FK constraint).
- *
- * @param {CreateJobInput} params - The parameters to create a job.
- * @returns {Promise<Object>} The created job object.
- * @throws {Error} If validation fails or client profile doesn't exist.
- *
- * @example
- * const newJob = await jobService.createJob({
- *   title: 'Build a Smart Contract',
- *   description: 'Need a developer to build a Soroban smart contract for an escrow service.',
- *   budget: 500,
- *   currency: 'USDC',
- *   category: 'Smart Contracts',
- *   skills: ['Soroban', 'Rust'],
- *   clientAddress: 'GBX...',
- * });
- */
-let createJob = async function ({
-  title,
-  description,
-  budget,
-  currency,
-  category,
-  categorySlug,
-  skills,
-  deadline,
-  timezone,
-  clientAddress,
-  screeningQuestions,
-  milestones,
-  visibility = "public",
-}) {
-  validatePublicKey(clientAddress);
-
-  if (!title || title.length < 10) {
-    const e = new Error("Title must be at least 10 characters");
-    e.status = 400;
-    throw e;
-  }
-  if (!description || description.length < 30) {
-    const e = new Error("Description must be at least 30 characters");
-    e.status = 400;
-    throw e;
-  }
-  const numericBudget = parseFloat(budget);
-  if (budget === undefined || budget === null || isNaN(numericBudget) || numericBudget <= 0) {
-    const e = new Error("Budget must be a positive number");
-    e.status = 400;
-    throw e;
-  }
-  if (!currency || !["XLM", "USDC"].includes(currency)) {
-    const e = new Error("Currency must be XLM or USDC");
-    e.status = 400;
-    throw e;
-  }
-  // Resolve category: accept either a slug (e.g. "frontend-development") or a legacy name.
-  // categorySlug takes precedence; falls back to category name lookup.
-  const categoryLookupVal = categorySlug || category;
-  let resolvedCategoryId = null;
-  let resolvedCategoryName = category;
-
-  if (categoryLookupVal) {
-    const { rows: catRows } = await pool.query(
-      "SELECT id, name FROM categories WHERE slug = $1 OR LOWER(name) = LOWER($2) LIMIT 1",
-      [categoryLookupVal, categoryLookupVal],
-    );
-    if (catRows.length) {
-      resolvedCategoryId = catRows[0].id;
-      resolvedCategoryName = catRows[0].name;
-    }
-  }
-
-  // Still validate against VALID_CATEGORIES for backward-compat when no DB match found
-  if (!resolvedCategoryId && !VALID_CATEGORIES.includes(category)) {
-    const e = new Error("Invalid category");
-    e.status = 400;
-    throw e;
-  }
-
-  const jobVisibility = visibility || "public";
-  if (!["public", "private", "invite_only"].includes(jobVisibility)) {
-    const e = new Error("Visibility must be public, private, or invite_only");
-    e.status = 400;
-    throw e;
-  }
-
-  const safeSkills = Array.isArray(skills)
-    ? skills
-        .slice(0, 8)
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
-  const safeScreeningQuestions = Array.isArray(screeningQuestions)
-    ? screeningQuestions.slice(0, 5).filter((q) => q && q.trim().length > 0)
-    : [];
-  const safeMilestones = validateMilestones(milestones, budget);
-
-  const client = await pool.connect();
-  let job;
-  try {
-    const now = new Date();
-    const userOffset = getTimezoneOffset(userTimezone, now);
-    const jobOffset = getTimezoneOffset(jobTimezone, now);
-    const diffHours = Math.abs(userOffset - jobOffset) / (1000 * 60 * 60);
-    return diffHours <= 3;
-  } catch {
-    return true;
-  }
-}
-
 
 // Provide a lightweight in-memory implementation for tests to avoid requiring
 // a running Postgres instance. The test-suite imports `jobService` and
@@ -485,14 +386,13 @@ if (process.env.NODE_ENV === 'test') {
 } else {
   const pool = require("../db/pool");
 
-
   /**
    * Camel-cased job record returned by this service.
    *
    * @typedef {Object} Job
    * @property {string}   id                  UUID of the job.
-   * @property {string}   title               Job title (Ã¢â€°Â¥10 chars).
-   * @property {string}   description         Job description (Ã¢â€°Â¥30 chars).
+   * @property {string}   title               Job title (≥10 chars).
+   * @property {string}   description         Job description (≥30 chars).
    * @property {string}   budget              Budget as a fixed-point string (e.g. "500.0000000").
    * @property {("XLM"|"USDC")} currency      Payment currency.
    * @property {string}   category            One of {@link VALID_CATEGORIES}.
@@ -633,7 +533,7 @@ if (process.env.NODE_ENV === 'test') {
    *
    * @param {CreateJobInput} input
    * @returns {Promise<Job>}  The newly persisted job.
-   * @throws {Error} 400 Ã¢â‚¬â€ when title/description/budget/category/currency fail validation.
+   * @throws {Error} 400 — when title/description/budget/category/currency fail validation.
    *
    * @example
    * const job = await createJob({
@@ -727,7 +627,7 @@ if (process.env.NODE_ENV === 'test') {
    *
    * @param {string} id  UUID of the job.
    * @returns {Promise<Job>}
-   * @throws {Error} 404 Ã¢â‚¬â€ when no job with this id exists.
+   * @throws {Error} 404 — when no job with this id exists.
    */
   async function getJob(id) {
     const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [id]);
@@ -759,7 +659,7 @@ if (process.env.NODE_ENV === 'test') {
    *
    * @param {string} cursor  Base64-encoded JSON cursor.
    * @returns {{ createdAt: string, id: string }}
-   * @throws {Error} 400 Ã¢â‚¬â€ when the cursor cannot be parsed.
+   * @throws {Error} 400 — when the cursor cannot be parsed.
    */
   function decodeCursor(cursor) {
     try {
@@ -774,162 +674,143 @@ if (process.env.NODE_ENV === 'test') {
   }
 
   /**
-   * Page through jobs, with optional filtering and ordering.
+   * List jobs with optional filtering, searching, and pagination.
    *
-   * Boosted (Featured) listings sort first; ties break on `created_at DESC, id DESC`.
-   * Cursor pagination is keyset-based Ã¢â‚¬â€ pass {@link JobListPage.nextCursor} from the
-   * previous page to fetch the next slice.
-   *
-   * @param {Object}  [opts]
-   * @param {string}  [opts.category]               Restrict to a category from {@link VALID_CATEGORIES}.
-   * @param {("open"|"in_progress"|"completed"|"cancelled")} [opts.status="open"]
-   * @param {number}  [opts.limit=50]               Page size (clamped to 1..100).
-   * @param {string}  [opts.search]                 Substring search over title, description, and skills.
-   * @param {string}  [opts.cursor]                 Opaque cursor from the previous page.
-   * @param {string}  [opts.timezone]               IANA timezone of the viewer; only jobs whose
-   *                                                timezone is within Ã‚Â±3h are returned.
-   * @returns {Promise<JobListPage>}
-   * @throws {Error} 400 Ã¢â‚¬â€ when `cursor` is malformed.
+   * @param {Object} [options={}] - Options for listing jobs.
+   * @returns {Promise<{jobs: Object[], nextCursor: string|null, hasMore: boolean}>} An object containing the list of jobs, an optional next cursor for pagination, and whether more results exist.
+   * @throws {Error} If the provided cursor is invalid.
    */
+  async function listJobs({
+    category,
+    status = "open",
+    limit = 20,
+    search,
+    cursor,
+    timezone,
+    viewerAddress,
+    includeExpired,
+    includeDeleted = false,
+    min_budget,
+    max_budget,
+    skills,
+    min_client_rating,
+    duration,
+    posted_since,
+    max_applications,
+  } = {}) {
+    const conditions = [];
+    const params = [];
+    let selectColumns = "jobs.*";
+    let orderClause = `CASE WHEN boosted = true AND (boosted_until IS NULL OR boosted_until > NOW()) THEN 0 ELSE 1 END, created_at DESC, id DESC`;
 
-/**
- * List jobs with optional filtering, searching, and pagination.
- *
- * @param {ListJobsOptions} [options={}] - Options for listing jobs.
- * @returns {Promise<{jobs: Object[], nextCursor: string|null, hasMore: boolean}>} An object containing the list of jobs, an optional next cursor for pagination, and whether more results exist.
- * @throws {Error} If the provided cursor is invalid.
- */
-async function listJobs({
-  category,
-  status = "open",
-  limit = 20,
-  search,
-  cursor,
-  // eslint-disable-next-line no-unused-vars
-  timezone,
-  viewerAddress,
-  includeExpired,
-  includeDeleted = false,
-  min_budget,
-  max_budget,
-  skills,
-  min_client_rating,
-  duration,
-  posted_since,
-  max_applications,
-} = {}) {
-  const conditions = [];
-  const params = [];
-  let selectColumns = "jobs.*";
-  let orderClause = `CASE WHEN boosted = true AND (boosted_until IS NULL OR boosted_until > NOW()) THEN 0 ELSE 1 END, created_at DESC, id DESC`;
+    if (search && search.trim()) {
+      params.push(search.trim());
+      const searchIdx = params.length;
+      selectColumns = `jobs.*,
+        ts_rank(search_vector, websearch_to_tsquery('english', $${searchIdx})) AS rank,
+        ts_headline(title, websearch_to_tsquery('english', $${searchIdx}),
+          'StartSel=<mark>,StopSel=</mark>,MaxWords=50,MinWords=20') AS headline_title,
+        ts_headline(description, websearch_to_tsquery('english', $${searchIdx}),
+          'StartSel=<mark>,StopSel=</mark>,MaxWords=80,MinWords=30') AS headline_description`;
+      conditions.push(
+        `search_vector @@ websearch_to_tsquery('english', $${searchIdx})`,
+      );
+      orderClause = `rank DESC, ${orderClause}`;
+    }
 
-  if (search && search.trim()) {
-    params.push(search.trim());
-    const searchIdx = params.length;
-    selectColumns = `jobs.*,
-      ts_rank(search_vector, websearch_to_tsquery('english', $${searchIdx})) AS rank,
-      ts_headline(title, websearch_to_tsquery('english', $${searchIdx}),
-        'StartSel=<mark>,StopSel=</mark>,MaxWords=50,MinWords=20') AS headline_title,
-      ts_headline(description, websearch_to_tsquery('english', $${searchIdx}),
-        'StartSel=<mark>,StopSel=</mark>,MaxWords=80,MinWords=30') AS headline_description`;
-    conditions.push(
-      `search_vector @@ websearch_to_tsquery('english', $${searchIdx})`,
-    );
-    orderClause = `rank DESC, ${orderClause}`;
-  }
+    if (!includeDeleted) {
+      conditions.push("deleted_at IS NULL");
+    }
 
-  if (!includeDeleted) {
-    conditions.push("deleted_at IS NULL");
-  }
+    if (status && status !== "all") {
+      params.push(status);
+      conditions.push(`status = $${params.length}`);
+    } else if (!includeExpired) {
+      conditions.push("status != 'expired'");
+    }
 
-  if (status && status !== "all") {
-    params.push(status);
-    conditions.push(`status = $${params.length}`);
-  } else if (!includeExpired) {
-    conditions.push("status != 'expired'");
-  }
+    if (category) {
+      params.push(category);
+      // Support slug (e.g. 'frontend-development') OR legacy name (e.g. 'Frontend Development')
+      conditions.push(`(
+        EXISTS (SELECT 1 FROM categories c WHERE c.id = jobs.category_id AND (c.slug = $${params.length} OR LOWER(c.name) = LOWER($${params.length})))
+        OR jobs.category = $${params.length}
+      )`);
+    }
 
-  if (category) {
-    params.push(category);
-    // Support slug (e.g. 'frontend-development') OR legacy name (e.g. 'Frontend Development')
-    conditions.push(`(
-      EXISTS (SELECT 1 FROM categories c WHERE c.id = jobs.category_id AND (c.slug = $${params.length} OR LOWER(c.name) = LOWER($${params.length})))
-      OR jobs.category = $${params.length}
-    )`);
-  }
+    const minBudget = parseFloat(min_budget);
+    if (!Number.isNaN(minBudget)) {
+      params.push(minBudget);
+      conditions.push(`budget >= $${params.length}`);
+    }
 
-  const minBudget = parseFloat(min_budget);
-  if (!Number.isNaN(minBudget)) {
-    params.push(minBudget);
-    conditions.push(`budget >= $${params.length}`);
-  }
+    const maxBudget = parseFloat(max_budget);
+    if (!Number.isNaN(maxBudget)) {
+      params.push(maxBudget);
+      conditions.push(`budget <= $${params.length}`);
+    }
 
-  const maxBudget = parseFloat(max_budget);
-  if (!Number.isNaN(maxBudget)) {
-    params.push(maxBudget);
-    conditions.push(`budget <= $${params.length}`);
-  }
+    const skillList = String(skills || "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (skillList.length > 0) {
+      // Use the GIN-indexed skills column with the overlap operator (&&) for index scan
+      // Issue #540: jobs.skills TEXT[] + GIN index replaces sequential join scan
+      params.push(skillList);
+      conditions.push(`jobs.skills && $${params.length}::text[]`);
+    }
 
-  const skillList = String(skills || "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-  if (skillList.length > 0) {
-    // Use the GIN-indexed skills column with the overlap operator (&&) for index scan
-    // Issue #540: jobs.skills TEXT[] + GIN index replaces sequential join scan
-    params.push(skillList);
-    conditions.push(`jobs.skills && $${params.length}::text[]`);
-  }
+    const minRating = parseFloat(min_client_rating);
+    if (!Number.isNaN(minRating)) {
+      params.push(minRating);
+      conditions.push(
+        `EXISTS (
+           SELECT 1 FROM profiles p
+           WHERE p.public_key = jobs.client_address
+             AND COALESCE(p.rating, 0) >= $${params.length}
+         )`,
+      );
+    }
 
-  const minRating = parseFloat(min_client_rating);
-  if (!Number.isNaN(minRating)) {
-    params.push(minRating);
-    conditions.push(
-      `EXISTS (
-         SELECT 1 FROM profiles p
-         WHERE p.public_key = jobs.client_address
-           AND COALESCE(p.rating, 0) >= $${params.length}
-       )`,
-    );
-  }
+    if (duration === "short") {
+      conditions.push(
+        "deadline IS NOT NULL AND deadline <= created_at + INTERVAL '7 days'",
+      );
+    } else if (duration === "medium") {
+      conditions.push(
+        "deadline IS NOT NULL AND deadline > created_at + INTERVAL '7 days' AND deadline <= created_at + INTERVAL '28 days'",
+      );
+    } else if (duration === "long") {
+      conditions.push(
+        "deadline IS NOT NULL AND deadline > created_at + INTERVAL '28 days'",
+      );
+    }
 
-  if (duration === "short") {
-    conditions.push(
-      "deadline IS NOT NULL AND deadline <= created_at + INTERVAL '7 days'",
-    );
-  } else if (duration === "medium") {
-    conditions.push(
-      "deadline IS NOT NULL AND deadline > created_at + INTERVAL '7 days' AND deadline <= created_at + INTERVAL '28 days'",
-    );
-  } else if (duration === "long") {
-    conditions.push(
-      "deadline IS NOT NULL AND deadline > created_at + INTERVAL '28 days'",
-    );
-  }
+    if (posted_since === "today") {
+      conditions.push("created_at >= date_trunc('day', NOW())");
+    } else if (posted_since === "week") {
+      conditions.push("created_at >= NOW() - INTERVAL '7 days'");
+    } else if (posted_since === "month") {
+      conditions.push("created_at >= NOW() - INTERVAL '30 days'");
+    }
 
-  if (posted_since === "today") {
-    conditions.push("created_at >= date_trunc('day', NOW())");
-  } else if (posted_since === "week") {
-    conditions.push("created_at >= NOW() - INTERVAL '7 days'");
-  } else if (posted_since === "month") {
-    conditions.push("created_at >= NOW() - INTERVAL '30 days'");
-  }
+    const maxApps = parseInt(max_applications, 10);
+    if (!Number.isNaN(maxApps)) {
+      params.push(maxApps);
+      conditions.push(`applicant_count <= $${params.length}`);
+    }
 
-  const maxApps = parseInt(max_applications, 10);
-  if (!Number.isNaN(maxApps)) {
-    params.push(maxApps);
-    conditions.push(`applicant_count <= $${params.length}`);
-  }
-  if (viewerAddress && /^G[A-Z0-9]{55}$/.test(viewerAddress)) {
-    params.push(viewerAddress);
-    const viewerIdx = params.length;
-    conditions.push(
-      `(visibility = 'public'
-        OR client_address = $${viewerIdx}
-        OR (visibility = 'invite_only' AND EXISTS (
-          SELECT 1 FROM job_invitations ji
-          WHERE ji.job_id = jobs.id AND ji.freelancer_address = $${viewerIdx}
-        )))`
+    if (viewerAddress && /^G[A-Z0-9]{55}$/.test(viewerAddress)) {
+      params.push(viewerAddress);
+      const viewerIdx = params.length;
+      conditions.push(
+        `(visibility = 'public'
+          OR client_address = $${viewerIdx}
+          OR (visibility = 'invite_only' AND EXISTS (
+            SELECT 1 FROM job_invitations ji
+            WHERE ji.job_id = jobs.id AND ji.freelancer_address = $${viewerIdx}
+          )))`
       );
     } else {
       conditions.push("visibility = 'public'");
@@ -976,7 +857,7 @@ async function listJobs({
    *
    * @param {string} clientAddress  Stellar G-address of the client.
    * @returns {Promise<Job[]>}
-   * @throws {Error} 400 Ã¢â‚¬â€ invalid Stellar public key.
+   * @throws {Error} 400 — invalid Stellar public key.
    */
   async function listJobsByClient(clientAddress) {
     validatePublicKey(clientAddress);
@@ -993,8 +874,8 @@ async function listJobs({
    * @param {string} id      UUID of the job.
    * @param {("open"|"in_progress"|"completed"|"cancelled")} status
    * @returns {Promise<Job>}
-   * @throws {Error} 400 Ã¢â‚¬â€ invalid status.
-   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
+   * @throws {Error} 400 — invalid status.
+   * @throws {Error} 404 — job not found.
    */
   async function updateJobStatus(id, status) {
     if (!VALID_STATUSES.includes(status)) {
@@ -1023,8 +904,8 @@ async function listJobs({
    * @param {string} jobId              UUID of the job.
    * @param {string} freelancerAddress  Stellar G-address of the freelancer being hired.
    * @returns {Promise<Job>}
-   * @throws {Error} 400 Ã¢â‚¬â€ invalid freelancer public key.
-   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
+   * @throws {Error} 400 — invalid freelancer public key.
+   * @throws {Error} 404 — job not found.
    */
   async function assignFreelancer(jobId, freelancerAddress) {
     validatePublicKey(freelancerAddress);
@@ -1043,7 +924,7 @@ async function listJobs({
       throw e;
     }
 
-    return rows.map(rowToJob);
+    return rowToJob(rows[0]);
   }
 
   /**
@@ -1053,8 +934,8 @@ async function listJobs({
    * @param {string} jobId             UUID of the job.
    * @param {string} escrowContractId  Soroban contract id (or transaction hash).
    * @returns {Promise<Job>}
-   * @throws {Error} 400 Ã¢â‚¬â€ invalid escrow contract id.
-   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
+   * @throws {Error} 400 — invalid escrow contract id.
+   * @throws {Error} 404 — job not found.
    */
   async function updateJobEscrowId(jobId, escrowContractId) {
     if (!escrowContractId || typeof escrowContractId !== "string") {
@@ -1083,7 +964,7 @@ async function listJobs({
    *
    * @param {string} jobId  UUID of the job.
    * @returns {Promise<void>}
-   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
+   * @throws {Error} 404 — job not found.
    */
   async function deleteJob(jobId) {
     const { rowCount } = await pool.query("DELETE FROM jobs WHERE id = $1", [jobId]);
@@ -1099,13 +980,13 @@ async function listJobs({
    *
    * The route handler accepts a Stellar transaction hash from the client
    * (intended to record the 10 XLM platform fee), but on-chain verification
-   * of that payment has not yet been wired up Ã¢â‚¬â€ see the `TODO` in
+   * of that payment has not yet been wired up — see the `TODO` in
    * `routes/jobs.js`. The hash is therefore not consumed by this service
    * function today.
    *
    * @param {string} jobId  UUID of the job to boost.
    * @returns {Promise<Job>}
-   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
+   * @throws {Error} 404 — job not found.
    */
   async function boostJob(jobId) {
     // Verify job exists
@@ -1136,7 +1017,7 @@ async function listJobs({
    *
    * @param {string} jobId  UUID of the job.
    * @returns {Promise<Job>}
-   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
+   * @throws {Error} 404 — job not found.
    */
   async function incrementShareCount(jobId) {
     const { rows } = await pool.query(
@@ -1160,8 +1041,8 @@ async function listJobs({
    * @param {number} additionalDays  Number of days to add (e.g., 30).
    * @param {number} maxExtensions   Maximum allowed extensions (default 3).
    * @returns {Promise<Job>}
-   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
-   * @throws {Error} 400 Ã¢â‚¬â€ job already completed/cancelled or max extensions reached.
+   * @throws {Error} 404 — job not found.
+   * @throws {Error} 400 — job already completed/cancelled or max extensions reached.
    */
   async function extendJobExpiry(jobId, additionalDays, maxExtensions = 3) {
     const job = await getJob(jobId);
@@ -1339,5 +1220,4 @@ async function listJobs({
     getExpiringJobs,
     getJobAnalytics,
   };
-}
 }

@@ -267,10 +267,23 @@ describe("escrowService", () => {
       ).rejects.toThrow("Milestone already released");
     });
 
-    it("releases a selected milestone", async () => {
+    it("rejects releasing a later milestone before the prior one is released", async () => {
       getJob.mockResolvedValue(makeJob({
         milestones: [
           { description: "Design", amount: "200", status: "pending" },
+          { description: "Build", amount: "300", status: "pending" },
+        ],
+      }));
+
+      await expect(
+        releaseMilestone(JOB_ID, 1, CLIENT_ADDRESS, TX_HASH),
+      ).rejects.toThrow("Milestone 1 must be released before milestone 2 can be released");
+    });
+
+    it("releases a selected milestone", async () => {
+      getJob.mockResolvedValue(makeJob({
+        milestones: [
+          { description: "Design", amount: "200", status: "released" },
           { description: "Build", amount: "300", status: "pending" },
         ],
       }));

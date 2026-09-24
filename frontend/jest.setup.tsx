@@ -1,5 +1,8 @@
 import "@testing-library/jest-dom";
 import "jest-axe/extend-expect";
+import { TextEncoder, TextDecoder } from "util";
+
+Object.assign(global, { TextDecoder, TextEncoder });
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,

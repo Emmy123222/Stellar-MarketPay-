@@ -85,8 +85,8 @@ function removeAlert(cat: string): void {
 
 export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   const router = useRouter();
-  const { i18n } = useTranslation("common");
-  const t = (key: string): string => String(i18n.t(key));
+  const { t: rawT } = useTranslation("common");
+  const t = (key: string): string => String(rawT(key));
   const [jobs, setJobs] = useState<Job[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -1299,3 +1299,12 @@ function CategoryMiniIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+import { serverSideTranslations } from "next-i18next/serverSideTranslations";
+import type { GetStaticProps } from "next";
+export const getStaticProps: GetStaticProps = async ({ locale }) => {
+  return {
+    props: {
+      ...(await serverSideTranslations(locale ?? "en", ["common"])),
+    },
+  };
+};
