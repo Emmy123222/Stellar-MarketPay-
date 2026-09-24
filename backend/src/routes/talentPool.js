@@ -37,8 +37,13 @@ function isValidStellarKey(v) {
 
 function sanitizeNote(v) {
   if (v == null) return null;
-  // Strip any HTML/script tags and truncate
-  return String(v).replace(/<[^>]*>/g, "").slice(0, NOTE_MAX_LEN);
+  const escaped = String(v)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+  return escaped.slice(0, NOTE_MAX_LEN);
 }
 
 // GET /api/talent-pools
