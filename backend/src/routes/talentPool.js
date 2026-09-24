@@ -43,7 +43,7 @@ function sanitizeNote(v) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-  return escaped.slice(0, NOTE_MAX_LEN);
+  return escaped.slice(0, NOTE_MAX_LEN); 
 }
 
 // GET /api/talent-pools
