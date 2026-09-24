@@ -4,6 +4,7 @@ mod deliverable_oracle_tests;
 mod extension_tests;
 #[cfg(feature = "proptest")]
 mod milestone_pct_proptests;
+mod freeze_escrow_tests;
 mod milestone_pct_tests;
 mod message_tests;
 mod quorum_tests;
