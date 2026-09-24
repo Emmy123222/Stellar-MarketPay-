@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "cp public/sw.src.js public/sw.js && next dev --webpack",
-    "build": "next build --webpack",
+    "dev": "cp public/sw.src.js public/sw.js && next dev",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint .",
     "lint:ci": "eslint . --max-warnings=0",
@@ -16,7 +16,7 @@
     "test:e2e": "playwright test",
     "test:a11y": "playwright test accessibility",
     "audit:contrast": "node scripts/audit-contrast.mjs",
-    "analyze": "ANALYZE=true next build --webpack",
+    "analyze": "ANALYZE=true next build",
     "storybook": "storybook dev -p 6006",
     "storybook:build": "storybook build -o storybook-static",
     "i18n:check": "node scripts/check-translations.mjs --strict"
@@ -26,7 +26,7 @@
     "@react-pdf/renderer": "^4.9.0",
     "@simplewebauthn/browser": "^9.0.1",
     "@stellar/freighter-api": "^2.0.0",
-    "@stellar/stellar-sdk": "^12.0.0",
+    "@stellar/stellar-sdk": "^17.1.0",
     "@tanstack/react-virtual": "^3.14.9",
     "@types/qrcode.react": "^1.0.5",
     "@vercel/og": "^0.11.1",
@@ -39,7 +39,7 @@
     "i18next": "^26.3.6",
     "i18next-browser-languagedetector": "^8.2.1",
     "jsdom": "^26.1.0",
-    "next": "^14.2.35",
+    "next": "^14.2.3",
     "next-i18next": "^15.4.2",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
@@ -88,7 +88,7 @@
     "js-yaml": "^4.1.0",
     "serialize-javascript": "^7.0.3",
     "sharp": "^0.35.3",
-    "next": "$next",
+    "next": "^14.2.3",
     "eslint": "$eslint"
   }
 }
