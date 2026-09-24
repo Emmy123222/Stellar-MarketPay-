@@ -627,9 +627,13 @@ Mutual-consent extension of an escrow's timeout, requested by either participant
 |---|---|---|---|---|
 | `create_proposal` | `(env, proposer: Address, title: String, description: String, duration_ledgers: u32)` | `u32` (proposal id) | `proposer` | `DurationPositive (6001)`. Emits `proposed`. |
 | `cast_vote` | `(env, voter: Address, proposal_id: u32, approve: bool)` | `()` | `voter`, requires ≥ 1 completed job | `OnlyCompletedJobsCanVote (6005)`, `AlreadyVoted (6006)`, `VotingPeriodEnded (6004)`. Emits `voted`. |
-| `resolve_proposal` | `(env, proposal_id: u32)` | `()` | anyone, after the deadline | `VotingNotOver (6007)`. Sets `resolved = true`, `result = votes_for > votes_against`. Emits `resolved`. |
+| `resolve_proposal` | `(env, proposal_id: u32)` | `()` | anyone, after the deadline | `VotingNotOver (6007)`. Sets `resolved = true`, `result = quorum_met && votes_for > votes_against`, where `quorum_met` is `(votes_for + votes_against) * 10000 >= eligible_voters * quorum_threshold_bps`. Emits `resolved`. |
 | `get_proposal` | `(env, id: u32)` | `Proposal` | — | Full proposal record; `ProposalNotFound (6002)` |
 | `list_active_proposals` | `(env)` | `Vec<Proposal>` | — | All proposals with `resolved == false` |
+| `propose_quorum_change` | `(env, proposer: Address, new_threshold_bps: u32, description: String, duration_ledgers: u32)` | `u32` (proposal id) | `proposer` | Creates a regular proposal bound to `new_threshold_bps`. `QuorumExceedsMax (6009)` if > 5000. Emits `proposed` and `q_prop`. |
+| `set_quorum` | `(env, admin: Address, proposal_id: u32, new_threshold_bps: u32)` | `()` | admin | Applies the value from a **passed** quorum-change proposal (single use). `OnlyAdminSetQuorum (6008)`, `QuorumExceedsMax (6009)`, `QuorumProposalNotPassed (6010)`, `NoMatchingQuorumProposal (6011)`. Emits `quorum`. |
+| `get_quorum_threshold_bps` | `(env)` | `u32` | — | Current quorum in bps of eligible voters (default 1000 = 10%) |
+| `get_eligible_voter_count` | `(env)` | `u32` | — | Distinct addresses with ≥ 1 completed job (quorum denominator) |
 
 ---
 
@@ -887,6 +891,10 @@ Hash-based verification that client and freelancer agree the delivered work matc
 | 6005 | `OnlyCompletedJobsCanVote` | Only addresses with completed jobs can vote |
 | 6006 | `AlreadyVoted` | Already voted on this proposal |
 | 6007 | `VotingNotOver` | Voting period is not over yet |
+| 6008 | `OnlyAdminSetQuorum` | Only admin can set the quorum |
+| 6009 | `QuorumExceedsMax` | Quorum cannot exceed 50% (5000 bps) |
+| 6010 | `QuorumProposalNotPassed` | Quorum change proposal has not passed |
+| 6011 | `NoMatchingQuorumProposal` | No matching quorum change proposal |
 
 ### 7xxx — Disputes & Arbitration
 

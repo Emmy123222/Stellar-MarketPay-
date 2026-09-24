@@ -9,6 +9,7 @@
  */
 
 import { Transaction, rpc } from "@stellar/stellar-sdk";
+import { Transaction, rpc as SorobanRpc } from "@stellar/stellar-sdk";
 import { sorobanServer, NETWORK_PASSPHRASE } from "./stellar";
 import { parseContractError } from "./contractErrors";
 

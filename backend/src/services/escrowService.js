@@ -127,6 +127,18 @@ function validateMilestoneIndex(milestones, milestoneIndex) {
   return index;
 }
 
+function validateMilestoneReleaseOrder(milestones, milestoneIndex) {
+  for (let i = 0; i < milestoneIndex; i += 1) {
+    if (milestones[i]?.status !== "released") {
+      const e = new Error(
+        `Milestone ${i + 1} must be released before milestone ${milestoneIndex + 1} can be released`,
+      );
+      e.status = 400;
+      throw e;
+    }
+  }
+}
+
 async function releaseFunds(jobId, clientAddress, contractTxHash) {
   const job = await getJob(jobId);
   if (job.clientAddress !== clientAddress) {
@@ -425,6 +437,7 @@ async function releaseMilestone(jobId, milestoneIndex, clientAddress, contractTx
 
   const milestones = await getMilestonesForJob(jobId, job);
   const index = validateMilestoneIndex(milestones, milestoneIndex);
+  validateMilestoneReleaseOrder(milestones, index);
   const milestone = milestones[index];
 
   if (milestone.status === "released") {

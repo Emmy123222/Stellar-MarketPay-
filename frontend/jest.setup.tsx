@@ -7,6 +7,9 @@ import { TextDecoder, TextEncoder } from "node:util";
 // both CJS and VM-module loads behave as in a browser.
 global.TextEncoder = TextEncoder as unknown as typeof globalThis.TextEncoder;
 global.TextDecoder = TextDecoder as unknown as typeof globalThis.TextDecoder;
+import { TextEncoder, TextDecoder } from "util";
+
+Object.assign(global, { TextDecoder, TextEncoder });
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,
