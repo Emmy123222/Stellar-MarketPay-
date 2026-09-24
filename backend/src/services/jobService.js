@@ -3,7 +3,9 @@
  */
 "use strict";
 
-const { getTimezoneOffset } = require("date-fns-tz");/**
+const { getTimezoneOffset } = require("date-fns-tz");
+
+/**
  * Check if a job's timezone is compatible with the user's timezone.
  * Compatible if the time difference is within +/-3 hours.
  *
@@ -48,7 +50,7 @@ const VALID_STATUSES = [
   "disputed",
 ];
 
-// Single-pass skill aggregation via LEFT JOIN — eliminates the correlated
+// Single-pass skill aggregation via LEFT JOIN Ã¢â‚¬â€ eliminates the correlated
 // subquery that previously ran once per job row (N+1 pattern).
 const JOB_SELECT_CLAUSE = `
   SELECT jobs.*,
@@ -489,8 +491,8 @@ if (process.env.NODE_ENV === 'test') {
    *
    * @typedef {Object} Job
    * @property {string}   id                  UUID of the job.
-   * @property {string}   title               Job title (≥10 chars).
-   * @property {string}   description         Job description (≥30 chars).
+   * @property {string}   title               Job title (Ã¢â€°Â¥10 chars).
+   * @property {string}   description         Job description (Ã¢â€°Â¥30 chars).
    * @property {string}   budget              Budget as a fixed-point string (e.g. "500.0000000").
    * @property {("XLM"|"USDC")} currency      Payment currency.
    * @property {string}   category            One of {@link VALID_CATEGORIES}.
@@ -631,7 +633,7 @@ if (process.env.NODE_ENV === 'test') {
    *
    * @param {CreateJobInput} input
    * @returns {Promise<Job>}  The newly persisted job.
-   * @throws {Error} 400 — when title/description/budget/category/currency fail validation.
+   * @throws {Error} 400 Ã¢â‚¬â€ when title/description/budget/category/currency fail validation.
    *
    * @example
    * const job = await createJob({
@@ -725,7 +727,7 @@ if (process.env.NODE_ENV === 'test') {
    *
    * @param {string} id  UUID of the job.
    * @returns {Promise<Job>}
-   * @throws {Error} 404 — when no job with this id exists.
+   * @throws {Error} 404 Ã¢â‚¬â€ when no job with this id exists.
    */
   async function getJob(id) {
     const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [id]);
@@ -757,7 +759,7 @@ if (process.env.NODE_ENV === 'test') {
    *
    * @param {string} cursor  Base64-encoded JSON cursor.
    * @returns {{ createdAt: string, id: string }}
-   * @throws {Error} 400 — when the cursor cannot be parsed.
+   * @throws {Error} 400 Ã¢â‚¬â€ when the cursor cannot be parsed.
    */
   function decodeCursor(cursor) {
     try {
@@ -775,7 +777,7 @@ if (process.env.NODE_ENV === 'test') {
    * Page through jobs, with optional filtering and ordering.
    *
    * Boosted (Featured) listings sort first; ties break on `created_at DESC, id DESC`.
-   * Cursor pagination is keyset-based — pass {@link JobListPage.nextCursor} from the
+   * Cursor pagination is keyset-based Ã¢â‚¬â€ pass {@link JobListPage.nextCursor} from the
    * previous page to fetch the next slice.
    *
    * @param {Object}  [opts]
@@ -785,62 +787,10 @@ if (process.env.NODE_ENV === 'test') {
    * @param {string}  [opts.search]                 Substring search over title, description, and skills.
    * @param {string}  [opts.cursor]                 Opaque cursor from the previous page.
    * @param {string}  [opts.timezone]               IANA timezone of the viewer; only jobs whose
-   *                                                timezone is within ±3h are returned.
+   *                                                timezone is within Ã‚Â±3h are returned.
    * @returns {Promise<JobListPage>}
-   * @throws {Error} 400 — when `cursor` is malformed.
+   * @throws {Error} 400 Ã¢â‚¬â€ when `cursor` is malformed.
    */
-  async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone, viewerAddress } = {}) {
-    const conditions = [];
-    const params = [];
-
-    if (status) {
-      params.push(status);
-      conditions.push(`status = $${params.length}`);
-    }
-
-    if (category) {
-      params.push(category);
-      conditions.push(`category = $${params.length}`);
-    }
-
-    if (search) {
-      params.push(`%${search.toLowerCase()}%`);
-      const idx = params.length;
-      conditions.push(
-        `(LOWER(title) LIKE $${idx} OR LOWER(description) LIKE $${idx} OR EXISTS (
-         SELECT 1 FROM unnest(skills) s WHERE LOWER(s) LIKE $${idx}
-       ))`
-      );
-    }
-
-/**
- * Decode a base64 pagination cursor produced by {@link encodeCursor}.
- *
- * @param {string} cursor  Base64-encoded JSON cursor.
- * @returns {{ createdAt: string, id: string }}
- * @throws {Error} 400 — when the cursor cannot be parsed.
- */
-function decodeCursor(cursor) {
-  try {
-    const decoded = JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
-    if (!decoded.createdAt || !decoded.id) throw new Error("Invalid cursor");
-    return decoded;
-  } catch (_) {
-    const e = new Error("Invalid cursor");
-    e.status = 400;
-    throw e;
-  }
-}
-
-/**
- * @typedef {Object} ListJobsOptions
- * @property {string} [category] - Filter by job category.
- * @property {string} [status='open'] - Filter by job status.
- * @property {number} [limit=50] - Max number of results to return (max 100).
- * @property {string} [search] - Search term for title, description, or skills.
- * @property {string} [cursor] - Pagination cursor.
- * @property {string} [timezone] - Filter by timezone.
- */
 
 /**
  * List jobs with optional filtering, searching, and pagination.
@@ -1026,7 +976,7 @@ async function listJobs({
    *
    * @param {string} clientAddress  Stellar G-address of the client.
    * @returns {Promise<Job[]>}
-   * @throws {Error} 400 — invalid Stellar public key.
+   * @throws {Error} 400 Ã¢â‚¬â€ invalid Stellar public key.
    */
   async function listJobsByClient(clientAddress) {
     validatePublicKey(clientAddress);
@@ -1043,8 +993,8 @@ async function listJobs({
    * @param {string} id      UUID of the job.
    * @param {("open"|"in_progress"|"completed"|"cancelled")} status
    * @returns {Promise<Job>}
-   * @throws {Error} 400 — invalid status.
-   * @throws {Error} 404 — job not found.
+   * @throws {Error} 400 Ã¢â‚¬â€ invalid status.
+   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
    */
   async function updateJobStatus(id, status) {
     if (!VALID_STATUSES.includes(status)) {
@@ -1073,8 +1023,8 @@ async function listJobs({
    * @param {string} jobId              UUID of the job.
    * @param {string} freelancerAddress  Stellar G-address of the freelancer being hired.
    * @returns {Promise<Job>}
-   * @throws {Error} 400 — invalid freelancer public key.
-   * @throws {Error} 404 — job not found.
+   * @throws {Error} 400 Ã¢â‚¬â€ invalid freelancer public key.
+   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
    */
   async function assignFreelancer(jobId, freelancerAddress) {
     validatePublicKey(freelancerAddress);
@@ -1103,8 +1053,8 @@ async function listJobs({
    * @param {string} jobId             UUID of the job.
    * @param {string} escrowContractId  Soroban contract id (or transaction hash).
    * @returns {Promise<Job>}
-   * @throws {Error} 400 — invalid escrow contract id.
-   * @throws {Error} 404 — job not found.
+   * @throws {Error} 400 Ã¢â‚¬â€ invalid escrow contract id.
+   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
    */
   async function updateJobEscrowId(jobId, escrowContractId) {
     if (!escrowContractId || typeof escrowContractId !== "string") {
@@ -1133,7 +1083,7 @@ async function listJobs({
    *
    * @param {string} jobId  UUID of the job.
    * @returns {Promise<void>}
-   * @throws {Error} 404 — job not found.
+   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
    */
   async function deleteJob(jobId) {
     const { rowCount } = await pool.query("DELETE FROM jobs WHERE id = $1", [jobId]);
@@ -1149,13 +1099,13 @@ async function listJobs({
    *
    * The route handler accepts a Stellar transaction hash from the client
    * (intended to record the 10 XLM platform fee), but on-chain verification
-   * of that payment has not yet been wired up — see the `TODO` in
+   * of that payment has not yet been wired up Ã¢â‚¬â€ see the `TODO` in
    * `routes/jobs.js`. The hash is therefore not consumed by this service
    * function today.
    *
    * @param {string} jobId  UUID of the job to boost.
    * @returns {Promise<Job>}
-   * @throws {Error} 404 — job not found.
+   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
    */
   async function boostJob(jobId) {
     // Verify job exists
@@ -1186,7 +1136,7 @@ async function listJobs({
    *
    * @param {string} jobId  UUID of the job.
    * @returns {Promise<Job>}
-   * @throws {Error} 404 — job not found.
+   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
    */
   async function incrementShareCount(jobId) {
     const { rows } = await pool.query(
@@ -1210,8 +1160,8 @@ async function listJobs({
    * @param {number} additionalDays  Number of days to add (e.g., 30).
    * @param {number} maxExtensions   Maximum allowed extensions (default 3).
    * @returns {Promise<Job>}
-   * @throws {Error} 404 — job not found.
-   * @throws {Error} 400 — job already completed/cancelled or max extensions reached.
+   * @throws {Error} 404 Ã¢â‚¬â€ job not found.
+   * @throws {Error} 400 Ã¢â‚¬â€ job already completed/cancelled or max extensions reached.
    */
   async function extendJobExpiry(jobId, additionalDays, maxExtensions = 3) {
     const job = await getJob(jobId);
@@ -1390,43 +1340,4 @@ async function listJobs({
     getJobAnalytics,
   };
 }
-
-const _pool = require("../db/pool");
-
-const TIMELINE_EVENT_TYPES = ["job_posted", "bid_accepted", "escrow_funded", "work_completed", "escrow_released"];
-
-async function recordTimelineEvent(jobId, eventType, txHash = null) {
-  if (!TIMELINE_EVENT_TYPES.includes(eventType)) {
-    throw new Error(`Invalid timeline event type: ${eventType}`);
-  }
-
-  const { rows: existing } = await _pool.query(
-    "SELECT * FROM job_timeline WHERE job_id = $1 AND event_type = $2",
-    [jobId, eventType]
-  );
-  if (existing.length > 0) {
-    return existing[0];
-  }
-
-  const { rows } = await _pool.query(
-    "INSERT INTO job_timeline (job_id, event_type, tx_hash, created_at) VALUES ($1, $2, $3, NOW()) RETURNING *",
-    [jobId, eventType, txHash]
-  );
-  return rows[0];
 }
-
-async function getJobTimeline(jobId) {
-  const { rows } = await _pool.query(
-    "SELECT * FROM job_timeline WHERE job_id = $1 ORDER BY created_at ASC",
-    [jobId]
-  );
-  return rows.map(r => ({
-    id: r.id,
-    jobId: r.job_id,
-    eventType: r.event_type,
-    txHash: r.tx_hash,
-    createdAt: r.created_at
-  }));
-}
-
-Object.assign(module.exports, { TIMELINE_EVENT_TYPES, recordTimelineEvent, getJobTimeline });
