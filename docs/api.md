@@ -198,7 +198,7 @@ Message bodies are end-to-end encrypted; see [messaging-encryption.md](messaging
 
 ## Notifications
 
-Push notifications use VAPID web push; see the notification endpoints below.
+Push notifications use VAPID web push; see [web-push-setup.md](web-push-setup.md).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

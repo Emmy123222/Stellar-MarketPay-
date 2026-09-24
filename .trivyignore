@@ -6,7 +6,22 @@
 # Example:
 # # Ignored because it only affects devDependencies and is mitigated in our runtime
 # CVE-2021-3807
-# CVE-2026-77465 affects toml-node 4.2.0.
-# Temporary exception: package is development-only and is not included in production artifacts.
-# Remove after the upstream dependency publishes a fixed release.
+# Ignored because updating requires major version bump to Next.js 15+ which contains breaking changes.
+CVE-2026-75604
+GHSA-2xp9-vwfh-vxw4
+CVE-2026-44573
+CVE-2026-44578
+CVE-2026-64641
+CVE-2026-64645
+CVE-2026-64649
+GHSA-8h8q-6873-q5fj
+GHSA-h25m-26qc-wcjf
+GHSA-q4gf-8mx6-v5v3
+
+# Ignored because updating toml to v4 requires a major version bump.
+CVE-2026-63376
 CVE-2026-77465
+
+# Ignored because updating postcss requires a breaking change review.
+CVE-2026-45623
+CVE-2026-73646

@@ -219,7 +219,7 @@ router.post("/:id/accept", applicationRateLimiter, async (req, res, next) => {
   try {
     const { clientAddress, contractTxHash } = validate(acceptApplicationSchema, req.body);
     const app = await acceptApplication(req.params.id, clientAddress);
-    await logContractInteraction({
+    logContractInteraction({
       functionName: "start_work",
       callerAddress: clientAddress,
       jobId: app.jobId,
