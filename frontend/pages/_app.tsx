@@ -6,10 +6,11 @@ import Navbar from "@/components/Navbar";
 import { connectWallet, getConnectedPublicKey, signTransactionWithWallet } from "@/lib/wallet";
 import { fetchAuthChallenge, verifyAuthChallenge, setJwtToken } from "@/lib/api";
 import "@/styles/globals.css";
-import { ToastProvider } from "@/components/Toast";
+import { ToastProvider, toast } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
+import CommandPalette from "@/components/CommandPalette";
 import OfflineBanner from "@/components/OfflineBanner";
 import RateLimitWatcher from "@/components/RateLimitWatcher";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -31,6 +32,7 @@ function getInitialLocale(): string {
 function App({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const router = useRouter();
   const { i18n } = useTranslation("common");
   const initialLocale = getInitialLocale();
@@ -47,14 +49,24 @@ function App({ Component, pageProps }: AppProps) {
     setShortcutsModalOpen((current) => !current);
   }, []);
 
+  const handleCloseCommandPalette = useCallback(() => setCommandPaletteOpen(false), []);
+
+  // Every callback below has to match UseKeyboardShortcutsOptions: the hook
+  // invokes each one from a key handler, so a name it does not declare is dead
+  // (this call used to pass `isJobDetailPage`, `onNewJobPost`, `onJobApply` and
+  // `onJobBackToListing`, none of which the hook accepts) while a required one
+  // that is missing throws as soon as that key is pressed — `p`, `/`, `b` and
+  // Cmd/Ctrl+K were unreachable for exactly that reason. `/` and `b` are
+  // forwarded as events because the jobs page already listens for them
+  // (pages/jobs/index.tsx).
   useKeyboardShortcuts({
-    isJobDetailPage,
     onGoToJobs: () => router.push("/jobs"),
     onGoToDashboard: () => router.push("/dashboard"),
-    onNewJobPost: () => router.push("/post-job"),
+    onPostJob: () => router.push("/post-job"),
+    onFocusSearch: () => window.dispatchEvent(new CustomEvent("shortcut-focus-search")),
+    onToggleBookmark: () => window.dispatchEvent(new CustomEvent("shortcut-toggle-bookmark")),
+    onOpenCommandPalette: () => setCommandPaletteOpen(true),
     onToggleShortcutsModal: handleToggleShortcutsModal,
-    onJobApply: () => window.dispatchEvent(new CustomEvent("shortcut-apply-job")),
-    onJobBackToListing: () => router.push("/jobs"),
     shortcutsModalOpen,
   });
 
@@ -131,6 +143,7 @@ function App({ Component, pageProps }: AppProps) {
             onClose={() => setShortcutsModalOpen(false)}
             showJobDetailShortcuts={isJobDetailPage}
           />
+          <CommandPalette isOpen={commandPaletteOpen} onClose={handleCloseCommandPalette} />
         </div>
         <RateLimitWatcher />
         </PriceProvider>
