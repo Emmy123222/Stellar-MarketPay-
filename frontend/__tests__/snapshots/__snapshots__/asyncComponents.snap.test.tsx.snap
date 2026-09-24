@@ -1581,6 +1581,7 @@ exports[`async component snapshots ReferralDashboard empty: ReferralDashboard em
   </div>
   <div
     class="card text-center py-14"
+    data-testid="referral-empty"
   >
     <div
       class="w-14 h-14 rounded-2xl bg-market-500/10 border border-market-500/20 flex items-center justify-center mx-auto mb-4"

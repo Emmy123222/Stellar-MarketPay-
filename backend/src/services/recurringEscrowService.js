@@ -43,6 +43,20 @@ async function createRecurringEscrow({
 }) {
   const intervalLedgers = intervalDays * LEDGERS_PER_DAY;
 
+  const isMonthly = intervalDays === 30 || intervalDays === 31;
+  let anchorDay = null;
+  let nextReleaseDate = null;
+
+  if (isMonthly) {
+    const now = new Date();
+    anchorDay = now.getDate();
+    const next = new Date(now.getFullYear(), now.getMonth() + 1, anchorDay);
+    if (next.getMonth() !== (now.getMonth() + 1) % 12) {
+      next.setDate(0);
+    }
+    nextReleaseDate = next.toISOString();
+  }
+
   const { rows } = await pool.query(
     `UPDATE escrows
      SET is_recurring = true,
@@ -50,10 +64,12 @@ async function createRecurringEscrow({
          releases_remaining = $2,
          last_release_ledger = NULL,
          amount_per_release = $3,
+         anchor_day = $5,
+         next_release_date = $6,
          updated_at = NOW()
      WHERE job_id = $4
      RETURNING *`,
-    [intervalLedgers, totalReleases, amountPerRelease, jobId]
+    [intervalLedgers, totalReleases, amountPerRelease, jobId, anchorDay, nextReleaseDate]
   );
 
   if (!rows.length) {
@@ -94,15 +110,28 @@ async function tickRecurringEscrow(jobId) {
 
   const escrow = rows[0];
 
+  // Compute next release date if it's monthly
+  let nextReleaseDate = null;
+  if (escrow.anchor_day && escrow.next_release_date) {
+    const currentNext = new Date(escrow.next_release_date);
+    const expectedMonth = currentNext.getMonth() + 1;
+    const next = new Date(currentNext.getFullYear(), expectedMonth, escrow.anchor_day);
+    if (next.getMonth() !== expectedMonth % 12) {
+      next.setDate(0);
+    }
+    nextReleaseDate = next.toISOString();
+  }
+
   // Update the last release ledger and decrement releases remaining
   const { rows: updatedRows } = await pool.query(
     `UPDATE escrows
      SET releases_remaining = releases_remaining - 1,
          last_release_ledger = (SELECT COALESCE(MAX(ledger), 0) FROM ledger_timestamps),
+         next_release_date = COALESCE($2, next_release_date),
          updated_at = NOW()
      WHERE job_id = $1
      RETURNING *`,
-    [jobId]
+    [jobId, nextReleaseDate]
   );
 
   const updatedEscrow = updatedRows[0];
@@ -275,15 +304,21 @@ async function startRecurringEscrowTicker() {
 
       for (const escrow of activeEscrows) {
         try {
-          // Check if interval has elapsed by comparing with last release ledger
-          const currentLedgerResult = await pool.query(
-            'SELECT COALESCE(MAX(ledger), 0) as max_ledger FROM ledger_timestamps'
-          );
-          const currentLedger = currentLedgerResult.rows[0].max_ledger;
-          const lastReleaseLedger = escrow.last_release_ledger || 0;
-          const ledgersSinceLast = currentLedger - lastReleaseLedger;
+          let shouldTick = false;
+          if (escrow.next_release_date) {
+            shouldTick = new Date() >= new Date(escrow.next_release_date);
+          } else {
+            // Check if interval has elapsed by comparing with last release ledger
+            const currentLedgerResult = await pool.query(
+              'SELECT COALESCE(MAX(ledger), 0) as max_ledger FROM ledger_timestamps'
+            );
+            const currentLedger = currentLedgerResult.rows[0].max_ledger;
+            const lastReleaseLedger = escrow.last_release_ledger || 0;
+            const ledgersSinceLast = currentLedger - lastReleaseLedger;
+            shouldTick = ledgersSinceLast >= escrow.interval_ledgers;
+          }
 
-          if (ledgersSinceLast >= escrow.interval_ledgers) {
+          if (shouldTick) {
             await tickRecurringEscrow(escrow.job_id);
             tickerLogger.info(
               { jobId: escrow.job_id, releasesRemaining: escrow.releases_remaining - 1 },
