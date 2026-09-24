@@ -112,6 +112,8 @@ pub enum ContractError {
     InvalidMilestoneIndex = 3006,
     /// "Milestone already completed"
     MilestoneAlreadyCompleted = 3007,
+    /// "Previous milestone not approved"
+    PreviousMilestoneNotApproved = 3008,
 
     // ── 4xxx: Bidding & sealed-bid auction ────────────────────────────────
     /// "Budget must be positive"
@@ -283,6 +285,7 @@ impl ContractError {
             Self::CannotReleaseMilestoneStatus => "Cannot release milestone in current status",
             Self::InvalidMilestoneIndex => "Milestone index out of bounds",
             Self::MilestoneAlreadyCompleted => "Milestone already completed",
+            Self::PreviousMilestoneNotApproved => "Previous milestone not approved",
             // 4xxx
             Self::BudgetPositive => "Budget must be positive",
             Self::BudgetCommitmentNotFound => "Budget commitment not found",
@@ -433,6 +436,7 @@ pub fn error_code_from_panic(msg: &str) -> Option<u32> {
         "Cannot release milestone in current status" => Some(3005),
         "Milestone index out of bounds" | "Invalid milestone index" => Some(3006),
         "Milestone already completed" => Some(3007),
+        "Previous milestone not approved" => Some(3008),
         // 4xxx
         "Budget must be positive" => Some(4001),
         "Budget commitment not found" => Some(4002),

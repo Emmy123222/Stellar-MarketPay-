@@ -1,5 +1,6 @@
 use soroban_sdk::{symbol_short, token, Address, Env, String, Symbol};
 
+use crate::errors::ContractError;
 use crate::helpers::check_not_frozen;
 use crate::types::*;
 
@@ -41,6 +42,11 @@ pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, cli
     }
     if milestone.rejected {
         panic!("Milestone already rejected");
+    }
+    for previous_milestone in escrow.milestones.iter() {
+        if previous_milestone.id < milestone_id && !previous_milestone.released {
+            panic!("{}", ContractError::PreviousMilestoneNotApproved.panic_message());
+        }
     }
 
     milestone.released = true;
