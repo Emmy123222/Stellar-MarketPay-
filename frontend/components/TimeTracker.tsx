@@ -28,6 +28,7 @@ import {
 } from "@/lib/api";
 import { usePDFDownload } from "@/hooks/usePDFDownload";
 import { InvoicePDF } from "@/components/InvoicePDF";
+import { InvoiceDownloadButton } from "@/components/InvoiceDownloadButton";
 
 // ─── localStorage persistence ─────────────────────────────────────────────────
 
@@ -802,15 +803,15 @@ export default function TimeTracker({
                     >
                       {reviewingId === inv.id ? "…" : "Reject"}
                     </button>
-                    <button
-                      onClick={() => handleDownloadPDF(inv)}
-                      disabled={downloadingInvoiceId === inv.id}
-                      className="btn-secondary py-2 px-3 text-xs whitespace-nowrap"
-                      title="Download invoice as PDF"
-                      aria-label={`Download invoice ${inv.id.slice(0, 8)} as PDF`}
-                    >
-                      {downloadingInvoiceId === inv.id ? "⏳" : "📄"}
-                    </button>
+                    <InvoiceDownloadButton
+                      job={job}
+                      invoice={inv}
+                      entries={entries}
+                      freelancerAddress={job.freelancerAddress || "Unknown"}
+                      clientAddress={job.clientAddress || "Unknown"}
+                      onSuccess={(msg) => flash(msg)}
+                      onError={(err) => setError(err)}
+                    />
                   </>
                 ) : (
                   <>
@@ -823,15 +824,15 @@ export default function TimeTracker({
                     >
                       {inv.status.charAt(0).toUpperCase() + inv.status.slice(1)}
                     </span>
-                    <button
-                      onClick={() => handleDownloadPDF(inv)}
-                      disabled={downloadingInvoiceId === inv.id}
-                      className="btn-secondary py-2 px-3 text-xs whitespace-nowrap"
-                      title="Download invoice as PDF"
-                      aria-label={`Download invoice ${inv.id.slice(0, 8)} as PDF`}
-                    >
-                      {downloadingInvoiceId === inv.id ? "⏳" : "📄"}
-                    </button>
+                    <InvoiceDownloadButton
+                      job={job}
+                      invoice={inv}
+                      entries={entries}
+                      freelancerAddress={job.freelancerAddress || "Unknown"}
+                      clientAddress={job.clientAddress || "Unknown"}
+                      onSuccess={(msg) => flash(msg)}
+                      onError={(err) => setError(err)}
+                    />
                   </>
                 )}
               </div>

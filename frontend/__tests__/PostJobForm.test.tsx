@@ -23,6 +23,8 @@ jest.mock("@/lib/api", () => ({
   updateDraft: jest.fn().mockResolvedValue({ id: "draft-123" }),
   getJwtToken: jest.fn(),
   fetchCategories: jest.fn().mockResolvedValue([]),
+  fetchJobTemplates: jest.fn().mockResolvedValue([]),
+  createJobTemplate: jest.fn(),
 }));
 
 jest.mock("@/lib/wallet", () => ({

@@ -43,6 +43,7 @@ import { signTransactionWithWallet } from "@/lib/wallet";
 import { optionalClientEnv } from "@/lib/env";
 import type { Transaction } from "@stellar/stellar-sdk";
 import type { Application, Job } from "@/utils/types";
+import DisputeWizard from "@/components/DisputeWizard";
 import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import RealtimeBidComparison from "@/components/RealtimeBidComparison";
 
@@ -194,6 +195,7 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const [disputeReason, setDisputeReason] = useState("");
   const [disputeDescription, setDisputeDescription] = useState("");
   const [raisingDispute, setRaisingDispute] = useState(false);
+  const [showDisputeWizard, setShowDisputeWizard] = useState(false);
   // Escrow timeout state
   const [timeoutLedger, setTimeoutLedger] = useState<number | null>(null);
   const [currentLedger, setCurrentLedger] = useState(0);
@@ -935,7 +937,21 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
           />
           <div className="relative w-full max-w-md bg-ink-900 border border-market-500/20 rounded-2xl p-4 sm:p-6 shadow-2xl animate-scale-in max-h-[90vh] overflow-y-auto">
             <h3 className="font-display text-lg sm:text-xl font-bold text-amber-100 mb-2">Raise a Dispute</h3>
-            <p className="text-xs sm:text-sm text-amber-800 mb-6">Flag this job for admin review. This will block escrow release until resolved.</p>
+            <p className="text-xs sm:text-sm text-amber-800 mb-4">Flag this job for admin review. This will block escrow release until resolved.</p>
+
+            <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🤖</span>
+                <span className="text-xs text-amber-200">First time filing a dispute?</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDisputeWizard(true)}
+                className="text-xs font-semibold text-market-400 hover:text-market-300 underline"
+              >
+                Launch Dispute Assistant →
+              </button>
+            </div>
 
             <div className="space-y-4">
               <div>
@@ -987,6 +1003,27 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Dispute Wizard Chatbot (Issue #1557) ── */}
+      {showDisputeWizard && job && (
+        <DisputeWizard
+          jobId={job.id}
+          isOpen={showDisputeWizard}
+          initialReason={disputeReason}
+          initialDescription={disputeDescription}
+          onClose={() => setShowDisputeWizard(false)}
+          onPrefillForm={({ reason, description }) => {
+            setDisputeReason(reason);
+            setDisputeDescription(description);
+            setShowDisputeWizard(false);
+          }}
+          onComplete={() => {
+            setShowDisputeWizard(false);
+            setShowDisputeModal(false);
+            fetchJob();
+          }}
+        />
       )}
 
       {/* ── Invite Freelancer modal ── */}

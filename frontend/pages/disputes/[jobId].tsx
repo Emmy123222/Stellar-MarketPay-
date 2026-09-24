@@ -20,6 +20,7 @@ import {
 import { useToast } from "@/components/Toast";
 import { shortenAddress, timeAgo } from "@/utils/format";
 import clsx from "clsx";
+import DisputeWizard from "@/components/DisputeWizard";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf", "text/plain"];
 const MAX_SIZE_MB   = 5;
@@ -100,6 +101,7 @@ export default function DisputePage({ publicKey }: PageProps) {
   // Issue #448 — AC #5: on-chain audit-trail CIDs (read from chain).
   const [onchainCids, setOnchainCids] = useState<string[] | null>(null);
   const [onchainLoading, setOnchainLoading] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
 
   useEffect(() => {
     if (!jobId) return;
@@ -240,19 +242,42 @@ export default function DisputePage({ publicKey }: PageProps) {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 animate-fade-in space-y-8">
       {/* Header */}
-      <div>
-        <Link href={`/jobs/${job.id}`} className="text-sm text-amber-700 hover:text-amber-400 transition-colors">
-          ← Back to job
-        </Link>
-        <h1 className="font-display text-3xl font-bold text-amber-100 mt-3">Dispute</h1>
-        <p className="text-amber-800 mt-1">{job.title}</p>
-        <div className="flex items-center gap-3 mt-2">
-          <span className="text-xs px-2.5 py-0.5 rounded-full border bg-red-500/10 text-red-400 border-red-500/20">
-            {job.status}
-          </span>
-          <span className="text-xs text-amber-800">Job ID: {job.id.slice(0, 8)}…</span>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <Link href={`/jobs/${job.id}`} className="text-sm text-amber-700 hover:text-amber-400 transition-colors">
+            ← Back to job
+          </Link>
+          <h1 className="font-display text-3xl font-bold text-amber-100 mt-3">Dispute</h1>
+          <p className="text-amber-800 mt-1">{job.title}</p>
+          <div className="flex items-center gap-3 mt-2">
+            <span className="text-xs px-2.5 py-0.5 rounded-full border bg-red-500/10 text-red-400 border-red-500/20">
+              {job.status}
+            </span>
+            <span className="text-xs text-amber-800">Job ID: {job.id.slice(0, 8)}…</span>
+          </div>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowWizard(true)}
+          className="btn-secondary text-xs sm:text-sm px-4 py-2 self-start flex items-center gap-2"
+        >
+          <span>🤖</span> Evidence Helper Chatbot
+        </button>
       </div>
+
+      {showWizard && (
+        <DisputeWizard
+          jobId={job.id}
+          isOpen={showWizard}
+          onClose={() => setShowWizard(false)}
+          onComplete={(result) => {
+            setShowWizard(false);
+            if (result.evidenceFiles.length > 0) {
+              enqueueFiles(result.evidenceFiles);
+            }
+          }}
+        />
+      )}
 
       {/* Timeline */}
       <div className="card space-y-3">
