@@ -35,9 +35,9 @@ jest.mock("@/hooks/useApi", () => ({
     data: {
       points: [
         { timestamp: 1700000000000, priceUsd: 0.1234 },
-        { timestamp: 1700086400000, priceUsd: 0.1300 },
+        { timestamp: 1700086400000, priceUsd: 0.13 },
       ],
-      currentPriceUsd: 0.1300,
+      currentPriceUsd: 0.13,
       change24hPercent: 5.35,
     },
     error: null,
@@ -49,6 +49,18 @@ jest.mock("@/hooks/useApi", () => ({
 jest.mock("@/lib/api", () => ({
   fetchXlmPriceHistory: jest.fn(),
   Timeframe: undefined,
+}));
+
+// Price + 24h change come from PriceContext (shared app-wide fetch), not from
+// this widget's own SWR call.
+jest.mock("@/contexts/PriceContext", () => ({
+  usePriceContext: () => ({
+    xlmPriceUsd: 0.13,
+    change24hPercent: 5.35,
+    priceLoading: false,
+    currencyMode: "XLM",
+    setCurrencyMode: jest.fn(),
+  }),
 }));
 
 // Mock PriceAlertModal to avoid ToastProvider dependency
@@ -75,9 +87,18 @@ describe("XlmPriceWidget — TimeframeToggle buttons (Task 3.1)", () => {
   it("sets aria-pressed='true' on 7D and 'false' on 1D and 30D on initial render", () => {
     render(<XlmPriceWidget />);
 
-    expect(screen.getByRole("button", { name: "7D" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "1D" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "7D" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "1D" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "30D" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   it("sets aria-pressed='true' on clicked button and 'false' on others", () => {
@@ -85,9 +106,18 @@ describe("XlmPriceWidget — TimeframeToggle buttons (Task 3.1)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "1D" }));
 
-    expect(screen.getByRole("button", { name: "1D" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "7D" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "1D" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "7D" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "30D" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   it("updates aria-pressed correctly when switching to 30D", () => {
@@ -95,9 +125,18 @@ describe("XlmPriceWidget — TimeframeToggle buttons (Task 3.1)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "30D" }));
 
-    expect(screen.getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "1D" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "7D" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "30D" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "1D" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "7D" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   it("applies active class styles to the selected button", () => {
@@ -133,10 +172,15 @@ describe("XlmPriceWidget — TimeframeToggle property test (Task 3.2)", () => {
   it("Property 4: exactly one aria-pressed='true' after any sequence of toggles", () => {
     fc.assert(
       fc.property(
-        fc.array(fc.constantFrom("1D", "7D", "30D") as fc.Arbitrary<"1D" | "7D" | "30D">, {
-          minLength: 1,
-          maxLength: 20,
-        }),
+        fc.array(
+          fc.constantFrom("1D", "7D", "30D") as fc.Arbitrary<
+            "1D" | "7D" | "30D"
+          >,
+          {
+            minLength: 1,
+            maxLength: 20,
+          },
+        ),
         (timeframes) => {
           const { unmount } = render(<XlmPriceWidget />);
 
@@ -184,13 +228,17 @@ describe("XlmPriceWidget — TimeframeToggle property test (Task 3.2)", () => {
 // Override the Line mock to capture the options prop
 let capturedChartOptions: any = null;
 
-jest.mock("react-chartjs-2", () => ({
-  // Re-implement the mock so it captures options
-  Line: (props: any) => {
-    capturedChartOptions = props.options;
-    return <canvas data-testid="line-chart" />;
-  },
-}), { virtual: false });
+jest.mock(
+  "react-chartjs-2",
+  () => ({
+    // Re-implement the mock so it captures options
+    Line: (props: any) => {
+      capturedChartOptions = props.options;
+      return <canvas data-testid="line-chart" />;
+    },
+  }),
+  { virtual: false },
+);
 
 // Known test fixture
 const KNOWN_POINTS = [
@@ -240,7 +288,7 @@ describe("XlmPriceWidget — Tooltip callbacks (Task 5.1)", () => {
 
     // dataIndex beyond points array → timestamp is undefined → returns ''
     const result = titleCb([{ dataIndex: 999 }]);
-    expect(result).toBe('');
+    expect(result).toBe("");
     unmount();
   });
 
@@ -276,22 +324,20 @@ describe("XlmPriceWidget — Tooltip title property test (Task 5.2)", () => {
   // Feature: xlm-price-chart, Property 6: Tooltip title callback returns a non-empty date string for any valid timestamp
   it("Property 6: title callback returns a non-empty date string for any valid timestamp", () => {
     fc.assert(
-      fc.property(
-        fc.integer({ min: 0, max: Date.now() }),
-        (timestamp) => {
-          const points = [{ timestamp, priceUsd: 0.1 }];
-          const { unmount } = renderWidgetWithPoints(points);
+      fc.property(fc.integer({ min: 0, max: Date.now() }), (timestamp) => {
+        const points = [{ timestamp, priceUsd: 0.1 }];
+        const { unmount } = renderWidgetWithPoints(points);
 
-          const titleCb = capturedChartOptions?.plugins?.tooltip?.callbacks?.title;
-          expect(titleCb).toBeDefined();
+        const titleCb =
+          capturedChartOptions?.plugins?.tooltip?.callbacks?.title;
+        expect(titleCb).toBeDefined();
 
-          const result = titleCb([{ dataIndex: 0 }]);
-          expect(typeof result).toBe("string");
-          expect(result.length).toBeGreaterThan(0);
+        const result = titleCb([{ dataIndex: 0 }]);
+        expect(typeof result).toBe("string");
+        expect(result.length).toBeGreaterThan(0);
 
-          unmount();
-        },
-      ),
+        unmount();
+      }),
       { numRuns: 100 },
     );
   });
@@ -305,11 +351,18 @@ describe("XlmPriceWidget — Tooltip label property test (Task 5.3)", () => {
   it("Property 7: label callback formats priceUsd to exactly four decimal places", () => {
     fc.assert(
       fc.property(
-        fc.float({ min: Math.fround(0.0001), max: Math.fround(9999), noNaN: true }),
+        fc.float({
+          min: Math.fround(0.0001),
+          max: Math.fround(9999),
+          noNaN: true,
+        }),
         (priceUsd) => {
-          const { unmount } = renderWidgetWithPoints([{ timestamp: 1700000000000, priceUsd }]);
+          const { unmount } = renderWidgetWithPoints([
+            { timestamp: 1700000000000, priceUsd },
+          ]);
 
-          const labelCb = capturedChartOptions?.plugins?.tooltip?.callbacks?.label;
+          const labelCb =
+            capturedChartOptions?.plugins?.tooltip?.callbacks?.label;
           expect(labelCb).toBeDefined();
 
           const result: string = labelCb({ parsed: { y: priceUsd } });
@@ -339,9 +392,9 @@ describe("XlmPriceWidget — ARIA attributes on chart container (Task 7.1)", () 
       data: {
         points: [
           { timestamp: 1700000000000, priceUsd: 0.1234 },
-          { timestamp: 1700086400000, priceUsd: 0.1300 },
+          { timestamp: 1700086400000, priceUsd: 0.13 },
         ],
-        currentPriceUsd: 0.1300,
+        currentPriceUsd: 0.13,
         change24hPercent: 5.35,
       },
       error: null,
@@ -358,21 +411,30 @@ describe("XlmPriceWidget — ARIA attributes on chart container (Task 7.1)", () 
   it("aria-label contains '7D' on initial render", () => {
     render(<XlmPriceWidget />);
     const chartContainer = screen.getByRole("img");
-    expect(chartContainer).toHaveAttribute("aria-label", expect.stringContaining("7D"));
+    expect(chartContainer).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("7D"),
+    );
   });
 
   it("aria-label updates to contain the new timeframe after a toggle click", () => {
     render(<XlmPriceWidget />);
     fireEvent.click(screen.getByRole("button", { name: "1D" }));
     const chartContainer = screen.getByRole("img");
-    expect(chartContainer).toHaveAttribute("aria-label", expect.stringContaining("1D"));
+    expect(chartContainer).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("1D"),
+    );
   });
 
   it("aria-label updates to contain 30D after clicking 30D", () => {
     render(<XlmPriceWidget />);
     fireEvent.click(screen.getByRole("button", { name: "30D" }));
     const chartContainer = screen.getByRole("img");
-    expect(chartContainer).toHaveAttribute("aria-label", expect.stringContaining("30D"));
+    expect(chartContainer).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("30D"),
+    );
   });
 });
 
@@ -403,7 +465,9 @@ describe("XlmPriceWidget — aria-label property test (Task 7.2)", () => {
           const { unmount } = render(<XlmPriceWidget />);
           fireEvent.click(screen.getByRole("button", { name: timeframe }));
           const chartContainer = screen.getByRole("img");
-          expect(chartContainer.getAttribute("aria-label")).toContain(timeframe);
+          expect(chartContainer.getAttribute("aria-label")).toContain(
+            timeframe,
+          );
           unmount();
         },
       ),
