@@ -838,6 +838,7 @@ function createPgMock() {
           });
         }
       }
+    }
 
     // ─── listJobs-style query: FROM jobs ... ORDER BY ... (paginated) ────
     if (
@@ -884,44 +885,6 @@ function createPgMock() {
         return 0;
       });
       return { rows: rows.slice(0, limit) };
-      if (
-        text.includes("category = $") ||
-        text.includes("c.slug = $") ||
-        text.includes("jobs.category = $")
-      ) {
-        const catParam = params.find(
-          (p) =>
-            typeof p === "string" &&
-            (DEFAULT_CATEGORIES.some(
-              (c) =>
-                c.name.toLowerCase() === p.toLowerCase() ||
-                c.slug.toLowerCase() === p.toLowerCase(),
-            ) ||
-              [...jobs.values()].some((j) => j.category === p)),
-        );
-        if (catParam) {
-          rows = rows.filter(
-            (job) =>
-              (job.category &&
-                job.category.toLowerCase() === catParam.toLowerCase()) ||
-              (job.category_slug &&
-                job.category_slug.toLowerCase() === catParam.toLowerCase()) ||
-              DEFAULT_CATEGORIES.some(
-                (c) =>
-                  (c.slug === catParam.toLowerCase() ||
-                    c.name.toLowerCase() === catParam.toLowerCase()) &&
-                  job.category &&
-                  job.category.toLowerCase() === c.name.toLowerCase(),
-              ),
-          );
-        }
-      }
-      const limit = params[params.length - 1] ?? 50;
-      return {
-        rows: rows
-          .slice(0, typeof limit === "number" ? limit : 50)
-          .map(formatJobRow),
-      };
     }
 
     // Job invitations check
