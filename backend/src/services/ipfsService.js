@@ -23,6 +23,8 @@ const ALLOWED_MIME_TYPES = [
   "image/png", 
   "image/gif",
   "image/webp",
+  "video/mp4",
+  "video/webm",
   "application/pdf",
   "text/plain",
   "application/msword",

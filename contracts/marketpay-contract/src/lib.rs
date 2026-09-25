@@ -543,6 +543,16 @@ impl MarketPayContract {
         deliverable::verify_deliverable_hash(env, job_id)
     }
 
+    /// Anchor an IPFS proof CID for the caller's milestone deliverable.
+    pub fn update_deliverable_hash(env: Env, job_id: String, hash: String) {
+        deliverable::update_deliverable_hash(env, job_id, hash)
+    }
+
+    /// Get the anchored IPFS proof CID for a job.
+    pub fn get_deliverable_proof_hash(env: Env, job_id: String) -> Option<String> {
+        deliverable::get_deliverable_proof_hash(env, job_id)
+    }
+
     // ─── Certificates, Evidence & Ratings ──────────────────────────────────
 
     /// Mint a certificate when job is completed.
