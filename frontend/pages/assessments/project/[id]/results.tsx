@@ -3,9 +3,14 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { api, getApiErrorMessage } from "@/lib/api/client";
 import { useToast } from "@/components/Toast";
+import { AssessmentResultPDF } from "@/components/AssessmentResultPDF";
+import { usePDFDownload } from "@/hooks/usePDFDownload";
+
+const PASSING_THRESHOLD = 70;
 
 interface AssessmentResult {
   id: string;
+  assessment_name: string;
   display_name?: string;
   freelancer_address: string;
   status: "started" | "submitted" | "graded";
@@ -26,12 +31,14 @@ interface AssessmentResultsResponse {
 export default function AssessmentResults({ publicKey }: AssessmentResultsProps) {
   const router = useRouter();
   const toast = useToast();
+  const { downloadPDF } = usePDFDownload();
   const { id } = router.query;
   const assessmentId = typeof id === "string" ? id : null;
 
   const [results, setResults] = useState<AssessmentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (assessmentId && publicKey) {
@@ -50,6 +57,37 @@ export default function AssessmentResults({ publicKey }: AssessmentResultsProps)
       setError(getApiErrorMessage(err, 'Failed to load results'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownloadPDF = async (submission: AssessmentResult) => {
+    if (submission.score === null) return;
+
+    setDownloadingId(submission.id);
+    setError('');
+    try {
+      const resultDate = submission.submitted_at || submission.started_at;
+      const date = new Date(resultDate).toLocaleDateString();
+      const pdfDocument = (
+        <AssessmentResultPDF
+          assessmentName={submission.assessment_name}
+          score={submission.score}
+          date={date}
+          freelancerName={submission.display_name || submission.freelancer_address}
+          passingThreshold={PASSING_THRESHOLD}
+        />
+      );
+      await downloadPDF(
+        pdfDocument,
+        `assessment-result-${submission.id.slice(0, 8)}-${new Date(resultDate)
+          .toISOString()
+          .split("T")[0]}.pdf`,
+      );
+      toast.success('Assessment PDF downloaded successfully.');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to download assessment PDF'));
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -106,6 +144,16 @@ export default function AssessmentResults({ publicKey }: AssessmentResultsProps)
                           <div className="text-xl font-bold">
                             Score: {submission.score !== null ? `${submission.score}%` : 'Pending'}
                           </div>
+                          {submission.score !== null && (
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadPDF(submission)}
+                              disabled={downloadingId === submission.id}
+                              className="mt-3 rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {downloadingId === submission.id ? 'Preparing PDF...' : 'Download PDF'}
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
