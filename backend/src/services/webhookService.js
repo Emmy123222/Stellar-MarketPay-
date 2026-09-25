@@ -2,6 +2,7 @@
 
 const crypto = require("crypto");
 const axios = require("axios");
+const ssrfFilter = require("ssrf-req-filter");
 const pool = require("../db/pool");
 const { createServiceLogger } = require("../utils/logger");
 
@@ -82,12 +83,18 @@ async function deliverSingleWebhook(webhook, eventType, payload) {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
     try {
       const signature = buildSignature(webhook.secret, body);
+      // ssrf-req-filter returns an https.Agent (or http.Agent) that blocks
+      // connections to RFC-1918, loopback, and link-local addresses at the
+      // socket level — defence-in-depth on top of the registration-time check.
+      const agent = ssrfFilter(webhook.url);
       const response = await axios.post(webhook.url, payload, {
         headers: {
           "Content-Type": "application/json",
           "X-Webhook-Signature": signature,
         },
         timeout: 10000,
+        httpAgent: agent,
+        httpsAgent: agent,
       });
 
       attempts.push(await recordWebhookDeliveryAttempt({

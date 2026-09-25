@@ -57,6 +57,7 @@
         "rss": "^1.2.2",
         "sanitize-html": "^2.17.7",
         "speakeasy": "^2.0.0",
+        "ssrf-req-filter": "1.1.1",
         "swagger-jsdoc": "^6.2.8",
         "swagger-ui-express": "^5.0.0",
         "uuid": "^14.0.1",
