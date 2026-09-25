@@ -1,3 +1,30 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Skills
+ *   description: Skill autocomplete
+ *
+ * /api/skills:
+ *   get:
+ *     summary: Search skills for autocomplete
+ *     tags: [Skills]
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Search query for skill name
+ *     responses:
+ *       200:
+ *         description: Matching skills (up to 10)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: string
+ */
 "use strict";
 
 const express = require("express");
@@ -6,11 +33,6 @@ const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const router = express.Router();
 
-/**
- * GET /api/skills
- * Fetches skills for autocomplete based on a 'q' query parameter.
- * Returns up to 10 matching skills.
- */
 router.get("/", createRateLimiter(60, 1), async (req, res, next) => {
   try {
     const q = req.query.q;

@@ -8,10 +8,12 @@ jest.mock("../db/pool", () => ({
 
 jest.mock("./jobService", () => ({
   getJob: jest.fn(),
+  recordTimelineEvent: jest.fn(),
 }));
 
 jest.mock("./contractAuditService", () => ({
   logContractInteraction: jest.fn(),
+  verifyOnChainTransaction: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock("./notificationService", () => ({
@@ -19,6 +21,7 @@ jest.mock("./notificationService", () => ({
   EVENT_TYPES: {
     ESCROW_RELEASED: "escrow_released",
     REFUND_ISSUED: "refund_issued",
+    DISPUTE_OPENED: "dispute_opened",
   },
 }));
 
@@ -26,8 +29,14 @@ jest.mock("./referralService", () => ({
   processReferralPayout: jest.fn(),
 }));
 
+jest.mock("./stellarServiceKey", () => ({
+  signWithServiceKey: jest.fn(async (_ip, fn) => fn({})),
+  getServicePublicKey: jest.fn(() => "GSERVICEPUBLICKEY0000000000000000000000000000000000000000"),
+}));
+
 const { getJob } = require("./jobService");
 const { processReferralPayout } = require("./referralService");
+const { notifyEscrowEvent } = require("./notificationService");
 const {
   releaseFunds,
   refundClient,
@@ -38,6 +47,8 @@ const {
   disputeMilestone,
   getEscrow,
   verifyFreelancerAccount,
+  requestEscrowExtension,
+  approveEscrowExtension,
   ESCROW_TIMEOUT_DAYS,
 } = require("./escrowService");
 
@@ -95,7 +106,7 @@ describe("escrowService", () => {
 
       await expect(
         releaseFunds(JOB_ID, OTHER_ADDRESS, TX_HASH),
-      ).rejects.toThrow("Only the job client can release escrow");
+      ).rejects.toMatchObject({ message: "Only the job client can release escrow", status: 403 });
     });
 
     it("rejects double-release of same escrow", async () => {
@@ -114,7 +125,7 @@ describe("escrowService", () => {
 
       await expect(
         releaseFunds(JOB_ID, CLIENT_ADDRESS, TX_HASH),
-      ).rejects.toThrow("Job is not in progress");
+      ).rejects.toMatchObject({ message: "Job is not in progress", status: 400 });
     });
   });
 
@@ -202,6 +213,9 @@ describe("escrowService", () => {
 
       expect(result.success).toBe(true);
       expect(result.dispute.status).toBe("open");
+      expect(notifyEscrowEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: "dispute_opened", jobId: JOB_ID }),
+      );
     });
 
     it("rejects dispute raised by non-participant", async () => {
@@ -253,10 +267,23 @@ describe("escrowService", () => {
       ).rejects.toThrow("Milestone already released");
     });
 
-    it("releases a selected milestone", async () => {
+    it("rejects releasing a later milestone before the prior one is released", async () => {
       getJob.mockResolvedValue(makeJob({
         milestones: [
           { description: "Design", amount: "200", status: "pending" },
+          { description: "Build", amount: "300", status: "pending" },
+        ],
+      }));
+
+      await expect(
+        releaseMilestone(JOB_ID, 1, CLIENT_ADDRESS, TX_HASH),
+      ).rejects.toThrow("Milestone 1 must be released before milestone 2 can be released");
+    });
+
+    it("releases a selected milestone", async () => {
+      getJob.mockResolvedValue(makeJob({
+        milestones: [
+          { description: "Design", amount: "200", status: "released" },
           { description: "Build", amount: "300", status: "pending" },
         ],
       }));
@@ -358,6 +385,169 @@ describe("escrowService", () => {
       await expect(verifyFreelancerAccount(FREELANCER_ADDRESS)).rejects.toThrow(
         "Failed to verify freelancer account on Stellar network",
       );
+    });
+  });
+
+  describe("requestEscrowExtension", () => {
+    it("requests extension successfully by client", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockQuery
+        .mockReset()
+        .mockResolvedValueOnce({ rows: [] }) // no pending extension
+        .mockResolvedValueOnce({ rows: [{ status: "funded", timeout_ledger: 1000 }] }) // escrow
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, job_id: JOB_ID, requested_by: CLIENT_ADDRESS, new_timeout_ledger: 2000, status: "pending" }],
+        });
+
+      const result = await requestEscrowExtension(JOB_ID, CLIENT_ADDRESS, 2000, TX_HASH);
+
+      expect(result.success).toBe(true);
+      expect(result.extension.new_timeout_ledger).toBe(2000);
+      expect(result.extension.status).toBe("pending");
+    });
+
+    it("requests extension successfully by freelancer", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockQuery
+        .mockReset()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ status: "in_progress", timeout_ledger: 1000 }] })
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, job_id: JOB_ID, requested_by: FREELANCER_ADDRESS, new_timeout_ledger: 3000, status: "pending" }],
+        });
+
+      const result = await requestEscrowExtension(JOB_ID, FREELANCER_ADDRESS, 3000);
+
+      expect(result.success).toBe(true);
+      expect(result.extension.requested_by).toBe(FREELANCER_ADDRESS);
+    });
+
+    it("rejects extension request by non-participant", async () => {
+      getJob.mockResolvedValue(makeJob());
+
+      await expect(
+        requestEscrowExtension(JOB_ID, OTHER_ADDRESS, 2000),
+      ).rejects.toMatchObject({ message: "Only the client or freelancer can request an extension", status: 403 });
+    });
+
+    it("rejects when a pending extension request already exists", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockQuery
+        .mockReset()
+        .mockResolvedValueOnce({ rows: [{ status: "pending" }] });
+
+      await expect(
+        requestEscrowExtension(JOB_ID, CLIENT_ADDRESS, 2000),
+      ).rejects.toMatchObject({ message: "A pending extension request already exists for this escrow", status: 400 });
+    });
+
+    it("rejects when escrow not found", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockQuery
+        .mockReset()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        requestEscrowExtension(JOB_ID, CLIENT_ADDRESS, 2000),
+      ).rejects.toMatchObject({ message: "No escrow found for this job", status: 404 });
+    });
+
+    it("rejects when escrow is not funded or in progress", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockQuery
+        .mockReset()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ status: "completed", timeout_ledger: 1000 }] });
+
+      await expect(
+        requestEscrowExtension(JOB_ID, CLIENT_ADDRESS, 2000),
+      ).rejects.toMatchObject({ message: "Extension is only allowed while escrow is funded or in progress", status: 400 });
+    });
+
+    it("rejects when new timeout ledger is not greater than current timeout", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockQuery
+        .mockReset()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ status: "funded", timeout_ledger: 2000 }] });
+
+      await expect(
+        requestEscrowExtension(JOB_ID, CLIENT_ADDRESS, 1500),
+      ).rejects.toMatchObject({ message: "New timeout ledger must be greater than the current timeout", status: 400 });
+    });
+  });
+
+  describe("approveEscrowExtension", () => {
+    it("approves extension successfully by counterparty", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockQuery
+        .mockReset()
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, job_id: JOB_ID, requested_by: CLIENT_ADDRESS, new_timeout_ledger: 2500, status: "pending" }],
+        })
+        .mockResolvedValueOnce({ rows: [{ status: "funded" }] })
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, job_id: JOB_ID, requested_by: CLIENT_ADDRESS, approved_by: FREELANCER_ADDRESS, new_timeout_ledger: 2500, status: "approved" }],
+        })
+        .mockResolvedValueOnce({ rows: [] }); // update escrows timeout_ledger
+
+      const result = await approveEscrowExtension(JOB_ID, FREELANCER_ADDRESS, TX_HASH);
+
+      expect(result.success).toBe(true);
+      expect(result.extension.status).toBe("approved");
+      expect(result.extension.approved_by).toBe(FREELANCER_ADDRESS);
+    });
+
+    it("rejects approval by the same party who requested it", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockQuery
+        .mockReset()
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, job_id: JOB_ID, requested_by: CLIENT_ADDRESS, new_timeout_ledger: 2500, status: "pending" }],
+        });
+
+      await expect(
+        approveEscrowExtension(JOB_ID, CLIENT_ADDRESS),
+      ).rejects.toMatchObject({ message: "Cannot approve your own extension request", status: 403 });
+    });
+
+    it("rejects approval by non-participant", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockQuery
+        .mockReset()
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, job_id: JOB_ID, requested_by: CLIENT_ADDRESS, new_timeout_ledger: 2500, status: "pending" }],
+        });
+
+      await expect(
+        approveEscrowExtension(JOB_ID, OTHER_ADDRESS),
+      ).rejects.toMatchObject({ message: "Only the client or freelancer can approve an extension", status: 403 });
+    });
+
+    it("rejects approval when no pending request exists", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockQuery
+        .mockReset()
+        .mockResolvedValueOnce({ rows: [] });
+
+      await expect(
+        approveEscrowExtension(JOB_ID, FREELANCER_ADDRESS),
+      ).rejects.toMatchObject({ message: "No pending extension request for this job", status: 404 });
+    });
+
+    it("rejects approval when escrow is not funded or in progress", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockQuery
+        .mockReset()
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, job_id: JOB_ID, requested_by: CLIENT_ADDRESS, new_timeout_ledger: 2500, status: "pending" }],
+        })
+        .mockResolvedValueOnce({ rows: [{ status: "completed" }] });
+
+      await expect(
+        approveEscrowExtension(JOB_ID, FREELANCER_ADDRESS),
+      ).rejects.toMatchObject({ message: "Extension is only allowed while escrow is funded or in progress", status: 400 });
     });
   });
 });

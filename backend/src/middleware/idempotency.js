@@ -16,7 +16,6 @@ function idempotencyMiddleware() {
     const key = String(rawKey).trim();
     if (!key) {
       return res.status(400).json({
-        success: false,
         error: "Idempotency-Key must be a non-empty string",
       });
     }
@@ -62,9 +61,7 @@ async function doIdempotency(key, req, res, next) {
       } else {
         const response = entry.response;
         if (!response || typeof response.statusCode !== "number" || !response.body) {
-
           return res.status(409).json({
-            success: false,
             error: "Request with this idempotency key is already in progress",
           });
         }

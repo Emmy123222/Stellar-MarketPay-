@@ -3,7 +3,13 @@
  * Send XLM or USDC payment from the connected wallet.
  */
 import { useEffect, useMemo, useState } from "react";
-import { buildPaymentTransaction, submitTransaction, isValidStellarAddress, explorerUrl } from "@/lib/stellar";
+import {
+  buildPaymentTransaction,
+  submitTransaction,
+  isValidStellarAddress,
+  explorerUrl,
+  checkDestinationAccount,
+} from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import clsx from "clsx";
 
@@ -20,7 +26,9 @@ function loadContacts(): AddressBookContact[] {
   if (typeof window === "undefined") return [];
   try {
     const parsed = JSON.parse(localStorage.getItem(ADDRESS_BOOK_KEY) || "[]");
-    return Array.isArray(parsed) ? parsed.filter((item) => item?.nickname && item?.address) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((item) => item?.nickname && item?.address)
+      : [];
   } catch {
     return [];
   }
@@ -35,17 +43,19 @@ interface SendPaymentFormProps {
   fromPublicKey: string;
 }
 
-export default function SendPaymentForm({ fromPublicKey }: SendPaymentFormProps) {
-  const [asset, setAsset]         = useState<Asset>("XLM");
+export default function SendPaymentForm({
+  fromPublicKey,
+}: SendPaymentFormProps) {
+  const [asset, setAsset] = useState<Asset>("XLM");
   const [recipient, setRecipient] = useState("");
   const [contacts, setContacts] = useState<AddressBookContact[]>([]);
   const [contactNickname, setContactNickname] = useState("");
   const [lastRecipient, setLastRecipient] = useState("");
-  const [amount, setAmount]       = useState("");
-  const [memo, setMemo]           = useState("");
+  const [amount, setAmount] = useState("");
+  const [memo, setMemo] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [txHash, setTxHash]         = useState<string | null>(null);
-  const [error, setError]           = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setContacts(loadContacts());
@@ -56,9 +66,10 @@ export default function SendPaymentForm({ fromPublicKey }: SendPaymentFormProps)
     const query = recipient.trim().toLowerCase();
     if (!query) return contacts.slice(0, 5);
     return contacts
-      .filter((contact) =>
-        contact.nickname.toLowerCase().includes(query) ||
-        contact.address.toLowerCase().includes(query),
+      .filter(
+        (contact) =>
+          contact.nickname.toLowerCase().includes(query) ||
+          contact.address.toLowerCase().includes(query),
       )
       .slice(0, 5);
   }, [contacts, recipient]);
@@ -80,26 +91,44 @@ export default function SendPaymentForm({ fromPublicKey }: SendPaymentFormProps)
     setError(null);
     setTxHash(null);
 
-    if (!recipientValid) { setError("Invalid Stellar address."); return; }
+    if (!recipientValid) {
+      setError("Invalid Stellar address.");
+      return;
+    }
     const parsed = parseFloat(amount);
-    if (isNaN(parsed) || parsed <= 0) { setError("Enter a valid amount greater than 0."); return; }
+    if (isNaN(parsed) || parsed <= 0) {
+      setError("Enter a valid amount greater than 0.");
+      return;
+    }
+
+    const cleanRecipient = recipient.trim();
 
     setSubmitting(true);
     try {
+      const destCheck = await checkDestinationAccount(cleanRecipient);
+      if (!destCheck.exists) {
+        throw new Error(
+          "Destination account does not exist on Stellar. The recipient must first activate their account by funding it with at least 1 XLM (minimum balance requirement).",
+        );
+      }
+
       const tx = await buildPaymentTransaction({
         fromPublicKey,
-        toPublicKey: recipient.trim(),
+        toPublicKey: cleanRecipient,
         amount: parsed.toFixed(7),
         memo: memo.trim() || undefined,
         asset,
       });
 
-      const { signedXDR, error: signError } = await signTransactionWithWallet(tx.toXDR());
-      if (signError || !signedXDR) throw new Error(signError || "Signing cancelled.");
+      const { signedXDR, error: signError } = await signTransactionWithWallet(
+        tx.toXDR(),
+      );
+      if (signError || !signedXDR)
+        throw new Error(signError || "Signing cancelled.");
 
       const result = await submitTransaction(signedXDR);
-      setTxHash((result as any).hash ?? null);
-      setLastRecipient(recipient.trim());
+      setTxHash(result.hash ?? null);
+      setLastRecipient(cleanRecipient);
       setRecipient("");
       setAmount("");
       setMemo("");
@@ -112,7 +141,9 @@ export default function SendPaymentForm({ fromPublicKey }: SendPaymentFormProps)
 
   return (
     <div className="card border-market-500/20">
-      <h3 className="font-display text-base font-semibold text-amber-100 mb-4">Send Payment</h3>
+      <h3 className="font-display text-base font-semibold text-amber-100 mb-4">
+        Send Payment
+      </h3>
 
       {/* Asset selector */}
       <div className="flex gap-2 mb-4">
@@ -125,7 +156,7 @@ export default function SendPaymentForm({ fromPublicKey }: SendPaymentFormProps)
               "px-4 py-1.5 rounded-full text-sm font-medium border transition-all",
               asset === a
                 ? "bg-market-500/15 text-market-300 border-market-500/30"
-                : "text-amber-700 border-market-500/10 hover:border-market-500/25"
+                : "text-amber-700 border-market-500/10 hover:border-market-500/25",
             )}
           >
             {a}
@@ -134,8 +165,8 @@ export default function SendPaymentForm({ fromPublicKey }: SendPaymentFormProps)
       </div>
 
       {/* Recipient */}
-      <label className="label block mb-1">Recipient address</label>
-      <input
+      <label htmlFor="recipient-address" className="label block mb-1">Recipient address</label>
+      <input id="recipient-address"
         type="text"
         list="address-book-contacts"
         value={recipient}
@@ -145,7 +176,7 @@ export default function SendPaymentForm({ fromPublicKey }: SendPaymentFormProps)
           "w-full bg-ink-800 border rounded-xl px-4 py-2.5 text-sm text-amber-100 placeholder-amber-900 focus:outline-none mb-1",
           recipient && !recipientValid
             ? "border-red-500/40 focus:border-red-500/60"
-            : "border-market-500/15 focus:border-market-500/40"
+            : "border-market-500/15 focus:border-market-500/40",
         )}
       />
       <datalist id="address-book-contacts">
@@ -186,8 +217,10 @@ export default function SendPaymentForm({ fromPublicKey }: SendPaymentFormProps)
       />
 
       {/* Memo */}
-      <label className="label block mb-1">Memo <span className="text-amber-900 font-normal">(optional)</span></label>
-      <input
+      <label htmlFor="memo-optional" className="label block mb-1">
+        Memo <span className="text-amber-900 font-normal">(optional)</span>
+      </label>
+      <input id="memo-optional"
         type="text"
         value={memo}
         onChange={(e) => setMemo(e.target.value.slice(0, 28))}
@@ -205,31 +238,39 @@ export default function SendPaymentForm({ fromPublicKey }: SendPaymentFormProps)
         <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm space-y-3">
           <p>
             ✅ Sent!{" "}
-            <a href={explorerUrl(txHash)} target="_blank" rel="noopener noreferrer" className="underline hover:text-emerald-300">
+            <a
+              href={explorerUrl(txHash)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-emerald-300"
+            >
               View on Stellar Expert ↗
             </a>
           </p>
-          {lastRecipient && !contacts.some((contact) => contact.address === lastRecipient) && (
-            <div className="rounded-lg border border-emerald-500/20 bg-ink-900/50 p-3">
-              <p className="text-xs text-emerald-200 mb-2">Add this recipient to your address book?</p>
-              <div className="flex gap-2">
-                <input
-                  value={contactNickname}
-                  onChange={(e) => setContactNickname(e.target.value)}
-                  placeholder="Nickname"
-                  className="flex-1 bg-ink-800 border border-market-500/15 rounded-lg px-3 py-2 text-xs text-amber-100"
-                />
-                <button
-                  type="button"
-                  onClick={() => addContact(lastRecipient, contactNickname)}
-                  disabled={!contactNickname.trim()}
-                  className="btn-secondary text-xs px-3 py-2 disabled:opacity-50"
-                >
-                  Save
-                </button>
+          {lastRecipient &&
+            !contacts.some((contact) => contact.address === lastRecipient) && (
+              <div className="rounded-lg border border-emerald-500/20 bg-ink-900/50 p-3">
+                <p className="text-xs text-emerald-200 mb-2">
+                  Add this recipient to your address book?
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    value={contactNickname}
+                    onChange={(e) => setContactNickname(e.target.value)}
+                    placeholder="Nickname"
+                    className="flex-1 bg-ink-800 border border-market-500/15 rounded-lg px-3 py-2 text-xs text-amber-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addContact(lastRecipient, contactNickname)}
+                    disabled={!contactNickname.trim()}
+                    className="btn-secondary text-xs px-3 py-2 disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
         </div>
       )}
 

@@ -45,3 +45,50 @@ groups:
         annotations:
           summary: "High CPU utilization detected"
           description: "Compute resources are above 80% utilization — review right-sizing recommendations."
+
+  - name: marketpay-backend-metrics
+    rules:
+      - alert: BackendMetricsEndpointDown
+        expr: up{job="marketpay-backend"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MarketPay /metrics scrape is failing"
+          description: "Prometheus cannot scrape the backend metrics endpoint. Check METRICS_TOKEN / network reachability."
+
+      - alert: HighRequestLatencyMs
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_ms_bucket{job="marketpay-backend"}[5m])) by (le)) > 2000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MarketPay p99 request latency above 2000ms"
+          description: "The 99th percentile of http_request_duration_ms has exceeded 2s for more than 10 minutes."
+
+      - alert: HighApiErrorRate
+        expr: 100 * sum(rate(http_requests_total{job="marketpay-backend",status_code=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{job="marketpay-backend"}[5m])), 0.001) > 5
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MarketPay 5xx error rate above 5%"
+          description: "More than 5% of requests are returning 5xx responses."
+
+      - alert: SlowDatabaseQueries
+        expr: histogram_quantile(0.95, sum(rate(pool_query_duration_ms_bucket{job="marketpay-backend"}[5m])) by (le)) > 500
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL p95 query latency above 500ms"
+          description: "pool_query_duration_ms p95 has exceeded 500ms for more than 10 minutes."
+
+      - alert: WebSocketConnectionsSpike
+        expr: sum(active_websocket_connections{job="marketpay-backend"}) > 5000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unusually high number of open WebSocket connections"
+          description: "active_websocket_connections has been above 5000 for 15 minutes — check for reconnect storms or leaked sockets."

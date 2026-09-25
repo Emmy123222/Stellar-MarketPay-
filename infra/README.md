@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # CDN Setup Documentation
 
 ## Environment Variables
@@ -69,4 +68,3 @@ No code changes are required in services; the fallback is handled inside
 
 Leave `DATABASE_READ_URL` unset. Both `readPool` and `writePool` will point
 to the same local Postgres instance defined by `DATABASE_URL`.
->>>>>>> main

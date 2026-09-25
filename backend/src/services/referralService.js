@@ -12,6 +12,10 @@
  *      which marks the referral as paid and writes an audit row.
  *   3. GET /api/referrals/:publicKey returns the referrer's history via
  *      getReferralStats(publicKey).
+ *   4. GET /api/referrals/my-stats returns the authenticated referrer's
+ *      pipeline (registered → first job completed → credit paid) with
+ *      pending / paid credit totals and a paginated referee table via
+ *      getMyReferralStats(publicKey, opts).
  */
 "use strict";
 
@@ -277,10 +281,176 @@ async function getReferralStats(publicKey) {
   };
 }
 
+/** Pipeline stages surfaced on the referral dashboard (Issue #1559). */
+const PIPELINE_STATUSES = ["registered", "first_job_completed", "credit_paid"];
+const MY_STATS_MAX_LIMIT = 50;
+
+/**
+ * Shared CTE that classifies every referral of a referrer into a pipeline stage.
+ *
+ *   registered           — referee signed up but has no released escrow yet
+ *   first_job_completed  — referee has a released escrow but the credit is not paid yet
+ *   credit_paid          — referral bonus has been recorded as paid
+ *
+ * `estimated_credit_xlm` is the bonus the referrer can expect for referrals that
+ * are not yet paid: 2% of the referee's first released escrow, or of their
+ * earliest still-funded escrow when no job has been released yet.
+ */
+const PIPELINE_CTE = `
+  WITH pipeline AS (
+    SELECT
+      r.id,
+      r.referee_address,
+      r.status,
+      r.payout_amount,
+      r.paid_at,
+      r.created_at,
+      p.display_name AS referee_display_name,
+      pj.title       AS paid_job_title,
+      fr.job_id      AS first_job_id,
+      fr.title       AS first_job_title,
+      fr.amount_xlm  AS first_released_xlm,
+      fr.released_at AS first_job_completed_at,
+      af.amount_xlm  AS active_escrow_xlm,
+      CASE
+        WHEN r.status = 'paid'   THEN 'credit_paid'
+        WHEN fr.job_id IS NOT NULL THEN 'first_job_completed'
+        ELSE 'registered'
+      END AS pipeline_status
+    FROM referrals r
+    LEFT JOIN profiles p ON p.public_key = r.referee_address
+    LEFT JOIN jobs pj    ON pj.id = r.job_id
+    LEFT JOIN LATERAL (
+      SELECT e.job_id, j.title, e.amount_xlm, COALESCE(e.released_at, e.updated_at) AS released_at
+      FROM escrows e
+      JOIN jobs j ON j.id = e.job_id
+      WHERE j.freelancer_address = r.referee_address
+        AND e.status = 'released'
+      ORDER BY COALESCE(e.released_at, e.updated_at) ASC
+      LIMIT 1
+    ) fr ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT e.amount_xlm
+      FROM escrows e
+      JOIN jobs j ON j.id = e.job_id
+      WHERE j.freelancer_address = r.referee_address
+        AND e.status = 'funded'
+      ORDER BY e.created_at ASC
+      LIMIT 1
+    ) af ON TRUE
+    WHERE r.referrer_address = $1
+      AND r.status <> 'ineligible'
+  )`;
+
+/**
+ * Referral dashboard stats for the authenticated referrer (Issue #1559).
+ *
+ * @param {string} publicKey
+ * @param {Object} [opts]
+ * @param {number} [opts.page=1]    1-based page number.
+ * @param {number} [opts.limit=10]  Page size (max 50).
+ * @param {string} [opts.status]    Optional pipeline status filter.
+ * @returns {Promise<Object>}
+ */
+async function getMyReferralStats(publicKey, { page = 1, limit = 10, status } = {}) {
+  validatePublicKey(publicKey);
+
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const pageSize = Math.min(MY_STATS_MAX_LIMIT, Math.max(1, parseInt(limit, 10) || 10));
+
+  if (status && !PIPELINE_STATUSES.includes(status)) {
+    const e = new Error(`status must be one of: ${PIPELINE_STATUSES.join(", ")}`);
+    e.status = 400;
+    throw e;
+  }
+
+  const bonusFactor = REFERRAL_BONUS_BPS / 10_000;
+
+  const { rows: summaryRows } = await pool.query(
+    `${PIPELINE_CTE}
+     SELECT
+       COUNT(*)                                                         AS total_referred,
+       COUNT(*) FILTER (WHERE pipeline_status = 'registered')           AS registered,
+       COUNT(*) FILTER (WHERE pipeline_status = 'first_job_completed')  AS first_job_completed,
+       COUNT(*) FILTER (WHERE pipeline_status = 'credit_paid')          AS credit_paid,
+       COALESCE(SUM(payout_amount) FILTER (WHERE pipeline_status = 'credit_paid'), 0) AS paid_credits_xlm,
+       COALESCE(SUM(COALESCE(first_released_xlm, active_escrow_xlm) * $2)
+         FILTER (WHERE pipeline_status <> 'credit_paid'), 0)            AS pending_credits_xlm
+     FROM pipeline`,
+    [publicKey, bonusFactor],
+  );
+
+  const params = [publicKey];
+  let where = "";
+  if (status) {
+    params.push(status);
+    where = `WHERE pipeline_status = $${params.length}`;
+  }
+  params.push(pageSize, (pageNum - 1) * pageSize);
+
+  const { rows } = await pool.query(
+    `${PIPELINE_CTE}
+     SELECT * FROM pipeline
+     ${where}
+     ORDER BY created_at DESC, id DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params,
+  );
+
+  const s = summaryRows[0];
+  const total = status
+    ? parseInt(s[status], 10)
+    : parseInt(s.total_referred, 10);
+  const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+
+  const toXlm = (v) => (v == null ? null : parseFloat(v).toFixed(7));
+
+  return {
+    referralLink: `${baseUrl}/?ref=${publicKey}`,
+    bonusBps: REFERRAL_BONUS_BPS,
+    totalReferred: parseInt(s.total_referred, 10),
+    pendingCreditsXlm: toXlm(s.pending_credits_xlm),
+    paidCreditsXlm: toXlm(s.paid_credits_xlm),
+    pipeline: {
+      registered: parseInt(s.registered, 10),
+      firstJobCompleted: parseInt(s.first_job_completed, 10),
+      creditPaid: parseInt(s.credit_paid, 10),
+    },
+    referees: rows.map((r) => {
+      const baseAmount = r.first_released_xlm ?? r.active_escrow_xlm;
+      return {
+        id: r.id,
+        refereeAddress: r.referee_address,
+        refereeDisplayName: r.referee_display_name || null,
+        status: r.pipeline_status,
+        registeredAt: r.created_at,
+        firstJobId: r.first_job_id || null,
+        firstJobTitle: r.paid_job_title || r.first_job_title || null,
+        firstJobCompletedAt: r.first_job_completed_at || null,
+        creditXlm:
+          r.pipeline_status === "credit_paid"
+            ? toXlm(r.payout_amount)
+            : baseAmount != null
+              ? (parseFloat(baseAmount) * bonusFactor).toFixed(7)
+              : null,
+        paidAt: r.paid_at || null,
+      };
+    }),
+    pagination: {
+      page: pageNum,
+      limit: pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    },
+  };
+}
+
 module.exports = {
   registerReferral,
   getReferrerForReferee,
   processReferralPayout,
   getReferralStats,
+  getMyReferralStats,
+  PIPELINE_STATUSES,
   REFERRAL_BONUS_BPS,
 };

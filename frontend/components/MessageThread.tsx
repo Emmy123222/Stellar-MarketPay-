@@ -235,7 +235,7 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
       }
       const data = new Uint8Array(await file.arrayBuffer());
       const encrypted = encryptForRecipient(data, recipientKey);
-      const blob = new Blob([encrypted], { type: "application/octet-stream" });
+      const blob = new Blob([encrypted.buffer as ArrayBuffer], { type: "application/octet-stream" });
       const senderPub = myPublicKeyBase64();
       const msg = await uploadMessageAttachment(jobId, blob, file.name + ".enc", senderPub);
       if (isMountedRef.current) setMessages((prev) => [...prev, msg]);

@@ -1,0 +1,5 @@
+-- V23__api_key_rotation.up.sql
+ALTER TABLE api_keys
+  ADD COLUMN IF NOT EXISTS rotating_key_hash TEXT,
+  ADD COLUMN IF NOT EXISTS rotating_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS previous_key_hash TEXT;

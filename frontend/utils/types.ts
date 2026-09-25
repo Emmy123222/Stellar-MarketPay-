@@ -63,6 +63,8 @@ export interface Job {
   visibility?: JobVisibility;
   skills: string[];
   status: JobStatus;
+  /** URL-safe category slug, used for category filter links. */
+  categorySlug?: string;
   clientAddress: string;
   freelancerAddress?: string;
   escrowContractId?: string;
@@ -193,6 +195,17 @@ export interface PriceAlertPreference {
   last_max_alert_at?: string | null;
 }
 
+export interface PriceAlert {
+  id: string;
+  userAddress: string;
+  condition: "above" | "below";
+  threshold: number;
+  oneTime: boolean;
+  triggered: boolean;
+  triggeredAt: string | null;
+  createdAt: string;
+}
+
 export interface ClientSpendingFreelancer {
   freelancerAddress: string;
   jobsCount: number;
@@ -249,6 +262,8 @@ export interface Message {
 
 export interface PortfolioFile {
   cid: string;
+  /** Gateway URL for the pinned file, when the API supplies one. */
+  url?: string;
   fileName: string;
   mimeType: string;
   size: number;
@@ -330,6 +345,7 @@ export interface TimeEntry {
   jobId: string;
   durationMinutes: number;
   description?: string;
+  milestoneIndex?: number | null;
   startedAt?: string;
   createdAt: string;
 }
@@ -368,6 +384,23 @@ export interface JobAnalytics {
   timeToHire?: number | null;
 }
 
+// ─── Job Timeline (Issue #876) ────────────────────────────────────────────────
+
+export type TimelineEventType =
+  | "job_posted"
+  | "bid_accepted"
+  | "escrow_funded"
+  | "work_completed"
+  | "escrow_released";
+
+export interface TimelineEvent {
+  id: string;
+  jobId: string;
+  eventType: TimelineEventType;
+  txHash: string | null;
+  createdAt: string;
+}
+
 // ─── Bulk Actions ────────────────────────────────────────────────────────────
 
 export interface BulkActionResponse {
@@ -402,5 +435,124 @@ export interface AuditLogEntry {
   resource: string;
   timestamp: string;
   changesDiff?: Record<string, any>;
+}
+
+// ─── Passkeys (WebAuthn) ────────────────────────────────────────────────────
+
+export interface PasskeyCredential {
+  id: string;
+  credential_name: string;
+  created_at: string;
+}
+
+// ─── Referral Pipeline (Issue #1559) ─────────────────────────────────────────
+
+export type PipelineStatus = "registered" | "first_job_completed" | "credit_paid";
+
+export interface PipelineReferee {
+  id: string;
+  refereeAddress: string;
+  refereeDisplayName: string | null;
+  status: PipelineStatus;
+  registeredAt: string;
+  firstJobId: string | null;
+  firstJobTitle: string | null;
+  firstJobCompletedAt: string | null;
+  creditXlm: string | null;
+  paidAt: string | null;
+}
+
+export interface MyReferralStats {
+  referralLink: string;
+  bonusBps: number;
+  totalReferred: number;
+  pendingCreditsXlm: string | null;
+  paidCreditsXlm: string | null;
+  pipeline: {
+    registered: number;
+    firstJobCompleted: number;
+    creditPaid: number;
+  };
+  referees: PipelineReferee[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+// ─── Auto-Convert XLM to USDC (Issue #1560) ──────────────────────────────────
+
+export interface AutoConvertSettings {
+  enabled: boolean;
+  slippageBps: number;
+  usdcIssuer: string;
+}
+
+export interface AutoConversion {
+  id: string;
+  userAddress: string;
+  jobId: string | null;
+  jobTitle: string | null;
+  milestoneIndex: number | null;
+  sourceAmountXlm: string;
+  quotedUsdc: string | null;
+  destMinUsdc: string | null;
+  receivedUsdc: string | null;
+  exchangeRate: string | null;
+  txHash: string | null;
+  status: "pending" | "completed" | "failed" | "skipped";
+  error: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  path?: Array<{ type: string; code?: string; issuer?: string }>;
+  quoteAvailable?: boolean;
+}
+
+export interface AutoConvertHistory {
+  conversions: AutoConversion[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+// ─── Manual XLM → USDC Swap (Issue #1547) ────────────────────────────────────
+
+export interface SwapQuote {
+  sourceAmountXlm: string;
+  destinationAmount: string;
+  destMinUsdc: string;
+  rate: string;
+  feeXlm: string;
+  slippageBps: number;
+  path?: Array<{ type: string; code?: string; issuer?: string }>;
+  usdcIssuer: string;
+}
+
+export interface ManualSwapStart {
+  conversion: AutoConversion;
+  quote: SwapQuote;
+}
+
+// ─── On-Chain Reputation (Issue #1561) ───────────────────────────────────────
+
+export type ReputationLabel = "New" | "Building" | "Established" | "Trusted" | "Excellent";
+
+export interface ReputationScore {
+  userId: string;
+  score: number;
+  scoreBps: number;
+  label: ReputationLabel;
+  completedJobs: number;
+  disputeRate: number;
+  avgResponseHours: number | null;
+  avgRating: number | null;
+  ratingCount: number;
+  referralQuality: number;
+  updatedAt: string;
 }
 

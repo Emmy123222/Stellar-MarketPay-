@@ -19,6 +19,7 @@ export default function AppliedJobsTab({ myApplications }: Props) {
     return (
       <StateMessage
         type="empty"
+        illustration="no-applications"
         title="You haven't applied to any jobs yet"
         description="Browse open jobs and submit your first proposal"
         ctaLabel="Browse Jobs"

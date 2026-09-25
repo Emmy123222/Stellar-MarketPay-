@@ -1,3 +1,41 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Proposal Templates
+ *   description: Proposal template management for freelancers
+ *
+ * /api/proposal-templates:
+ *   get:
+ *     summary: List proposal templates for authenticated freelancer
+ *     tags: [Proposal Templates]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Templates retrieved
+ *   post:
+ *     summary: Create a proposal template
+ *     tags: [Proposal Templates]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - content
+ *             properties:
+ *               name:
+ *                 type: string
+ *               content:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Template created
+ */
 "use strict";
 
 const express = require("express");
@@ -32,6 +70,48 @@ router.post("/", verifyJWT, async (req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/proposal-templates/{id}:
+ *   patch:
+ *     summary: Update a proposal template
+ *     tags: [Proposal Templates]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               content:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Template updated
+ *   delete:
+ *     summary: Delete a proposal template
+ *     tags: [Proposal Templates]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Template deleted
+ */
 router.patch("/:id", verifyJWT, async (req, res, next) => {
   try {
     const template = await updateTemplate({

@@ -51,9 +51,20 @@ import FeeEstimationModal from "@/components/FeeEstimationModal";
 
 const mockTransaction = {} as import("@stellar/stellar-sdk").Transaction;
 
-const noop = jest.fn();
+const noop: any = jest.fn();
 
 describe("static component snapshots", () => {
+  let dateSpy: jest.SpyInstance;
+
+  beforeAll(() => {
+    const MOCK_TIMESTAMP = new Date("2026-08-25T00:00:00.000Z").getTime();
+    dateSpy = jest.spyOn(Date, "now").mockImplementation(() => MOCK_TIMESTAMP);
+  });
+
+  afterAll(() => {
+    dateSpy?.mockRestore();
+  });
+
   describe("Spinner", () => {
     it("default", () => snapshotContainer(<Spinner />, "Spinner default"));
   });
@@ -275,6 +286,14 @@ describe("static component snapshots", () => {
   });
 
   describe("BoostJobModal", () => {
+    beforeAll(() => {
+      // Freeze Date.now so the tier expiry dates (Date.now() + N days)
+      // render as fixed dates regardless of when the test suite runs.
+      jest.spyOn(Date, "now").mockReturnValue(new Date("2026-01-15T12:00:00Z").getTime());
+    });
+    afterAll(() => {
+      jest.restoreAllMocks();
+    });
     it("default", () =>
       snapshotContainer(
         <BoostJobModal
@@ -324,7 +343,11 @@ describe("static component snapshots", () => {
   });
 
   describe("ProposalComparison", () => {
-    it("default", () => snapshotContainer(<ProposalComparison />, "ProposalComparison"));
+    it("default", () =>
+      snapshotContainer(
+        <ProposalComparison myJobs={[]} jobApplications={new Map()} publicKey="GTEST" />,
+        "ProposalComparison",
+      ));
   });
 
   describe("RealtimeBidComparison", () => {

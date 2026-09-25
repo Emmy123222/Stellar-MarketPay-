@@ -1,4 +1,8 @@
 import "@testing-library/jest-dom";
+import "jest-axe/extend-expect";
+import { TextEncoder, TextDecoder } from "util";
+
+Object.assign(global, { TextDecoder, TextEncoder });
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,
@@ -15,6 +19,19 @@ Object.defineProperty(window, "matchMedia", {
 });
 
 Element.prototype.scrollIntoView = jest.fn();
+
+// jsdom does not implement IntersectionObserver — provide a no-op stub so
+// components that rely on it (e.g. virtual lists, lazy-load wrappers) don't
+// throw a ReferenceError during tests.
+global.IntersectionObserver = class IntersectionObserver {
+  root = null;
+  rootMargin = "";
+  thresholds = [];
+  observe = jest.fn();
+  unobserve = jest.fn();
+  disconnect = jest.fn();
+  takeRecords = (): IntersectionObserverEntry[] => [];
+} as unknown as typeof IntersectionObserver;
 
 Object.defineProperty(window, "crypto", {
   configurable: true,
@@ -36,3 +53,24 @@ jest.mock("next/router", () => ({
     isReady: true,
   }),
 }));
+
+// Mock @react-pdf/renderer to avoid ES module issues in Jest
+jest.mock("@react-pdf/renderer", () => ({
+  pdf: jest.fn(() => ({
+    toBlob: jest.fn(() => Promise.resolve(new Blob())),
+    toBuffer: jest.fn(() => Promise.resolve(Buffer.from(""))),
+  })),
+  Font: {
+    register: jest.fn(),
+  },
+  StyleSheet: {
+    create: jest.fn((styles) => styles),
+  },
+  View: ({ children }: any) => children,
+  Text: ({ children }: any) => children,
+  Document: ({ children }: any) => children,
+  Page: ({ children }: any) => children,
+  BlobProvider: ({ children }: any) => children({ blob: new Blob(), url: "" }),
+}));
+
+HTMLCanvasElement.prototype.getContext = jest.fn() as any;

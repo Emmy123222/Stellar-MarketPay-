@@ -24,7 +24,7 @@ Reviewed query families:
 
 ### Database optimization changes
 
-Added in `V11__query_optimization_indexes` and `backend/src/db/schema.sql`:
+Added in `V16__query_optimization_indexes` and `backend/src/db/schema.sql`:
 
 - `CREATE EXTENSION IF NOT EXISTS pg_trgm`
 - Generated full-text column:

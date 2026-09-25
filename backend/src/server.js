@@ -56,6 +56,14 @@ const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
+const contributorsRoutes = require("./routes/contributors");
+const verificationRoutes = require("./routes/verification");
+const nftRoutes          = require("./routes/nft");
+const aiScorerRoutes     = require("./routes/aiScorer");
+const priceAlertsRoutes  = require("./routes/priceAlerts");
+const turretRoutes       = require("./routes/turrets");
+const reputationRoutes   = require("./routes/reputation");
+const autoConvertRoutes  = require("./routes/autoConvert");
 
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
@@ -430,6 +438,14 @@ app.use("/api/gas-estimate",   gasEstimatorRoutes);
 app.use("/api/transactions",   transactionRoutes);
 app.use("/api/dao",            daoRoutes);
 app.use("/api/proposal-templates", proposalTemplateRoutes);
+app.use("/api/contributors",  contributorsRoutes);
+app.use("/api/verification",  verificationRoutes);
+app.use("/api/nft",           nftRoutes);
+app.use("/api/ai-scorer",     aiScorerRoutes);
+app.use("/api/price-alerts",  priceAlertsRoutes);
+app.use("/api/turrets",       turretRoutes);
+app.use("/api/reputation",    reputationRoutes);
+app.use("/api/auto-convert",  autoConvertRoutes);
 
 app.use((err, req, res, next) => {
   logError(req.logger || serviceLogger, err, {

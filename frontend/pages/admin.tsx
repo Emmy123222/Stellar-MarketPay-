@@ -4,6 +4,7 @@
  * Non-admin wallets are immediately redirected to /jobs.
  */
 import { useEffect, useState, useCallback } from "react";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import {
@@ -24,6 +25,7 @@ import {
 import { shortenAddress, timeAgo } from "@/utils/format";
 import dynamic from "next/dynamic";
 import Admin2FAModal from "@/components/Admin2FAModal";
+import { useToast } from "@/components/Toast";
 
 // Dynamic import for heavy AdminAnalytics component
 const AdminAnalytics = dynamic(() => import("@/components/AdminAnalytics"), {
@@ -111,6 +113,7 @@ function formatAuditTarget(target?: string | null) {
 
 export default function AdminDashboard({ publicKey }: AdminPageProps) {
   const router = useRouter();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<ActiveTab>("analytics");
   const [disputes, setDisputes] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
@@ -135,6 +138,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
 
   const [cancelModal, setCancelModal] = useState<{ jobId: string; title: string } | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const [freezeModal, setFreezeModal] = useState<{ address: string } | null>(null);
   const [freezeReason, setFreezeReason] = useState("");
@@ -625,7 +629,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                   <button
                     onClick={async () => {
                       await generateCostReport();
-                      alert("Cost report generation triggered. Check audit log.");
+                      toast.success("Cost report generation triggered. Check audit log.");
                     }}
                     className="btn-ghost text-sm py-2 px-5"
                   >
@@ -770,8 +774,8 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
             <h3 className="font-display text-lg font-bold text-amber-100 mb-1">Resolve Dispute</h3>
             <p className="text-amber-800 text-sm mb-4">{resolveModal.title}</p>
 
-            <label className="block text-xs text-amber-800 mb-1">Release funds to</label>
-            <div className="flex gap-2 mb-4">
+            <span id="release-funds-to" className="block text-xs text-amber-800 mb-1">Release funds to</span>
+            <div className="flex gap-2 mb-4" role="group" aria-labelledby="release-funds-to">
               {(["freelancer", "client"] as const).map((side) => (
                 <button
                   key={side}
@@ -788,7 +792,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
               ))}
             </div>
 
-            <label className="block text-xs text-amber-800 mb-1">Resolution note *</label>
+            <label htmlFor="resolve-note" className="block text-xs text-amber-800 mb-1">Resolution note *</label>
             <textarea
               id="resolve-note"
               value={resolveNote}
@@ -824,7 +828,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
             <h3 className="font-display text-lg font-bold text-amber-100 mb-1">Cancel Job</h3>
             <p className="text-amber-800 text-sm mb-4">{cancelModal.title}</p>
 
-            <label className="block text-xs text-amber-800 mb-1">Reason *</label>
+            <label htmlFor="cancel-reason" className="block text-xs text-amber-800 mb-1">Reason *</label>
             <textarea
               id="cancel-reason"
               value={cancelReason}
@@ -836,7 +840,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
             <div className="flex gap-3">
               <button
                 id="confirm-cancel-job"
-                onClick={handleCancelJob}
+                onClick={() => setShowCancelConfirm(true)}
                 disabled={!cancelReason.trim()}
                 className="text-sm flex-1 py-2.5 px-4 rounded-xl bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-all disabled:opacity-50"
               >
@@ -853,13 +857,28 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
         </div>
       )}
 
+      <ConfirmDialog
+        open={showCancelConfirm}
+        title="Cancel Job"
+        description={`Are you sure you want to cancel "${cancelModal?.title}"? This action cannot be undone.`}
+        confirmLabel="Yes, Cancel Job"
+        variant="danger"
+        requireTypedConfirm
+        typedConfirmText="CONFIRM"
+        onConfirm={async () => {
+          await handleCancelJob();
+          setShowCancelConfirm(false);
+        }}
+        onCancel={() => setShowCancelConfirm(false)}
+      />
+
       {/* ── Freeze Wallet Modal ────────────────────────────────────────────────── */}
       {freezeModal !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="card max-w-md w-full border-amber-500/30">
             <h3 className="font-display text-lg font-bold text-amber-100 mb-4">Freeze Wallet</h3>
 
-            <label className="block text-xs text-amber-800 mb-1">Wallet Address *</label>
+            <label htmlFor="freeze-address" className="block text-xs text-amber-800 mb-1">Wallet Address *</label>
             <input
               id="freeze-address"
               type="text"
@@ -869,7 +888,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
               placeholder="G..."
             />
 
-            <label className="block text-xs text-amber-800 mb-1">Reason</label>
+            <label htmlFor="freeze-reason" className="block text-xs text-amber-800 mb-1">Reason</label>
             <input
               id="freeze-reason"
               type="text"

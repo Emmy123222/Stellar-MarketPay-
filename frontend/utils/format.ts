@@ -254,12 +254,20 @@ export function formatUSDEquivalent(
  * Returns the formatted string and optionally the USD equivalent.
  */
 export function formatPrice(
-  xlmAmount: string | number,
+  amount: string | number,
   xlmPriceUsd: number | null,
   currencyMode: "XLM" | "USD",
+  jobCurrency: string = "XLM",
 ): { display: string; usdEquiv: string | null } {
-  const num = typeof xlmAmount === "string" ? parseFloat(xlmAmount) : xlmAmount;
-  if (isNaN(num)) return { display: "0 XLM", usdEquiv: null };
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  if (isNaN(num)) return { display: `0 ${jobCurrency}`, usdEquiv: null };
+
+  if (jobCurrency.toUpperCase() === "USDC") {
+    return {
+      display: `${num.toLocaleString("en-US", { maximumFractionDigits: 4 })} USDC`,
+      usdEquiv: `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    };
+  }
 
   const usdEquiv = xlmPriceUsd !== null
     ? `$${(num * xlmPriceUsd).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -283,10 +291,15 @@ export function formatPrice(
  * Calculates a monthly equivalent estimate for a given budget.
  * If no duration is provided, it assumes the budget is for a month of work.
  */
-export function getMonthlyEstimate(xlmAmount: string | number, xlmPriceUsd: number | null): string | null {
-  if (xlmPriceUsd === null) return null;
-  const num = typeof xlmAmount === "string" ? parseFloat(xlmAmount) : xlmAmount;
+export function getMonthlyEstimate(amount: string | number, xlmPriceUsd: number | null, jobCurrency: string = "XLM"): string | null {
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
   if (isNaN(num)) return null;
+
+  if (jobCurrency.toUpperCase() === "USDC") {
+    return `$${num.toFixed(2)}/mo est.`;
+  }
+
+  if (xlmPriceUsd === null) return null;
   const monthlyUsd = (num * xlmPriceUsd).toFixed(2);
   return `$${monthlyUsd}/mo est.`;
 }

@@ -1,12 +1,13 @@
 /**
  * components/WalletAccountMonitor.tsx
  * Monitors Freighter wallet account changes and disconnections.
- * Listens for accountChanged event and prompts re-authentication on change.
+ * Listens for accountChanged event, polls isConnected(), and polls getConnectedPublicKey.
  */
-import { useEffect } from "react";
-import { subscribeToAccountChanges } from "@/lib/wallet";
+import { useEffect, useCallback } from "react";
+import { subscribeToAccountChanges, isFreighterInstalled } from "@/lib/wallet";
 import { setJwtToken } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { useRouter } from "next/router";
 
 const WALLET_PUBLIC_KEY_STORAGE_KEY = "smp_wallet_public_key";
 
@@ -20,6 +21,17 @@ export default function WalletAccountMonitor({
   onDisconnect,
 }: Props) {
   const { info } = useToast();
+  const router = useRouter();
+
+  const handleDisconnect = useCallback(() => {
+    setJwtToken(null);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(WALLET_PUBLIC_KEY_STORAGE_KEY);
+    }
+    onDisconnect();
+    info("Your wallet was disconnected");
+    router.push("/");
+  }, [onDisconnect, info, router]);
 
   useEffect(() => {
     if (!currentPublicKey) return;
@@ -29,8 +41,9 @@ export default function WalletAccountMonitor({
 
     const handleAccountChanged = (newKey: string | null) => {
       if (cancelled) return;
-      if (!newKey || newKey !== currentPublicKey) {
-        // Clear JWT and persisted state
+      if (!newKey) {
+        handleDisconnect();
+      } else if (newKey !== currentPublicKey) {
         setJwtToken(null);
         if (typeof window !== "undefined") {
           localStorage.removeItem(WALLET_PUBLIC_KEY_STORAGE_KEY);
@@ -40,12 +53,10 @@ export default function WalletAccountMonitor({
       }
     };
 
-    // Use subscribeToAccountChanges if available, otherwise poll
     const cleanup = subscribeToAccountChanges(handleAccountChanged);
     if (cleanup) {
       unsubscribe = cleanup;
     } else {
-      // Fallback: poll every 3 seconds
       const interval = setInterval(async () => {
         const { getConnectedPublicKey: getPk } = await import("@/lib/wallet");
         const pk = await getPk();
@@ -54,11 +65,25 @@ export default function WalletAccountMonitor({
       unsubscribe = () => clearInterval(interval);
     }
 
+    // Poll isConnected() every 30 seconds as additional safeguard
+    const connectionCheck = setInterval(async () => {
+      if (cancelled) return;
+      try {
+        const connected = await isFreighterInstalled();
+        if (!connected) {
+          handleDisconnect();
+        }
+      } catch {
+        handleDisconnect();
+      }
+    }, 30000);
+
     return () => {
       cancelled = true;
       unsubscribe?.();
+      clearInterval(connectionCheck);
     };
-  }, [currentPublicKey, onDisconnect, info]);
+  }, [currentPublicKey, onDisconnect, info, router, handleDisconnect]);
 
   return null;
 }

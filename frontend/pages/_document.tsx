@@ -1,4 +1,5 @@
 import Document, { Html, Head, Main, NextScript, DocumentContext, DocumentInitialProps } from "next/document";
+import SanitizedHtml from "@/components/SanitizedHtml";
 
 // Inline script applied before hydration to prevent flash of wrong theme.
 // Must remain synchronous and inline — do NOT move to next/script.
@@ -7,8 +8,22 @@ const themeScript = `
   try {
     var stored = localStorage.getItem('smp_theme');
     var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    var theme = stored === 'light' ? 'light' : (stored === 'dark' ? 'dark' : (prefersDark ? 'dark' : 'light'));
-    if (theme === 'dark') document.documentElement.classList.add('dark');
+    var prefersHighContrast = window.matchMedia('(prefers-contrast: more)').matches;
+    
+    var theme = 'light';
+    if (stored === 'light' || stored === 'dark' || stored === 'high-contrast') {
+      theme = stored;
+    } else if (prefersHighContrast) {
+      theme = 'high-contrast';
+    } else if (prefersDark) {
+      theme = 'dark';
+    }
+    
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else if (theme === 'high-contrast') {
+      document.documentElement.classList.add('high-contrast', 'dark');
+    }
   } catch(e){}
 })();
 `;
@@ -21,7 +36,7 @@ export default function MarketPayDocument({ nonce }: MarketPayDocumentProps) {
   return (
     <Html lang="en">
       <Head nonce={nonce}>
-        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <SanitizedHtml as="script" nonce={nonce} html={themeScript} />
       </Head>
       <body>
         <Main />

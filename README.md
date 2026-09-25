@@ -6,13 +6,17 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Stellar](https://img.shields.io/badge/Stellar-Testnet-blue)](https://stellar.org)
 [![Soroban](https://img.shields.io/badge/Soroban-Smart%20Contracts-purple)](https://soroban.stellar.org)
-[![Backend Coverage](https://img.shields.io/badge/backend%20coverage-60%25%2B-brightgreen)](#testing)
+[![Backend Coverage](https://img.shields.io/badge/backend%20coverage-80%25%2B-brightgreen)](#testing)
 
 Stellar MarketPay is an open-source decentralised freelance marketplace where clients post jobs, freelancers apply, and payments are secured in **Soroban smart contract escrow** — released automatically when work is approved. No middlemen. No payment delays. No platform fees eating your earnings..
 
 ---
 
 ## ✨ Features (v1)
+
+## ✨ Features
+
+### Core Marketplace (v1.0)
 
 - 🔗 **Wallet Connect** — Freighter browser wallet integration
 - 📋 **Post Jobs** — Clients post jobs with XLM budget locked in escrow
@@ -21,18 +25,52 @@ Stellar MarketPay is an open-source decentralised freelance marketplace where cl
 - ✅ **Release & Complete** — Client approves → funds released to freelancer instantly
 - 📜 **Job History** — Track all your jobs and earnings on-chain
 
+### Multi-Currency & Milestones (v1.2+)
+
+- 💵 **USDC Support** — Pay with USDC alongside XLM
+- 🎯 **Milestone-Based Escrow** — Lock funds for milestones, release on approval
+- 💬 **In-App Messaging** — Direct communication between clients and freelancers
+- 🛡️ **Dispute Resolution** — On-chain arbitration with evidence anchoring
+
+### DAO Governance (v1.3+)
+
+- 🏛️ **DAO-Governed Arbitrator Registry** — Community-voted dispute arbiters
+- 🗳️ **Platform Governance** — Decentralised decision-making via Soroban
+
+---
+
+## 🎥 Demo
+
+> 🎥 **Demo video coming soon** — follow the [recording script](docs/video-walkthrough-script.md) to capture the 3‑minute happy path: post a job → receive bids → accept proposal → release escrow.  
+> 📝 [Subtitled captions (.srt)](docs/demo-walkthrough-captions.srt) included for accessibility.
+
 ---
 
 ## 🗂 Project Structure
 
 ```
 stellar-marketpay/
-├── frontend/          # Next.js + React + Tailwind CSS
-├── backend/           # Node.js + Express API
-├── contracts/         # Stellar Soroban smart contracts (Rust)
-├── docs/              # Architecture & API documentation
-├── scripts/           # Deployment & utility scripts
-├── .github/           # CI/CD workflows & issue templates
+├── frontend/              # Next.js + React + Tailwind CSS UI
+├── backend/               # Node.js + Express REST API
+├── contracts/             # Stellar Soroban smart contracts (Rust)
+├── packages/
+│   ├── backend/           # Shared backend packages & utilities
+│   └── client/            # TypeScript/JavaScript client SDK
+├── infra/
+│   ├── cloudflare/        # CDN & WAF configuration
+│   ├── grafana/           # Monitoring dashboards
+│   └── nginx.conf         # Reverse proxy configuration
+├── monitoring/
+│   ├── prometheus/        # Metrics collection
+│   ├── grafana/           # Grafana dashboard definitions
+│   └── filebeat/          # Log shipping configuration
+├── k6/                    # Load testing & performance benchmarks
+├── deploy/
+│   ├── helm/              # Kubernetes Helm charts
+│   └── scripts/           # Deployment automation scripts
+├── docs/                  # Architecture & API documentation
+├── scripts/               # Development & utility scripts
+├── .github/               # CI/CD workflows & issue templates
 ├── CONTRIBUTING.md
 ├── ROADMAP.md
 └── LICENSE
@@ -44,17 +82,17 @@ stellar-marketpay/
 
 ### Prerequisites
 
-| Tool | Version |
-|------|---------|
-| Node.js | ≥ 18.x |
-| npm | Latest |
-| Rust + Cargo | ≥ 1.74 (for contracts) |
-| Freighter Wallet | Browser extension |
+| Tool             | Version                |
+| ---------------- | ---------------------- |
+| Node.js          | ≥ 18.x                 |
+| npm              | Latest                 |
+| Rust + Cargo     | ≥ 1.74 (for contracts) |
+| Freighter Wallet | Browser extension      |
 
 ### 1. Clone
 
 ```bash
-git clone https://github.com/your-org/stellar-marketpay.git
+git clone https://github.com/Emmy123222/Stellar-MarketPay-.git
 cd stellar-marketpay
 ```
 
@@ -81,6 +119,19 @@ npm run dev
 # → http://localhost:4000
 ```
 
+### 5. Database Migrations
+
+Run and rollback database migrations sequentially (`V1` to `V49`):
+
+```bash
+cd backend
+# Apply all pending migrations sequentially
+npm run migrate
+
+# Roll back the most recently applied migration
+npm run migrate:rollback
+```
+
 ---
 
 ## 🔑 Environment Variables
@@ -90,23 +141,25 @@ See [docs/environment-variables.md](docs/environment-variables.md) for the full 
 Deploy the Soroban escrow contract with [docs/contract-deployment.md](docs/contract-deployment.md).
 
 ### Frontend (`frontend/.env.local`)
+
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:4000
 NEXT_PUBLIC_STELLAR_NETWORK=testnet
 NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
 NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
-NEXT_PUBLIC_CONTRACT_ID=CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+NEXT_PUBLIC_CONTRACT_ID=CBFJNX67NYYRZPLH4YYT77ZUULRJ5NI2LPEYRRLFHBTEACZOZUUYLOGG
 NEXT_PUBLIC_USE_CONTRACT_MOCK=false
 ```
 
 ### Backend (`backend/.env`)
+
 ```env
 PORT=4000
 DATABASE_URL=postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork
 JWT_SECRET=replace-with-a-long-random-secret
 STELLAR_NETWORK=testnet
 HORIZON_URL=https://horizon-testnet.stellar.org
-CONTRACT_ID=CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+CONTRACT_ID=CBFJNX67NYYRZPLH4YYT77ZUULRJ5NI2LPEYRRLFHBTEACZOZUUYLOGG
 ALLOWED_ORIGINS=http://localhost:3000
 ```
 
@@ -117,11 +170,13 @@ ALLOWED_ORIGINS=http://localhost:3000
 For frontend development without a deployed Soroban contract:
 
 1. **Enable mock mode** in `frontend/.env.local`:
+
    ```env
    NEXT_PUBLIC_USE_CONTRACT_MOCK=true
    ```
 
 2. **Start the frontend**:
+
    ```bash
    cd frontend
    npm run dev
@@ -155,12 +210,12 @@ For frontend development without a deployed Soroban contract:
 
 ## Testing
 
-| Suite | Command | Notes |
-|-------|---------|--------|
-| Frontend unit snapshots | `cd frontend && npm test` | Jest + React Testing Library |
-| Update snapshots | `cd frontend && npm run test:update-snapshots` | Regenerate when UI changes are intentional |
-| Backend unit + coverage | `cd backend && npm test` | HTML report in `backend/coverage/` |
-| E2E (Playwright) | `cd frontend && npm run test:e2e` | Includes full client/freelancer marketplace flow |
+| Suite                   | Command                                        | Notes                                            |
+| ----------------------- | ---------------------------------------------- | ------------------------------------------------ |
+| Frontend unit snapshots | `cd frontend && npm test`                      | Jest + React Testing Library                     |
+| Update snapshots        | `cd frontend && npm run test:update-snapshots` | Regenerate when UI changes are intentional       |
+| Backend unit + coverage | `cd backend && npm test`                       | HTML report in `backend/coverage/`               |
+| E2E (Playwright)        | `cd frontend && npm run test:e2e`              | Includes full client/freelancer marketplace flow |
 
 Deploy or upgrade the Soroban escrow contract using [docs/contract-deployment.md](docs/contract-deployment.md).
 
@@ -172,8 +227,9 @@ Deploy or upgrade the Soroban escrow contract using [docs/contract-deployment.md
 - **[API Client SDKs](docs/api-client-sdk.md)** — TypeScript, Python, and Go client libraries
 - **[Troubleshooting Guide](docs/troubleshooting.md)** — Common issues and solutions
 - **[Production Deployment](docs/deployment-production.md)** — Deploy to AWS, GCP, or DigitalOcean
-- **[API Documentation](docs/API_DOCUMENTATION.md)** — Complete API reference
+- **[API Documentation](docs/api-documentation.md)** — Complete API reference
 - **[Contract Deployment](docs/contract-deployment.md)** — Deploy Soroban smart contracts
+- **[Prometheus Metrics](backend/docs/METRICS.md)** — Metrics reference, PromQL queries, cardinality bounds, and observability setup
 
 ## 🤝 Contributing
 

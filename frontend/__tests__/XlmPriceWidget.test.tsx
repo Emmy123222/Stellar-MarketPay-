@@ -20,6 +20,15 @@ jest.mock("chart.js", () => ({
   Filler: {},
 }));
 
+jest.mock("@/components/Toast", () => ({
+  ToastProvider: ({ children }: { children: React.ReactNode }) => children,
+  useToast: () => ({
+    success: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+  }),
+}));
+
 // Mock useApi to return controlled data
 jest.mock("@/hooks/useApi", () => ({
   useApi: jest.fn(() => ({
@@ -40,6 +49,12 @@ jest.mock("@/hooks/useApi", () => ({
 jest.mock("@/lib/api", () => ({
   fetchXlmPriceHistory: jest.fn(),
   Timeframe: undefined,
+}));
+
+// Mock PriceAlertModal to avoid ToastProvider dependency
+jest.mock("@/components/PriceAlertModal", () => ({
+  __esModule: true,
+  default: () => null,
 }));
 
 import XlmPriceWidget from "@/components/XlmPriceWidget";

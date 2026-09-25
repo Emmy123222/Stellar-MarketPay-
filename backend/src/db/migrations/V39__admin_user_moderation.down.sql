@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS admin_audit_log;
+
+ALTER TABLE profiles DROP COLUMN IF EXISTS banned_at;
+ALTER TABLE profiles DROP COLUMN IF EXISTS banned_by;
+ALTER TABLE profiles DROP COLUMN IF EXISTS ban_reason;
+ALTER TABLE profiles DROP COLUMN IF EXISTS flagged;
+
+ALTER TABLE jobs DROP COLUMN IF EXISTS removed_at;
+ALTER TABLE jobs DROP COLUMN IF EXISTS removed_by;
+ALTER TABLE jobs DROP COLUMN IF EXISTS remove_reason;

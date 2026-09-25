@@ -7,11 +7,11 @@
 #![no_main]
 
 use libfuzzer_sys::{arbitrary, fuzz_target};
+use marketpay_contract::{CreateEscrowParams, MarketPayContract, MarketPayContractClient};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     Address, Env, String as SorobanString,
 };
-use marketpay_contract::{CreateEscrowParams, MarketPayContract, MarketPayContractClient};
 
 #[derive(Debug, arbitrary::Arbitrary)]
 struct FuzzInput {
@@ -25,11 +25,13 @@ fuzz_target!(|data: FuzzInput| {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_addr = env.register_contract(None, MarketPayContract);
+    let contract_addr = env.register(MarketPayContract, ());
     let client = MarketPayContractClient::new(&env, &contract_addr);
 
     let token_admin = Address::generate(&env);
-    let token_addr = env.register_stellar_asset_contract_v2(token_admin).address();
+    let token_addr = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token_addr);
 
     let real_client = Address::generate(&env);
@@ -49,15 +51,20 @@ fuzz_target!(|data: FuzzInput| {
         referrer: None,
     };
 
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.create_escrow(&job_id, &real_client, &params);
+    client.create_escrow(&job_id, &real_client, &params);
 
-        // Advance the ledger by the fuzz-supplied amount.
-        env.ledger().with_mut(|l| {
-            l.sequence_number = l.sequence_number.saturating_add(data.ledger_advance);
-        });
+    // Advance the ledger by the fuzz-supplied amount (bounded to prevent Soroban host TTL overflow).
+    // Also advance the timestamp (approx. 5s per ledger in Stellar) so timeout expiration is exercised.
+    let advance = data.ledger_advance % 1_000_000;
+    env.ledger().with_mut(|l| {
+        l.sequence_number = l.sequence_number.saturating_add(advance);
+        l.timestamp = l.timestamp.saturating_add((advance as u64) * 5);
+    });
 
-        let caller = if data.use_real_client { real_client.clone() } else { random_caller };
-        client.timeout_refund(&job_id, &caller);
-    }));
+    let caller = if data.use_real_client {
+        real_client.clone()
+    } else {
+        random_caller
+    };
+    let _ = client.try_timeout_refund(&job_id, &caller);
 });

@@ -1,6 +1,11 @@
 /**
  * src/routes/scope.js
  * Scope session management routes
+ *
+ * @swagger
+ * tags:
+ *   name: Scope
+ *   description: Collaborative scope session management
  */
 "use strict";
 
@@ -12,8 +17,34 @@ const { createRateLimiter } = require("../middleware/rateLimiter");
 const renewRateLimiter = createRateLimiter(5, 1);
 
 /**
- * POST /api/scope/:sessionId/renew
- * Extend a scope session by 24 hours
+ * @swagger
+ * /api/scope/{sessionId}/renew:
+ *   post:
+ *     summary: Extend a scope session by 24 hours
+ *     tags: [Scope]
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Session extended
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 sessionId:
+ *                   type: string
+ *                 expiresAt:
+ *                   type: string
+ *                   format: date-time
+ *       404:
+ *         description: Session not found or expired
  */
 router.post("/:sessionId/renew", renewRateLimiter, async (req, res, next) => {
   try {

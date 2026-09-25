@@ -82,7 +82,11 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-ink-900/90 backdrop-blur-sm flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      role="presentation"
+      className="fixed inset-0 z-50 bg-ink-900/90 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
       <div
         ref={dialogRef}
         role="dialog"
@@ -94,8 +98,10 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
         <div className="flex items-center justify-between p-6 border-b border-market-500/10">
           <h3 className="font-display text-lg font-semibold text-amber-100">Share Job</h3>
           <button
+            type="button"
             onClick={onClose}
             className="text-amber-800 hover:text-amber-600 transition-colors"
+            aria-label="Close share job modal"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -122,9 +128,9 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
           {/* Share Options */}
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-amber-200 mb-2">Share Job URL</label>
+              <label htmlFor="share-job-url" className="block text-sm font-medium text-amber-200 mb-2">Share Job URL</label>
               <div className="flex gap-2">
-                <input
+                <input id="share-job-url"
                   type="text"
                   value={jobUrl}
                   readOnly
@@ -140,9 +146,9 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-amber-200 mb-2">
+              <span className="block text-sm font-medium text-amber-200 mb-2">
                 Create Invite Link (Pre-filled Application)
-              </label>
+              </span>
               
               {/* Pre-fill Options */}
               <div className="space-y-3 mb-4">
@@ -158,8 +164,8 @@ export default function ShareJobModal({ job, onClose }: ShareJobModalProps) {
                 </div>
                 
                 <div>
-                  <label className="block text-xs text-amber-800 mb-1">Personal Message (optional)</label>
-                  <textarea
+                  <label htmlFor="personal-message-optional" className="block text-xs text-amber-800 mb-1">Personal Message (optional)</label>
+                  <textarea id="personal-message-optional"
                     placeholder="Add a personal note for the freelancer..."
                     value={inviteData.message || ''}
                     onChange={(e) => setInviteData(prev => ({ ...prev, message: e.target.value }))}

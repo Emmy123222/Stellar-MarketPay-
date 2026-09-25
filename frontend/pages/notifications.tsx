@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import clsx from "clsx";
@@ -9,6 +9,7 @@ import {
 } from "@/lib/api";
 import { timeAgo } from "@/utils/format";
 import type { NotificationItem } from "@/utils/types";
+import StateMessage from "@/components/StateMessage";
 
 interface NotificationsPageProps {
   publicKey: string | null;
@@ -45,8 +46,36 @@ export default function NotificationsPage({ publicKey, onConnect }: Notification
     }
   }
 
+  const isMountedRef = useRef(true);
+
+  async function loadNotificationsGuarded(cursor?: string | null) {
+    if (!publicKey) return;
+    if (cursor) setLoadingMore(true);
+    else setLoading(true);
+
+    try {
+      const result = await fetchNotifications({ limit: 20, cursor });
+      if (isMountedRef.current) {
+        setNotifications((current) =>
+          cursor ? [...current, ...result.notifications] : result.notifications,
+        );
+        setUnreadCount(result.unreadCount);
+        setNextCursor(result.nextCursor);
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
+  }
+
   useEffect(() => {
-    loadNotifications();
+    isMountedRef.current = true;
+    loadNotificationsGuarded();
+    return () => {
+      isMountedRef.current = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicKey]);
 
@@ -64,9 +93,16 @@ export default function NotificationsPage({ publicKey, onConnect }: Notification
   }
 
   async function markEverythingRead() {
-    await markAllNotificationsRead();
-    setNotifications((items) => items.map((item) => ({ ...item, read: true })));
+    const previousCount = unreadCount;
     setUnreadCount(0);
+    setNotifications((items) => items.map((item) => ({ ...item, read: true })));
+    try {
+      await markAllNotificationsRead();
+      await loadNotifications();
+    } catch {
+      setUnreadCount(previousCount);
+      setNotifications((items) => items.map((item) => ({ ...item, read: false })));
+    }
   }
 
   return (
@@ -106,9 +142,14 @@ export default function NotificationsPage({ publicKey, onConnect }: Notification
             Loading notifications...
           </div>
         ) : notifications.length === 0 ? (
-          <div className="border border-amber-900/30 rounded-lg p-6 bg-ink-800/50 text-amber-700">
-            No notifications yet.
-          </div>
+          <StateMessage
+            type="empty"
+            illustration="no-notifications"
+            title="You're all caught up"
+            description="You'll see updates on your jobs and applications here as they happen."
+            ctaLabel="Browse Jobs"
+            onCta={() => router.push('/jobs')}
+          />
         ) : (
           <div className="border border-amber-900/30 rounded-lg bg-ink-800/50 overflow-hidden">
             {notifications.map((notification) => (

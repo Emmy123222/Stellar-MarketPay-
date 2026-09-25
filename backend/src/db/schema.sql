@@ -171,6 +171,33 @@ ALTER TABLE jobs
     setweight(to_tsvector('simple', COALESCE(description, '')), 'B')
   ) STORED;
 
+-- Issue #773: Full-text search column (managed by trigger, uses 'english' config for stemming)
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS search_vector TSVECTOR;
+
+-- Trigger function to automatically keep search_vector in sync
+CREATE OR REPLACE FUNCTION jobs_search_vector_update()
+RETURNS trigger AS $$
+BEGIN
+  NEW.search_vector := to_tsvector(
+    'english',
+    coalesce(NEW.title, '') || ' ' || coalesce(NEW.description, '')
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create the trigger (fires on INSERT or UPDATE of title/description)
+DROP TRIGGER IF EXISTS trg_jobs_search_vector ON jobs;
+CREATE TRIGGER trg_jobs_search_vector
+  BEFORE INSERT OR UPDATE OF title, description ON jobs
+  FOR EACH ROW
+  EXECUTE FUNCTION jobs_search_vector_update();
+
+-- Backfill search_vector for existing rows
+UPDATE jobs
+SET search_vector = to_tsvector('english', coalesce(title, '') || ' ' || coalesce(description, ''))
+WHERE search_vector IS NULL;
+
 -- enforce valid visibility values for all rows
 DO $$
 BEGIN
@@ -274,6 +301,7 @@ CREATE TABLE IF NOT EXISTS escrows (
   status              TEXT        NOT NULL DEFAULT 'funded',   -- funded | released | refunded | timeout_refunded
   released_at         TIMESTAMPTZ,                 -- When the escrow was released
   timeout_at          TIMESTAMPTZ,                 -- Issue #175: Ledger timeout mapped to wall-clock (approx)
+  next_billing_date   TIMESTAMPTZ,                 -- Issue #1453: DST-aware recurring billing date
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -321,6 +349,9 @@ CREATE INDEX IF NOT EXISTS jobs_status_category_created_idx
 
 CREATE INDEX IF NOT EXISTS jobs_search_vector_idx
   ON jobs USING GIN (job_search_vector);
+
+-- Issue #773: GIN index for full-text search on search_vector (trigger-managed, english config)
+CREATE INDEX IF NOT EXISTS idx_jobs_search_vector ON jobs USING GIN (search_vector);
 
 CREATE INDEX IF NOT EXISTS jobs_title_trgm_idx
   ON jobs USING GIN (lower(title) gin_trgm_ops);
@@ -400,6 +431,7 @@ CREATE TABLE IF NOT EXISTS scope_sessions (
   content           TEXT          NOT NULL DEFAULT '',
   cursors           JSONB         NOT NULL DEFAULT '{}'::jsonb,
   finalized         BOOLEAN       NOT NULL DEFAULT false,
+  finalized_hash    TEXT,
   finalized_payload JSONB,
   expires_at        TIMESTAMPTZ   NOT NULL,
   created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
@@ -449,12 +481,14 @@ CREATE TABLE IF NOT EXISTS time_entries (
   freelancer_address  TEXT        NOT NULL REFERENCES profiles(public_key),
   duration_minutes    INTEGER     NOT NULL CHECK (duration_minutes > 0 AND duration_minutes <= 1440),
   description         TEXT,
+  milestone_index     INTEGER,
   started_at          TIMESTAMPTZ,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS time_entries_job_id_idx         ON time_entries(job_id);
 CREATE INDEX IF NOT EXISTS time_entries_freelancer_idx     ON time_entries(freelancer_address);
+CREATE INDEX IF NOT EXISTS time_entries_milestone_idx      ON time_entries(job_id, milestone_index);
 
 -- ─────────────────────────────────────────
 -- time_invoices  (Issue #346 — billing)
@@ -549,3 +583,143 @@ CREATE TABLE IF NOT EXISTS ledger_timestamps (
 );
 
 CREATE INDEX IF NOT EXISTS ledger_timestamps_timestamp_idx ON ledger_timestamps(timestamp);
+
+-- ─────────────────────────────────────────
+-- audit_log  (V22 — immutable state-change audit trail)
+-- Every state-changing operation (job status change, escrow release, dispute
+-- filing, etc.) is recorded here with before/after snapshots so that any
+-- change can be traced back to the actor.
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS audit_log (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_address   TEXT        NOT NULL,
+  action          TEXT        NOT NULL,
+  entity_type     TEXT        NOT NULL,
+  entity_id       TEXT        NOT NULL,
+  old_value       JSONB,
+  new_value       JSONB,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS audit_log_entity_idx     ON audit_log(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS audit_log_actor_idx      ON audit_log(actor_address);
+CREATE INDEX IF NOT EXISTS audit_log_action_idx     ON audit_log(action);
+CREATE INDEX IF NOT EXISTS audit_log_created_idx    ON audit_log(created_at DESC);
+
+-- ─────────────────────────────────────────
+-- reputation_scores  (V55 — Issue #1561)
+-- ─────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS reputation_scores (
+  user_id             TEXT          PRIMARY KEY REFERENCES profiles(public_key) ON DELETE CASCADE,
+  score               NUMERIC(5,2)  NOT NULL DEFAULT 0 CHECK (score BETWEEN 0 AND 100),
+  completed_jobs      INTEGER       NOT NULL DEFAULT 0,
+  dispute_rate        NUMERIC(5,4)  NOT NULL DEFAULT 0 CHECK (dispute_rate BETWEEN 0 AND 1),
+  avg_response_hours  NUMERIC(10,2),                -- NULL until the user has replied to at least one message/application
+  avg_rating          NUMERIC(3,2),                 -- NULL until first rating
+  rating_count        INTEGER       NOT NULL DEFAULT 0,
+  referral_quality    NUMERIC(5,4)  NOT NULL DEFAULT 0 CHECK (referral_quality BETWEEN 0 AND 1),
+  updated_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS reputation_scores_score_idx ON reputation_scores (score DESC);
+
+-- ─────────────────────────────────────────
+-- USDC auto-convert  (V56 — Issue #1560)
+-- ─────────────────────────────────────────
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS auto_convert_usdc BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Maximum slippage the freelancer accepts on the swap, in basis points (100 = 1%).
+  ADD COLUMN IF NOT EXISTS auto_convert_slippage_bps INTEGER NOT NULL DEFAULT 100
+    CHECK (auto_convert_slippage_bps BETWEEN 10 AND 1000);
+
+-- Payment history for auto-conversions. A row is created in 'pending' state when
+-- an escrow is released to a freelancer who has opted in; the freelancer's
+-- wallet then signs a pathPaymentStrictSend (XLM -> USDC, to self) and the
+-- result (tx hash, amounts, effective rate) is recorded here.
+CREATE TABLE IF NOT EXISTS usdc_auto_conversions (
+  id                  UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_address        TEXT          NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
+  job_id              UUID          REFERENCES jobs(id) ON DELETE SET NULL,
+  milestone_index     INTEGER,                    -- NULL for a full escrow release
+  source_amount_xlm   NUMERIC(20,7) NOT NULL CHECK (source_amount_xlm > 0),
+  quoted_usdc         NUMERIC(20,7),              -- best path quote at release time
+  dest_min_usdc       NUMERIC(20,7),              -- min USDC after slippage
+  received_usdc       NUMERIC(20,7),              -- actual USDC received on-chain
+  exchange_rate       NUMERIC(20,7),              -- USDC per XLM actually obtained
+  tx_hash             TEXT,
+  status              TEXT          NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'completed', 'failed', 'skipped')),
+  error               TEXT,
+  created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  completed_at        TIMESTAMPTZ
+);
+
+-- One conversion per release: full release (milestone_index NULL) or per milestone.
+CREATE UNIQUE INDEX IF NOT EXISTS usdc_auto_conversions_release_uniq
+  ON usdc_auto_conversions (user_address, job_id, (COALESCE(milestone_index, -1)));
+
+CREATE INDEX IF NOT EXISTS usdc_auto_conversions_user_created_idx
+  ON usdc_auto_conversions (user_address, created_at DESC);
+CREATE INDEX IF NOT EXISTS usdc_auto_conversions_pending_idx
+  ON usdc_auto_conversions (user_address) WHERE status = 'pending';
+CREATE UNIQUE INDEX IF NOT EXISTS usdc_auto_conversions_tx_hash_idx
+  ON usdc_auto_conversions (tx_hash) WHERE tx_hash IS NOT NULL;
+
+-- ─────────────────────────────────────────
+-- Issue #232: stats endpoint query optimization (V57)
+-- B-tree indexes for COUNT(*) status filters and a materialized view that
+-- pre-computes platform stats so reads never touch base tables.
+-- ─────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_jobs_status
+  ON jobs (status)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status_completed
+  ON jobs (status)
+  WHERE status = 'completed' AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status_cancelled
+  ON jobs (status)
+  WHERE status = 'cancelled' AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_applications_status
+  ON applications (status);
+
+CREATE INDEX IF NOT EXISTS idx_escrows_status
+  ON escrows (status);
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS platform_stats_mv AS
+  SELECT
+    COUNT(*)                                                    AS total_jobs,
+    COUNT(DISTINCT client_address)                              AS total_clients,
+    COUNT(DISTINCT freelancer_address)
+      FILTER (WHERE freelancer_address IS NOT NULL)             AS total_freelancers,
+    (
+      SELECT COUNT(DISTINCT public_key)
+      FROM   profiles
+      WHERE  completed_jobs > 0 OR role = 'client'
+    )                                                           AS active_users,
+    COALESCE(
+      (SELECT SUM(amount_xlm) FROM escrows WHERE status = 'funded'),
+      0
+    )                                                           AS total_escrow_xlm,
+    COALESCE(
+      AVG(budget) FILTER (WHERE status IN ('assigned', 'in_progress', 'completed')),
+      0
+    )                                                           AS avg_job_budget,
+    COALESCE(
+      COUNT(*) FILTER (WHERE status = 'completed') * 100.0 /
+      NULLIF(
+        COUNT(*) FILTER (WHERE status IN ('completed', 'cancelled')),
+        0
+      ),
+      0
+    )                                                           AS completion_rate,
+    NOW()                                                       AS refreshed_at
+  FROM jobs
+  WHERE deleted_at IS NULL
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS platform_stats_mv_singleton_idx
+  ON platform_stats_mv ((1));

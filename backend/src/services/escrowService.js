@@ -1,8 +1,8 @@
 "use strict";
 
 const pool = require("../db/pool");
-const { getJob } = require("./jobService");
-const { logContractInteraction } = require("./contractAuditService");
+const { getJob, recordTimelineEvent } = require("./jobService");
+const { logContractInteraction, verifyOnChainTransaction } = require("./contractAuditService");
 const {
   notifyEscrowEvent,
   EVENT_TYPES,
@@ -127,6 +127,18 @@ function validateMilestoneIndex(milestones, milestoneIndex) {
   return index;
 }
 
+function validateMilestoneReleaseOrder(milestones, milestoneIndex) {
+  for (let i = 0; i < milestoneIndex; i += 1) {
+    if (milestones[i]?.status !== "released") {
+      const e = new Error(
+        `Milestone ${i + 1} must be released before milestone ${milestoneIndex + 1} can be released`,
+      );
+      e.status = 400;
+      throw e;
+    }
+  }
+}
+
 async function releaseFunds(jobId, clientAddress, contractTxHash) {
   const job = await getJob(jobId);
   if (job.clientAddress !== clientAddress) {
@@ -151,23 +163,69 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
     throw e;
   }
 
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
   const { rows: escrowRows } = await pool.query(
     "SELECT amount_xlm FROM escrows WHERE job_id = $1",
     [jobId],
   );
 
+  if (!escrowRows.length) {
+    const e = new Error("No escrow record found for this job");
+    e.status = 400;
+    throw e;
+  }
+
+  const amountXlm = escrowRows[0].amount_xlm;
+
+  // Bug #850: Validate that the escrow amount is consistent with the job.
+  // The escrow amount should reflect the accepted bid, not necessarily the
+  // original job budget.  Log a warning if the amounts diverge so operators
+  // can investigate.
+  //
+  // TODO(#850): Cross-check against the on-chain Soroban escrow contract's
+  // stored amount via getEscrowState() before releasing.  The frontend already
+  // calls getEscrowState() in the release flow; the backend should mirror that
+  // check once we have a RPC helper wired up in the service layer.
+  const escrowAmountNum = parseFloat(amountXlm);
+  if (isNaN(escrowAmountNum) || escrowAmountNum <= 0) {
+    const e = new Error("Escrow amount is missing or invalid");
+    e.status = 400;
+    throw e;
+  }
+
+  // Warn if the escrow amount exceeds the job budget (possible data inconsistency)
+  const budgetNum = parseFloat(job.budget);
+  if (!isNaN(budgetNum) && escrowAmountNum > budgetNum + 0.0000001) {
+    logger.warn(
+      { jobId, escrowAmount: amountXlm, jobBudget: job.budget },
+      'Escrow amount exceeds job budget — possible data inconsistency (Issue #850)',
+    );
+  }
+
   await pool.query(
     `INSERT INTO escrow_releases (job_id, released_by, tx_hash, released_at)
      VALUES ($1, $2, $3, NOW())`,
-    [jobId, clientAddress, contractTxHash || `offchain-${Date.now()}`],
+    [jobId, clientAddress, txHash],
   );
 
-  await logContractInteraction({
+  logContractInteraction({
     functionName: "release_escrow",
     callerAddress: clientAddress,
     jobId,
-    txHash: contractTxHash || `offchain-${Date.now()}`,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
   });
+
+  // Record timeline event with on-chain tx hash (Issue #876)
+  try {
+    await recordTimelineEvent(jobId, "escrow_released", contractTxHash || null);
+  } catch (err) {
+    console.error("[timeline] Failed to record escrow_released event:", err.message);
+  }
 
   await notifyEscrowEvent({
     eventType: EVENT_TYPES.ESCROW_RELEASED,
@@ -177,12 +235,11 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
     data: {
       jobTitle: job.title,
       jobId,
-      amount: job.budget,
+      amount: amountXlm,
       currency: job.currency,
     },
   });
 
-  const amountXlm = escrowRows.length ? escrowRows[0].amount_xlm : "0";
   const referralResult = await processReferralPayout(
     jobId,
     job.freelancerAddress,
@@ -220,12 +277,24 @@ async function refundClient(jobId, clientAddress, contractTxHash) {
     throw e;
   }
 
-  await logContractInteraction({
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
+  logContractInteraction({
     functionName: "refund_escrow",
     callerAddress: clientAddress,
     jobId,
-    txHash: contractTxHash || `offchain-${Date.now()}`,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
   });
+
+  const { rows: escrowRows } = await pool.query(
+    "SELECT amount_xlm FROM escrows WHERE job_id = $1",
+    [jobId],
+  );
+  const escrowAmount = escrowRows.length ? escrowRows[0].amount_xlm : job.budget;
 
   await notifyEscrowEvent({
     eventType: EVENT_TYPES.REFUND_ISSUED,
@@ -235,7 +304,7 @@ async function refundClient(jobId, clientAddress, contractTxHash) {
     data: {
       jobTitle: job.title,
       jobId,
-      amount: job.budget,
+      amount: escrowAmount,
       currency: job.currency,
     },
   });
@@ -276,7 +345,7 @@ async function timeoutRefund(jobId, clientAddress, contractTxHash, req = null) {
   const clientIp = req ? getClientIp(req) : '127.0.0.1';
   
   try {
-    await signWithServiceKey(clientIp, async (keypair) => {
+    await signWithServiceKey(clientIp, async (_keypair) => {
       // In a real implementation, this would sign and submit the Soroban transaction
       // For now, we validate the keypair is loaded and IP is allowed
       logger.info(
@@ -289,11 +358,17 @@ async function timeoutRefund(jobId, clientAddress, contractTxHash, req = null) {
     throw err;
   }
 
-  await logContractInteraction({
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
+  logContractInteraction({
     functionName: "timeout_refund",
-    callerAddress: getServicePublicKey(), // Use service key as caller
+    callerAddress: getServicePublicKey(),
     jobId,
-    txHash: contractTxHash || `offchain-${Date.now()}`,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
   });
 
   return {
@@ -330,6 +405,19 @@ async function markDisputed(jobId, raisedBy) {
     [jobId, raisedBy],
   );
 
+  await notifyEscrowEvent({
+    eventType: EVENT_TYPES.DISPUTE_OPENED,
+    jobId,
+    clientAddress: job.clientAddress,
+    freelancerAddress: job.freelancerAddress,
+    data: {
+      jobTitle: job.title,
+      jobId,
+      amount: job.budget,
+      currency: job.currency,
+    },
+  });
+
   return { success: true, dispute: result.rows[0] };
 }
 
@@ -349,6 +437,7 @@ async function releaseMilestone(jobId, milestoneIndex, clientAddress, contractTx
 
   const milestones = await getMilestonesForJob(jobId, job);
   const index = validateMilestoneIndex(milestones, milestoneIndex);
+  validateMilestoneReleaseOrder(milestones, index);
   const milestone = milestones[index];
 
   if (milestone.status === "released") {
@@ -362,6 +451,9 @@ async function releaseMilestone(jobId, milestoneIndex, clientAddress, contractTx
     throw e;
   }
 
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
   milestones[index] = {
     ...milestone,
     status: "released",
@@ -369,11 +461,14 @@ async function releaseMilestone(jobId, milestoneIndex, clientAddress, contractTx
   };
   await persistMilestones(jobId, milestones);
 
-  await logContractInteraction({
+  logContractInteraction({
     functionName: "release_milestone",
     callerAddress: clientAddress,
     jobId,
-    txHash: contractTxHash || `offchain-${Date.now()}`,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
   });
 
   await notifyEscrowEvent({
@@ -439,6 +534,9 @@ async function rejectMilestone(jobId, milestoneIndex, clientAddress, contractTxH
     throw e;
   }
 
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
   milestones[index] = {
     ...milestone,
     status: "rejected",
@@ -446,11 +544,14 @@ async function rejectMilestone(jobId, milestoneIndex, clientAddress, contractTxH
   };
   await persistMilestones(jobId, milestones);
 
-  await logContractInteraction({
+  logContractInteraction({
     functionName: "reject_milestone",
     callerAddress: clientAddress,
     jobId,
-    txHash: contractTxHash || `offchain-${Date.now()}`,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
   });
 
   await notifyEscrowEvent({
@@ -512,6 +613,21 @@ async function disputeMilestone(jobId, milestoneIndex, raisedBy) {
      RETURNING *`,
     [jobId, raisedBy],
   );
+
+  await notifyEscrowEvent({
+    eventType: EVENT_TYPES.DISPUTE_OPENED,
+    jobId,
+    clientAddress: job.clientAddress,
+    freelancerAddress: job.freelancerAddress,
+    data: {
+      jobTitle: job.title,
+      jobId,
+      milestoneIndex: index,
+      milestoneDescription: milestone.description,
+      amount: milestone.amount,
+      currency: job.currency,
+    },
+  });
 
   return { success: true, dispute: result.rows[0], milestone: milestones[index], milestones };
 }
@@ -637,6 +753,146 @@ async function submitDeliverableHash(jobId, freelancerAddress, hashHex) {
   return { success: true, submission: rows[0] };
 }
 
+async function requestEscrowExtension(jobId, requestedBy, newTimeoutLedger, contractTxHash) {
+  const job = await getJob(jobId);
+  if (job.clientAddress !== requestedBy && job.freelancerAddress !== requestedBy) {
+    const e = new Error("Only the client or freelancer can request an extension");
+    e.status = 403;
+    throw e;
+  }
+
+  const { rows: pending } = await pool.query(
+    "SELECT status FROM escrow_extensions WHERE job_id = $1 AND status = 'pending'",
+    [jobId],
+  );
+  if (pending.length > 0) {
+    const e = new Error("A pending extension request already exists for this escrow");
+    e.status = 400;
+    throw e;
+  }
+
+  const { rows: escrowRows } = await pool.query(
+    "SELECT status, timeout_ledger FROM escrows WHERE job_id = $1",
+    [jobId],
+  );
+  if (!escrowRows.length) {
+    const e = new Error("No escrow found for this job");
+    e.status = 404;
+    throw e;
+  }
+
+  const escrow = escrowRows[0];
+  if (escrow.status !== "funded" && escrow.status !== "in_progress" && escrow.status !== "locked") {
+    const e = new Error("Extension is only allowed while escrow is funded or in progress");
+    e.status = 400;
+    throw e;
+  }
+
+  const currentLedger = escrow.timeout_ledger || 0;
+  if (newTimeoutLedger <= currentLedger) {
+    const e = new Error("New timeout ledger must be greater than the current timeout");
+    e.status = 400;
+    throw e;
+  }
+
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
+  logContractInteraction({
+    functionName: "request_extension",
+    callerAddress: requestedBy,
+    jobId,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
+  });
+
+  const { rows } = await pool.query(
+    `INSERT INTO escrow_extensions (job_id, requested_by, new_timeout_ledger, status, created_at, updated_at)
+     VALUES ($1, $2, $3, 'pending', NOW(), NOW())
+     RETURNING *`,
+    [jobId, requestedBy, newTimeoutLedger],
+  );
+
+  return { success: true, extension: rows[0] };
+}
+
+async function approveEscrowExtension(jobId, approvedBy, contractTxHash) {
+  const job = await getJob(jobId);
+
+  const { rows: pendingRows } = await pool.query(
+    "SELECT * FROM escrow_extensions WHERE job_id = $1 AND status = 'pending'",
+    [jobId],
+  );
+  if (!pendingRows.length) {
+    const e = new Error("No pending extension request for this job");
+    e.status = 404;
+    throw e;
+  }
+
+  const extension = pendingRows[0];
+
+  if (extension.requested_by === approvedBy) {
+    const e = new Error("Cannot approve your own extension request");
+    e.status = 403;
+    throw e;
+  }
+
+  if (job.clientAddress !== approvedBy && job.freelancerAddress !== approvedBy) {
+    const e = new Error("Only the client or freelancer can approve an extension");
+    e.status = 403;
+    throw e;
+  }
+
+  const { rows: escrowRows } = await pool.query(
+    "SELECT status FROM escrows WHERE job_id = $1",
+    [jobId],
+  );
+  if (!escrowRows.length) {
+    const e = new Error("No escrow found for this job");
+    e.status = 404;
+    throw e;
+  }
+
+  const escrow = escrowRows[0];
+  if (escrow.status !== "funded" && escrow.status !== "in_progress" && escrow.status !== "locked") {
+    const e = new Error("Extension is only allowed while escrow is funded or in progress");
+    e.status = 400;
+    throw e;
+  }
+
+  const txInfo = await verifyOnChainTransaction(contractTxHash);
+  const txHash = contractTxHash || `offchain-${Date.now()}`;
+
+  logContractInteraction({
+    functionName: "approve_extension",
+    callerAddress: approvedBy,
+    jobId,
+    txHash,
+    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
+    feeCharged: txInfo ? txInfo.feeCharged : undefined,
+    eventData: txInfo ? txInfo.eventData : undefined,
+  });
+
+  const { rows } = await pool.query(
+    `UPDATE escrow_extensions
+     SET status = 'approved', approved_by = $2, approved_at = NOW(), updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [extension.id, approvedBy],
+  );
+
+  await pool.query(
+    `UPDATE escrows
+     SET timeout_ledger = $2, updated_at = NOW()
+     WHERE job_id = $1`,
+    [jobId, extension.new_timeout_ledger],
+  );
+
+  return { success: true, extension: rows[0] };
+}
+
 module.exports = {
   releaseFunds,
   refundClient,
@@ -651,7 +907,10 @@ module.exports = {
   resolveLedgerTimestamp,
   startEscrowTimeoutChecker,
   submitDeliverableHash,
+  requestEscrowExtension,
+  approveEscrowExtension,
 
   verifyFreelancerAccount,
   ESCROW_TIMEOUT_DAYS,
+  normalizeMilestones,
 };

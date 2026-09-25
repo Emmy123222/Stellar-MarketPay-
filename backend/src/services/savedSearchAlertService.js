@@ -84,7 +84,6 @@ function buildWhereClause(queryParams) {
   if (queryParams.maxApplications) {
     conditions.push(`application_count <= $${paramIndex}`);
     params.push(queryParams.maxApplications);
-    paramIndex++;
   }
 
   return { whereClause: conditions.join(" AND "), params };

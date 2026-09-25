@@ -9,6 +9,7 @@ const axios = require("axios");
 const { createServiceLogger } = require("../utils/logger");
 const { emailQueue } = require("../utils/queue");
 const pushSubscriptionService = require("./pushSubscriptionService");
+const { deliverEscrowWebhooks } = require("./webhookService");
 
 const MAX_RETRIES = 5;
 
@@ -35,6 +36,7 @@ const EVENT_TYPES = {
   NEW_MESSAGE: "new_message",
   JOB_COMPLETED: "job_completed",
   JOB_INVITED: "job_invited",
+  USDC_AUTO_CONVERTED: "usdc_auto_converted",
 };
 
 function rowToInAppNotification(row) {
@@ -115,6 +117,7 @@ const PUSH_NOTIFICATION_EVENTS = new Set([
   EVENT_TYPES.DISPUTE_OPENED,
   EVENT_TYPES.JOB_INVITED,
   EVENT_TYPES.NEW_MESSAGE,
+  EVENT_TYPES.USDC_AUTO_CONVERTED,
 ]);
 
 async function sendPushNotificationForEvent(userAddress, { type, title, body, jobId, linkPath }) {
@@ -383,7 +386,13 @@ function generateEmailContent(eventType, data) {
     [EVENT_TYPES.ESCROW_RELEASED]: {
       subject: `Payment Released: ${jobTitle}`,
       text: `Payment for "${jobTitle}" has been released.\n\nAmount: ${amount} ${currency}\nJob: ${jobUrl}\n\nThe escrow has been released to the freelancer.`,
-      html: `<h2>Payment Released</h2><p>Payment for "<strong>${jobTitle}</strong>" has been released.</p><p><strong>Amount:</strong> ${amount} ${currency}</p><p><a href="${jobUrl}">View Job</a></p><p>The escrow has been released to the freelancer.</p>`,
+      html: require("../emails/templateRenderer").renderTemplate("escrow_released", {
+        userName: data.userName || "User",
+        jobTitle,
+        amount,
+        currency,
+        jobUrl
+      }),
     },
     [EVENT_TYPES.REFUND_ISSUED]: {
       subject: `Refund Issued: ${jobTitle}`,
@@ -398,7 +407,21 @@ function generateEmailContent(eventType, data) {
     [EVENT_TYPES.APPLICATION_ACCEPTED]: {
       subject: `Application Accepted: ${jobTitle}`,
       text: `Your application for "${jobTitle}" has been accepted!\n\nJob: ${jobUrl}\n\nYou can now start working on this job.`,
-      html: `<h2>Application Accepted</h2><p>Your application for "<strong>${jobTitle}</strong>" has been accepted!</p><p><a href="${jobUrl}">View Job</a></p><p>You can now start working on this job.</p>`,
+      html: require("../emails/templateRenderer").renderTemplate("application_accepted", {
+        freelancerName: data.freelancerName || "Freelancer",
+        jobTitle,
+        jobUrl
+      }),
+    },
+    [EVENT_TYPES.APPLICATION_RECEIVED]: {
+      subject: `New Application Received: ${jobTitle}`,
+      text: `You have received a new application for your job "${jobTitle}".\n\nJob: ${jobUrl}`,
+      html: require("../emails/templateRenderer").renderTemplate("new_application", {
+        clientName: data.clientName || "Client",
+        jobTitle,
+        freelancerName: data.freelancerName || "A freelancer",
+        jobUrl
+      }),
     },
     [EVENT_TYPES.JOB_COMPLETED]: {
       subject: `Job Completed: ${jobTitle}`,
@@ -409,6 +432,11 @@ function generateEmailContent(eventType, data) {
       subject: `You've been invited to apply: ${jobTitle}`,
       text: `A client has invited you to apply to their job: "${jobTitle}".\n\nBudget: ${amount} ${currency}\nJob: ${jobUrl}\n\nView the job and apply directly from the link above.`,
       html: `<h2>Job Invitation</h2><p>A client has invited you to apply to their job: "<strong>${jobTitle}</strong>".</p><p><strong>Budget:</strong> ${amount} ${currency}</p><p><a href="${jobUrl}">View Job &amp; Apply</a></p>`,
+    },
+    [EVENT_TYPES.USDC_AUTO_CONVERTED]: {
+      subject: `Earnings auto-converted to USDC: ${jobTitle}`,
+      text: `Your earnings for "${jobTitle}" were automatically converted to USDC.\n\nSent: ${data.sourceAmountXlm} XLM\nReceived: ${data.receivedUsdc} USDC\nRate: 1 XLM = ${data.exchangeRate} USDC\nTransaction: ${data.txHash}\n\nYou can turn auto-convert off at any time in Settings: ${baseUrl}/settings`,
+      html: `<h2>Earnings converted to USDC</h2><p>Your earnings for "<strong>${jobTitle}</strong>" were automatically converted to USDC.</p><p><strong>Sent:</strong> ${data.sourceAmountXlm} XLM<br/><strong>Received:</strong> ${data.receivedUsdc} USDC<br/><strong>Rate:</strong> 1 XLM = ${data.exchangeRate} USDC<br/><strong>Transaction:</strong> <code>${data.txHash}</code></p><p><a href="${baseUrl}/settings">Manage auto-convert</a></p>`,
     },
   };
 
@@ -464,6 +492,10 @@ function generateInAppContent(eventType, data) {
     [EVENT_TYPES.JOB_COMPLETED]: {
       title: "Job completed",
       body: `"${jobLabel}" was marked complete.`,
+    },
+    [EVENT_TYPES.USDC_AUTO_CONVERTED]: {
+      title: "Earnings converted to USDC",
+      body: `${data.sourceAmountXlm} XLM from "${jobLabel}" was converted to ${data.receivedUsdc} USDC (1 XLM = ${data.exchangeRate} USDC).`,
     },
   };
 
@@ -677,6 +709,17 @@ async function notifyEscrowEvent({ eventType, jobId, clientAddress, freelancerAd
     });
   }
 
+  await deliverEscrowWebhooks({
+    eventType,
+    userAddresses: recipients,
+    payload: {
+      event: eventType,
+      jobId,
+      timestamp: new Date().toISOString(),
+      data,
+    },
+  });
+
   console.log(`[notifications] Queued ${eventType} notifications for job ${jobId}`);
 }
 
@@ -693,6 +736,9 @@ module.exports = {
   generateEmailContent,
   getNextRetryTime,
   sendPushNotificationForEvent,
+  generateInAppContent,
+  sendEmail,
+  sendWebhook,
   EVENT_TYPES,
   setBroadcastToUser,
 };

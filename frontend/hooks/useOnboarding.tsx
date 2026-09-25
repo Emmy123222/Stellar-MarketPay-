@@ -384,8 +384,7 @@ export function useOnboarding(publicKey: string | null) {
     !loading &&
     !serverCompletedOnboarding &&
     !onboardingState.wizardCompleted &&
-    !onboardingState.wizardDismissed &&
-    publicKey !== null;
+    !onboardingState.wizardDismissed;
   const shouldShowChecklist =
     !loading &&
     !serverCompletedOnboarding &&

@@ -163,8 +163,8 @@ export default function DeveloperPage({ publicKey, onConnect }: DeveloperPagePro
           <Panel title="Create API Key">
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-amber-800 mb-1">Label</label>
-                <input
+                <label htmlFor="label" className="block text-xs text-amber-800 mb-1">Label</label>
+                <input id="label"
                   value={label}
                   onChange={(e) => setLabel(e.target.value)}
                   className="input-field w-full"

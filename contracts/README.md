@@ -78,7 +78,7 @@ The prover will:
 
 ## CI/CD Integration
 
-We have integrated automated formal verification via GitHub Actions in [.github/workflows/certora.yml](file:///Users/mac/drips/Stellar-MarketPay-/.github/workflows/certora.yml).
+We have integrated automated formal verification via GitHub Actions in [certora.yml](../.github/workflows/certora.yml).
 
 ### Trigger Conditions
 Verification automatically runs on pulls/pushes targeting `main` or `dev` branches when:
@@ -94,7 +94,7 @@ If a rule fails or the prover encounters a verification violation, the build fai
 ## Extending Specifications
 
 To add a new rule:
-1. Open [contracts/certora/escrow.spec](file:///Users/mac/drips/Stellar-MarketPay-/contracts/certora/escrow.spec).
+1. Open [contracts/certora/escrow.spec](certora/escrow.spec).
 2. Declare any new methods/getters under the `methods` block if needed.
 3. Write your rule using CVL syntax. For example, to check that non-positive escrow amounts cannot be created:
    ```cvl

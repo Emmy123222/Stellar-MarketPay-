@@ -1,0 +1,2 @@
+-- These tables are owned by V5 and may be referenced by later migrations.
+-- V50 only repeats their IF NOT EXISTS definitions for compatibility.

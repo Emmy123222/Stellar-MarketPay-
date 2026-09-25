@@ -2,8 +2,10 @@
  * src/routes/gasEstimator.js
  * Exposes Soroban dynamic fee estimates to the frontend.
  *
- * GET  /api/gas-estimate          — returns Slow/Medium/Fast fee tiers
- * POST /api/gas-estimate/refresh  — force-refresh the cached estimate
+ * @swagger
+ * tags:
+ *   name: Gas
+ *   description: Soroban gas fee estimation
  */
 "use strict";
 
@@ -18,11 +20,30 @@ const router = express.Router();
 const refreshLimiter = createRateLimiter(10, 1);
 
 /**
- * GET /api/gas-estimate
- * Returns the current fee estimate with optional USD conversion.
- *
- * Query params:
- *   currency  — "XLM" (default) | "USD"  — include USD values when "USD"
+ * @swagger
+ * /api/gas-estimate:
+ *   get:
+ *     summary: Get current Soroban fee estimate tiers
+ *     tags: [Gas]
+ *     parameters:
+ *       - in: query
+ *         name: currency
+ *         schema:
+ *           type: string
+ *           enum: [XLM, USD]
+ *         description: Include USD conversion when set to "USD"
+ *     responses:
+ *       200:
+ *         description: Fee estimate tiers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/GasEstimate'
  */
 router.get("/", async (req, res, next) => {
   try {
@@ -45,8 +66,23 @@ router.get("/", async (req, res, next) => {
 });
 
 /**
- * POST /api/gas-estimate/refresh
- * Force-bypasses the cache and fetches fresh fee data from Horizon.
+ * @swagger
+ * /api/gas-estimate/refresh:
+ *   post:
+ *     summary: Force-refresh cached fee estimates
+ *     tags: [Gas]
+ *     responses:
+ *       200:
+ *         description: Fresh fee estimate tiers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/GasEstimate'
  */
 router.post("/refresh", refreshLimiter, async (req, res, next) => {
   try {

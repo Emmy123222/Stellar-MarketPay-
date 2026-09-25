@@ -3,6 +3,8 @@
 const pool = require("../db/pool");
 const ipfsService = require("./ipfsService");
 const sorobanArbitratorRegistry = require("./sorobanArbitratorRegistry");
+const sorobanEvidence = require("./sorobanEvidence");
+const { scheduleReputationRecalcForJob } = require("./reputationService");
 
 const MAX_EVIDENCE_FILES = 10;
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -225,6 +227,9 @@ async function resolveDispute(jobId, resolvedBy, resolution) {
       [jobId],
     );
   }
+
+  // Issue #1561: dispute outcomes feed both parties' reputation scores.
+  scheduleReputationRecalcForJob(jobId);
 
   return { success: true, dispute: rows[0] };
 }

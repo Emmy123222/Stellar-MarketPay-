@@ -61,6 +61,9 @@ export default function RealtimeBidComparison({
     jobId,
     initialApplications,
     fetchApplications: fetchApplications ?? (() => Promise.resolve(initialApplications)),
+    onNewBid: (application) => {
+      toast.success("New bid received");
+    },
   });
 
   // Show toast when new proposals arrive while the tab was hidden

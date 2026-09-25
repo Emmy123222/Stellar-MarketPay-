@@ -14,9 +14,12 @@ interface Toast {
   id: string;
   message: string;
   variant: ToastVariant;
-  /** true once the 3 s timer fires — triggers the slide-out CSS class */
+  /** true once the auto-dismiss timer fires — triggers the slide-out CSS class */
   dismissing: boolean;
 }
+
+/** Toasts auto-dismiss after this long; error toasts are exempt and stay until dismissed. */
+const AUTO_DISMISS_MS = 4000;
 
 interface ToastContextValue {
   success: (message: string) => void;
@@ -60,8 +63,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       const id = `${Date.now()}-${Math.random()}`;
       setToasts((prev) => [...prev, { id, message, variant, dismissing: false }]);
 
-      // Auto-dismiss after 3 seconds
-      setTimeout(() => dismiss(id), 3000);
+      // Error toasts stay until the user dismisses them; others auto-dismiss.
+      if (variant !== "error") {
+        setTimeout(() => dismiss(id), AUTO_DISMISS_MS);
+      }
     },
     [dismiss]
   );
@@ -72,6 +77,15 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     info: (msg) => add(msg, "info"),
   };
 
+  // Expose an imperative API for code that runs outside the provider's own
+  // descendant tree (e.g. the root App component that renders <ToastProvider>).
+  useEffect(() => {
+    imperativeToast = value;
+    return () => {
+      imperativeToast = null;
+    };
+  });
+
   return (
     <ToastContext.Provider value={value}>
       {children}
@@ -79,6 +93,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     </ToastContext.Provider>
   );
 }
+
+// ─── Imperative API ───────────────────────────────────────────────────────────
+// For use outside the React tree rendered under <ToastProvider> (e.g. handlers
+// defined in the component that instantiates the provider itself). Prefer the
+// useToast() hook when calling from a descendant component.
+
+let imperativeToast: ToastContextValue | null = null;
+
+export const toast: ToastContextValue = {
+  success: (msg) => imperativeToast?.success(msg),
+  error: (msg) => imperativeToast?.error(msg),
+  info: (msg) => imperativeToast?.info(msg),
+};
 
 // ─── Visual config per variant ────────────────────────────────────────────────
 

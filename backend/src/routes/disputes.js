@@ -2,14 +2,10 @@
  * src/routes/disputes.js
  * Dispute evidence upload/retrieval with IPFS storage (Issue #223)
  *
- * GET  /api/disputes/:jobId          — dispute detail + evidence list
- * POST /api/disputes/:jobId/evidence — upload one evidence file (multipart/form-data)
- *
- * Constraints:
- *   - Max 10 files per party (client or freelancer)
- *   - Max 5 MB per file
- *   - Allowed MIME types: images, PDF, plain text
- *   - Only job client or freelancer can upload; anyone can read (admin visibility)
+ * @swagger
+ * tags:
+ *   name: Disputes
+ *   description: Dispute evidence and resolution
  */
 "use strict";
 
@@ -19,17 +15,16 @@ const multer     = require("multer");
 const pool       = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT }         = require("../middleware/auth");
-const ipfsService            = require("../services/ipfsService");
+const ipfsService          = require("../services/ipfsService");
 const { validateIpfsCid }    = require("../services/disputeService");
 const sorobanEvidence       = require("../services/sorobanEvidence");
 const { createError, ErrorCodes } = require("../utils/errors");
 
-const MAX_FILES_PER_PARTY = 10;
-const MAX_FILE_SIZE       = 5 * 1024 * 1024; // 5 MB
+const MAX_FILES_PER_PARTY = 5;
+const MAX_FILE_SIZE       = 10 * 1024 * 1024; // 5 MB
 const ALLOWED_MIME_TYPES  = new Set([
-  "image/jpeg", "image/png", "image/gif", "image/webp",
+  "image/jpeg", "image/png", "image/gif", "video/mp4",
   "application/pdf",
-  "text/plain",
 ]);
 
 const upload = multer({
@@ -44,12 +39,23 @@ const upload = multer({
 const readRateLimiter   = createRateLimiter(30, 1);
 const uploadRateLimiter = createRateLimiter(5, 1);
 
-// GET /api/disputes/:jobId/onchain-cids  — read the chain-attested CID list
-//
-// Issue #448 — AC #5: frontend dispute page reads CIDs from chain. This
-// endpoint delegates to `sorobanEvidence.getOnchainEvidenceCids` which reads
-// the Vec<Bytes> at DataKey::EvidenceCids via the contract's
-// get_evidence_cids view function.
+/**
+ * @swagger
+ * /api/disputes/{jobId}/onchain-cids:
+ *   get:
+ *     summary: Get chain-attested evidence CID list
+ *     tags: [Disputes]
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: On-chain CIDs
+ */
+// GET /api/disputes/:jobId/onchain-cids
 const readOnchainRateLimiter = createRateLimiter(15, 1);
 router.get("/:jobId/onchain-cids", readOnchainRateLimiter, async (req, res, next) => {
   try {
@@ -68,6 +74,25 @@ router.get("/:jobId/onchain-cids", readOnchainRateLimiter, async (req, res, next
   } catch (e) { next(e); }
 });
 
+/**
+ * @swagger
+ * /api/disputes/{jobId}:
+ *   get:
+ *     summary: Get dispute details and evidence list
+ *     tags: [Disputes]
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Dispute detail with evidence list
+ *       404:
+ *         description: Job not found
+ */
 // GET /api/disputes/:jobId
 router.get("/:jobId", readRateLimiter, async (req, res, next) => {
   try {
@@ -101,7 +126,7 @@ router.get("/:jobId", readRateLimiter, async (req, res, next) => {
           fileName:        ev.file_name,
           fileSize:        ev.file_size,
           mimeType:        ev.mime_type,
-          ipfsCid:         ev.ipfs_cid,
+          fileUrl:         ev.ipfs_cid,
           gatewayUrl:      ipfsService.getGatewayUrl(ev.ipfs_cid),
           createdAt:       ev.created_at,
         })),
@@ -110,6 +135,41 @@ router.get("/:jobId", readRateLimiter, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * @swagger
+ * /api/disputes/{jobId}/evidence:
+ *   post:
+ *     summary: Upload dispute evidence file
+ *     tags: [Disputes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *                 description: Evidence file (max 5 MB, images/PDF/text)
+ *     responses:
+ *       201:
+ *         description: Evidence uploaded
+ *       400:
+ *         description: File limit reached or invalid file
+ *       403:
+ *         description: Only client or freelancer can upload
+ */
 // POST /api/disputes/:jobId/evidence
 router.post(
   "/:jobId/evidence",
@@ -163,14 +223,14 @@ router.post(
         );
       }
 
-      const ipfsCid = validateIpfsCid(ipfsResult?.cid);
+      const fileUrl = validateIpfsCid(ipfsResult?.cid);
 
       const { rows } = await pool.query(
         `INSERT INTO dispute_evidence
            (job_id, uploader_address, file_name, file_size, mime_type, ipfs_cid)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`,
-        [jobId, uploaderAddress, req.file.originalname, req.file.size, req.file.mimetype, ipfsCid]
+        [jobId, uploaderAddress, req.file.originalname, req.file.size, req.file.mimetype, fileUrl]
       );
 
       const ev = rows[0];
@@ -182,7 +242,7 @@ router.post(
           fileName:        ev.file_name,
           fileSize:        ev.file_size,
           mimeType:        ev.mime_type,
-          ipfsCid:         ev.ipfs_cid,
+          fileUrl:         ev.ipfs_cid,
           gatewayUrl:      ipfsService.getGatewayUrl(ev.ipfs_cid),
           createdAt:       ev.created_at,
         },
@@ -191,7 +251,30 @@ router.post(
   }
 );
 
-// GET /api/disputes/:jobId/evidence/:id/url — generate signed URL (Issue #467)
+/**
+ * @swagger
+ * /api/disputes/{jobId}/evidence/{id}/url:
+ *   get:
+ *     summary: Generate signed URL for evidence access
+ *     tags: [Disputes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Signed proxy URL (valid 15 min)
+ */
+// GET /api/disputes/:jobId/evidence/:id/url — generate signed URL
 router.get("/:jobId/evidence/:id/url", verifyJWT, readRateLimiter, async (req, res, next) => {
   try {
     const { jobId, id } = req.params;

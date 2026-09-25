@@ -153,16 +153,16 @@ export default function ClientSpendingTab({ analytics, loading, xlmPriceUsd }: P
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <p className="font-display text-lg text-amber-100">Monthly Spend</p>
           <div className="flex flex-wrap items-center gap-2">
-            <label className="text-xs text-amber-700">From</label>
-            <input
+            <label htmlFor="from" className="text-xs text-amber-700">From</label>
+            <input id="from"
               type="month"
               value={fromDate ? fromDate.slice(0, 7) : ""}
               onChange={(e) => setFromDate(e.target.value ? `${e.target.value}-01` : "")}
               className="rounded-lg border border-market-500/20 bg-ink-700 px-2 py-1 text-xs text-amber-100 focus:outline-none focus:ring-1 focus:ring-market-400/40"
               aria-label="From month"
             />
-            <label className="text-xs text-amber-700">To</label>
-            <input
+            <label htmlFor="to" className="text-xs text-amber-700">To</label>
+            <input id="to"
               type="month"
               value={toDate ? toDate.slice(0, 7) : ""}
               onChange={(e) => setToDate(e.target.value ? `${e.target.value}-01` : "")}

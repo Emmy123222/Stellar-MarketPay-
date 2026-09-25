@@ -116,6 +116,8 @@ export default function Admin2FAModal({ mode, onComplete }: Admin2FAModalProps) 
               onChange={(e) => setToken(e.target.value.replace(/\D/g, "").slice(0, 6))}
               placeholder="000000"
               className="input w-full text-center text-lg tracking-widest font-mono"
+              // focus belongs on the code field when the 2FA dialog opens
+              // eslint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
               required
             />

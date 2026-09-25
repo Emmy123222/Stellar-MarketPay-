@@ -1,56 +1,74 @@
 /**
  * Platform statistics service for Issue #232
- * Aggregates and serves platform-wide metrics
+ * Aggregates and serves platform-wide metrics.
+ *
+ * Issue #232 perf (V57): reads from the platform_stats_mv materialized view
+ * instead of running live COUNT(*) queries.  The MV is refreshed every
+ * STATS_REFRESH_INTERVAL_MS (default 5 min) by scheduleStatsRefresh().
  */
 "use strict";
 const pool = require("../db/pool");
 
-async function computeStats() {
-  const query = `
-    WITH stats AS (
-      SELECT
-        (SELECT COUNT(*) FROM jobs) as total_jobs,
-        (SELECT COUNT(DISTINCT client_address) FROM jobs) as total_clients,
-        (SELECT COUNT(DISTINCT freelancer_address) FROM jobs WHERE freelancer_address IS NOT NULL) as total_freelancers,
-        (SELECT COUNT(DISTINCT public_key) FROM profiles WHERE completed_jobs > 0 OR role = 'client') as active_users,
-        (SELECT COALESCE(SUM(amount_xlm), 0) FROM escrows WHERE status = 'funded') as total_escrow_xlm,
-        (SELECT COALESCE(AVG(budget), 0) FROM jobs WHERE status IN ('assigned', 'in_progress', 'completed')) as avg_job_budget,
-        (SELECT COUNT(*) FILTER (WHERE status = 'completed') * 100.0 / COUNT(*) FROM jobs WHERE status IN ('completed', 'cancelled')) as completion_rate
-    )
-    UPDATE platform_stats
-    SET
-      total_jobs_posted = (SELECT total_jobs FROM stats),
-      active_users_30d = (SELECT active_users FROM stats),
-      total_escrow_xlm = (SELECT total_escrow_xlm FROM stats),
-      avg_job_budget = (SELECT avg_job_budget FROM stats),
-      completion_rate = COALESCE((SELECT completion_rate FROM stats), 0),
-      last_updated = NOW()
-    WHERE id = 1
-    RETURNING *
-  `;
+/** How often (ms) to run REFRESH MATERIALIZED VIEW CONCURRENTLY. */
+const STATS_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
-  const result = await pool.query(query);
-  return result.rows[0];
+/**
+ * Refresh the platform_stats_mv materialized view.
+ *
+ * CONCURRENTLY means readers are never blocked — Postgres holds only a
+ * ShareUpdateExclusiveLock instead of an ExclusiveLock.  The unique index
+ * platform_stats_mv_singleton_idx (added in V57) is required for this mode.
+ *
+ * @returns {Promise<{refreshed_at: string}>}
+ */
+async function computeStats() {
+  await pool.query(
+    "REFRESH MATERIALIZED VIEW CONCURRENTLY platform_stats_mv"
+  );
+  const { rows } = await pool.query("SELECT * FROM platform_stats_mv LIMIT 1");
+  return rows[0] ?? null;
 }
 
+/**
+ * Return the current pre-computed platform statistics from the MV.
+ * Falls back to a live refresh if the MV has no rows yet (cold-start).
+ *
+ * @returns {Promise<object>}
+ */
 async function getStats() {
-  const query = `
-    SELECT
-      total_jobs_posted,
-      total_escrow_xlm,
-      active_users_30d,
-      completion_rate,
-      avg_job_budget,
-      last_updated
-    FROM platform_stats
-    WHERE id = 1
-  `;
-
-  const result = await pool.query(query);
-  if (!result.rows[0]) {
-    return await computeStats();
+  const { rows } = await pool.query(
+    "SELECT * FROM platform_stats_mv LIMIT 1"
+  );
+  if (!rows[0]) {
+    // MV is empty (first startup before first refresh) — populate it now.
+    return computeStats();
   }
-  return result.rows[0];
+  return rows[0];
+}
+
+/**
+ * Start a background setInterval that refreshes the materialized view every
+ * STATS_REFRESH_INTERVAL_MS.  Call this once from server.js after the DB pool
+ * is ready.  Errors are logged but do NOT crash the process.
+ *
+ * @returns {NodeJS.Timeout} The interval handle (pass to clearInterval to stop).
+ */
+function scheduleStatsRefresh() {
+  const interval = setInterval(async () => {
+    try {
+      await pool.query(
+        "REFRESH MATERIALIZED VIEW CONCURRENTLY platform_stats_mv"
+      );
+    } catch (err) {
+      // Non-fatal: the stale MV value is still served until the next cycle.
+      console.error("[statsService] MV refresh failed:", err.message);
+    }
+  }, STATS_REFRESH_INTERVAL_MS);
+
+  // Allow the process to exit even if this interval is still pending.
+  if (interval.unref) interval.unref();
+
+  return interval;
 }
 
 async function getJobTrends(days = 90) {
@@ -61,6 +79,7 @@ async function getJobTrends(days = 90) {
       COALESCE(AVG(budget), 0) as avg_budget
     FROM jobs
     WHERE created_at > NOW() - INTERVAL $1
+      AND deleted_at IS NULL
     GROUP BY DATE_TRUNC('day', created_at)
     ORDER BY date DESC
   `;
@@ -93,6 +112,7 @@ async function getTopCategories(limit = 10) {
       COALESCE(AVG(budget), 0) as avg_budget
     FROM jobs
     WHERE status IN ('open', 'assigned', 'in_progress', 'completed')
+      AND deleted_at IS NULL
     GROUP BY category
     ORDER BY job_count DESC
     LIMIT $1
@@ -169,7 +189,6 @@ async function getTimeSeriesMetrics({ metric = "total_jobs", from, to, granulari
   if (to) {
     conditions.push(`bucket <= $${paramIdx}`);
     params.push(to);
-    paramIdx++;
   }
 
   const where = conditions.join(" AND ");
@@ -191,4 +210,6 @@ module.exports = {
   getTopCategories,
   aggregatePlatformMetrics,
   getTimeSeriesMetrics,
+  scheduleStatsRefresh,
+  STATS_REFRESH_INTERVAL_MS,
 };

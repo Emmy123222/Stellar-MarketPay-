@@ -1,11 +1,18 @@
 import React from 'react';
 import clsx from 'clsx';
+import EmptyStateIllustration, { type EmptyStateVariant } from '@/components/illustrations/EmptyStateIllustrations';
 
 type StateMessageProps = {
   /** "empty" for no data, "error" for API failures */
   type: 'empty' | 'error';
-  /** Optional icon component */
+  /** Optional icon component (ignored if `illustration` is also provided) */
   icon?: React.ReactNode;
+  /**
+   * Optional named illustration to show instead of a plain icon. Renders a
+   * themed SVG (see components/illustrations/EmptyStateIllustrations.tsx)
+   * that automatically adapts to light/dark mode via CSS variables.
+   */
+  illustration?: EmptyStateVariant;
   /** Heading text */
   title: string;
   /** Subtext description */
@@ -28,6 +35,7 @@ type StateMessageProps = {
 export default function StateMessage({
   type,
   icon,
+  illustration,
   title,
   description,
   ctaLabel,
@@ -39,10 +47,16 @@ export default function StateMessage({
 
   return (
     <div className={clsx('card text-center py-16 border', borderClass, bgClass)}>
-      {icon && (
-        <div className="mb-4 flex justify-center animate-pulse">
-          {icon}
+      {illustration ? (
+        <div className="mb-5 flex justify-center">
+          <EmptyStateIllustration variant={illustration} className="w-40 h-32 sm:w-48 sm:h-36" />
         </div>
+      ) : (
+        icon && (
+          <div className="mb-4 flex justify-center animate-pulse">
+            {icon}
+          </div>
+        )
       )}
       <h2 className={clsx('font-display text-xl mb-2', textClass)}>{title}</h2>
       <p className="text-sm text-amber-800 mb-6 max-w-xs mx-auto">{description}</p>

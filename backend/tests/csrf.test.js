@@ -18,16 +18,22 @@
  *     `/api/public/*`, `/api/developer/*`) bypass CSRF.
  */
 
+jest.unmock("../src/middleware/csrf");
+
 const request = require("supertest");
 const app = require("../src/server");
 
 const CSRF_HEADER = "x-csrf-token";
 const CSRF_COOKIE = "csrf-token";
 
+/** Full `Set-Cookie` line, attributes included. */
+function getSetCookie(res, name) {
+  return (res.headers["set-cookie"] || []).find((c) => c.startsWith(`${name}=`));
+}
+
+/** Just the `name=value` pair, suitable for sending back as a Cookie header. */
 function getCookie(res, name) {
-  return (res.headers["set-cookie"] || [])
-    .find((c) => c.startsWith(`${name}=`))
-    ?.split(";")[0];
+  return getSetCookie(res, name)?.split(";")[0];
 }
 
 async function fetchCsrfToken() {
@@ -36,12 +42,15 @@ async function fetchCsrfToken() {
   expect(typeof res.body.csrfToken).toBe("string");
   expect(res.body.csrfToken.length).toBeGreaterThan(0);
 
+  const setCookie = getSetCookie(res, CSRF_COOKIE);
   const cookie = getCookie(res, CSRF_COOKIE);
   expect(cookie).toBeTruthy();
+  // Attribute assertions must run against the full Set-Cookie line, not the
+  // name=value pair we send back on later requests.
   // Not HttpOnly so the JS Axios interceptor can read or echo the token
-  expect(cookie).not.toContain("HttpOnly");
+  expect(setCookie).not.toContain("HttpOnly");
   // Strict same-site so cross-origin requests can't reuse the cookie
-  expect(cookie).toContain("SameSite=Strict");
+  expect(setCookie).toContain("SameSite=Strict");
 
   return { token: res.body.csrfToken, cookie };
 }

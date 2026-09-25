@@ -11,7 +11,7 @@ set -euo pipefail
 NETWORK=${1:-testnet}
 IDENTITY=${2:-alice}
 CONTRACT_DIR="$(dirname "$0")/../contracts/marketpay-contract"
-WASM="$CONTRACT_DIR/target/wasm32-unknown-unknown/release/marketpay_contract.wasm"
+WASM="$CONTRACT_DIR/target/wasm32v1-none/release/marketpay_contract.wasm"
 
 echo "🏪 Stellar MarketPay — Contract Deploy"
 echo "   Network:  $NETWORK"
@@ -24,7 +24,7 @@ command -v cargo   &>/dev/null || { echo "❌ Rust/Cargo not found. Run: https:/
 # Build
 echo "🔨 Building WASM..."
 cd "$CONTRACT_DIR"
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 echo "   ✅ Built: $(du -sh "$WASM" | cut -f1)"
 
 # Deploy
@@ -48,8 +48,10 @@ if [[ -n "$ADMIN_KEY" ]]; then
     --id "$CONTRACT_ID" \
     --source "$IDENTITY" \
     --network "$NETWORK" \
-    -- initialize \
-    --admin "$ADMIN_KEY"
+    -- \
+    initialize \
+    --admin "$ADMIN_KEY" \
+    --treasury_address "$ADMIN_KEY"
   echo "   ✅ Initialized"
 fi
 

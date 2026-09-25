@@ -52,7 +52,7 @@ export async function fetchAnchorEndpoints(homeDomain = ANCHOR_HOME_DOMAIN): Pro
   let block: RegExpExecArray | null;
   while ((block = currencyBlockRegex.exec(text)) !== null) {
     const code = block[1].match(/code\s*=\s*"([^"]+)"/)?.[1];
-    const issuer = block[1].match(/issuer\s*=\s*"([^"]+)"/)?.[1];
+    const issuer = block[1].match(/issuer\s*=\s*"([^"]*)"/)?.[1];
     if (code) currencies.push({ code, issuer });
   }
 
@@ -73,6 +73,12 @@ export async function fetchAnchorEndpoints(homeDomain = ANCHOR_HOME_DOMAIN): Pro
 // ─── SEP-0010 — Web Authentication ───────────────────────────────────────────
 
 const tokenCache = new Map<string, { jwt: string; expiresAt: number }>();
+
+/** Clear module-level caches (TOML + JWT). Exported for test isolation. */
+export function clearAnchorCaches(): void {
+  tomlCache.clear();
+  tokenCache.clear();
+}
 
 /**
  * Performs the SEP-0010 challenge flow against an anchor and returns a JWT.
@@ -186,17 +192,21 @@ export async function fetchAnchorTransaction(params: {
   account: string;
   id: string;
 }): Promise<AnchorTransactionRecord | null> {
-  const homeDomain = params.homeDomain || ANCHOR_HOME_DOMAIN;
-  const endpoints = await fetchAnchorEndpoints(homeDomain);
-  if (!endpoints.transferServerSep24) return null;
-  const jwt = await getAnchorJwt(homeDomain, params.account);
+  try {
+    const homeDomain = params.homeDomain || ANCHOR_HOME_DOMAIN;
+    const endpoints = await fetchAnchorEndpoints(homeDomain);
+    if (!endpoints.transferServerSep24) return null;
+    const jwt = await getAnchorJwt(homeDomain, params.account);
 
-  const response = await fetch(`${endpoints.transferServerSep24}/transaction?id=${encodeURIComponent(params.id)}`, {
-    headers: { Authorization: `Bearer ${jwt}` },
-  });
-  if (!response.ok) return null;
-  const data = (await response.json()) as { transaction?: AnchorTransactionRecord };
-  return data.transaction || null;
+    const response = await fetch(`${endpoints.transferServerSep24}/transaction?id=${encodeURIComponent(params.id)}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { transaction?: AnchorTransactionRecord };
+    return data.transaction || null;
+  } catch {
+    return null;
+  }
 }
 
 /** SEP-0024 terminal statuses — once reached, no further polling is useful. */

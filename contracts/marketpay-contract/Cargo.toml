@@ -6,17 +6,19 @@ description = "Stellar MarketPay — Soroban escrow smart contract for freelance
 license = "MIT"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-soroban-sdk = "26.1.0"
+soroban-sdk = "27.0.6"
 
 [dev-dependencies]
-soroban-sdk = { version = "26.1.0", features = ["testutils"] }
+soroban-sdk = { version = "27.0.6", features = ["testutils"] }
 proptest = "1"
 
 [features]
 testutils = ["soroban-sdk/testutils"]
+# Enables the property-based test suites (proptest itself is a dev-dependency).
+proptest = []
 
 [profile.release]
 opt-level = "z"

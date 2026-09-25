@@ -1,3 +1,9 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Verification
+ *   description: Email, phone, and ID verification
+ */
 const express = require("express");
 const router = express.Router();
 const crypto = require("crypto");
@@ -9,7 +15,31 @@ const verificationRateLimiter = createRateLimiter(5, 1);
 const verificationTokens = new Map();
 const verifications = new Map();
 
-// Send email verification link
+/**
+ * @swagger
+ * /api/verification/email:
+ *   post:
+ *     summary: Send email verification link
+ *     tags: [Verification]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - publicKey
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               publicKey:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Verification email sent
+ */
 router.post("/email", verificationRateLimiter, async (req, res, next) => {
   try {
     const { email, publicKey } = req.body;
@@ -32,7 +62,29 @@ router.post("/email", verificationRateLimiter, async (req, res, next) => {
   }
 });
 
-// Verify email with token
+/**
+ * @swagger
+ * /api/verification/email/confirm:
+ *   post:
+ *     summary: Confirm email verification with token
+ *     tags: [Verification]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Email verified
+ *       400:
+ *         description: Invalid or expired token
+ */
 router.post("/email/confirm", async (req, res, next) => {
   try {
     const { token } = req.body;
@@ -62,7 +114,30 @@ router.post("/email/confirm", async (req, res, next) => {
   }
 });
 
-// Send phone verification OTP
+/**
+ * @swagger
+ * /api/verification/phone:
+ *   post:
+ *     summary: Send phone verification OTP
+ *     tags: [Verification]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - phone
+ *               - publicKey
+ *             properties:
+ *               phone:
+ *                 type: string
+ *               publicKey:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: OTP sent
+ */
 router.post("/phone", verificationRateLimiter, async (req, res, next) => {
   try {
     const { phone, publicKey } = req.body;
@@ -84,7 +159,32 @@ router.post("/phone", verificationRateLimiter, async (req, res, next) => {
   }
 });
 
-// Verify phone OTP
+/**
+ * @swagger
+ * /api/verification/phone/confirm:
+ *   post:
+ *     summary: Confirm phone verification with OTP
+ *     tags: [Verification]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - otp
+ *               - publicKey
+ *             properties:
+ *               otp:
+ *                 type: string
+ *               publicKey:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Phone verified
+ *       400:
+ *         description: Invalid or expired OTP
+ */
 router.post("/phone/confirm", async (req, res, next) => {
   try {
     const { otp, publicKey } = req.body;
@@ -105,7 +205,36 @@ router.post("/phone/confirm", async (req, res, next) => {
   }
 });
 
-// Submit ID verification (admin review required)
+/**
+ * @swagger
+ * /api/verification/id/submit:
+ *   post:
+ *     summary: Submit ID verification for admin review
+ *     tags: [Verification]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - publicKey
+ *               - idType
+ *               - idNumber
+ *               - fullName
+ *             properties:
+ *               publicKey:
+ *                 type: string
+ *               idType:
+ *                 type: string
+ *               idNumber:
+ *                 type: string
+ *               fullName:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: ID submitted for review
+ */
 router.post("/id/submit", verificationRateLimiter, async (req, res, next) => {
   try {
     const { publicKey, idType, idNumber, fullName } = req.body;
@@ -130,7 +259,22 @@ router.post("/id/submit", verificationRateLimiter, async (req, res, next) => {
   }
 });
 
-// Get verification status for a user
+/**
+ * @swagger
+ * /api/verification/{publicKey}:
+ *   get:
+ *     summary: Get verification status for a user
+ *     tags: [Verification]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Verification status
+ */
 router.get("/:publicKey", async (req, res, next) => {
   try {
     const user = verifications.get(req.params.publicKey) || {

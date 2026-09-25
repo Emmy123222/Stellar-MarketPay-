@@ -2,24 +2,20 @@
  * pages/api/og/[jobId].tsx
  *
  * Dynamic Open Graph image generator for /jobs/[id] social previews.
- * Runs on the Edge runtime and returns a 1200×630 PNG that combines
- * the job title, budget, category, and Stellar MarketPay brand.
+ * Returns a 1200×630 PNG that combines the job title, budget, category,
+ * and Stellar MarketPay brand.
  *
- * Why Edge runtime?
- *   - @vercel/og ImageResponse relies on Satori (WASM) and tiny fonts,
- *     both of which are designed for the edge runtime with minimal cold
- *     start and small bundle size.
- *   - Caching on the CDN layer keeps social scrapers fast (~5s) and
- *     frees the Node.js origin from repeat image renders.
+ * Runtime: @vercel/og ImageResponse (Satori WASM) runs on the Node.js
+ * runtime — the Edge runtime is deprecated in Next.js 16.
  *
  * Brand:  Stellar MarketPay  (amber/gold on dark ink background)
  */
 
 import { ImageResponse } from "@vercel/og";
 
-// Force the Edge runtime for this route.
+// @vercel/og supports the Node.js runtime; Edge is deprecated in Next 16.
 export const config = {
-  runtime: "edge",
+  runtime: "nodejs",
 };
 
 const SITE_URL =

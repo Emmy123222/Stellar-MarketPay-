@@ -11,9 +11,13 @@
 
 const pLimit = require("p-limit");
 const promClient = require("prom-client");
+const { registry: appRegistry } = require("../metrics");
 
 // ── Prometheus histogram ─────────────────────────────────────────────────────
 // Guard against double-registration if the module is hot-reloaded in tests.
+// Registered on BOTH the default register (backwards compatibility for
+// existing tests) and the app registry that backs `GET /metrics`, so Horizon
+// latency is actually scrapeable.
 let horizonLatency;
 const existingMetric = promClient.register.getSingleMetric(
   "stellar_marketpay_horizon_request_duration_seconds"
@@ -26,6 +30,7 @@ if (existingMetric) {
     help: "Latency of Horizon API requests in seconds",
     labelNames: ["method", "status"],
     buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
+    registers: [promClient.register, appRegistry],
   });
 }
 

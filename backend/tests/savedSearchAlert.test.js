@@ -11,6 +11,10 @@
  *   - Notification sending
  */
 
+jest.mock("../src/db/pool", () => ({
+  query: jest.fn().mockResolvedValue({ rows: [] }),
+}));
+
 const { buildWhereClause, findMatchingJobs } = require("../src/services/savedSearchAlertService");
 
 describe("Saved Search Alert Service", () => {

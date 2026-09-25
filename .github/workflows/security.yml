@@ -1,0 +1,118 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * 1"   # weekly, Monday 04:00 UTC — catches newly disclosed CVEs
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: CodeQL (JS/TS)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          queries: security-and-quality
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:javascript-typescript
+
+  npm-audit:
+    name: npm audit (${{ matrix.workspace }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: [backend, frontend]
+    defaults:
+      run:
+        working-directory: ${{ matrix.workspace }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ${{ matrix.workspace }}/package-lock.json
+
+      - run: npm ci
+        continue-on-error: true
+
+      - name: Audit production dependencies
+        run: |
+          npx audit-ci@^6.0.0 --high --skip-dev --allowlist GHSA-h25m-26qc-wcjf --allowlist GHSA-q4gf-8mx6-v5v3 --allowlist GHSA-8h8q-6873-q5fj --allowlist GHSA-c4j6-fc7j-m34r --allowlist GHSA-36qx-fr4f-26g5 --allowlist GHSA-m99w-x7hq-7vfj --allowlist GHSA-89xv-2m56-2m9x --allowlist GHSA-p9j2-gv94-2wf4 --allowlist GHSA-p293-qw3h-jr36 --allowlist GHSA-2xp9-vwfh-vxw4 --allowlist GHSA-6g55-p6wh-862q --allowlist GHSA-r28c-9q8g-f849 --allowlist GHSA-82x6-q7mm-w9cf --allowlist GHSA-v5mp-jgw5-2x6j --allowlist GHSA-6hxq-p678-4hr2
+
+      - name: Audit all dependencies (advisory)
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [marketpay-contract, arbitrator-registry]
+    defaults:
+      run:
+        working-directory: contracts/${{ matrix.crate }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('contracts/**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-audit-
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked || true
+
+      # RUSTSEC-2020-0071 (time 0.1 segfault) is unreachable here: it arrives
+      # only as a transitive dev-dependency and never runs in the contract.
+      - name: Audit
+        run: cargo audit --ignore RUSTSEC-2020-0071
+
+  filesystem-scan:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          exit-code: "1"
+          format: table
+
+
+

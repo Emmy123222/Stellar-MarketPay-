@@ -8,13 +8,16 @@ Welcome to Stellar MarketPay documentation. This index helps you find what you n
 
 **New to Stellar MarketPay?** Start here:
 
-- **[Quick Start Guide](../QUICK_START_NEW_FEATURES.md)** - Get up and running with new features
 - **[Getting Started](./getting-started.md)** - Initial setup and installation
 - **[README](../README.md)** - Project overview and features
 
 ---
 
 ## 📚 Core Documentation
+
+### Security
+
+- **[Security Header Policy](./security.md)** - HTTP security headers, verification, and CI checks
 
 ### Architecture & Design
 
@@ -28,7 +31,7 @@ Welcome to Stellar MarketPay documentation. This index helps you find what you n
 
 ### API Documentation
 
-- **[API Documentation](./API_DOCUMENTATION.md)** - REST API endpoints
+- **[API Documentation](./api-documentation.md)** - REST API endpoints
 - **[API Reference](./api.md)** - Detailed API reference
 - **[Smart Contract API Reference](./contract-api-reference.md)** - Every public function, event, and error in the Soroban contract
 - **[Scope WebSocket Protocol](./websocket-scope-protocol.md)** - Realtime session protocol and client schema
@@ -41,7 +44,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ### ADR-001: Soroban Smart Contract for Escrow Management
 
-**File**: [ADR-001-soroban-escrow-design.md](./ADR-001-soroban-escrow-design.md)
+**File**: [adr/adr-001-soroban-escrow-design.md](./adr/adr-001-soroban-escrow-design.md)
 
 **Decision**: Use Soroban smart contracts for trustless escrow management
 
@@ -58,7 +61,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ### ADR-002: Horizon API for Transaction Indexing
 
-**File**: [ADR-002-horizon-api-indexing.md](./ADR-002-horizon-api-indexing.md)
+**File**: [adr/adr-002-horizon-api-indexing.md](./adr/adr-002-horizon-api-indexing.md)
 
 **Decision**: Use Horizon REST API as primary transaction data source
 
@@ -76,7 +79,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ### ADR-003: Database Schema for Escrow State Management
 
-**File**: [ADR-003-database-schema-escrow.md](./ADR-003-database-schema-escrow.md)
+**File**: [adr/adr-003-database-schema-escrow.md](./adr/adr-003-database-schema-escrow.md)
 
 **Decision**: Maintain off-chain escrow state in PostgreSQL
 
@@ -126,7 +129,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ### Pinata IPFS Setup for Dispute Evidence
 
-**File**: [PINATA_IPFS_SETUP.md](./PINATA_IPFS_SETUP.md)
+**File**: [ipfs-setup.md](./ipfs-setup.md)
 
 **Purpose**: Store dispute evidence on decentralized IPFS network
 
@@ -183,7 +186,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 **Related**:
 
-- [ADR-002: Horizon API Indexing](./ADR-002-horizon-api-indexing.md)
+- [ADR-002: Horizon API Indexing](./adr/adr-002-horizon-api-indexing.md)
 - [FAQ: Transaction History](./FAQ.md#how-do-i-view-my-transaction-history)
 
 ---
@@ -192,7 +195,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ### Implementation Summary
 
-**File**: [../IMPLEMENTATION_SUMMARY.md](../IMPLEMENTATION_SUMMARY.md)
+**File**: ../IMPLEMENTATION_SUMMARY.md
 
 **Contents**:
 
@@ -203,20 +206,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 - Next steps and roadmap
 - References and support
 
----
 
-### Quick Start for New Features
-
-**File**: [../QUICK_START_NEW_FEATURES.md](../QUICK_START_NEW_FEATURES.md)
-
-**Contents**:
-
-- Quick reference for each feature
-- How to use each feature
-- Code locations
-- Testing instructions
-- Troubleshooting tips
-- Implementation checklist
 
 ---
 
@@ -227,7 +217,7 @@ Decisions that shaped Stellar MarketPay's architecture:
 - **[README](../README.md)** - Project overview
 - **[ROADMAP](../ROADMAP.md)** - Feature roadmap
 - **[CONTRIBUTING](../CONTRIBUTING.md)** - Contribution guidelines
-- **[TODO](../TODO.md)** - Outstanding tasks
+- **TODO** - Outstanding tasks
 
 ### External Resources
 
@@ -245,18 +235,17 @@ Decisions that shaped Stellar MarketPay's architecture:
 stellar-marketpay/
 ├── docs/
 │   ├── INDEX.md (this file)
-│   ├── ADR-001-soroban-escrow-design.md
-│   ├── ADR-002-horizon-api-indexing.md
-│   ├── ADR-003-database-schema-escrow.md
+│   ├── adr/adr-001-soroban-escrow-design.md
+│   ├── adr/adr-002-horizon-api-indexing.md
+│   ├── adr/adr-003-database-schema-escrow.md
 │   ├── FAQ.md
-│   ├── PINATA_IPFS_SETUP.md
+│   ├── ipfs-setup.md
 │   ├── architecture.md
-│   ├── API_DOCUMENTATION.md
+│   ├── api-documentation.md
 │   ├── api.md
 │   ├── deployment.md
 │   └── getting-started.md
 ├── IMPLEMENTATION_SUMMARY.md
-├── QUICK_START_NEW_FEATURES.md
 ├── README.md
 ├── ROADMAP.md
 ├── CONTRIBUTING.md
@@ -286,19 +275,19 @@ stellar-marketpay/
 1. [Architecture Overview](./architecture.md)
 2. [Contributing Guide](../CONTRIBUTING.md)
 3. [Database Schema & ERD](./database-schema.md)
-4. [ADR-001: Escrow Design](./ADR-001-soroban-escrow-design.md)
-5. [ADR-002: Horizon API](./ADR-002-horizon-api-indexing.md)
-6. [ADR-003: Database Schema](./ADR-003-database-schema-escrow.md)
-7. [API Documentation](./API_DOCUMENTATION.md)
-8. [Pinata IPFS Setup](./PINATA_IPFS_SETUP.md)
+4. [ADR-001: Escrow Design](./adr/adr-001-soroban-escrow-design.md)
+5. [ADR-002: Horizon API](./adr/adr-002-horizon-api-indexing.md)
+6. [ADR-003: Database Schema](./adr/adr-003-database-schema-escrow.md)
+7. [API Documentation](./api-documentation.md)
+8. [Pinata IPFS Setup](./ipfs-setup.md)
 9. [Deployment Guide](./deployment.md)
 
 ### For DevOps/Infrastructure
 
 1. [Deployment Guide](./deployment.md)
 2. [Architecture Overview](./architecture.md)
-3. [ADR-002: Horizon API](./ADR-002-horizon-api-indexing.md)
-4. [ADR-003: Database Schema](./ADR-003-database-schema-escrow.md)
+3. [ADR-002: Horizon API](./adr/adr-002-horizon-api-indexing.md)
+4. [ADR-003: Database Schema](./adr/adr-003-database-schema-escrow.md)
 
 ---
 
@@ -308,34 +297,34 @@ stellar-marketpay/
 
 **Blockchain & Stellar**
 
-- [ADR-001: Soroban Escrow](./ADR-001-soroban-escrow-design.md)
-- [ADR-002: Horizon API](./ADR-002-horizon-api-indexing.md)
+- [ADR-001: Soroban Escrow](./adr/adr-001-soroban-escrow-design.md)
+- [ADR-002: Horizon API](./adr/adr-002-horizon-api-indexing.md)
 - [FAQ: Technical Questions](./FAQ.md#technical-questions)
 
 **Database & Backend**
 
 - [Database Schema & ERD](./database-schema.md)
-- [ADR-003: Database Schema](./ADR-003-database-schema-escrow.md)
-- [API Documentation](./API_DOCUMENTATION.md)
+- [ADR-003: Database Schema](./adr/adr-003-database-schema-escrow.md)
+- [API Documentation](./api-documentation.md)
 - [Deployment Guide](./deployment.md)
 
 **Frontend & UI**
 
 - [Transaction History](./FAQ.md#how-do-i-view-my-transaction-history)
-- [Pinata IPFS Setup](./PINATA_IPFS_SETUP.md)
+- [Pinata IPFS Setup](./ipfs-setup.md)
 - [Architecture Overview](./architecture.md)
 
 **User Guides**
 
 - [FAQ](./FAQ.md)
 - [Getting Started](./getting-started.md)
-- [Quick Start](../QUICK_START_NEW_FEATURES.md)
 
 **Disputes & Evidence**
 
-- [Pinata IPFS Setup](./PINATA_IPFS_SETUP.md)
+- [Dispute Resolution](./dispute-resolution.md)
+- [Pinata IPFS Setup](./ipfs-setup.md)
 - [FAQ: Disputes & Refunds](./FAQ.md#disputes--refunds)
-- [ADR-003: Database Schema](./ADR-003-database-schema-escrow.md)
+- [ADR-003: Database Schema](./adr/adr-003-database-schema-escrow.md)
 
 ---
 
@@ -351,7 +340,7 @@ stellar-marketpay/
 ### Contributing
 
 - See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines
-- Check [TODO.md](../TODO.md) for outstanding tasks
+- Check TODO.md for outstanding tasks
 - Review [ROADMAP.md](../ROADMAP.md) for planned features
 
 ---
@@ -372,7 +361,6 @@ stellar-marketpay/
 - ✅ FAQ: 50+ Questions
 - ✅ Pinata IPFS Setup Guide
 - ✅ Implementation Summary
-- ✅ Quick Start Guide
 
 ### Planned Updates
 

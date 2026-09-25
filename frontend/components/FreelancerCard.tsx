@@ -4,6 +4,7 @@
  */
 import Link from "next/link";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
+import ReputationBadge from "@/components/ReputationBadge";
 import { availabilityBadgeClass, availabilityStatusLabel, formatXLM, shortenAddress } from "@/utils/format";
 import type { UserProfile } from "@/utils/types";
 
@@ -12,20 +13,25 @@ interface FreelancerCardProps {
 }
 
 export default function FreelancerCard({ profile }: FreelancerCardProps) {
+  const availabilityStatus = profile.availability?.status;
+
   return (
     <Link href={`/freelancers/${encodeURIComponent(profile.publicKey)}`}>
       <div className="card-hover group flex h-full flex-col justify-between gap-4 p-5 transition-shadow hover:shadow-xl">
         <div className="space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-            <div>
-              <h3 className="font-display font-semibold text-amber-100 text-base leading-snug line-clamp-2">
-                {profile.displayName || shortenAddress(profile.publicKey)}
-              </h3>
-              <p className="text-amber-700 text-sm">{shortenAddress(profile.publicKey)}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${availabilityBadgeClass(profile.availability?.status)}`}>
-                {availabilityStatusLabel(profile.availability?.status)}
+  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div>
+      <h3 className="font-display font-semibold text-amber-100 text-base leading-snug line-clamp-2">
+        {profile.displayName || shortenAddress(profile.publicKey)}
+      </h3>
+      <div className="text-amber-700 text-sm">
+        <span className="inline-flex">{shortenAddress(profile.publicKey, 4)}</span>
+      </div>
+    </div>
+    <div className="flex flex-wrap items-center gap-1.5">
+              <ReputationBadge userId={profile.publicKey} size="sm" />
+              <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${availabilityBadgeClass(availabilityStatus)}`}>
+                {availabilityStatusLabel(availabilityStatus)}
               </span>
               {profile.tier ? <FreelancerTierBadge tier={profile.tier} className="hidden sm:inline-flex" /> : null}
             </div>

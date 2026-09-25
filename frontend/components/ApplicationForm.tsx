@@ -3,11 +3,17 @@
  * Freelancer applies to a job with a proposal and bid amount.
  */
 import { useState, useEffect } from "react";
-import { submitApplication, fetchProposalTemplates } from "@/lib/api";
+import { submitApplication, fetchProposalTemplates, scoreProposal } from "@/lib/api";
+import type { ProposalScore } from "@/lib/api";
 import type { Job } from "@/utils/types";
 import { formatXLM } from "@/utils/format";
 import { useToast } from "./Toast";
 import clsx from "clsx";
+
+// Issue #1548 — score the proposal once the writer pauses for this long.
+const SCORE_DEBOUNCE_MS = 2000;
+// Don't bother the AI with very short drafts.
+const MIN_SCORE_CHARS = 20;
 
 interface ApplicationFormProps {
   job: Job;
@@ -53,6 +59,11 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
   const [templates, setTemplates] = useState<{ id: string; name: string; content: string }[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
+  // Issue #1548 — real-time Relevance / Clarity / Completeness scores.
+  const [proposalScore, setProposalScore] = useState<ProposalScore | null>(null);
+  const [scoreWarning, setScoreWarning] = useState<string | null>(null);
+  const [scoring, setScoring] = useState(false);
+
   // Issue #152 — enforce 50-word minimum on the proposal.
   const wordCount = proposal.trim() === "" ? 0 : proposal.trim().split(/\s+/).length;
   const MIN_WORDS = 50;
@@ -75,6 +86,47 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
   useEffect(() => {
     fetchProposalTemplates().then(setTemplates).catch(() => {});
   }, []);
+
+  // Issue #1548 — debounce scoring by 2s after the proposal stops changing.
+  // A failed AI call is a warning only: submission is never blocked by it.
+  const jobSkillsKey = (job.skills || []).join(",");
+  useEffect(() => {
+    const trimmed = proposal.trim();
+    const timer = setTimeout(async () => {
+      if (trimmed.length < MIN_SCORE_CHARS) {
+        setProposalScore(null);
+        setScoreWarning(null);
+        setScoring(false);
+        return;
+      }
+
+      setScoring(true);
+      try {
+        const { data, warning } = await scoreProposal({
+          proposal: trimmed,
+          jobTitle: job.title,
+          jobDescription: job.description,
+          skills: jobSkillsKey ? jobSkillsKey.split(",") : undefined,
+        });
+        setProposalScore(data);
+        setScoreWarning(
+          warning ??
+            (data
+              ? null
+              : "Proposal scoring is unavailable right now. You can still submit."),
+        );
+      } catch {
+        setProposalScore(null);
+        setScoreWarning(
+          "Proposal scoring is unavailable right now. You can still submit.",
+        );
+      } finally {
+        setScoring(false);
+      }
+    }, SCORE_DEBOUNCE_MS);
+
+    return () => clearTimeout(timer);
+  }, [proposal, job.title, job.description, jobSkillsKey]);
 
   const allScreeningQuestionsAnswered = job.screeningQuestions && job.screeningQuestions.length > 0
     ? job.screeningQuestions.every(q => screeningAnswers[q] && screeningAnswers[q].trim().length > 0)
@@ -132,8 +184,8 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
 
         <div className="space-y-5">
           <div>
-            <label className="label">Use Template</label>
-            <select
+            <label htmlFor="use-template" className="label">Use Template</label>
+            <select id="use-template"
               value={selectedTemplateId}
               onChange={(e) => {
                 const templateId = e.target.value;
@@ -181,12 +233,19 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
                 </span>
               )}
             </p>
+
+            <ProposalScores
+              scoring={scoring}
+              score={proposalScore}
+              warning={scoreWarning}
+              ready={proposal.trim().length >= MIN_SCORE_CHARS}
+            />
           </div>
 
           {/* Bid amount */}
           <div>
-            <label className="label">Your Bid (XLM)</label>
-            <input
+            <label htmlFor="your-bid-xlm" className="label">Your Bid (XLM)</label>
+            <input id="your-bid-xlm"
               type="number" value={bidAmount} onChange={(e) => setBidAmount(e.target.value)}
               min="1" step="1" className="input-field"
               placeholder="Enter your bid amount"
@@ -197,8 +256,8 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
           </div>
 
           <div>
-            <label className="label">Reveal Nonce (keep safe)</label>
-            <input
+            <label htmlFor="reveal-nonce-keep-safe" className="label">Reveal Nonce (keep safe)</label>
+            <input id="reveal-nonce-keep-safe"
               type="text"
               value={revealNonce}
               onChange={(e) => setRevealNonce(e.target.value)}
@@ -213,9 +272,9 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
           {/* Screening Questions */}
           {job.screeningQuestions && job.screeningQuestions.length > 0 && (
             <div>
-              <label className="label">Screening Questions <span className="text-red-400">*</span></label>
+              <span id="screening-questions" className="label">Screening Questions <span className="text-red-400">*</span></span>
               <p className="text-xs text-amber-600 mb-3">Please answer all questions to submit your application.</p>
-              <div className="space-y-4">
+              <div className="space-y-4" role="group" aria-labelledby="screening-questions">
                 {job.screeningQuestions.map((question, index) => (
                   <div key={index}>
                     <label className="text-sm text-amber-200 mb-1.5 block">
@@ -323,6 +382,90 @@ function ConfirmModal({ jobTitle, bidAmount, proposal, onConfirm, onClose }: Con
           <button onClick={onConfirm} className="btn-primary flex-1">Confirm & Submit</button>
           <button onClick={onClose} className="btn-secondary flex-1">Go back</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+interface ProposalScoresProps {
+  scoring: boolean;
+  score: ProposalScore | null;
+  warning: string | null;
+  ready: boolean;
+}
+
+/**
+ * Issue #1548 — live Relevance / Clarity / Completeness readout. A scoring
+ * failure is shown as a warning and never affects whether the form can submit.
+ */
+function ProposalScores({ scoring, score, warning, ready }: ProposalScoresProps) {
+  if (!ready) return null;
+
+  return (
+    <div
+      className="mt-3 rounded-xl border border-market-500/20 bg-ink-900/40 p-4"
+      aria-live="polite"
+    >
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-amber-600">
+          Proposal quality
+        </p>
+        {scoring ? (
+          <span className="text-xs text-amber-600 animate-pulse">Scoring…</span>
+        ) : (
+          score && (
+            <span className="text-xs font-mono text-market-300">
+              Overall {score.overall}/100
+            </span>
+          )
+        )}
+      </div>
+
+      {score && (
+        <div className="space-y-2">
+          <ScoreBar label="Relevance" value={score.relevance} />
+          <ScoreBar label="Clarity" value={score.clarity} />
+          <ScoreBar label="Completeness" value={score.completeness} />
+        </div>
+      )}
+
+      {warning && (
+        <p className="mt-3 text-xs text-amber-400" role="status">
+          ⚠ {warning}
+        </p>
+      )}
+
+      {score && score.suggestions.length > 0 && (
+        <ul className="mt-3 space-y-1 text-xs text-amber-700 list-disc list-inside">
+          {score.suggestions.map((suggestion, i) => (
+            <li key={i}>{suggestion}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ScoreBar({ label, value }: { label: string; value: number }) {
+  const clamped = Math.max(0, Math.min(100, Math.round(value)));
+  const tone =
+    clamped >= 75 ? "bg-green-400" : clamped >= 50 ? "bg-market-400" : "bg-red-400";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs mb-1">
+        <span className="text-amber-200">{label}</span>
+        <span className="font-mono text-amber-100">{clamped}</span>
+      </div>
+      <div
+        className="h-1.5 w-full rounded-full bg-market-500/10 overflow-hidden"
+        role="progressbar"
+        aria-label={label}
+        aria-valuenow={clamped}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
+        <div className={`h-full rounded-full ${tone}`} style={{ width: `${clamped}%` }} />
       </div>
     </div>
   );

@@ -146,8 +146,10 @@ function TooltipOverlay({ tooltip, onDismiss }: TooltipOverlayProps) {
               {tooltip.title}
             </h4>
             <button
+              type="button"
               onClick={onDismiss}
               className="text-amber-600 hover:text-amber-400 transition-colors flex-shrink-0"
+              aria-label="Dismiss tooltip"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

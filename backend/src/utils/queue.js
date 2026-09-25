@@ -11,6 +11,10 @@ const redisConfig = process.env.REDIS_URL || {
 // Queue for processing emails asynchronously
 const emailQueue = new Queue("emailQueue", redisConfig);
 
+// Queue for non-blocking audit log writes
+const auditQueue = new Queue("auditQueue", redisConfig);
+
 module.exports = {
   emailQueue,
+  auditQueue,
 };
