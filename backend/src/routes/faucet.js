@@ -5,7 +5,12 @@
 "use strict";
 const express = require("express");
 const router = express.Router();
-const { createSensitiveRateLimiters } = require("../middleware/rateLimiter");
+const {
+  createSensitiveRateLimiters,
+  createRateLimiter,
+  hashRateLimitIdentifier,
+} = require("../middleware/rateLimiter");
+const { RedisRateLimitStore } = require("../middleware/redisRateLimitStore");
 const {
   fundTestnetWallet,
   checkAccountNeedsFunding,
@@ -24,6 +29,18 @@ const [faucetIpLimiter, faucetPrincipalLimiter] = createSensitiveRateLimiters({
   principalKeyGenerator: (req) => req.body?.publicKey || req.params?.publicKey,
 });
 
+// Strict per-wallet limit: 1 faucet request per wallet per 24 hours.
+// This prevents a single wallet address from draining testnet XLM through
+// rotating proxies, since the IP-based limiters can be bypassed by
+// forwarding requests through different IPs.
+const faucetWalletLimiter = createRateLimiter(1, 24 * 60, {
+  store: new RedisRateLimitStore({ prefix: "faucet:wallet:" }),
+  keyGenerator: (req) =>
+    hashRateLimitIdentifier("wallet", req.body?.publicKey || req.params?.publicKey),
+  requestPropertyName: "rateLimit_faucet_wallet",
+  legacyHeaders: false,
+});
+
 /**
  * @swagger
  * /api/faucet/fund:
@@ -35,13 +52,18 @@ const [faucetIpLimiter, faucetPrincipalLimiter] = createSensitiveRateLimiters({
  *       testnet URL (HORIZON_URL env var), the request is rejected with 403.
  *       If the account already has a non-zero native balance it is not
  *       re-funded (the service still responds 200, with `success: false`
- *       in the payload). Rate limited per IP; the limit is configurable via
- *       FAUCET_RATE_LIMIT (defaults to 20/min in development, 5/min in
- *       production), with a fixed 60-minute window.
+ *       in the payload). Rate limited per IP and per wallet address. The
+ *       per-IP limit is configurable via FAUCET_RATE_LIMIT (defaults to 20/min
+ *       in development, 5/min in production), with a fixed 60-minute window.
+ *       A strict per-wallet limit of 1 request per 24 hours is enforced in
+ *       Redis to prevent draining testnet XLM through rotating proxies.
  *     tags: [Faucet]
  *     x-rate-limit:
  *       limit: 20
  *       windowMinutes: 60
+ *     x-rate-limit-wallet:
+ *       limit: 1
+ *       windowMinutes: 1440
  *     requestBody:
  *       required: true
  *       content:
@@ -142,7 +164,7 @@ const [faucetIpLimiter, faucetPrincipalLimiter] = createSensitiveRateLimiters({
  *             example:
  *               error: Unable to connect to Stellar testnet
  */
-router.post("/fund", faucetIpLimiter, faucetPrincipalLimiter, async (req, res, next) => {
+router.post("/fund", faucetIpLimiter, faucetPrincipalLimiter, faucetWalletLimiter, async (req, res, next) => {
   try {
     const { publicKey } = req.body;
 
