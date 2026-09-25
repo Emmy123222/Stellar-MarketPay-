@@ -14,6 +14,16 @@ const pool    = require("../db/pool");
 const { createRating, getRatingsForUser } = require("../services/ratingService");
 const { verifyJWT } = require("../middleware/auth");
 const { scheduleReputationRecalc } = require("../services/reputationService");
+const rateLimit = require("express-rate-limit");
+
+const ratingsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 100, 
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.use(ratingsLimiter);
 
 /**
  * @swagger
