@@ -10,13 +10,20 @@
  *   - Returns 200 when all dependencies are healthy
  *   - Returns 503 when any dependency is down
  *
- * Response shape:
+ * Response shape on the degraded path (probe failures):
  *   {
- *     "status": "healthy" | "degraded",
- *     "database": { "status": "ok", "latency_ms": 12 }
- *                | { "status": "error", "message": "..." },
- *     "stellar":  { "status": "ok", "network": "testnet", "ledger": 12345678 }
- *                | { "status": "error", "message": "..." },
+ *     "status": "degraded",
+ *     "checks": {
+ *       "db": "error",
+ *       "redis": "ok" | "error",
+ *       "stellar": "ok" | "error"
+ *     }
+ *   }
+ *
+ * Full body (healthy):
+ *   {
+ *     "status": "healthy",
+ *     "checks": { "db": "ok", "redis": "ok", "stellar": "ok" },
  *     "uptime_seconds": 3600,
  *     "version": "1.0.0",
  *     "migrationVersion": 21
@@ -127,11 +134,18 @@ async function checkHorizon() {
  *                 status:
  *                   type: string
  *                   example: healthy
- *                 database:
+ *                 checks:
  *                   type: object
  *                   properties:
- *                     status: { type: string, example: ok }
- *                     latency_ms: { type: number, example: 12 }
+ *                     db:
+ *                       type: string
+ *                       example: ok
+ *                     redis:
+ *                       type: string
+ *                       example: ok
+ *                     stellar:
+ *                       type: string
+ *                       example: ok
  *                 stellar:
  *                   type: object
  *                   properties:
@@ -146,7 +160,11 @@ async function checkHorizon() {
  *                   example: 21
  *                   description: Current schema_migrations version from the database
  *       503:
- *         description: One or more dependencies are down
+ *         description: >
+ *           One or more dependencies are down. When the database is
+ *           unreachable, timed out, or throws, the body is a flattened
+ *           degradation payload: { status: "degraded", checks: { db: "error", redis: "ok", stellar: "ok" } }
+ *           otherwise the full degraded body is returned.
  */
 router.get("/", healthRateLimiter, async (req, res) => {
   const [postgres, redis, horizon] = await Promise.all([
@@ -159,9 +177,11 @@ router.get("/", healthRateLimiter, async (req, res) => {
 
   const body = {
     status: allUp ? "healthy" : "degraded",
-    database: postgres,
-    redis,
-    stellar: horizon,
+    checks: {
+      db: postgres === "up" ? "ok" : "error",
+      redis: redis === "up" ? "ok" : "error",
+      stellar: horizon === "up" ? "ok" : "error",
+    },
     uptime_seconds: Math.floor((Date.now() - SERVER_START) / 1000),
     version: VERSION,
     indexer: req.app.locals.indexerService
@@ -169,6 +189,14 @@ router.get("/", healthRateLimiter, async (req, res) => {
       : null,
     migrationVersion: req.app.locals.migrationVersion ?? null,
   };
+
+  // Detailed degraded body for the probe pipeline: when the database is
+  // unreachable, timed out, or throws, return 503 with an explicit
+  // checks.db = "error" so every caller knows the DB is the failing probe.
+  if (!allUp && body.checks.db === "error") {
+    res.status(503).json({ status: "degraded", checks: body.checks });
+    return;
+  }
 
   res.status(allUp ? 200 : 503).json(body);
 });

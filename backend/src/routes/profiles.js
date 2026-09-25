@@ -55,10 +55,7 @@ const {
   migrateProfile,
 } = require("../services/profileMigrationService");
 const { validateProfileMigration } = require("../validators/profileMigrationValidator");
-const {
-  upsertPriceAlertPreference,
-  getPriceAlertPreference,
-} = require("../services/priceAlertService");
+const { getPriceAlertPreference, upsertPriceAlertPreference } = require("../services/priceAlertService");
 
 /**
  * @swagger

@@ -238,6 +238,7 @@ Evidence files are stored on IPFS; see ADR-006 if present or [dispute_resolution
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/disputes/:jobId` | Dispute details and evidence list |
+| GET | `/api/disputes/:jobId/evidence` | List dispute evidence (client, freelancer, or arbitrator) |
 | POST | `/api/disputes/:jobId/evidence` | Upload dispute evidence file |
 | GET | `/api/disputes/:jobId/evidence/:id/url` | Generate signed URL for evidence access |
 | GET | `/api/disputes/:jobId/onchain-cids` | Chain-attested evidence CID list |
