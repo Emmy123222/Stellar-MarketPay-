@@ -32,6 +32,7 @@ const {
   disputeMilestone,
   requestEscrowExtension,
   approveEscrowExtension,
+  getEscrowField,
 
   verifyFreelancerAccount,
 } = require("../services/escrowService");
@@ -184,11 +185,7 @@ router.post(
       });
 
       // Notify users about escrow release
-      const { rows: escrowRows } = await pool.query(
-        `SELECT amount_xlm FROM escrows WHERE job_id = $1`,
-        [jobId],
-      );
-      const escrowAmount = escrowRows.length ? escrowRows[0].amount_xlm : job.budget;
+      const escrowAmount = await getEscrowField(jobId, 'amount_xlm') ?? job.budget;
 
       await notifyEscrowEvent({
         eventType: EVENT_TYPES.ESCROW_RELEASED,
@@ -366,11 +363,7 @@ router.post("/:jobId/refund", async (req, res, next) => {
     });
 
     // Notify users about refund
-    const { rows: escrowRows } = await pool.query(
-      `SELECT amount_xlm FROM escrows WHERE job_id = $1`,
-      [jobId],
-    );
-    const escrowAmount = escrowRows.length ? escrowRows[0].amount_xlm : job.budget;
+    const escrowAmount = await getEscrowField(jobId, 'amount_xlm') ?? job.budget;
 
     await notifyEscrowEvent({
       eventType: EVENT_TYPES.REFUND_ISSUED,
