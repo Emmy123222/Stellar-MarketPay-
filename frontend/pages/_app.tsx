@@ -3,8 +3,16 @@ import { useState, useEffect, useCallback } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import Navbar from "@/components/Navbar";
-import { connectWallet, getConnectedPublicKey, signTransactionWithWallet } from "@/lib/wallet";
-import { fetchAuthChallenge, verifyAuthChallenge, setJwtToken } from "@/lib/api";
+import {
+  connectWallet,
+  getConnectedPublicKey,
+  signTransactionWithWallet,
+} from "@/lib/wallet";
+import {
+  fetchAuthChallenge,
+  verifyAuthChallenge,
+  setJwtToken,
+} from "@/lib/api";
 import "@/styles/globals.css";
 import { ToastProvider } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
@@ -12,7 +20,10 @@ import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
 import OfflineBanner from "@/components/OfflineBanner";
 import RateLimitWatcher from "@/components/RateLimitWatcher";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
-import "../lib/i18n";
+import { appWithTranslation } from "../lib/i18n";
+// Bundled locale resources — supplies the i18next instance to every
+// useTranslation() hook (SSR + client), see lib/i18n.js.
+import nextI18NextConfig from "../next-i18next.config.js";
 
 function App({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
@@ -31,7 +42,8 @@ function App({ Component, pageProps }: AppProps) {
     onGoToDashboard: () => router.push("/dashboard"),
     onNewJobPost: () => router.push("/post-job"),
     onToggleShortcutsModal: handleToggleShortcutsModal,
-    onJobApply: () => window.dispatchEvent(new CustomEvent("shortcut-apply-job")),
+    onJobApply: () =>
+      window.dispatchEvent(new CustomEvent("shortcut-apply-job")),
     onJobBackToListing: () => router.push("/jobs"),
     shortcutsModalOpen,
   });
@@ -88,32 +100,58 @@ function App({ Component, pageProps }: AppProps) {
     <>
       <ToastProvider>
         <PriceProvider>
-        <Head>
-          <title>Stellar MarketPay — Decentralised Freelance Marketplace</title>
-          <meta name="description" content="Post jobs, hire freelancers, and pay with XLM — secured by Soroban smart contracts." />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <link rel="manifest" href="/manifest.json" />
-          <link rel="apple-touch-icon" href="/icon-192x192.png" />
-          <link rel="alternate" type="application/rss+xml" title="Stellar MarketPay — Job Listings (RSS)" href="/api/jobs/feed.rss" />
-          <link rel="alternate" type="application/atom+xml" title="Stellar MarketPay — Job Listings (Atom)" href="/api/jobs/feed.atom" />
-        </Head>
-        <OfflineBanner />
-        <div className="min-h-screen bg-ink-900 bg-lines">
-          <Navbar publicKey={publicKey} onConnect={handleConnect} onDisconnect={() => setPublicKey(null)} />
-          <main>
-            <Component {...pageProps} publicKey={publicKey} onConnect={handleConnect} />
-          </main>
-          <KeyboardShortcutsModal
-            isOpen={shortcutsModalOpen}
-            onClose={() => setShortcutsModalOpen(false)}
-            showJobDetailShortcuts={isJobDetailPage}
-          />
-        </div>
-        <RateLimitWatcher />
+          <Head>
+            <title>
+              Stellar MarketPay — Decentralised Freelance Marketplace
+            </title>
+            <meta
+              name="description"
+              content="Post jobs, hire freelancers, and pay with XLM — secured by Soroban smart contracts."
+            />
+            <meta
+              name="viewport"
+              content="width=device-width, initial-scale=1"
+            />
+            <link rel="manifest" href="/manifest.json" />
+            <link rel="apple-touch-icon" href="/icon-192x192.png" />
+            <link
+              rel="alternate"
+              type="application/rss+xml"
+              title="Stellar MarketPay — Job Listings (RSS)"
+              href="/api/jobs/feed.rss"
+            />
+            <link
+              rel="alternate"
+              type="application/atom+xml"
+              title="Stellar MarketPay — Job Listings (Atom)"
+              href="/api/jobs/feed.atom"
+            />
+          </Head>
+          <OfflineBanner />
+          <div className="min-h-screen bg-ink-900 bg-lines">
+            <Navbar
+              publicKey={publicKey}
+              onConnect={handleConnect}
+              onDisconnect={() => setPublicKey(null)}
+            />
+            <main>
+              <Component
+                {...pageProps}
+                publicKey={publicKey}
+                onConnect={handleConnect}
+              />
+            </main>
+            <KeyboardShortcutsModal
+              isOpen={shortcutsModalOpen}
+              onClose={() => setShortcutsModalOpen(false)}
+              showJobDetailShortcuts={isJobDetailPage}
+            />
+          </div>
+          <RateLimitWatcher />
         </PriceProvider>
       </ToastProvider>
     </>
   );
 }
 
-export default App;
+export default appWithTranslation(App, nextI18NextConfig);
