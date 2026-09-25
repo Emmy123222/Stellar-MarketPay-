@@ -13,11 +13,6 @@ const { getJob } = require("../services/jobService");
 const { getAuditLogsForJob } = require("../services/contractAuditService");
 const pool = require("../db/pool");
 
-const adminList = (process.env.ADMIN_PUBLIC_KEYS || "")
-  .split(",")
-  .map((value) => value.trim())
-  .filter(Boolean);
-
 /**
  * @swagger
  * /api/audit:
@@ -58,6 +53,10 @@ const adminList = (process.env.ADMIN_PUBLIC_KEYS || "")
  *     responses:
  *       200:
  *         description: Audit log entries
+ *       401:
+ *         description: Unauthenticated
+ *       403:
+ *         description: Admin access required
  */
 router.get("/", verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
@@ -134,7 +133,7 @@ router.get("/", verifyJWT, requireAdminRole, async (req, res, next) => {
  * @swagger
  * /api/audit/{jobId}:
  *   get:
- *     summary: Get audit logs for a specific job
+ *     summary: Get audit logs for a specific job (admin only)
  *     tags: [Audit]
  *     security:
  *       - bearerAuth: []
@@ -147,19 +146,14 @@ router.get("/", verifyJWT, requireAdminRole, async (req, res, next) => {
  *     responses:
  *       200:
  *         description: Job audit logs
+ *       401:
+ *         description: Unauthenticated
  *       403:
- *         description: Not a participant or admin
+ *         description: Admin access required
  */
-router.get("/:jobId", verifyJWT, async (req, res, next) => {
+router.get("/:jobId", verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
-    const job = await getJob(req.params.jobId);
-    const caller = req.user.publicKey;
-    const isParticipant = caller === job.clientAddress || caller === job.freelancerAddress;
-    const isAdmin = adminList.includes(caller);
-    if (!isParticipant && !isAdmin) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
+    await getJob(req.params.jobId);
     const rows = await getAuditLogsForJob(req.params.jobId);
     return res.json({ success: true, data: rows });
   } catch (error) {
