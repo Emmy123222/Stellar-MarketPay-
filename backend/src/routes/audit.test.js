@@ -7,23 +7,15 @@
  *
  * Scope, per endpoint:
  *   - GET /          admin-only list with cursor pagination + filters
- *   - GET /:jobId    participant-or-admin gated per-job logs
+ *   - GET /:jobId    admin-only per-job logs
  *
- * GET / requires the real verifyJWT + requireAdminRole middlewares to exercise
- * the authorisation gate (a non-admin caller must be rejected with 403). The
- * cursor pagination query hits the pool directly, so pool is swapped for the
- * shared pgMock. GET /:jobId delegates to jobService.getJob() and
- * contractAuditService.getAuditLogsForJob(), which are mocked.
+ * Both routes use the real verifyJWT + requireAdminRole middlewares to exercise
+ * the authorisation gate (anonymous callers receive 401 and non-admin callers
+ * receive 403). The cursor pagination query hits the pool directly, so pool is
+ * swapped for the shared pgMock. GET /:jobId delegates to
+ * jobService.getJob() and contractAuditService.getAuditLogsForJob(), which are
+ * mocked.
  */
-
-// adminList is computed at module load, so set the env var BEFORE requiring the
-// router — this lets us exercise both the participant and the admin grant on
-// GET /:jobId in the same suite.
-process.env.ADMIN_PUBLIC_KEYS = (process.env.ADMIN_PUBLIC_KEYS || "")
-  .split(",")
-  .filter(Boolean)
-  .concat("G" + "A".repeat(55))
-  .join(",");
 
 jest.mock("../db/pool", () => {
   const { createPgMock } = require("../testUtils/pgMock");
@@ -155,25 +147,24 @@ describe("Audit Routes Suite (/api/audit)", () => {
   });
 
   // =========================================================================
-  // GET /:jobId  — participant-or-admin
+  // GET /:jobId  — admin only
   // =========================================================================
   describe("GET /:jobId", () => {
-    it("200 — happy path: job participant lists logs", async () => {
+    it("403 — rejects a non-admin caller even when they are a job participant", async () => {
       getJob.mockResolvedValue({
         id: JOB_ID,
         clientAddress: CLIENT,
         freelancerAddress: FREELANCER,
       });
-      getAuditLogsForJob.mockResolvedValue([auditRow()]);
 
       const res = await request(app)
         .get(`/api/audit/${JOB_ID}`)
         .set("Authorization", authHeader(FREELANCER));
 
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data).toHaveLength(1);
-      expect(getAuditLogsForJob).toHaveBeenCalledWith(JOB_ID);
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/Admin access required/);
+      expect(getJob).not.toHaveBeenCalled();
+      expect(getAuditLogsForJob).not.toHaveBeenCalled();
     });
 
     it("200 — happy path: admin lists logs for any job", async () => {
@@ -192,7 +183,7 @@ describe("Audit Routes Suite (/api/audit)", () => {
       expect(res.body.success).toBe(true);
     });
 
-    it("403 — rejects a caller who is neither participant nor admin", async () => {
+    it("403 — rejects a non-admin caller", async () => {
       getJob.mockResolvedValue({
         id: JOB_ID,
         clientAddress: CLIENT,
@@ -204,7 +195,8 @@ describe("Audit Routes Suite (/api/audit)", () => {
         .set("Authorization", authHeader(OTHER));
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toBe("Forbidden");
+      expect(res.body.error).toMatch(/Admin access required/);
+      expect(getJob).not.toHaveBeenCalled();
       expect(getAuditLogsForJob).not.toHaveBeenCalled();
     });
 
@@ -215,15 +207,19 @@ describe("Audit Routes Suite (/api/audit)", () => {
 
       const res = await request(app)
         .get(`/api/audit/${JOB_ID}`)
-        .set("Authorization", authHeader(CLIENT));
+        .set("Authorization", authHeader(ADMIN, "admin"));
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe("Job not found");
     });
 
-    it("401 — rejects when no token is supplied", async () => {
-      const res = await request(app).get(`/api/audit/${JOB_ID}`);
-      expect(res.status).toBe(401);
+    it("401 — rejects an anonymous request to every audit log route", async () => {
+      const listResponse = await request(app).get("/api/audit");
+      const jobResponse = await request(app).get(`/api/audit/${JOB_ID}`);
+
+      expect(listResponse.status).toBe(401);
+      expect(jobResponse.status).toBe(401);
+      expect(pool.query).not.toHaveBeenCalled();
       expect(getJob).not.toHaveBeenCalled();
     });
   });
