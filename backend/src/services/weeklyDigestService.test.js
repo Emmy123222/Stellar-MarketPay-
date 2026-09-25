@@ -64,6 +64,7 @@ describe("getActiveFreelancers()", () => {
     expect(pool.query).toHaveBeenCalledTimes(1);
     const sql = pool.query.mock.calls[0][0];
     expect(sql).toMatch(/role IN \('freelancer', 'both'\)/);
+    expect(sql).toMatch(/email_verified = true/);
     expect(sql).toMatch(/email IS NOT NULL/);
     expect(sql).toMatch(/last_login_at >= NOW\(\) - INTERVAL '30 days'/);
     expect(result).toEqual(MOCK_FREELANCERS);
