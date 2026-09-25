@@ -47,6 +47,7 @@ const IndexerService        = require("./services/indexerService");
 const { PriceAlertService } = require("./services/priceAlertService");
 const pool                  = require("./db/pool");
 const { scheduleStatsRefresh } = require("./services/statsService");
+const { startPushSubscriptionPurge } = require("./services/pushSubscriptionService");
 
 // Start audit worker — processes fire-and-forget audit log writes
 require("./workers/auditWorker");
@@ -381,6 +382,9 @@ async function bootstrap() {
 
   // Start job expiry checker - run every hour
   startJobExpiryChecker();
+
+  // Start daily purge of push subscriptions marked invalid (Issue #1438)
+  startPushSubscriptionPurge();
 
   server.listen(PORT, () => {
     console.log(`
