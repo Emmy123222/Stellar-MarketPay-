@@ -237,12 +237,19 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
     type="button"
   />
   <div
+    aria-describedby="modal-description"
     aria-labelledby="boost-job-title"
     aria-modal="true"
     class="relative w-full max-w-md bg-ink-900 border border-market-500/20 rounded-2xl p-6 shadow-2xl animate-scale-in"
     role="dialog"
     tabindex="-1"
   >
+    <p
+      class="sr-only"
+      id="modal-description"
+    >
+      Review the boost options for this job listing.
+    </p>
     <div
       class="flex items-start justify-between mb-5"
     >
@@ -422,12 +429,19 @@ exports[`static component snapshots FeeEstimationModal loading: FeeEstimationMod
     type="button"
   />
   <div
+    aria-describedby="modal-description"
     aria-labelledby="fee-estimation-title"
     aria-modal="true"
     class="relative card max-w-md w-full bg-ink-900 border border-market-500/20"
     role="dialog"
     tabindex="-1"
   >
+    <p
+      class="sr-only"
+      id="modal-description"
+    >
+      Review the estimated transaction fee before signing.
+    </p>
     <h2
       class="font-display text-xl font-bold text-amber-100 mb-1"
       id="fee-estimation-title"
@@ -1480,12 +1494,19 @@ exports[`static component snapshots KeyboardShortcutsModal open: KeyboardShortcu
     type="button"
   />
   <div
+    aria-describedby="modal-description"
     aria-labelledby="shortcuts-title"
     aria-modal="true"
     class="relative w-full max-w-xl rounded-2xl border border-market-500/20 bg-ink-900 p-6 shadow-2xl"
     role="dialog"
     tabindex="-1"
   >
+    <p
+      class="sr-only"
+      id="modal-description"
+    >
+      Review the available keyboard shortcuts.
+    </p>
     <div
       class="mb-4 flex items-center justify-between"
     >
@@ -3381,12 +3402,19 @@ exports[`static component snapshots WelcomeModal open: WelcomeModal open 1`] = `
     type="button"
   />
   <div
+    aria-describedby="modal-description"
     aria-labelledby="welcome-title"
     aria-modal="true"
     class="relative bg-gradient-to-br from-ink-800 to-ink-900 border border-market-500/20 rounded-2xl shadow-2xl max-w-2xl w-full p-8 animate-scale-in"
     role="dialog"
     tabindex="-1"
   >
+    <p
+      class="sr-only"
+      id="modal-description"
+    >
+      Learn how to get started with Stellar MarketPay.
+    </p>
     <div
       class="absolute top-0 right-0 w-64 h-64 bg-market-500/5 rounded-full blur-3xl pointer-events-none"
     />

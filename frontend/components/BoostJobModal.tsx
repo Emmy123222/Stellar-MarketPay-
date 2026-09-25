@@ -131,6 +131,7 @@ export default function BoostJobModal({
   return (
     <AccessibleModal
       titleId="boost-job-title"
+      description="Review the boost options for this job listing."
       onClose={onClose}
       className="bg-ink-950/80"
       panelClassName="w-full max-w-md bg-ink-900 border border-market-500/20 rounded-2xl p-6 shadow-2xl animate-scale-in"

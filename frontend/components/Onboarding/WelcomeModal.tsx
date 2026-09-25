@@ -32,6 +32,7 @@ export default function WelcomeModal({
   return (
     <AccessibleModal
       titleId="welcome-title"
+      description="Learn how to get started with Stellar MarketPay."
       onClose={onClose}
       className="animate-fade-in"
       panelClassName="bg-gradient-to-br from-ink-800 to-ink-900 border border-market-500/20 rounded-2xl shadow-2xl max-w-2xl w-full p-8 animate-scale-in"

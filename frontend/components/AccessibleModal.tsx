@@ -13,6 +13,7 @@ const FOCUSABLE_SELECTOR = [
 interface AccessibleModalProps {
   children: ReactNode;
   titleId: string;
+  description: string;
   onClose: () => void;
   className?: string;
   panelClassName?: string;
@@ -22,6 +23,7 @@ interface AccessibleModalProps {
 export default function AccessibleModal({
   children,
   titleId,
+  description,
   onClose,
   className,
   panelClassName,
@@ -98,9 +100,13 @@ export default function AccessibleModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
+        aria-describedby="modal-description"
         tabIndex={-1}
         className={clsx("relative", panelClassName)}
       >
+        <p id="modal-description" className="sr-only">
+          {description}
+        </p>
         {children}
       </div>
     </div>

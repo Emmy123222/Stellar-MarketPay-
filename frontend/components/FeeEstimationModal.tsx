@@ -88,6 +88,7 @@ export default function FeeEstimationModal({
   return (
     <AccessibleModal
       titleId="fee-estimation-title"
+      description="Review the estimated transaction fee before signing."
       onClose={onCancel}
       panelClassName="card max-w-md w-full bg-ink-900 border border-market-500/20"
     >
