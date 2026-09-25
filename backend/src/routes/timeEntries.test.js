@@ -66,6 +66,8 @@ describe("Time Entries Route Suite (/api/time-entries)", () => {
       pool.query.mockResolvedValueOnce({
         rows: [{ id: JOB_ID, freelancer_address: FREELANCER_KEY, status: "in_progress" }]
       }).mockResolvedValueOnce({
+        rows: [{ total_minutes: 0 }]
+      }).mockResolvedValueOnce({
         rows: [{
           id: "entry-1",
           job_id: JOB_ID,
@@ -120,6 +122,120 @@ describe("Time Entries Route Suite (/api/time-entries)", () => {
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe("Job not found");
+    });
+
+    // -----------------------------------------------------------------------
+    // Hour caps (Issue #1390)
+    // -----------------------------------------------------------------------
+    describe("hour caps (Issue #1390)", () => {
+      const JOB_ROW = { id: JOB_ID, freelancer_address: FREELANCER_KEY, status: "in_progress" };
+
+      function entryRow(minutes) {
+        return {
+          id: "entry-cap",
+          job_id: JOB_ID,
+          freelancer_address: FREELANCER_KEY,
+          duration_minutes: minutes,
+          description: null,
+          started_at: null,
+          milestone_index: null,
+          created_at: new Date().toISOString(),
+        };
+      }
+
+      function post(body) {
+        return request(app)
+          .post("/api/time-entries")
+          .set("Authorization", `Bearer ${makeToken(FREELANCER_KEY)}`)
+          .set("X-CSRF-Token", "dummy-token")
+          .send({ jobId: JOB_ID, ...body });
+      }
+
+      it("201 — accepts a single entry of exactly 24 h (1440 minutes)", async () => {
+        pool.query
+          .mockResolvedValueOnce({ rows: [JOB_ROW] })
+          .mockResolvedValueOnce({ rows: [{ total_minutes: 0 }] })
+          .mockResolvedValueOnce({ rows: [entryRow(1440)] });
+
+        const res = await post({ durationMinutes: 1440 });
+
+        expect(res.status).toBe(201);
+        expect(res.body.data.durationMinutes).toBe(1440);
+      });
+
+      it("422 — rejects a single entry of 1441 minutes (just over 24 h) without touching the DB", async () => {
+        const res = await post({ durationMinutes: 1441 });
+
+        expect(res.status).toBe(422);
+        expect(res.body.error).toMatch(/must not exceed 1440 \(24 h\) for a single time entry/);
+        expect(pool.query).not.toHaveBeenCalled();
+      });
+
+      it("422 — rejects an absurd single entry (200 h)", async () => {
+        const res = await post({ durationMinutes: 200 * 60 });
+
+        expect(res.status).toBe(422);
+        expect(pool.query).not.toHaveBeenCalled();
+      });
+
+      it("201 — accepts an entry that brings the 7-day total to exactly 168 h", async () => {
+        pool.query
+          .mockResolvedValueOnce({ rows: [JOB_ROW] })
+          .mockResolvedValueOnce({ rows: [{ total_minutes: 168 * 60 - 120 }] })
+          .mockResolvedValueOnce({ rows: [entryRow(120)] });
+
+        const res = await post({ durationMinutes: 120 });
+
+        expect(res.status).toBe(201);
+      });
+
+      it("422 — rejects an entry that pushes the 7-day total to 168 h + 1 minute", async () => {
+        pool.query
+          .mockResolvedValueOnce({ rows: [JOB_ROW] })
+          .mockResolvedValueOnce({ rows: [{ total_minutes: 168 * 60 - 119 }] });
+
+        const res = await post({ durationMinutes: 120 });
+
+        expect(res.status).toBe(422);
+        expect(res.body.error).toMatch(/exceed the 10080-minute \(168 h\) limit per job in a 7-day window/);
+        expect(res.body.error).toMatch(/9961 minutes already logged, 119 remaining/);
+        // job lookup + window sum only — no INSERT
+        expect(pool.query).toHaveBeenCalledTimes(2);
+      });
+
+      it("422 — rejects any further entry once 168 h are already logged", async () => {
+        pool.query
+          .mockResolvedValueOnce({ rows: [JOB_ROW] })
+          .mockResolvedValueOnce({ rows: [{ total_minutes: 168 * 60 }] });
+
+        const res = await post({ durationMinutes: 1 });
+
+        expect(res.status).toBe(422);
+        expect(res.body.error).toMatch(/0 remaining/);
+      });
+
+      it("scopes the 7-day sum to this job + freelancer, anchored at startedAt", async () => {
+        const startedAt = "2026-09-20T09:00:00.000Z";
+        pool.query
+          .mockResolvedValueOnce({ rows: [JOB_ROW] })
+          .mockResolvedValueOnce({ rows: [{ total_minutes: 0 }] })
+          .mockResolvedValueOnce({ rows: [entryRow(60)] });
+
+        const res = await post({ durationMinutes: 60, startedAt });
+
+        expect(res.status).toBe(201);
+        const [sql, params] = pool.query.mock.calls[1];
+        expect(sql).toMatch(/SUM\(duration_minutes\)/);
+        expect(sql).toMatch(/INTERVAL '7 days'/);
+        expect(params).toEqual([JOB_ID, FREELANCER_KEY, startedAt]);
+      });
+
+      it("400 — rejects an unparseable startedAt", async () => {
+        const res = await post({ durationMinutes: 60, startedAt: "not-a-date" });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/startedAt must be a valid ISO 8601 timestamp/);
+      });
     });
   });
 

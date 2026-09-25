@@ -93,6 +93,15 @@ describe("GET /api/jobs?search= — full-text search", () => {
     expect(res.body.data.some((job) => job.title.toLowerCase().includes("rust"))).toBe(true);
   });
 
+  test("returns ranked jobs for q full-text queries", async () => {
+    const res = await request(app).get("/api/jobs?q=react+developer");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.data[0].title).toMatch(/React/i);
+  });
+
   test("returns jobs matching multiple search terms", async () => {
     const res = await request(app).get("/api/jobs?search=soroban+contract");
 
