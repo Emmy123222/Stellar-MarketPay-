@@ -159,6 +159,13 @@ const ipfsPinVerificationFailuresTotal = createMetric(promClient.Counter, {
   labelNames: ["reason"],
 });
 
+/** Total XLM price fetch failures, including fallback attempts. */
+const xlmPriceFetchErrorsTotal = createMetric(promClient.Counter, {
+  name: "xlm_price_fetch_errors_total",
+  help: "Total XLM/USD price fetch failures across all providers",
+});
+});
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const SQL_VERB = /^[\s(]*(select|insert|update|delete|with|begin|commit|rollback|create|alter|drop|truncate|copy|explain|set|listen|notify)\b/i;
@@ -314,6 +321,7 @@ module.exports = {
   notificationQueuePending,
   xlmPriceUsd,
   ipfsPinVerificationFailuresTotal,
+  xlmPriceFetchErrorsTotal,
   // legacy aliases
   legacyHttpRequestsTotal,
   legacyHttpRequestDurationSeconds,
