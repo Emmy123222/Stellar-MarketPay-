@@ -34,6 +34,57 @@ function getClient() {
 }
 
 /**
+ * Entity types that may be cached by ID. Every entity key is "<type>:<id>" so
+ * a job with ID 42 and a profile with ID 42 can never share a cache entry
+ * (issue #1399).
+ */
+const ENTITY_TYPES = Object.freeze(["job", "profile", "escrow"]);
+
+/**
+ * Build an entity-scoped cache key, e.g. entityKey("job", 42) -> "job:42".
+ *
+ * @param {"job"|"profile"|"escrow"} type
+ * @param {string|number} id
+ * @returns {string}
+ */
+function entityKey(type, id) {
+  if (!ENTITY_TYPES.includes(type)) {
+    throw new TypeError(
+      `Unknown cache entity type "${type}" (expected one of: ${ENTITY_TYPES.join(", ")})`,
+    );
+  }
+  if (
+    (typeof id !== "string" && typeof id !== "number") ||
+    String(id).length === 0
+  ) {
+    throw new TypeError(`Cache key for "${type}" needs a non-empty id`);
+  }
+  return `${type}:${id}`;
+}
+
+const jobKey = (id) => entityKey("job", id);
+const profileKey = (id) => entityKey("profile", id);
+const escrowKey = (id) => entityKey("escrow", id);
+
+/**
+ * A usable cache key is a string that starts with a namespace, like "job:42"
+ * or "jobs:list:...". Bare keys such as 42 or "42" are rejected because they
+ * can collide across entity types.
+ *
+ * @param {any} key
+ * @returns {boolean}
+ */
+function isNamespacedKey(key) {
+  return typeof key === "string" && /^[a-z][a-z0-9_-]*:.+/i.test(key);
+}
+
+function rejectBareKey(op, key) {
+  console.warn(
+    `[cache] ${op} ignored: key ${JSON.stringify(key)} has no entity prefix (use job:<id>, profile:<id>, escrow:<id>)`,
+  );
+}
+
+/**
  * Build a deterministic cache key for job list queries.
  * Sorts params alphabetically so key is stable regardless of insertion order.
  *
@@ -54,6 +105,10 @@ function jobListKey(queryParams = {}) {
  * @returns {Promise<any|null>}
  */
 async function get(key) {
+  if (!isNamespacedKey(key)) {
+    rejectBareKey("get", key);
+    return null;
+  }
   const redis = getClient();
   if (!redis) return null;
   try {
@@ -72,6 +127,10 @@ async function get(key) {
  * @param {number} ttlSeconds
  */
 async function set(key, value, ttlSeconds) {
+  if (!isNamespacedKey(key)) {
+    rejectBareKey("set", key);
+    return;
+  }
   const redis = getClient();
   if (!redis) return;
   try {
@@ -87,6 +146,10 @@ async function set(key, value, ttlSeconds) {
  * @param {string} key
  */
 async function del(key) {
+  if (!isNamespacedKey(key)) {
+    rejectBareKey("del", key);
+    return;
+  }
   const redis = getClient();
   if (!redis) return;
   try {
@@ -131,6 +194,12 @@ module.exports = {
   delPattern,
   jobListKey,
   invalidateJobListCache,
+  ENTITY_TYPES,
+  entityKey,
+  jobKey,
+  profileKey,
+  escrowKey,
+  isNamespacedKey,
   TTL: {
     JOBS_LIST: 30, // 30 seconds
     STATS: 60,     // 60 seconds
