@@ -2,6 +2,7 @@ import TimeTracker from "@/components/TimeTracker";
 import FeeEstimationModal from "@/components/FeeEstimationModal";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import ReputationBadge from "@/components/ReputationBadge";
+import ClientReputationCard from "@/components/ClientReputationCard";
 import { useCallback, useEffect, useState } from "react";
 import { useRealtimeBids } from "@/hooks/useRealtimeBids";
 import { useRouter } from "next/router";
