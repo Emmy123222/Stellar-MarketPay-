@@ -12,6 +12,7 @@ import { useState } from "react";
 import { getApiErrorMessage } from "@/lib/api/client";
 import { buildBoostJobTx, signAndSubmitSorobanTx } from "@/lib/stellar";
 import { formatDate } from "@/utils/format";
+import { usePriceContext } from "@/contexts/PriceContext";
 
 // ─── Boost tiers ─────────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ export default function BoostJobModal({
   onClose,
   onSuccess,
 }: BoostJobModalProps) {
+  const { xlmPriceUsd } = usePriceContext();
   const [selectedTier, setSelectedTier] = useState<
     (typeof BOOST_TIERS)[number]
   >(BOOST_TIERS[0]);
@@ -183,6 +185,11 @@ export default function BoostJobModal({
                     )}
                     <span className="font-mono text-market-400 font-bold">
                       {tier.amountXlm} XLM
+                      {typeof xlmPriceUsd === "number" && (
+                        <span className="text-xs font-normal text-amber-300/80 ml-1">
+                          (~${(tier.amountXlm * xlmPriceUsd).toFixed(2)})
+                        </span>
+                      )}
                     </span>
                   </div>
                 </div>
