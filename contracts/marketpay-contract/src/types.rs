@@ -283,6 +283,8 @@ pub enum DataKey {
     MessageCid(String),
     /// Freelancer-submitted deliverable SHA-256 hash for release verification
     FreelancerDeliverableHash(String),
+    /// Freelancer-submitted IPFS proof CID for milestone verification
+    DeliverableProofHash(String),
     /// Address that receives platform fees on every escrow release
     TreasuryAddress,
     /// Platform fee in basis points (e.g. 100 = 1%)

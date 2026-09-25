@@ -16,6 +16,7 @@ export * from "./applications";
 export * from "./profiles";
 export * from "./endorsements";
 export * from "./escrow";
+export * from "./milestoneProof";
 export * from "./proposalTemplates";
 export * from "./xlmPrice";
 export * from "./timeEntries";

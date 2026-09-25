@@ -124,6 +124,40 @@ async function recordEvidenceCidOnChain({ jobId, cid, callerAddress }) {
   }
 }
 
+async function prepareDeliverableHashUpdate({ jobId, cid, callerAddress }) {
+  try {
+    if (!jobId || typeof cid !== "string" || !cid || !callerAddress) {
+      return { success: false, error: "Missing jobId / cid / callerAddress" };
+    }
+    const contractId = await resolveContractId(jobId);
+    if (!contractId) return { success: false, error: "Contract ID not configured" };
+    const server = new rpc.Server(SOROBAN_RPC_URL, { allowHttp: SOROBAN_RPC_URL.startsWith("http://") });
+    const sourceAccount = await server.getAccount(callerAddress).catch(() => null);
+    if (!sourceAccount) return { success: false, error: `Account ${callerAddress} not found on network` };
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: "10000",
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(new Contract(contractId).call(
+        "update_deliverable_hash",
+        nativeToScVal(jobId, { type: "string" }),
+        nativeToScVal(cid, { type: "string" }),
+      ))
+      .setTimeout(30)
+      .build();
+    const prepared = await server.prepareTransaction(tx);
+    return {
+      success: true,
+      contractId,
+      xdr: prepared.toEnvelope().toXDR("base64"),
+      networkPassphrase: NETWORK_PASSPHRASE,
+      rpcUrl: SOROBAN_RPC_URL,
+    };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+}
+
 /**
  * Read the on-chain audit trail of CIDs for a job by simulating a call to
  * `get_evidence_cids(job_id)` on the dispute contract via Soroban RPC.
@@ -188,6 +222,7 @@ async function getOnchainEvidenceCids(jobId) {
 
 module.exports = {
   recordEvidenceCidOnChain,
+  prepareDeliverableHashUpdate,
   getOnchainEvidenceCids,
   resolveContractId,
   // exported for testing

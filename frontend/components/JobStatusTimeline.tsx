@@ -6,6 +6,7 @@ import { useState } from "react";
 import { formatDate } from "@/utils/format";
 import { explorerUrl } from "@/lib/stellar";
 import { rejectMilestone } from "@/lib/api";
+import { anchorMilestoneProof, uploadMilestoneProof } from "@/lib/api/milestoneProof";
 import type { Job, JobStatus, JobMilestone, TimelineEvent } from "@/utils/types";
 
 interface JobStatusTimelineProps {
@@ -17,6 +18,8 @@ interface JobStatusTimelineProps {
    * client's wallet address.
    */
   clientAddress?: string;
+  /** Assigned freelancer wallet; enables milestone proof uploads. */
+  freelancerAddress?: string;
   /** Called after a milestone is successfully rejected, to refresh the job. */
   onMilestoneRejected?: () => void;
   /** On-chain timeline events (Issue #876). When provided, steps with txHash show a "View on Stellar Expert" link. */
@@ -186,24 +189,30 @@ function MilestoneRejectionList({
   job,
   clientAddress,
   onMilestoneRejected,
+  freelancerAddress,
 }: {
   job: Job;
-  clientAddress: string;
+  clientAddress?: string;
   onMilestoneRejected?: () => void;
+  freelancerAddress?: string;
 }) {
   const milestones = job.milestones ?? [];
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [proofError, setProofError] = useState<string | null>(null);
+  const [proofPendingIndex, setProofPendingIndex] = useState<number | null>(null);
+  const [proofs, setProofs] = useState<Record<number, { cid: string; gatewayUrl: string; txHash: string }>>({});
 
-  const canReject =
+  const canReject = Boolean(clientAddress) &&
     clientAddress === job.clientAddress && job.status === "in_progress";
 
-  if (!milestones.length || !canReject) return null;
+  if (!milestones.length || (!canReject && !freelancerAddress)) return null;
 
   async function handleReject(index: number) {
     setError(null);
     setPendingIndex(index);
     try {
+      if (!clientAddress) return;
       await rejectMilestone(job.id, clientAddress, index);
       onMilestoneRejected?.();
     } catch (e) {
@@ -212,6 +221,21 @@ function MilestoneRejectionList({
       );
     } finally {
       setPendingIndex(null);
+    }
+  }
+
+  async function handleProof(index: number, file: File) {
+    setProofError(null);
+    setProofPendingIndex(index);
+    try {
+      if (!freelancerAddress) throw new Error("Connect the assigned freelancer wallet to upload proof");
+      const proof = await uploadMilestoneProof(job.id, index, freelancerAddress, file);
+      const txHash = await anchorMilestoneProof(job.id, index, freelancerAddress, proof.cid);
+      setProofs((current) => ({ ...current, [index]: { ...proof, txHash } }));
+    } catch (e) {
+      setProofError(e instanceof Error ? e.message : "Failed to upload proof");
+    } finally {
+      setProofPendingIndex(null);
     }
   }
 
@@ -238,20 +262,52 @@ function MilestoneRejectionList({
                 <p className="text-[11px] text-amber-800/60">
                   {milestone.amount} {job.currency} · {milestone.status}
                 </p>
+                {(proofs[index]?.cid || milestone.proofCid) && (
+                  <p className="mt-1 text-[11px] text-market-300 break-all">
+                    Proof CID: {proofs[index]?.cid || milestone.proofCid}
+                    <a
+                      className="ml-2 underline hover:text-market-100"
+                      href={proofs[index]?.gatewayUrl || milestone.proofGatewayUrl || `https://gateway.pinata.cloud/ipfs/${proofs[index]?.cid || milestone.proofCid}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Verify on IPFS
+                    </a>
+                  </p>
+                )}
               </div>
-              <button
-                type="button"
-                disabled={resolved || pendingIndex !== null}
-                onClick={() => handleReject(index)}
-                className="flex-shrink-0 rounded-md border border-red-400/40 px-2.5 py-1 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {pendingIndex === index ? "Rejecting…" : "Reject"}
-              </button>
+              <div className="flex flex-shrink-0 items-center gap-2">
+                {freelancerAddress && !resolved && (
+                  <label className="cursor-pointer rounded-md border border-market-400/40 px-2.5 py-1 text-xs font-medium text-market-300 hover:bg-market-400/10">
+                    {proofPendingIndex === index ? "Anchoring..." : "Upload proof"}
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,application/pdf"
+                      disabled={proofPendingIndex !== null}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) void handleProof(index, file);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                )}
+                <button
+                  type="button"
+                  disabled={resolved || pendingIndex !== null}
+                  onClick={() => handleReject(index)}
+                  className="flex-shrink-0 rounded-md border border-red-400/40 px-2.5 py-1 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {pendingIndex === index ? "Rejecting..." : "Reject"}
+                </button>
+              </div>
             </li>
           );
         })}
       </ul>
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+      {proofError && <p className="mt-2 text-xs text-red-400">{proofError}</p>}
     </div>
   );
 }
@@ -260,6 +316,7 @@ export default function JobStatusTimeline({
   job,
   compact = false,
   clientAddress,
+  freelancerAddress,
   onMilestoneRejected,
   timeline,
 }: JobStatusTimelineProps) {
@@ -402,10 +459,11 @@ export default function JobStatusTimeline({
         )}
       </div>
 
-      {clientAddress && (
+      {(clientAddress || freelancerAddress) && (
         <MilestoneRejectionList
           job={job}
           clientAddress={clientAddress}
+          freelancerAddress={freelancerAddress}
           onMilestoneRejected={onMilestoneRejected}
         />
       )}

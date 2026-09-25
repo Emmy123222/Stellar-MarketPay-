@@ -9,6 +9,7 @@
 "use strict";
 
 const express = require("express");
+const multer = require("multer");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const escrowActionRateLimiter = createRateLimiter(30, 1);
@@ -40,6 +41,49 @@ const {
   cancelRecurringEscrow,
   getRecurringEscrow,
 } = require("../services/recurringEscrowService");
+const ipfsService = require("../services/ipfsService");
+const sorobanEvidence = require("../services/sorobanEvidence");
+
+const proofUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = new Set([
+      "image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4", "video/webm", "application/pdf",
+    ]);
+    cb(allowed.has(file.mimetype) ? null : new Error(`File type ${file.mimetype} is not allowed`), allowed.has(file.mimetype));
+  },
+});
+
+/** POST /api/escrow/:jobId/milestones/:milestoneIndex/proof */
+router.post("/:jobId/milestones/:milestoneIndex/proof", proofUpload.single("proof"), async (req, res, next) => {
+  try {
+    const { jobId, milestoneIndex } = req.params;
+    const { freelancerAddress } = req.body;
+    const job = await getJob(jobId);
+    if (!req.file) throw Object.assign(new Error("Proof file is required"), { status: 400 });
+    if (job.freelancerAddress !== freelancerAddress) throw Object.assign(new Error("Only the assigned freelancer can upload proof"), { status: 403 });
+    const index = Number(milestoneIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= (job.milestones || []).length) {
+      throw Object.assign(new Error("Invalid milestone index"), { status: 400 });
+    }
+    const uploaded = await ipfsService.uploadFile(req.file.buffer, req.file.originalname, req.file.mimetype);
+    res.status(201).json({ success: true, data: { milestoneIndex: index, cid: uploaded.cid, gatewayUrl: ipfsService.getGatewayUrl(uploaded.cid) } });
+  } catch (e) { next(e); }
+});
+
+/** POST /api/escrow/:jobId/milestones/:milestoneIndex/proof/anchor */
+router.post("/:jobId/milestones/:milestoneIndex/proof/anchor", async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { cid, freelancerAddress } = req.body;
+    const job = await getJob(jobId);
+    if (job.freelancerAddress !== freelancerAddress) throw Object.assign(new Error("Only the assigned freelancer can anchor proof"), { status: 403 });
+    const result = await sorobanEvidence.prepareDeliverableHashUpdate({ jobId, cid, callerAddress: freelancerAddress });
+    if (!result.success) throw Object.assign(new Error(result.error), { status: 502 });
+    res.json({ success: true, data: result });
+  } catch (e) { next(e); }
+});
 
 /**
  * POST /api/escrow/:jobId/release
