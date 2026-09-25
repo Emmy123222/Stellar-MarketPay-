@@ -92,7 +92,7 @@ function buildApp() {
   app.set("trust proxy", 1);
   app.use(express.json());
   app.use("/api/faucet", faucetRouter);
-  app.use((err, _req, res, _next) => {
+  app.use((err, _req, res) => {
     res.status(err.status || 500).json({ error: err.message || "Internal server error" });
   });
   return app;
