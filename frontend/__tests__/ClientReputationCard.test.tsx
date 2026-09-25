@@ -1,4 +1,4 @@
-﻿/**
+/**
  * __tests__/ClientReputationCard.test.tsx — Issue #1432
  */
 import { render, screen, waitFor } from "@testing-library/react";
@@ -68,7 +68,9 @@ describe("ClientReputationCard", () => {
 
     render(<ClientReputationCard clientPublicKey="GABCD" />);
 
-    await waitFor(() => expect(screen.getByText("New client")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("New client")).toBeInTheDocument(),
+    );
   });
 
   it("hides the New client badge at exactly the threshold", async () => {
@@ -85,11 +87,13 @@ describe("ClientReputationCard", () => {
     expect(screen.queryByText("New client")).not.toBeInTheDocument();
   });
 
-  it("renders nothing when the reputation API fails", async () => {
+  it("renders nothing when both fetches fail", async () => {
     (fetchClientReputation as jest.Mock).mockRejectedValue(new Error("boom"));
     (fetchPublicProfile as jest.Mock).mockRejectedValue(new Error("boom"));
 
-    const { container } = render(<ClientReputationCard clientPublicKey="GABCD" />);
+    const { container } = render(
+      <ClientReputationCard clientPublicKey="GABCD" />,
+    );
 
     await waitFor(() =>
       expect(container.querySelector("[aria-busy]")).not.toBeInTheDocument(),
