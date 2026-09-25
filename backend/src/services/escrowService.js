@@ -166,18 +166,7 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
   const txInfo = await verifyOnChainTransaction(contractTxHash);
   const txHash = contractTxHash || `offchain-${Date.now()}`;
 
-  const { rows: escrowRows } = await pool.query(
-    "SELECT amount_xlm FROM escrows WHERE job_id = $1",
-    [jobId],
-  );
-
-  if (!escrowRows.length) {
-    const e = new Error("No escrow record found for this job");
-    e.status = 400;
-    throw e;
-  }
-
-  const amountXlm = escrowRows[0].amount_xlm;
+  const amountXlm = await getEscrowField(jobId, 'amount_xlm');
 
   // Bug #850: Validate that the escrow amount is consistent with the job.
   // The escrow amount should reflect the accepted bid, not necessarily the
@@ -290,11 +279,7 @@ async function refundClient(jobId, clientAddress, contractTxHash) {
     eventData: txInfo ? txInfo.eventData : undefined,
   });
 
-  const { rows: escrowRows } = await pool.query(
-    "SELECT amount_xlm FROM escrows WHERE job_id = $1",
-    [jobId],
-  );
-  const escrowAmount = escrowRows.length ? escrowRows[0].amount_xlm : job.budget;
+  const escrowAmount = await getEscrowField(jobId, 'amount_xlm') ?? job.budget;
 
   await notifyEscrowEvent({
     eventType: EVENT_TYPES.REFUND_ISSUED,
@@ -649,6 +634,14 @@ async function getEscrow(jobId) {
   return rows[0];
 }
 
+async function getEscrowField(jobId, field) {
+  const { rows } = await pool.query(
+    `SELECT ${field} FROM escrows WHERE job_id = $1`,
+    [jobId],
+  );
+  return rows.length ? rows[0][field] : undefined;
+}
+
 /**
  * Resolve a Stellar ledger sequence number to a UTC timestamp via the
  * `ledger_timestamps` table populated by the indexer.
@@ -727,17 +720,14 @@ async function submitDeliverableHash(jobId, freelancerAddress, hashHex) {
     throw e;
   }
 
-  const { rows: escrowRows } = await pool.query(
-    "SELECT status FROM escrows WHERE job_id = $1",
-    [jobId],
-  );
-  if (!escrowRows.length) {
+  const escrowStatus = await getEscrowField(jobId, 'status');
+  if (!escrowStatus) {
     const e = new Error("No escrow found for this job");
     e.status = 404;
     throw e;
   }
 
-  if (escrowRows[0].status !== "funded" && escrowRows[0].status !== "in_progress") {
+  if (escrowStatus !== "funded" && escrowStatus !== "in_progress") {
     const e = new Error("Can only submit hash for active escrow");
     e.status = 400;
     throw e;
@@ -845,18 +835,14 @@ async function approveEscrowExtension(jobId, approvedBy, contractTxHash) {
     throw e;
   }
 
-  const { rows: escrowRows } = await pool.query(
-    "SELECT status FROM escrows WHERE job_id = $1",
-    [jobId],
-  );
-  if (!escrowRows.length) {
+  const escrowStatus = await getEscrowField(jobId, 'status');
+  if (!escrowStatus) {
     const e = new Error("No escrow found for this job");
     e.status = 404;
     throw e;
   }
 
-  const escrow = escrowRows[0];
-  if (escrow.status !== "funded" && escrow.status !== "in_progress" && escrow.status !== "locked") {
+  if (escrowStatus !== "funded" && escrowStatus !== "in_progress" && escrowStatus !== "locked") {
     const e = new Error("Extension is only allowed while escrow is funded or in progress");
     e.status = 400;
     throw e;
@@ -910,6 +896,7 @@ module.exports = {
   requestEscrowExtension,
   approveEscrowExtension,
 
+  getEscrowField,
   verifyFreelancerAccount,
   ESCROW_TIMEOUT_DAYS,
   normalizeMilestones,
