@@ -179,7 +179,6 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [showApplyForm, setShowApplyForm] = useState(false);
-  const [optimisticallyApplied, setOptimisticallyApplied] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -213,7 +212,7 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
 
   const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
   const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
-  const hasApplied = optimisticallyApplied || applications.some((a) => a.freelancerAddress === publicKey);
+  const hasApplied = applications.some((a) => a.freelancerAddress === publicKey);
 
   // ── fetchApplications wrapper for useRealtimeBids ────────────────────────
   const fetchAppsForJob = useCallback(async (): Promise<Application[]> => {
@@ -725,12 +724,6 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
             {hasApplied ? (
               <div className="card text-center py-8 border-market-500/20 mb-6">
                 <div className="flex items-center justify-center gap-2 mb-1">
-                  {optimisticallyApplied && !applications.some((a) => a.freelancerAddress === publicKey) && (
-                    <svg className="animate-spin h-4 w-4 text-market-400" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                  )}
                   <p className="text-market-400 font-medium">Application submitted</p>
                 </div>
                 <p className="text-amber-800 text-sm">
@@ -742,8 +735,6 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
                 job={job}
                 publicKey={publicKey}
                 prefillData={prefillData}
-                onOptimisticSubmit={() => setOptimisticallyApplied(true)}
-                onRevert={() => setOptimisticallyApplied(false)}
                 onSuccess={() => {
                   setShowApplyForm(false);
                   fetchApplications(job.id).then(setApplications);

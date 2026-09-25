@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom";
 import "jest-axe/extend-expect";
 import { TextEncoder, TextDecoder } from "util";
+import { webcrypto } from "crypto";
 
 Object.assign(global, { TextDecoder, TextEncoder });
 
@@ -41,7 +42,7 @@ Object.defineProperty(window, "crypto", {
       for (let i = 0; i < arr.length; i += 1) arr[i] = 0;
       return arr;
     },
-    subtle: window.crypto?.subtle,
+    subtle: webcrypto.subtle,
   },
 });
 

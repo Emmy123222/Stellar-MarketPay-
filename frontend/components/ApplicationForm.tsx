@@ -53,6 +53,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
   const [revealNonce, setRevealNonce] = useState(randomNonceHex());
   const [revealLater, setRevealLater] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [screeningAnswers, setScreeningAnswers] = useState<Record<string, string>>({});
@@ -141,6 +142,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
 
   const handleConfirmSubmit = async () => {
     setShowConfirm(false);
+    setSubmitted(true);
     setLoading(true);
     setError(null);
 
@@ -164,6 +166,8 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
       onSuccess();
     } catch {
       onRevert?.();
+      setSubmitted(false);
+      setError("Failed to submit application. Please try again.");
       toast.error("Failed to submit application. Please try again.");
       setLoading(false);
     }
@@ -300,8 +304,8 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
             <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
           )}
 
-          <button onClick={handleSubmit} disabled={!isFormValid || loading} className="btn-primary w-full flex items-center justify-center gap-2">
-            {loading ? <><Spinner />Submitting...</> : "Submit Proposal"}
+          <button onClick={handleSubmit} disabled={!isFormValid || loading || submitted} className="btn-primary w-full flex items-center justify-center gap-2">
+            {submitted ? "Application submitted!" : loading ? <><Spinner />Submitting...</> : "Submit Proposal"}
           </button>
         </div>
       </div>
