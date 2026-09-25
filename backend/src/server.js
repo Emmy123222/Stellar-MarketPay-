@@ -211,6 +211,16 @@ function broadcastRealtime(event, payload) {
   wsConnectionsActive.set(realtimeClients.size);
 }
 
+function broadcastToUser(userAddress, event, payload) {
+  if (!userAddress) return;
+  const clients = userClients.get(userAddress);
+  if (!clients || clients.size === 0) return;
+  const message = JSON.stringify({ event, payload });
+  for (const ws of clients) {
+    if (ws.readyState === WS_OPEN) ws.send(message);
+  }
+}
+
 async function upsertScopeSession(sessionId, patch) {
   const content = typeof patch.content === "string" ? patch.content : "";
   const cursors = patch.cursors && typeof patch.cursors === "object" ? patch.cursors : {};

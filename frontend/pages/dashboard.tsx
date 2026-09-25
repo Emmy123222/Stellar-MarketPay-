@@ -6,10 +6,28 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import WalletConnect from "@/components/WalletConnect";
-import { fetchMyJobs, fetchMyApplications, fetchApplications, fetchMyInvitations, declineInvitation } from "@/lib/api";
+import {
+  fetchMyJobs,
+  fetchMyApplications,
+  fetchApplications,
+  fetchMyInvitations,
+  declineInvitation,
+  fetchProposalTemplates,
+  createProposalTemplate,
+  updateProposalTemplate,
+  deleteProposalTemplate,
+  fetchPriceAlertPreference,
+  upsertPriceAlertPreference,
+  fetchClientSpendingAnalytics,
+  fetchProfile,
+  fetchSavedSearches,
+  updateSavedSearch,
+  deleteSavedSearch,
+} from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
 import { formatXLM, shortenAddress, timeAgo, statusLabel, statusClass, copyToClipboard, exportJobsToCSV, exportApplicationsToCSV } from "@/utils/format";
-import type { Job, Application, ClientSpendingAnalytics, JobInvitation } from "@/utils/types";
+import type { Job, Application, ClientSpendingAnalytics, JobInvitation, ProposalTemplate } from "@/utils/types";
+import type { SavedSearch } from "@/lib/api";
 import EditProfileForm from "@/components/EditProfileForm";
 import SendPaymentForm from "@/components/SendPaymentForm";
 import { useToast } from "@/components/Toast";
@@ -31,6 +49,8 @@ import XlmPriceWidget from "@/components/XlmPriceWidget";
 import StateMessage from "@/components/StateMessage";
 import BuyXLMModal from "@/components/BuyXLMModal";
 import WithdrawToBankModal from "@/components/WithdrawToBankModal";
+import { useBookmarks } from "@/hooks/useBookmarks";
+import JobCard from "@/components/JobCard";
 
 // Dynamic imports for heavy components
 const JobAnalytics = dynamic(() => import("@/components/JobAnalytics"), {
@@ -60,7 +80,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "invitations" | "analytics" | "earnings" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals";
+type Tab = "posted" | "applied" | "invitations" | "analytics" | "earnings" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals" | "saved";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 async function fetchBalances(
@@ -106,7 +126,12 @@ function syncDashboardNavBadge(count: number) {
 }
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
+  const router = useRouter();
   const toast = useToast();
+  const { xlmPriceUsd } = usePriceContext();
+  const { progress, checklistItems } = useOnboarding(publicKey);
+  const { savedCount, getSavedJobs, toggleBookmark, isSaved } = useBookmarks();
+
   const [tab, setTab] = useState<Tab>("posted");
   const [canViewSpending, setCanViewSpending] = useState(true);
   const [myJobs, setMyJobs] = useState<Job[]>([]);
@@ -127,20 +152,147 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [extendModalJob, setExtendModalJob] = useState<Job | null>(null);
 
+  const [showBuyXLM, setShowBuyXLM] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
+
+  interface WithdrawEntry {
+    id: string;
+    amount: string;
+    asset: string;
+    fiatCurrency: string;
+  }
+  const WITHDRAW_HISTORY_KEY = "withdrawHistory";
+  function loadWithdrawHistory(): WithdrawEntry[] {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(WITHDRAW_HISTORY_KEY);
+      return raw ? (JSON.parse(raw) as WithdrawEntry[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  const [withdrawHistory, setWithdrawHistory] = useState<WithdrawEntry[]>([]);
+
+  const [templates, setTemplates] = useState<ProposalTemplate[]>([]);
+  const [templateName, setTemplateName] = useState("");
+  const [templateContent, setTemplateContent] = useState("");
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [emailEnabled, setEmailEnabled] = useState(false);
+  const [alertEmail, setAlertEmail] = useState("");
+
+  const [spendingAnalytics, setSpendingAnalytics] = useState<ClientSpendingAnalytics | null>(null);
+  const [spendingLoading, setSpendingLoading] = useState(false);
+
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+  const [savedSearchesLoading, setSavedSearchesLoading] = useState(false);
+
+  const [alertMatches, setAlertMatches] = useState<Job[]>([]);
+  const [alertMatchesDismissed, setAlertMatchesDismissed] = useState(false);
+
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [extendingJob, setExtendingJob] = useState<string | null>(null);
+
+  const [savedJobs, setSavedJobs] = useState<Job[]>([]);
+  const [savedJobsLoading, setSavedJobsLoading] = useState(false);
+
+  const refreshBalances = useCallback(async () => {
+    if (!publicKey) return;
+    try {
+      const [xlm, usdc] = await Promise.all([
+        getXLMBalance(publicKey),
+        getUSDCBalance(publicKey),
+      ]);
+      setBalance(xlm);
+      setUsdcBalance(usdc);
+    } catch {
+      // ignore
+    }
+  }, [publicKey]);
+
+  const handleResetContractMock = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const keys = Object.keys(localStorage).filter((k) => k.startsWith("contractMock:"));
+    keys.forEach((k) => localStorage.removeItem(k));
+    toast.success("Mock contract state reset.");
+  }, [toast]);
+
+  const handleRepost = useCallback((job: Job) => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(
+      REPOST_JOB_PREFILL_STORAGE_KEY,
+      JSON.stringify({
+        title: job.title,
+        description: job.description,
+        budget: job.budget,
+        category: job.category,
+        skills: job.skills,
+        deadline: job.deadline,
+      }),
+    );
+    router.push("/post-job");
+  }, [router]);
+
+  const handleExtendJob = useCallback((jobId: string) => {
+    const job = myJobs.find((j) => j.id === jobId);
+    if (job) {
+      setExtendingJob(jobId);
+      setExtendModalJob(job);
+    }
+  }, [myJobs]);
+
+  useEffect(() => {
+    if (tab !== "saved") return;
+    setSavedJobsLoading(true);
+    getSavedJobs()
+      .then((jobs) => setSavedJobs(jobs))
+      .finally(() => setSavedJobsLoading(false));
+  }, [tab, getSavedJobs]);
+
   const handleJobExtended = useCallback((updated: Job) => {
     setMyJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
     setExtendModalJob(null);
+    setExtendingJob(null);
   }, []);
 
   const handleBulkCancel = useCallback(async () => {
     setBulkLoading(true);
     try {
       const ids = Array.from(selectedJobIds);
-      await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/cancel`, { method: "POST" })));
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const r = await fetch(`/api/jobs/${id}/cancel`, { method: "POST" });
+            return { id, success: r.ok };
+          } catch {
+            return { id, success: false };
+          }
+        }),
+      );
+      const succeeded = results.filter((r) => r.success).length;
+      const failed = ids.length - succeeded;
       setSelectedJobIds(new Set());
-      return { success: ids.length, failed: 0 };
+      return {
+        success: failed === 0,
+        succeeded,
+        failed,
+        processedCount: ids.length,
+        failedCount: failed,
+        results,
+      };
     } catch {
-      return { success: 0, failed: selectedJobIds.size };
+      const ids = Array.from(selectedJobIds);
+      const results = ids.map((id) => ({ id, success: false }));
+      return {
+        success: false,
+        succeeded: 0,
+        failed: ids.length,
+        processedCount: ids.length,
+        failedCount: ids.length,
+        results,
+      };
     } finally {
       setBulkLoading(false);
     }
@@ -150,11 +302,38 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setBulkLoading(true);
     try {
       const ids = Array.from(selectedJobIds);
-      await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/extend`, { method: "POST" })));
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const r = await fetch(`/api/jobs/${id}/extend`, { method: "POST" });
+            return { id, success: r.ok };
+          } catch {
+            return { id, success: false };
+          }
+        }),
+      );
+      const succeeded = results.filter((r) => r.success).length;
+      const failed = ids.length - succeeded;
       setSelectedJobIds(new Set());
-      return { success: ids.length, failed: 0 };
+      return {
+        success: failed === 0,
+        succeeded,
+        failed,
+        processedCount: ids.length,
+        failedCount: failed,
+        results,
+      };
     } catch {
-      return { success: 0, failed: selectedJobIds.size };
+      const ids = Array.from(selectedJobIds);
+      const results = ids.map((id) => ({ id, success: false }));
+      return {
+        success: false,
+        succeeded: 0,
+        failed: ids.length,
+        processedCount: ids.length,
+        failedCount: ids.length,
+        results,
+      };
     } finally {
       setBulkLoading(false);
     }
@@ -164,11 +343,38 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setBulkLoading(true);
     try {
       const ids = Array.from(selectedJobIds);
-      await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/boost`, { method: "POST" })));
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const r = await fetch(`/api/jobs/${id}/boost`, { method: "POST" });
+            return { id, success: r.ok };
+          } catch {
+            return { id, success: false };
+          }
+        }),
+      );
+      const succeeded = results.filter((r) => r.success).length;
+      const failed = ids.length - succeeded;
       setSelectedJobIds(new Set());
-      return { success: ids.length, failed: 0 };
+      return {
+        success: failed === 0,
+        succeeded,
+        failed,
+        processedCount: ids.length,
+        failedCount: failed,
+        results,
+      };
     } catch {
-      return { success: 0, failed: selectedJobIds.size };
+      const ids = Array.from(selectedJobIds);
+      const results = ids.map((id) => ({ id, success: false }));
+      return {
+        success: false,
+        succeeded: 0,
+        failed: ids.length,
+        processedCount: ids.length,
+        failedCount: ids.length,
+        results,
+      };
     } finally {
       setBulkLoading(false);
     }
@@ -193,7 +399,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     const [jobs, apps, invitations, bal, usdc] = await Promise.all([
       fetchMyJobs(publicKey),
       fetchMyApplications(publicKey),
-      fetchMyInvitations().catch(() => []),
+      fetchMyInvitations().catch(() => []) as Promise<JobInvitation[]>,
       getXLMBalance(publicKey),
       getUSDCBalance(publicKey),
     ]);
@@ -581,6 +787,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           "posted",
           "applied",
           "invitations",
+          "saved",
           "analytics",
           "earnings",
           ...(canViewSpending ? (["spending"] as Tab[]) : []),
@@ -590,11 +797,13 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           "price_alerts",
           "withdrawals",
           "saved_searches",
+          "referrals",
         ];
         const tabLabel = (t: Tab): string =>
           t === "posted" ? `Jobs Posted (${myJobs.length})` :
           t === "applied" ? `Applications (${myApplications.length})` :
           t === "invitations" ? `Invitations${myInvitations.length > 0 ? ` (${myInvitations.length})` : ""}` :
+          t === "saved" ? `Saved${savedCount > 0 ? ` (${savedCount})` : ""}` :
           t === "analytics" ? "Job Analytics" :
           t === "earnings" ? "Earnings" :
           t === "spending" ? "Spending" :
@@ -603,6 +812,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           t === "price_alerts" ? "Price Alerts" :
           t === "withdrawals" ? `Withdrawals (${withdrawHistory.length})` :
           t === "saved_searches" ? `Saved Searches${savedSearches.length > 0 ? ` (${savedSearches.length})` : ""}` :
+          t === "referrals" ? "Referrals" :
           "Edit Profile";
 
         return (
@@ -799,7 +1009,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
               try {
                 await declineInvitation(id);
                 setMyInvitations((prev) => prev.filter((i) => i.id !== id));
-                success("Invitation declined.");
+                toast.success("Invitation declined.");
               } catch {
                 // ignore
               }
@@ -857,7 +1067,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                     emailNotificationsEnabled: emailEnabled,
                     email: alertEmail,
                   });
-                  success("Price alert settings saved");
+                  toast.success("Price alert settings saved");
                 }}
               >
                 Save Alerts
@@ -933,7 +1143,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                           setSavedSearches((prev) =>
                             prev.map((x) => (x.id === updated.id ? updated : x))
                           );
-                          success("Notification preference updated");
+                          toast.success("Notification preference updated");
                         } catch {
                           // ignore
                         }
@@ -951,7 +1161,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                         try {
                           await deleteSavedSearch(s.id);
                           setSavedSearches((prev) => prev.filter((x) => x.id !== s.id));
-                          success("Saved search removed");
+                          toast.success("Saved search removed");
                         } catch {
                           // ignore
                         }
@@ -961,6 +1171,39 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                       Remove
                     </button>
                   </div>
+                </div>
+              ))}
+            </div>
+          )
+        ) : tab === "saved" ? (
+          savedJobsLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="card animate-pulse h-48" />
+              ))}
+            </div>
+          ) : savedJobs.length === 0 ? (
+            <StateMessage
+              type="empty"
+              title="No saved jobs"
+              description="Save jobs you're interested in to find them later"
+              ctaLabel="Browse Jobs"
+              onCta={() => router.push("/jobs")}
+            />
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {savedJobs.map((job) => (
+                <div key={job.id} className="relative">
+                  <JobCard job={job} />
+                  <button
+                    onClick={() => {
+                      toggleBookmark(job.id);
+                      setSavedJobs((prev) => prev.filter((j) => j.id !== job.id));
+                    }}
+                    className="absolute top-3 right-3 z-10 p-2 rounded-md bg-ink-900/90 border border-market-500/30 text-xs text-amber-300 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 transition-colors min-h-[40px]"
+                  >
+                    Remove
+                  </button>
                 </div>
               ))}
             </div>

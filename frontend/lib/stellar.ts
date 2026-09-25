@@ -4,6 +4,8 @@ import {
 } from "@stellar/stellar-sdk";
 import { SorobanRpc } from "@stellar/stellar-sdk";
 import { fetchGasEstimateSafe, tierToTransactionFee } from "./sorobanFees";
+import { getUsdcContractId, USDC_CONTRACT_BY_NETWORK } from "./config/tokens";
+export { getUsdcContractId, USDC_CONTRACT_BY_NETWORK };
 
 const NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet") as "testnet" | "mainnet";
 const HORIZON_URL = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
@@ -273,8 +275,6 @@ export async function createEscrowOnChain(
   return signAndSubmitEscrowTx(preparedXdr);
 }
 
-export { getUsdcContractId, USDC_CONTRACT_BY_NETWORK } from "./config/tokens";
-
 
 // ---------------------------------------------------------------------------
 // On-chain Message Notarization
@@ -398,6 +398,25 @@ export async function getXLMBalance(publicKey: string): Promise<string> {
       (b: { asset_type: string; balance: string }) => b.asset_type === "native"
     );
     return native?.balance ?? "0";
+  } catch {
+    return "0";
+  }
+}
+
+export async function getUSDCBalance(publicKey: string): Promise<string> {
+  try {
+    const res = await fetch(
+      `${HORIZON_URL}/accounts/${encodeURIComponent(publicKey)}`
+    );
+    if (!res.ok) return "0";
+    const data = await res.json();
+    const usdc = (data.balances ?? []).find(
+      (b: { asset_type: string; asset_code?: string; asset_issuer?: string; balance: string }) =>
+        b.asset_type === "credit_alphanum4" &&
+        b.asset_code === "USDC" &&
+        b.asset_issuer === USDC_ISSUER,
+    );
+    return usdc?.balance ?? "0";
   } catch {
     return "0";
   }
