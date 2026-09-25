@@ -143,7 +143,7 @@ describe("Referral credit end-to-end flow (#1492)", () => {
 
     expect(registerResponse.status).toBe(200);
     expect(registerResponse.body.success).toBe(true);
-    expect(registerResponse.body.data.status).toBe("pending");
+    expect(registerResponse.body.data.status).toBe("referral_credit_pending");
 
     // Referral is recorded and B's referral_count is incremented (seeded data).
     const { rows: refRows } = await pool.query(
@@ -151,7 +151,7 @@ describe("Referral credit end-to-end flow (#1492)", () => {
       [referrerKey, refereeKey],
     );
     expect(refRows.length).toBe(1);
-    expect(refRows[0].status).toBe("pending");
+    expect(refRows[0].status).toBe("referral_credit_pending");
 
     const { rows: referrerProfileBefore } = await pool.query(
       "SELECT referral_count, reputation_points FROM profiles WHERE public_key = $1",
@@ -270,7 +270,7 @@ describe("Referral credit end-to-end flow (#1492)", () => {
       .send({ referrerAddress: referrerKey, refereeAddress: refereeKey });
 
     expect(registerResponse.status).toBe(200);
-    expect(registerResponse.body.data.status).toBe("pending");
+    expect(registerResponse.body.data.status).toBe("referral_credit_pending");
 
     // Referee registered but never completed a job → relationship stays pending
     // and no credit shows up anywhere.

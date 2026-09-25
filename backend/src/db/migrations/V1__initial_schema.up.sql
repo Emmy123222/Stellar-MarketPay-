@@ -245,7 +245,7 @@ CREATE TABLE IF NOT EXISTS referrals (
   referrer_address TEXT        NOT NULL REFERENCES profiles(public_key),
   referee_address  TEXT        NOT NULL REFERENCES profiles(public_key),
   job_id           UUID        REFERENCES jobs(id),          -- first job that triggered payout
-  status           TEXT        NOT NULL DEFAULT 'pending',   -- pending | paid | ineligible
+  status           TEXT        NOT NULL DEFAULT 'referral_credit_pending', -- referral_credit_pending | pending | paid | ineligible
   payout_amount    NUMERIC(20,7),                            -- XLM paid to referrer (2% of job earnings)
   paid_at          TIMESTAMPTZ,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
