@@ -24,6 +24,8 @@ const DEFAULT_FEE_STROOPS = BigInt(100_000); // 0.01 XLM default fallback
 interface FeeEstimationModalProps {
   /** Pre-built (but not yet prepared) Soroban transaction. */
   transaction: Transaction;
+  /** Current payment amount, used to refresh the fee when an amount input changes. */
+  amount?: string | number;
   /** Contract function being called — used for the title. */
   functionName: string;
   /** Wallet that will sign and pay the fee. */
@@ -38,6 +40,7 @@ interface FeeEstimationModalProps {
 
 export default function FeeEstimationModal({
   transaction,
+  amount,
   functionName,
   payerPublicKey,
   platformFeeBps,
@@ -47,30 +50,42 @@ export default function FeeEstimationModal({
   const [estimate, setEstimate] = useState<FeeEstimate | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isEstimating, setIsEstimating] = useState(false);
   const [maxFeeMultiplier, setMaxFeeMultiplier] = useState(1);
   const { xlmPriceUsd } = usePriceContext();
 
   useEffect(() => {
+    setEstimate(null);
+    setBalance(null);
+    setError(null);
+    setIsEstimating(true);
+
     let cancelled = false;
-    Promise.all([
-      estimateSorobanFee(transaction, xlmPriceUsd),
-      getXLMBalance(payerPublicKey).catch(() => "0"),
-    ])
-      .then(([fee, bal]) => {
-        if (cancelled) return;
-        setEstimate(fee);
-        setBalance(bal);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setError(
-          err instanceof Error ? err.message : "Could not estimate fee.",
-        );
-      });
+    const timeoutId = window.setTimeout(() => {
+      Promise.all([
+        estimateSorobanFee(transaction, xlmPriceUsd),
+        getXLMBalance(payerPublicKey).catch(() => "0"),
+      ])
+        .then(([fee, bal]) => {
+          if (cancelled) return;
+          setEstimate(fee);
+          setBalance(bal);
+          setIsEstimating(false);
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          setIsEstimating(false);
+          setError(
+            err instanceof Error ? err.message : "Could not estimate fee.",
+          );
+        });
+    }, 500);
+
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
     };
-  }, [transaction, payerPublicKey, xlmPriceUsd]);
+  }, [amount, transaction, payerPublicKey, xlmPriceUsd]);
 
   const safeEstimateStroops = estimate?.totalStroops ?? DEFAULT_FEE_STROOPS;
   const maxFeeStroops = safeEstimateStroops * BigInt(Math.round(maxFeeMultiplier * 2)) / BigInt(2);
@@ -103,8 +118,10 @@ export default function FeeEstimationModal({
 
       {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
 
-      {!estimate && !error && (
-        <p className="text-amber-200 text-sm mb-4">Simulating contract call…</p>
+      {isEstimating && (
+        <p className="text-amber-200 text-sm mb-4">
+          {estimate ? "Recalculating…" : "Simulating contract call…"}
+        </p>
       )}
 
       {estimate && (
