@@ -55,7 +55,7 @@ describe("NotificationBell", () => {
     expect(badge).toBeInTheDocument();
 
     // Open the panel
-    const bellButton = screen.getByLabelText("Notifications");
+    const bellButton = screen.getByRole("button", { name: /unread notification|notifications/i });
     fireEvent.click(bellButton);
 
     // Find and click "Mark all read"
@@ -76,5 +76,22 @@ describe("NotificationBell", () => {
 
     // Verify API call was made
     expect(markAllNotificationsRead).toHaveBeenCalled();
+  });
+
+  it("caps unread count badge at 99+ and shows full count in aria-label (Issue #1409)", async () => {
+    (fetchNotifications as jest.Mock).mockResolvedValueOnce({
+      notifications: [],
+      unreadCount: 142,
+    });
+
+    render(<NotificationBell publicKey={MOCK_PK} />);
+
+    // Unit test: unreadCount = 142 → badge text is "99+"
+    const badge = await screen.findByText("99+");
+    expect(badge).toBeInTheDocument();
+
+    // aria-label reads "142 unread notifications" for screen readers (full number in the label)
+    expect(badge).toHaveAttribute("aria-label", "142 unread notifications");
+    expect(screen.getByRole("button", { name: "142 unread notifications" })).toBeInTheDocument();
   });
 });

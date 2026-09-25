@@ -22,6 +22,8 @@ interface Props {
 const MAX_PORTFOLIO_ITEMS = 10;
 const MAX_PORTFOLIO_FILES = 10;
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+const ALLOWED_AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const portfolioTypeOptions: { value: PortfolioItemType; label: string; placeholder: string }[] = [
   { value: "github", label: "GitHub Repo", placeholder: "https://github.com/username/project" },
   { value: "live", label: "Live URL", placeholder: "https://example.com" },
@@ -54,6 +56,9 @@ export default function EditProfileForm({ publicKey }: Props) {
   const [errorMsg, setErrorMsg] = useState("");
 
   const [displayName, setDisplayName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [avatarError, setAvatarError] = useState("");
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   const [bio, setBio] = useState("");
   const [role, setRole] = useState<UserRole>("freelancer");
   const [skills, setSkills] = useState<string[]>([]);
@@ -72,6 +77,7 @@ export default function EditProfileForm({ publicKey }: Props) {
         if (data) {
           setProfile(data);
           setDisplayName(data.displayName || "");
+          setAvatarUrl(data.avatarUrl || (data as any).avatar || "");
           setBio(data.bio || "");
           setRole(data.role || "freelancer");
           setSkills(data.skills || []);
@@ -209,6 +215,30 @@ export default function EditProfileForm({ publicKey }: Props) {
     setPortfolioFiles((current) => current.filter((_, i) => i !== index));
   };
 
+  const handleAvatarChange = (file: File | null | undefined) => {
+    if (!file) return;
+
+    if (!ALLOWED_AVATAR_TYPES.includes(file.type)) {
+      setAvatarError("Invalid file type. Only JPEG, PNG, and WebP images are supported.");
+      return;
+    }
+
+    if (file.size > MAX_AVATAR_SIZE_BYTES) {
+      setAvatarError("File size exceeds 5MB limit. Please upload an image under 5MB.");
+      return;
+    }
+
+    setAvatarError("");
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setAvatarUrl(result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (displayName && (displayName.length < 3 || displayName.length > 30)) {
@@ -256,6 +286,7 @@ export default function EditProfileForm({ publicKey }: Props) {
       const updated = await upsertProfile({
         publicKey,
         displayName,
+        avatarUrl,
         bio,
         role,
         skills,
@@ -319,6 +350,73 @@ export default function EditProfileForm({ publicKey }: Props) {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        <div>
+          <span id="avatar-label" className="block text-sm font-medium text-amber-100 mb-2">Avatar</span>
+          <div className="flex items-center gap-4">
+            <div className="relative w-16 h-16 rounded-full overflow-hidden border-2 border-market-500/30 bg-ink-900/60 flex items-center justify-center flex-shrink-0">
+              {avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={avatarUrl}
+                  alt="Avatar preview"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-xl text-amber-600 font-semibold">
+                  {displayName ? displayName.charAt(0).toUpperCase() : "?"}
+                </span>
+              )}
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="btn-secondary text-xs py-2 px-3"
+                  aria-label="Upload avatar image"
+                >
+                  Change Avatar
+                </button>
+                {avatarUrl && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAvatarUrl("");
+                      setAvatarError("");
+                      if (avatarInputRef.current) avatarInputRef.current.value = "";
+                    }}
+                    className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <input
+                ref={avatarInputRef}
+                id="avatar-upload"
+                data-testid="avatar-upload-input"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                aria-labelledby="avatar-label"
+                aria-describedby={avatarError ? "avatar-error" : undefined}
+                aria-invalid={Boolean(avatarError)}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  handleAvatarChange(file);
+                  e.target.value = "";
+                }}
+              />
+              <p className="text-xs text-amber-600">JPEG, PNG, or WebP. Max 5MB.</p>
+            </div>
+          </div>
+          {avatarError && (
+            <p id="avatar-error" role="alert" className="text-xs text-red-400 mt-2 font-medium">
+              {avatarError}
+            </p>
+          )}
+        </div>
+
         <div>
           <label htmlFor="display-name" className="block text-sm font-medium text-amber-100 mb-2">Display Name</label>
           <input id="display-name"

@@ -182,6 +182,100 @@ function StellarExpertLink({ txHash }: { txHash: string }) {
   );
 }
 
+interface StatusTooltipInfo {
+  meaning: string;
+  turn: string;
+}
+
+const STATUS_DETAILS: Record<string, StatusTooltipInfo> = {
+  posted: {
+    meaning: "The job has been created and published for freelancer applications.",
+    turn: "Freelancers submit proposals; client reviews applicants.",
+  },
+  hired: {
+    meaning: "A freelancer has been selected to work on the project.",
+    turn: "Client needs to fund the escrow before work begins.",
+  },
+  in_progress: {
+    meaning: "Escrow funds are locked securely on-chain. Active work is underway.",
+    turn: "Freelancer is actively working on agreed deliverables and milestones.",
+  },
+  done: {
+    meaning: "Deliverables have been approved and escrow funds released to the freelancer.",
+    turn: "Completed. Both client and freelancer may leave feedback and ratings.",
+  },
+  cancelled: {
+    meaning: "The job was cancelled. Any unreleased escrow funds were refunded.",
+    turn: "No further action required from either party.",
+  },
+  disputed: {
+    meaning: "A dispute has been raised regarding milestone deliverables or payment.",
+    turn: "Both client and freelancer must submit evidence for arbitration.",
+  },
+};
+
+function StatusTooltip({ stepId, label }: { stepId: string; label: string }) {
+  const [visible, setVisible] = useState(false);
+  const info = STATUS_DETAILS[stepId] || {
+    meaning: `Job is currently in ${label} state.`,
+    turn: "Review job details and next milestones.",
+  };
+  const tooltipId = `status-tooltip-${stepId}`;
+
+  return (
+    <span className="relative inline-flex items-center ml-1">
+      <button
+        type="button"
+        aria-label={`Info about ${label} status`}
+        aria-describedby={visible ? tooltipId : undefined}
+        onMouseEnter={() => setVisible(true)}
+        onMouseLeave={() => setVisible(false)}
+        onFocus={() => setVisible(true)}
+        onBlur={() => setVisible(false)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            setVisible(false);
+          }
+        }}
+        className="text-amber-500/70 hover:text-amber-300 focus:text-amber-300 focus:outline-none rounded-full p-0.5 transition-colors cursor-help inline-flex items-center"
+      >
+        <svg
+          className="w-3.5 h-3.5"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+          aria-hidden="true"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+      </button>
+
+      {visible && (
+        <span
+          id={tooltipId}
+          role="tooltip"
+          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 sm:w-64 p-3 rounded-xl border border-market-500/30 bg-ink-950/95 shadow-2xl backdrop-blur-md z-50 text-left pointer-events-none block animate-fade-in"
+        >
+          <span className="block text-xs font-semibold text-amber-200 mb-1">{label}</span>
+          <span className="block text-[11px] text-amber-300/90 leading-relaxed mb-1.5">
+            <span className="font-semibold text-amber-100">Meaning: </span>
+            {info.meaning}
+          </span>
+          <span className="block text-[11px] text-market-300 leading-relaxed">
+            <span className="font-semibold text-amber-100">Whose turn: </span>
+            {info.turn}
+          </span>
+        </span>
+      )}
+    </span>
+  );
+}
+
 function MilestoneRejectionList({
   job,
   clientAddress,
@@ -316,13 +410,14 @@ export default function JobStatusTimeline({
               <StepCircle state={step.state} />
               <span
                 className={[
-                  "text-xs font-medium text-center",
+                  "text-xs font-medium text-center inline-flex items-center justify-center",
                   step.state === "complete" || step.state === "current"
                     ? "text-market-400"
                     : "text-amber-700",
                 ].join(" ")}
               >
-                {step.label}
+                <span>{step.label}</span>
+                <StatusTooltip stepId={step.id} label={step.label} />
               </span>
               {step.date && (
                 <span className="text-[10px] text-amber-800/60 whitespace-nowrap">
@@ -345,7 +440,10 @@ export default function JobStatusTimeline({
           <div className="flex items-start ml-2 pl-2 border-l border-dashed border-red-400/40">
             <div className="flex flex-col items-center gap-1.5 min-w-[4.5rem]">
               <StepCircle state="branch" />
-              <span className="text-xs font-medium text-red-400 text-center">{branch.label}</span>
+              <span className="text-xs font-medium text-red-400 text-center inline-flex items-center justify-center">
+                <span>{branch.label}</span>
+                <StatusTooltip stepId={branch.id} label={branch.label} />
+              </span>
               {branch.date && (
                 <span className="text-[10px] text-amber-800/60 whitespace-nowrap">
                   {formatDate(branch.date)}
@@ -363,16 +461,19 @@ export default function JobStatusTimeline({
             <div className="flex items-start gap-3">
               <StepCircle state={step.state} />
               <div className="pt-0.5 pb-1">
-                <p
-                  className={[
-                    "text-sm font-medium",
-                    step.state === "complete" || step.state === "current"
-                      ? "text-market-400"
-                      : "text-amber-700",
-                  ].join(" ")}
-                >
-                  {step.label}
-                </p>
+                <div className="flex items-center gap-1">
+                  <p
+                    className={[
+                      "text-sm font-medium",
+                      step.state === "complete" || step.state === "current"
+                        ? "text-market-400"
+                        : "text-amber-700",
+                    ].join(" ")}
+                  >
+                    {step.label}
+                  </p>
+                  <StatusTooltip stepId={step.id} label={step.label} />
+                </div>
                 {step.date && (
                   <p className="text-xs text-amber-800/60">{formatDate(step.date)}</p>
                 )}
@@ -393,7 +494,10 @@ export default function JobStatusTimeline({
           <div className="flex items-start gap-3 mt-2 pt-2 border-t border-dashed border-red-400/30">
             <StepCircle state="branch" />
             <div className="pt-0.5">
-              <p className="text-sm font-medium text-red-400">{branch.label}</p>
+              <div className="flex items-center gap-1">
+                <p className="text-sm font-medium text-red-400">{branch.label}</p>
+                <StatusTooltip stepId={branch.id} label={branch.label} />
+              </div>
               {branch.date && (
                 <p className="text-xs text-amber-800/60">{formatDate(branch.date)}</p>
               )}

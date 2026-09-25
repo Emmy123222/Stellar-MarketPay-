@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/router";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { upsertProfile } from "@/lib/api";
 import type { UserRole } from "@/utils/types";
+
+export const ONBOARDING_SESSION_KEY = "marketpay_onboarding_checkpoint";
+
+export interface OnboardingCheckpoint {
+  stepIndex: number;
+  selectedRole: UserRole | null;
+  displayName: string;
+  bio: string;
+}
 
 const steps = [
   { id: "connect-wallet", title: "Connect Wallet", subtitle: "Connect your Stellar wallet to get started" },
@@ -15,19 +25,63 @@ const roleOptions: { value: UserRole; icon: string; desc: string }[] = [
   { value: "both", icon: "🤝", desc: "Do both — hire and find work" },
 ];
 
+function getInitialCheckpoint(): Partial<OnboardingCheckpoint> | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const saved = sessionStorage.getItem(ONBOARDING_SESSION_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 export default function OnboardingWizard({ publicKey, onConnect }: { publicKey: string | null; onConnect: () => Promise<void> }) {
+  const router = useRouter();
   const { onboardingState, shouldShowWizard, saveOnboardingState } = useOnboarding(publicKey);
-  const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
-  const [displayName, setDisplayName] = useState("");
-  const [bio, setBio] = useState("");
+  const [currentStepIndex, setCurrentStepIndex] = useState<number | null>(() => {
+    const cp = getInitialCheckpoint();
+    if (cp && typeof cp.stepIndex === "number" && cp.stepIndex >= 0 && cp.stepIndex < steps.length) {
+      return cp.stepIndex;
+    }
+    return null;
+  });
+  const [selectedRole, setSelectedRole] = useState<UserRole | null>(() => {
+    return getInitialCheckpoint()?.selectedRole || null;
+  });
+  const [displayName, setDisplayName] = useState<string>(() => {
+    return getInitialCheckpoint()?.displayName || "";
+  });
+  const [bio, setBio] = useState<string>(() => {
+    return getInitialCheckpoint()?.bio || "";
+  });
   const [connecting, setConnecting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const isCompletedRef = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  const currentIndex = Math.min(onboardingState.wizardCurrentStep, steps.length - 1);
+  const currentIndex = currentStepIndex !== null
+    ? Math.min(currentStepIndex, steps.length - 1)
+    : Math.min(onboardingState.wizardCurrentStep, steps.length - 1);
   const step = steps[currentIndex];
   const isLastStep = currentIndex === steps.length - 1;
+
+  // Persist current step and partial form data to sessionStorage on change
+  useEffect(() => {
+    if (typeof window === "undefined" || showSuccess || isCompletedRef.current) return;
+    try {
+      const checkpoint: OnboardingCheckpoint = {
+        stepIndex: currentIndex,
+        selectedRole,
+        displayName,
+        bio,
+      };
+      sessionStorage.setItem(ONBOARDING_SESSION_KEY, JSON.stringify(checkpoint));
+    } catch (err) {
+      console.error("Failed to save onboarding checkpoint:", err);
+    }
+  }, [currentIndex, selectedRole, displayName, bio, showSuccess]);
 
   useEffect(() => {
     if (!shouldShowWizard) return;
@@ -51,6 +105,7 @@ export default function OnboardingWizard({ publicKey, onConnect }: { publicKey: 
   if (!shouldShowWizard) return null;
 
   function persist(nextIndex: number, completed = false, dismissed = false) {
+    setCurrentStepIndex(nextIndex);
     const completedSteps = Array.from(new Set([...onboardingState.wizardCompletedSteps, step.id]));
     saveOnboardingState({
       wizardCurrentStep: nextIndex,
@@ -63,6 +118,28 @@ export default function OnboardingWizard({ publicKey, onConnect }: { publicKey: 
 
   function dismiss() {
     saveOnboardingState({ wizardDismissed: true, hasSeenWelcome: true });
+  }
+
+  function handleResumeLater() {
+    if (typeof window !== "undefined") {
+      try {
+        const checkpoint: OnboardingCheckpoint = {
+          stepIndex: currentIndex,
+          selectedRole,
+          displayName,
+          bio,
+        };
+        sessionStorage.setItem(ONBOARDING_SESSION_KEY, JSON.stringify(checkpoint));
+      } catch (err) {
+        console.error("Failed to save onboarding checkpoint:", err);
+      }
+    }
+    saveOnboardingState({
+      wizardDismissed: true,
+      wizardCurrentStep: currentIndex,
+      hasSeenWelcome: true,
+    });
+    router.push("/dashboard");
   }
 
   async function handlePrimary() {
@@ -97,6 +174,14 @@ export default function OnboardingWizard({ publicKey, onConnect }: { publicKey: 
           });
         } finally {
           setSaving(false);
+        }
+      }
+      isCompletedRef.current = true;
+      if (typeof window !== "undefined") {
+        try {
+          sessionStorage.removeItem(ONBOARDING_SESSION_KEY);
+        } catch {
+          // ignore
         }
       }
       setShowSuccess(true);
@@ -250,13 +335,22 @@ export default function OnboardingWizard({ publicKey, onConnect }: { publicKey: 
           </div>
 
           <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <button
-              type="button"
-              onClick={dismiss}
-              className="text-sm font-medium text-amber-500 hover:text-amber-300 transition-colors min-h-[44px]"
-            >
-              Dismiss
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={dismiss}
+                className="text-sm font-medium text-amber-500 hover:text-amber-300 transition-colors min-h-[44px]"
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                onClick={handleResumeLater}
+                className="text-sm font-medium text-amber-400 hover:text-amber-200 transition-colors min-h-[44px]"
+              >
+                Resume later
+              </button>
+            </div>
             <div className="flex gap-3">
               <button
                 type="button"

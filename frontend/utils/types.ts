@@ -131,6 +131,7 @@ export interface Application {
 export interface UserProfile {
   publicKey: string;
   displayName?: string;
+  avatarUrl?: string;
   bio?: string;
   skills?: string[];
   portfolioItems?: PortfolioItem[];
