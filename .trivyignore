@@ -26,3 +26,8 @@ CVE-2026-77465
 # Ignored because updating postcss requires a breaking change review.
 CVE-2026-45623
 CVE-2026-73646
+
+# Ignored because these are bundled Ruby dev-tools (xdrgen) inside @stellar/js-xdr@4.0.0 npm package, not runtime dependencies. Fix requires upgrading @stellar/js-xdr to v5+ which requires @stellar/stellar-sdk v17+ (major version bump).
+CVE-2026-33176
+CVE-2026-54904
+CVE-2026-54906
