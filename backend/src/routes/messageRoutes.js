@@ -61,7 +61,7 @@ const upload = multer({
  *       201:
  *         description: Message sent
  *   get:
- *     summary: Get messages for a job thread
+ *     summary: Get messages for a job thread with cursor-based pagination
  *     tags: [Messages]
  *     security:
  *       - bearerAuth: []
@@ -72,9 +72,20 @@ const upload = multer({
  *         schema:
  *           type: string
  *           format: uuid
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Number of messages to return (1-100)
+ *       - in: query
+ *         name: before
+ *         schema:
+ *           type: string
+ *         description: Cursor timestamp to fetch messages older than
  *     responses:
  *       200:
- *         description: Message list (marks as read)
+ *         description: Message list with next cursor (marks as read)
  */
 router.post("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next) => {
   try {
@@ -99,17 +110,22 @@ router.post("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next)
   }
 });
 
-router.get("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next) => {
+const getMessagesHandler = async (req, res, next) => {
   try {
-    const { jobId } = req.params;
+    const { jobId, threadId } = req.params;
+    const targetId = jobId || threadId;
     const userAddress = req.user.publicKey;
+    const { limit, before } = req.query;
 
-    const messages = await messageService.getMessagesByJob(jobId, userAddress);
-    res.json({ success: true, data: messages });
+    const result = await messageService.getMessagesByJob(targetId, userAddress, { limit, before });
+    res.json({ success: true, data: result });
   } catch (e) {
     next(e);
   }
-});
+};
+
+router.get("/job/:jobId", verifyJWT, generalRateLimiter, getMessagesHandler);
+router.get("/thread/:threadId", verifyJWT, generalRateLimiter, getMessagesHandler);
 
 /**
  * @swagger
