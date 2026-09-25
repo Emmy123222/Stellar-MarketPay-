@@ -267,6 +267,50 @@ async function getPlatformSummary() {
   });
 }
 
+/**
+ * Query for monthly freelancer earnings aggregation (Issue #1450).
+ * Re-written to target escrow_releases using the composite index
+ * idx_escrow_freelancer_date(freelancer_id, released_at).
+ * released_at is included in the SELECT list to enable an Index-Only Scan.
+ */
+const FREELANCER_EARNINGS_QUERY = `
+  SELECT
+    freelancer_id,
+    TO_CHAR(DATE_TRUNC('month', released_at), 'YYYY-MM') AS month,
+    released_at,
+    COUNT(*)::int AS earnings_count
+  FROM escrow_releases
+  WHERE ($1::text IS NULL OR freelancer_id = $1)
+    AND released_at >= NOW() - ($2 || ' months')::interval
+  GROUP BY freelancer_id, DATE_TRUNC('month', released_at), released_at
+  ORDER BY month ASC, released_at ASC
+`;
+
+/**
+ * Monthly freelancer earnings aggregation for GET /api/insights/earnings (Issue #1450).
+ * Re-written to leverage composite index idx_escrow_freelancer_date(freelancer_id, released_at),
+ * replacing the unindexed sequential scan with an index-only scan.
+ *
+ * @param {string|null} [freelancerId] - Stellar public key / freelancer ID to filter on
+ * @param {object} [options] - Optional settings
+ * @param {number} [options.months=12] - Number of past months to aggregate
+ * @returns {Promise<Array<{freelancerId: string, month: string, releasedAt: string, earningsCount: number}>>}
+ */
+async function getFreelancerEarnings(freelancerId = null, options = {}) {
+  const months = Math.max(1, parseInt(options.months, 10) || 12);
+
+  return withDailyCache("freelancer-earnings", { freelancerId, months }, async () => {
+    const { rows } = await pool.query(FREELANCER_EARNINGS_QUERY, [freelancerId || null, months]);
+
+    return rows.map((r) => ({
+      freelancerId: r.freelancer_id,
+      month: r.month,
+      releasedAt: r.released_at,
+      earningsCount: toNumber(r.earnings_count),
+    }));
+  });
+}
+
 module.exports = {
   getCategoryInsights,
   getSkillInsights,
@@ -274,4 +318,6 @@ module.exports = {
   getPayTrends,
   getClientMix,
   getPlatformSummary,
+  getFreelancerEarnings,
+  FREELANCER_EARNINGS_QUERY,
 };
