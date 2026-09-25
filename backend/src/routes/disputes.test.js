@@ -30,6 +30,7 @@ jest.mock("../services/sorobanEvidence", () => ({
 
 jest.mock("../services/ipfsService", () => ({
   uploadFile: jest.fn(),
+  verifyPin: jest.fn(),
   getGatewayUrl: jest.fn(),
   generateSignedUrlToken: jest.fn(),
   verifySignedUrlToken: jest.fn(),
@@ -133,6 +134,7 @@ function fakeEvidenceRow(overrides = {}) {
     file_size: overrides.file_size || 1024,
     mime_type: overrides.mime_type || "application/pdf",
     ipfs_cid: overrides.ipfs_cid || VALID_CID,
+    pinned: overrides.pinned ?? true,
     created_at: overrides.created_at || new Date().toISOString(),
   };
 }
@@ -244,7 +246,7 @@ describe("Dispute Routes Suite (/api/disputes)", () => {
   describe("POST /api/disputes/:jobId/evidence", () => {
     it("201 — happy path: uploads file and returns evidence record", async () => {
       const job = seedJob();
-      uploadFile.mockResolvedValue({ cid: VALID_CID, size: 1024 });
+      uploadFile.mockResolvedValue({ cid: VALID_CID, size: 1024, pinned: true });
       validateIpfsCid.mockReturnValue(VALID_CID);
       getGatewayUrl.mockReturnValue(`https://gateway.pinata.cloud/ipfs/${VALID_CID}`);
 
@@ -267,7 +269,14 @@ describe("Dispute Routes Suite (/api/disputes)", () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data.fileName).toBe("document.pdf");
+      expect(res.body.data.pinned).toBe(true);
       expect(uploadFile).toHaveBeenCalled();
+
+      // Issue #1439 — the pin state is persisted on the evidence row.
+      const insertCall = pool.query.mock.calls.find(([sql]) => /INSERT INTO dispute_evidence/.test(sql));
+      expect(insertCall).toBeDefined();
+      expect(insertCall[0]).toMatch(/pinned/);
+      expect(insertCall[1][6]).toBe(true);
     });
 
     it("401 — rejects when no JWT is supplied", async () => {

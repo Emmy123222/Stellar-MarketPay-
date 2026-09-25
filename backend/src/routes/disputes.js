@@ -224,13 +224,16 @@ router.post(
       }
 
       const fileUrl = validateIpfsCid(ipfsResult?.cid);
+      // Issue #1439: uploadFile verifies the pin (with retries) and reports it;
+      // anything other than an explicit true is stored as not-pinned.
+      const pinned = ipfsResult?.pinned === true;
 
       const { rows } = await pool.query(
         `INSERT INTO dispute_evidence
-           (job_id, uploader_address, file_name, file_size, mime_type, ipfs_cid)
-         VALUES ($1, $2, $3, $4, $5, $6)
+           (job_id, uploader_address, file_name, file_size, mime_type, ipfs_cid, pinned)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
-        [jobId, uploaderAddress, req.file.originalname, req.file.size, req.file.mimetype, fileUrl]
+        [jobId, uploaderAddress, req.file.originalname, req.file.size, req.file.mimetype, fileUrl, pinned]
       );
 
       const ev = rows[0];
@@ -243,6 +246,7 @@ router.post(
           fileSize:        ev.file_size,
           mimeType:        ev.mime_type,
           fileUrl:         ev.ipfs_cid,
+          pinned:          ev.pinned === true,
           gatewayUrl:      ipfsService.getGatewayUrl(ev.ipfs_cid),
           createdAt:       ev.created_at,
         },

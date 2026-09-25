@@ -467,10 +467,16 @@ CREATE TABLE IF NOT EXISTS dispute_evidence (
   file_size        INTEGER NOT NULL,
   mime_type        TEXT  NOT NULL,
   ipfs_cid         TEXT  NOT NULL,
+  pinned           BOOLEAN NOT NULL DEFAULT FALSE,  -- Issue #1439: pin confirmed after upload
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS dispute_evidence_job_id_idx ON dispute_evidence(job_id);
+
+-- Issue #1439: surface not-yet-confirmed pins first for reconciliation jobs.
+CREATE INDEX IF NOT EXISTS dispute_evidence_unpinned_idx
+  ON dispute_evidence(created_at DESC)
+  WHERE pinned = FALSE;
 
 -- ─────────────────────────────────────────
 -- time_entries  (Issue #346 — time tracking)
