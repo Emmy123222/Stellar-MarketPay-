@@ -117,7 +117,7 @@ export const getServerSideProps: GetServerSideProps<
     ? `${proto}://${host}`
     : SITE_URL;
 
-  if (!jobId) return { props: { ssrJob: null, ogBaseUrl } };
+  if (!jobId) return { notFound: true };
 
   try {
     // Forward the request origin so the backend can apply any geo headers.
@@ -130,6 +130,7 @@ export const getServerSideProps: GetServerSideProps<
       // Don't let ISR cache stale job data — jobs change frequently.
       cache: "no-store",
     });
+    if (res.status === 404) return { notFound: true };
     if (!res.ok) return { props: { ssrJob: null, ogBaseUrl } };
     const body = await res.json();
     const data = body?.data;
