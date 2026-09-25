@@ -171,6 +171,11 @@ exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connec
       <button
         class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
       >
+        Saved (1)
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
         Job Analytics
       </button>
       <button
@@ -218,6 +223,11 @@ exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connec
       >
         Saved Searches
       </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
+        Referrals
+      </button>
     </div>
     <div
       class="sm:hidden mb-6"
@@ -251,6 +261,11 @@ exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connec
           value="invitations"
         >
           Invitations
+        </option>
+        <option
+          value="saved"
+        >
+          Saved (1)
         </option>
         <option
           value="analytics"
@@ -301,6 +316,11 @@ exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connec
           value="saved_searches"
         >
           Saved Searches
+        </option>
+        <option
+          value="referrals"
+        >
+          Referrals
         </option>
       </select>
     </div>

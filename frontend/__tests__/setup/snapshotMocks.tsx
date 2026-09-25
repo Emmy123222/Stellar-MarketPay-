@@ -288,6 +288,11 @@ jest.mock("@/lib/api", () => ({
   // ── Onboarding ────────────────────────────────────────────────────────────
   syncOnboardingProgress: jest.fn().mockResolvedValue({}),
   // ── Extra API calls used in dashboard ────────────────────────────────────
+  fetchMyJobs: jest.fn().mockResolvedValue([]),
+  fetchMyApplications: jest.fn().mockResolvedValue([]),
+  fetchApplications: jest.fn().mockResolvedValue([]),
+  fetchMyInvitations: jest.fn().mockResolvedValue([]),
+  declineInvitation: jest.fn().mockResolvedValue({}),
   fetchClientSpendingAnalytics: jest.fn().mockResolvedValue({
     hasCompletedJobs: false,
     totalSpentXlm: "0",
