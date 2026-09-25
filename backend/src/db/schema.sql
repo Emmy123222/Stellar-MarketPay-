@@ -723,3 +723,19 @@ WITH DATA;
 
 CREATE UNIQUE INDEX IF NOT EXISTS platform_stats_mv_singleton_idx
   ON platform_stats_mv ((1));
+
+-- ─────────────────────────────────────────
+-- escrow_releases (V54 / V58 — Issue #1450)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS escrow_releases (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id        UUID        NOT NULL UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,
+  freelancer_id TEXT,
+  released_by   TEXT,
+  tx_hash       TEXT,
+  status        TEXT        NOT NULL DEFAULT 'released',
+  released_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_escrow_freelancer_date
+  ON escrow_releases(freelancer_id, released_at);

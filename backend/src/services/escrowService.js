@@ -205,9 +205,9 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
   }
 
   await pool.query(
-    `INSERT INTO escrow_releases (job_id, released_by, tx_hash, released_at)
-     VALUES ($1, $2, $3, NOW())`,
-    [jobId, clientAddress, txHash],
+    `INSERT INTO escrow_releases (job_id, released_by, tx_hash, released_at, freelancer_id)
+     VALUES ($1, $2, $3, NOW(), $4)`,
+    [jobId, clientAddress, txHash, job.freelancerAddress || null],
   );
 
   logContractInteraction({
