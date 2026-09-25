@@ -6,6 +6,8 @@
  * GET   /api/auto-convert/settings            — current opt-in + slippage (auth)
  * PATCH /api/auto-convert/settings            — toggle / set slippage (auth)
  * GET   /api/auto-convert/pending             — pending swaps with fresh quotes (auth)
+ * POST  /api/auto-convert/quote               — live XLM → USDC swap quote (auth)
+ * POST  /api/auto-convert/manual              — start a manual "Swap earnings" swap (auth)
  * POST  /api/auto-convert/:id/complete        — record a submitted swap tx (auth)
  * POST  /api/auto-convert/:id/dismiss         — mark a pending swap failed / skipped (auth)
  * GET   /api/auto-convert/history             — paginated conversion history (auth)
@@ -27,6 +29,8 @@ const {
   completeAutoConversion,
   dismissAutoConversion,
   listConversionHistory,
+  getSwapQuote,
+  createManualSwap,
 } = require("../services/autoConvertService");
 
 const router = express.Router();
@@ -151,6 +155,82 @@ router.get("/history", readRateLimiter, async (req, res, next) => {
     if (!publicKey) return;
     const { page, limit } = req.query;
     res.json({ success: true, data: await listConversionHistory(publicKey, { page, limit }) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * @swagger
+ * /api/auto-convert/quote:
+ *   post:
+ *     summary: Live XLM → USDC swap quote (rate, estimated receive, fee)
+ *     tags: [AutoConvert]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [amountXlm]
+ *             properties:
+ *               amountXlm: { type: string }
+ *               slippageBps: { type: integer, minimum: 10, maximum: 1000 }
+ *     responses:
+ *       200:
+ *         description: Swap quote
+ *       400:
+ *         description: Invalid amount or slippage
+ *       404:
+ *         description: No XLM → USDC path available
+ */
+router.post("/quote", readRateLimiter, async (req, res, next) => {
+  try {
+    const publicKey = requireUser(req, res);
+    if (!publicKey) return;
+    const { amountXlm, slippageBps } = req.body || {};
+    res.json({ success: true, data: await getSwapQuote(amountXlm, slippageBps) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * @swagger
+ * /api/auto-convert/manual:
+ *   post:
+ *     summary: Start a manual XLM → USDC "Swap earnings" swap
+ *     description: Creates a pending swap the wallet signs with pathPaymentStrictSend.
+ *     tags: [AutoConvert]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [amountXlm]
+ *             properties:
+ *               amountXlm: { type: string }
+ *               slippageBps: { type: integer, minimum: 10, maximum: 1000 }
+ *     responses:
+ *       200:
+ *         description: Pending swap with quote
+ *       400:
+ *         description: Invalid amount or slippage
+ *       404:
+ *         description: Profile not found or no path available
+ */
+router.post("/manual", writeRateLimiter, async (req, res, next) => {
+  try {
+    const publicKey = requireUser(req, res);
+    if (!publicKey) return;
+    const { amountXlm, slippageBps } = req.body || {};
+    const data = await createManualSwap(publicKey, { amountXlm, slippageBps });
+    res.json({ success: true, data });
   } catch (e) {
     next(e);
   }

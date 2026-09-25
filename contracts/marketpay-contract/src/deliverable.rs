@@ -8,7 +8,7 @@ use crate::types::*;
 /// Client submits deliverable hash.
 pub(crate) fn submit_client_deliverable(env: Env, job_id: String, client: Address) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut submission: DeliverableSubmission = env
         .storage()
@@ -33,7 +33,7 @@ pub(crate) fn submit_client_deliverable(env: Env, job_id: String, client: Addres
 /// Freelancer submits deliverable hash.
 pub(crate) fn submit_freelancer_deliverable(env: Env, job_id: String, freelancer: Address) {
     freelancer.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut submission: DeliverableSubmission = env
         .storage()
@@ -66,7 +66,7 @@ pub(crate) fn submit_deliverable(
     caller: Address,
 ) {
     caller.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -109,7 +109,7 @@ pub(crate) fn submit_deliverable(
 
 /// Auto-release if both hashes match (manual fallback if mismatch after 7 days).
 pub(crate) fn check_deliverable_match(env: Env, job_id: String) -> bool {
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let submission: DeliverableSubmission = env
         .storage()

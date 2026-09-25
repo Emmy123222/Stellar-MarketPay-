@@ -172,6 +172,11 @@ async function enrichJobsWithClientReputation(jobs) {
  *           type: string
  *         description: Search term for job titles and descriptions
  *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *         description: Full-text search query for job titles and descriptions
+ *       - in: query
  *         name: cursor
  *         schema:
  *           type: string
@@ -214,6 +219,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit,
       search,
+      q,
       cursor,
       after,
       timezone,
@@ -244,6 +250,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit: String(safeLimit),
       search,
+      q,
       cursor: effectiveCursor,
       timezone,
       viewerAddress,
@@ -267,6 +274,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit: safeLimit,
       search,
+      q,
       cursor: effectiveCursor,
       timezone,
       viewerAddress,
@@ -599,7 +607,7 @@ router.patch(
         ? { amount: acceptedApplications[0].bid_amount }
         : {};
       const job = await updateJobEscrowId(req.params.id, escrowContractId, options);
-      await logContractInteraction({
+      logContractInteraction({
         functionName: "create_escrow",
         callerAddress: req.user.publicKey,
         jobId: req.params.id,

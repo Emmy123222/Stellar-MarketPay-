@@ -1,0 +1,1 @@
+ALTER TABLE dao_votes DROP CONSTRAINT IF EXISTS dao_votes_proposal_id_voter_address_key;

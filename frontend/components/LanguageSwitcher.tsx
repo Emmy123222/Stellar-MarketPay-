@@ -12,6 +12,8 @@ const LOCALES = [
   { code: "pt", labelKey: "language.portuguese" },
 ] as const;
 
+export const LOCALE_STORAGE_KEY = "stellar-marketpay:locale";
+
 interface LanguageSwitcherProps {
   className?: string;
 }
@@ -23,7 +25,7 @@ export default function LanguageSwitcher({ className = "" }: LanguageSwitcherPro
   const switchLanguage = async (lang: string) => {
     await i18n.changeLanguage(lang);
     if (typeof window !== "undefined") {
-      localStorage.setItem("preferredLocale", lang);
+      localStorage.setItem(LOCALE_STORAGE_KEY, lang);
     }
 
     // Keep Next.js locale routing in sync with the next-i18next instance while

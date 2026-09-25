@@ -2,6 +2,7 @@
 
 const crypto = require("crypto");
 const pool = require("../db/pool");
+const { auditQueue } = require("../utils/queue");
 
 function normalizeLabel(label) {
   if (typeof label !== "string") return "Developer key";
@@ -96,12 +97,17 @@ async function rotateApiKey(ownerPublicKey, keyId) {
 
   if (!rows.length) return null;
 
-  await pool.query(
-    `INSERT INTO audit_logs (actor_address, action, target, metadata)
-     VALUES ($1, 'api_key_rotated', $2,
-             $3::jsonb)`,
-    [ownerPublicKey, String(keyId), JSON.stringify({ keyId, rotatedAt: new Date().toISOString() })]
-  );
+  auditQueue
+    .add({
+      type: "audit_log",
+      payload: {
+        actorAddress: ownerPublicKey,
+        action: "api_key_rotated",
+        target: String(keyId),
+        metadata: { keyId, rotatedAt: new Date().toISOString() },
+      },
+    })
+    .catch(() => {});
 
   return {
     apiKey: newApiKey,
@@ -121,12 +127,17 @@ async function finalizeExpiredRotations() {
   );
 
   for (const row of rows) {
-    await pool.query(
-      `INSERT INTO audit_logs (actor_address, action, target, metadata)
-       VALUES ($1, 'api_key_rotation_finalized', $2,
-               $3::jsonb)`,
-      [row.owner_public_key, String(row.id), JSON.stringify({ keyId: row.id, finalizedAt: new Date().toISOString() })]
-    );
+    auditQueue
+      .add({
+        type: "audit_log",
+        payload: {
+          actorAddress: row.owner_public_key,
+          action: "api_key_rotation_finalized",
+          target: String(row.id),
+          metadata: { keyId: row.id, finalizedAt: new Date().toISOString() },
+        },
+      })
+      .catch(() => {});
   }
 
   return rows;
@@ -251,6 +262,25 @@ async function getApiKeyUsageStats(lookbackDays = 7) {
   return { lookbackDays: safeLookback, keys: rows };
 }
 
+function toPublicJob(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    budget: row.budget,
+    currency: row.currency,
+    category: row.category,
+    skills: row.skills,
+    status: row.status,
+    deadline: row.deadline,
+    timezone: row.timezone,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 async function listPublicJobs(limit = 20) {
   const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 50));
   const { rows } = await pool.query(
@@ -263,8 +293,6 @@ async function listPublicJobs(limit = 20) {
        category,
        skills,
        status,
-       client_address,
-       freelancer_address,
        deadline,
        timezone,
        created_at,
@@ -272,12 +300,13 @@ async function listPublicJobs(limit = 20) {
      FROM jobs
      WHERE status = 'open'
        AND visibility = 'public'
+       AND deleted_at IS NULL
      ORDER BY created_at DESC
      LIMIT $1`,
     [safeLimit]
   );
 
-  return rows;
+  return rows.map(toPublicJob);
 }
 
 async function getPublicJob(jobId) {
@@ -291,8 +320,6 @@ async function getPublicJob(jobId) {
        category,
        skills,
        status,
-       client_address,
-       freelancer_address,
        deadline,
        timezone,
        created_at,
@@ -301,11 +328,12 @@ async function getPublicJob(jobId) {
      WHERE id = $1
        AND visibility = 'public'
        AND status = 'open'
+       AND deleted_at IS NULL
      LIMIT 1`,
     [jobId]
   );
 
-  return rows[0] || null;
+  return toPublicJob(rows[0] || null);
 }
 
 async function getPublicFreelancerProfile(publicKey) {
