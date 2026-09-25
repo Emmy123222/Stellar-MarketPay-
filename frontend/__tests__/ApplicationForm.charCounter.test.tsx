@@ -1,7 +1,7 @@
 /**
  * __tests__/ApplicationForm.charCounter.test.tsx
  *
- * Issue #2xxx — the proposal textarea must show a live character counter
+ * Issue #1416 — the proposal textarea must show a live character counter
  * (e.g. "234 / 2000"), turn red when fewer than 100 characters remain, and
  * enforce maxLength so writers can't type past the backend limit.
  */
