@@ -160,14 +160,22 @@ router.get("/freelancer/:publicKey", generalApplicationRateLimiter, async (req, 
 router.post("/", applicationRateLimiter, validateJsonb({ screeningAnswers: screeningAnswersSchema }), async (req, res, next) => {
   try {
     const body = validate(createApplicationSchema, req.body);
+    const job = await getJob(body.jobId);
+    if (job && req.user) {
+      const clientId = job.client_id ?? job.clientAddress ?? job.clientId;
+      const userId = req.user.id ?? req.user.publicKey;
+      if (
+        (job.client_id && req.user.id && job.client_id === req.user.id) ||
+        (clientId && userId && clientId === userId)
+      ) {
+        return res.status(400).json({ error: "You cannot apply to your own job" });
+      }
+    }
     const app = await submitApplication(body);
     
     // Emit WebSocket event for real-time bid updates
     const broadcastRealtime = req.app.locals.broadcastRealtime;
     if (broadcastRealtime) {
-      // Get job details for the broadcast
-      const job = await getJob(app.jobId);
-      
       broadcastRealtime(`job:${app.jobId}:bids`, {
         type: 'new_bid',
         application: {
@@ -179,7 +187,7 @@ router.post("/", applicationRateLimiter, validateJsonb({ screeningAnswers: scree
           createdAt: app.createdAt,
           status: app.status
         },
-        jobTitle: job.title
+        jobTitle: job?.title
       });
     }
     

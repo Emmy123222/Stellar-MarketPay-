@@ -243,6 +243,46 @@ describe("Applications Routes Suite (/api/applications)", () => {
       expect(res.status).toBe(400);
       expect(res.body.code).toBe("JSONB_DEPTH_EXCEEDED");
     });
+
+    it("400 — rejects when authenticated user is the job poster (comparing job.client_id with req.user.id)", async () => {
+      const authApp = express();
+      authApp.use(express.json());
+      authApp.use((req, res, next) => {
+        req.user = { id: "client-123" };
+        next();
+      });
+      authApp.use("/api/applications", applicationsRoutes);
+
+      getJob.mockResolvedValue({ id: JOB_ID, client_id: "client-123", title: "Build a dApp" });
+
+      const res = await request(authApp)
+        .post("/api/applications")
+        .send(validBody);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: "You cannot apply to your own job" });
+      expect(submitApplication).not.toHaveBeenCalled();
+    });
+
+    it("400 — rejects when authenticated user matches job clientAddress", async () => {
+      const authApp = express();
+      authApp.use(express.json());
+      authApp.use((req, res, next) => {
+        req.user = { publicKey: CLIENT };
+        next();
+      });
+      authApp.use("/api/applications", applicationsRoutes);
+
+      getJob.mockResolvedValue({ id: JOB_ID, clientAddress: CLIENT, title: "Build a dApp" });
+
+      const res = await request(authApp)
+        .post("/api/applications")
+        .send(validBody);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: "You cannot apply to your own job" });
+      expect(submitApplication).not.toHaveBeenCalled();
+    });
   });
 
   // =========================================================================
