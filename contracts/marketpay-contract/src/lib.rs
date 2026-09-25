@@ -377,15 +377,23 @@ impl MarketPayContract {
         disputes::raise_dispute(env, job_id, caller)
     }
 
-    /// Resolve a disputed escrow with a split-percentage payout.
+    /// Resolve a disputed escrow with an arbitrator fee deduction and split-percentage payout.
     pub fn resolve_dispute(
         env: Env,
         job_id: String,
         arbitrator: Address,
         winner: Address,
         split_percentage: u32,
+        arbitrator_fee_bps: u32,
     ) {
-        disputes::resolve_dispute(env, job_id, arbitrator, winner, split_percentage)
+        disputes::resolve_dispute(
+            env,
+            job_id,
+            arbitrator,
+            winner,
+            split_percentage,
+            arbitrator_fee_bps,
+        )
     }
 
     /// Admin sets the global dispute bond configuration.

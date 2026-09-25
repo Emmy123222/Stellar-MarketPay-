@@ -12,6 +12,25 @@
 
 const { calculateFreelancerTier } = require("./profileService");
 
+function encodeApplicationCursor(row) {
+  return Buffer.from(JSON.stringify({
+    createdAt: row.created_at || row.createdAt,
+    id: row.id,
+  })).toString("base64url");
+}
+
+function decodeApplicationCursor(cursor) {
+  try {
+    const decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (!decoded.createdAt || !decoded.id) throw new Error("Invalid cursor");
+    return decoded;
+  } catch {
+    const error = new Error("Invalid application cursor");
+    error.status = 400;
+    throw error;
+  }
+}
+
 // Provide an in-memory test-mode implementation so unit tests don't require
 // a running Postgres instance. When `NODE_ENV === 'test'` we operate on
 // `services/store.js` maps.
@@ -146,7 +165,18 @@ if (process.env.NODE_ENV === 'test') {
 
   module.exports = {
     submitApplication,
-    getApplicationsForJob: async (jobId) => Array.from(store.applications.values()).filter(a => a.jobId === jobId).map(rowToApp),
+    getApplicationsForJob: async (jobId, { limit = 20, cursor = null } = {}) => {
+      const rows = Array.from(store.applications.values())
+        .filter(a => a.jobId === jobId)
+        .sort((a, b) => new Date(a.createdAt || a.created_at).getTime() - new Date(b.createdAt || b.created_at).getTime());
+      const decodedCursor = cursor ? decodeApplicationCursor(cursor) : null;
+      const start = decodedCursor ? rows.findIndex(row => row.id === decodedCursor.id) + 1 : 0;
+      const page = rows.slice(start, start + limit + 1);
+      const hasNext = page.length > limit;
+      const applications = page.slice(0, limit).map(rowToApp);
+      applications.nextCursor = hasNext ? encodeApplicationCursor(page[limit - 1]) : null;
+      return applications;
+    },
     getApplicationsForFreelancer: async (freelancerAddress) => Array.from(store.applications.values()).filter(a => a.freelancerAddress === freelancerAddress).map(rowToApp),
     acceptApplication,
   };
@@ -357,7 +387,16 @@ async function submitApplication({
  * @param {string} jobId  UUID of the job.
  * @returns {Promise<Application[]>}
  */
-async function getApplicationsForJob(jobId) {
+async function getApplicationsForJob(jobId, { limit = 20, cursor = null } = {}) {
+  const values = [jobId];
+  let cursorClause = "";
+  if (cursor) {
+    const decodedCursor = decodeApplicationCursor(cursor);
+    values.push(decodedCursor.createdAt, decodedCursor.id);
+    cursorClause = "AND (a.created_at > $2::timestamptz OR (a.created_at = $2::timestamptz AND a.id > $3::uuid))";
+  }
+  values.push(limit + 1);
+
   const { rows } = await pool.query(
     `SELECT a.*,
             COALESCE(p.completed_jobs, 0) AS completed_jobs,
@@ -366,11 +405,17 @@ async function getApplicationsForJob(jobId) {
      LEFT JOIN profiles p ON p.public_key = a.freelancer_address
      LEFT JOIN ratings r ON r.rated_address = a.freelancer_address
      WHERE a.job_id = $1
+     ${cursorClause}
      GROUP BY a.id, p.completed_jobs
-     ORDER BY a.created_at ASC`,
-    [jobId]
+     ORDER BY a.created_at ASC, a.id ASC
+     LIMIT $${values.length}`,
+    values
   );
-  return rows.map(rowToApp);
+  const hasNext = rows.length > limit;
+  return {
+    applications: rows.slice(0, limit).map(rowToApp),
+    nextCursor: hasNext ? encodeApplicationCursor(rows[limit - 1]) : null,
+  };
 }
 
 /**

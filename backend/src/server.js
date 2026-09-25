@@ -21,6 +21,7 @@
 /* eslint-disable */`nconst profileRoutes     = require("./routes/profiles");
 /* eslint-disable */`nconst escrowRoutes      = require("./routes/escrow");
 /* eslint-disable */`nconst healthRoutes      = require("./routes/health");
+const pingRoutes        = require("./routes/ping");
 /* eslint-disable */`nconst authRoutes        = require("./routes/auth");
 /* eslint-disable */`nconst ratingRoutes      = require("./routes/ratings");
 /* eslint-disable */`nconst progressRoutes    = require("./routes/progress");
@@ -154,6 +155,7 @@
 /* eslint-disable */`n
 /* eslint-disable */`n// ─── Routes ───────────────────────────────────────────────────────────────────
 /* eslint-disable */`napp.use("/health",            healthRoutes);
+app.use("/ping",              pingRoutes);
 /* eslint-disable */`napp.use("/api/auth",          authRoutes);
 /* eslint-disable */`napp.use("/api/jobs",          jobRoutes);
 /* eslint-disable */`napp.use("/api/applications",  applicationRoutes);

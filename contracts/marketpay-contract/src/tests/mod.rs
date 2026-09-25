@@ -12,3 +12,4 @@ mod sealed_bid_tests;
 mod timeout_tests;
 mod upgrade_tests;
 mod usdc_tests;
+mod certificates_tests;
