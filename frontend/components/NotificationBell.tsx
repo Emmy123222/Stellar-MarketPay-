@@ -91,14 +91,21 @@ export default function NotificationBell({ publicKey }: NotificationBellProps) {
         type="button"
         onClick={() => setOpen((value) => !value)}
         className="relative p-2 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors"
-        aria-label="Notifications"
+        aria-label={
+          unreadCount > 0
+            ? `${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}`
+            : "Notifications"
+        }
         title="Notifications"
       >
         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9" />
         </svg>
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold leading-[1.1rem] text-center">
+          <span
+            aria-label={`${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}`}
+            className="absolute -top-1 -right-1 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold leading-[1.1rem] text-center"
+          >
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
