@@ -8,6 +8,7 @@ import { fetchAuthChallenge, verifyAuthChallenge, setJwtToken } from "@/lib/api"
 import "@/styles/globals.css";
 import { ToastProvider } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
 import OfflineBanner from "@/components/OfflineBanner";
 import RateLimitWatcher from "@/components/RateLimitWatcher";
@@ -86,6 +87,7 @@ function App({ Component, pageProps }: AppProps) {
 
   return (
     <>
+      <ThemeProvider>
       <ToastProvider>
         <PriceProvider>
         <Head>
@@ -112,6 +114,7 @@ function App({ Component, pageProps }: AppProps) {
         <RateLimitWatcher />
         </PriceProvider>
       </ToastProvider>
+      </ThemeProvider>
     </>
   );
 }
