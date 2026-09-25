@@ -119,15 +119,19 @@ describe("POST /api/ai-scorer/score-proposal", () => {
 
   it("returns a warning instead of an error when the Claude API fails", async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error("ECONNREFUSED"));
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
 
     const res = await request(app)
       .post("/api/ai-scorer/score-proposal")
       .send({ proposal: "A reasonably detailed proposal body." });
 
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data).toBeNull();
-    expect(res.body.warning).toMatch(/AI scoring is unavailable/i);
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({
+      score: null,
+      reason: "AI scorer temporarily unavailable",
+    });
+    expect(errorSpy).toHaveBeenCalledWith("AI proposal scoring failed:", "ECONNREFUSED");
+    errorSpy.mockRestore();
   });
 
   it("returns a warning when the Claude API key is not configured", async () => {
@@ -146,13 +150,21 @@ describe("POST /api/ai-scorer/score-proposal", () => {
 
   it("returns a warning when Claude responds with malformed JSON", async () => {
     mockClaude("Sure! This proposal looks pretty good to me.");
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
 
     const res = await request(app)
       .post("/api/ai-scorer/score-proposal")
       .send({ proposal: "A reasonably detailed proposal body." });
 
-    expect(res.status).toBe(200);
-    expect(res.body.data).toBeNull();
-    expect(res.body.warning).toMatch(/AI scoring is unavailable/i);
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({
+      score: null,
+      reason: "AI scorer temporarily unavailable",
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "AI proposal scoring failed:",
+      expect.stringContaining("Unexpected token"),
+    );
+    errorSpy.mockRestore();
   });
 });
