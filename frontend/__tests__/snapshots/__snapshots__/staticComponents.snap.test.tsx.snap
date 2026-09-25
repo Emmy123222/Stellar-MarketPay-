@@ -147,10 +147,11 @@ exports[`static component snapshots ApplicationForm default: ApplicationForm 1`]
         Cover Letter
       </label>
       <textarea
-        aria-describedby="proposal-word-count"
+        aria-describedby="proposal-word-count proposal-char-count"
         aria-invalid="false"
         class="textarea-field"
         id="cover-letter"
+        maxlength="2000"
         placeholder="Describe your relevant experience, your approach to this project, and why you're the best fit..."
         rows="6"
       />
@@ -173,6 +174,15 @@ exports[`static component snapshots ApplicationForm default: ApplicationForm 1`]
           words
            needed
         </span>
+      </p>
+      <p
+        class="mt-0.5 text-xs font-medium tabular-nums text-amber-700"
+        data-testid="proposal-char-count"
+        id="proposal-char-count"
+      >
+        0
+         / 
+        2000
       </p>
     </div>
     <div>

@@ -167,3 +167,105 @@ fn test_set_max_referrer_bonus_xlm_rejects_non_admin() {
     let (contract, _admin, _treasury, client, ..) = setup(&env);
     contract.set_max_referrer_bonus_xlm(&client, &100);
 }
+
+/// Issue #1379 acceptance: with a referrer, `release_escrow` transfers the
+/// 2% bonus to the referrer and the freelancer receives `amount - bonus`.
+#[test]
+fn test_release_escrow_deducts_referral_bonus_when_referrer_set() {
+    let env = Env::default();
+    let (contract, admin, treasury, client, freelancer, referrer, token_id) = setup(&env);
+    contract.set_platform_fee_bps(&admin, &0);
+
+    let job_id = String::from_str(&env, "job-referral-ac");
+    let params = referred_escrow(&freelancer, &referrer, &token_id, 10_000);
+    contract.create_escrow(&job_id, &client, &params);
+    contract.start_work(&job_id, &freelancer);
+    contract.release_escrow(&job_id, &client);
+
+    let token_client = token::Client::new(&env, &token_id);
+    assert_eq!(token_client.balance(&referrer), 200); // amount * 2 / 100
+    assert_eq!(token_client.balance(&freelancer), 9_800); // amount - bonus
+    assert_eq!(token_client.balance(&treasury), 0);
+    assert_eq!(token_client.balance(&contract.address), 0);
+}
+
+/// Issue #1379 acceptance: without a referrer the freelancer receives the
+/// full amount and no referral bonus is paid.
+#[test]
+fn test_release_escrow_pays_full_amount_without_referrer() {
+    let env = Env::default();
+    let (contract, admin, treasury, client, freelancer, _referrer, token_id) = setup(&env);
+    contract.set_platform_fee_bps(&admin, &0);
+
+    let job_id = String::from_str(&env, "job-no-referral-ac");
+    let params = CreateEscrowParams {
+        freelancer: freelancer.clone(),
+        token: token_id.clone(),
+        amount: 10_000,
+        milestones: None,
+        timeout_ledgers: None,
+        referrer: None,
+    };
+    contract.create_escrow(&job_id, &client, &params);
+    contract.start_work(&job_id, &freelancer);
+    contract.release_escrow(&job_id, &client);
+
+    let token_client = token::Client::new(&env, &token_id);
+    assert_eq!(token_client.balance(&freelancer), 10_000);
+    assert_eq!(token_client.balance(&treasury), 0);
+    assert_eq!(token_client.balance(&contract.address), 0);
+}
+
+/// Issue #1379: the referrer bonus must also be honoured when the escrow is
+/// released through the DEX-conversion path.
+#[test]
+fn test_release_with_conversion_deducts_referral_bonus_when_referrer_set() {
+    let env = Env::default();
+    let (contract, admin, treasury, client, freelancer, referrer, token_id) = setup(&env);
+    contract.set_platform_fee_bps(&admin, &0);
+
+    let job_id = String::from_str(&env, "job-conv-referral");
+    let params = referred_escrow(&freelancer, &referrer, &token_id, 10_000);
+    contract.create_escrow(&job_id, &client, &params);
+    contract.start_work(&job_id, &freelancer);
+
+    let target_token = Address::generate(&env);
+    contract.release_with_conversion(&job_id, &client, &target_token, &1);
+
+    let token_client = token::Client::new(&env, &token_id);
+    assert_eq!(token_client.balance(&referrer), 200);
+    assert_eq!(token_client.balance(&freelancer), 9_800);
+    assert_eq!(token_client.balance(&treasury), 0);
+}
+
+/// Issue #1379: partial milestone releases must also pay the referrer bonus.
+#[test]
+fn test_release_milestone_deducts_referral_bonus_when_referrer_set() {
+    let env = Env::default();
+    let (contract, admin, treasury, client, freelancer, referrer, token_id) = setup(&env);
+    contract.set_platform_fee_bps(&admin, &0);
+
+    let mut milestones = soroban_sdk::Vec::new(&env);
+    milestones.push_back(MilestoneInput {
+        description: String::from_str(&env, "Design"),
+        percentage: 100,
+    });
+
+    let job_id = String::from_str(&env, "job-ms-referral");
+    let params = CreateEscrowParams {
+        freelancer: freelancer.clone(),
+        token: token_id.clone(),
+        amount: 10_000,
+        milestones: Some(milestones),
+        timeout_ledgers: None,
+        referrer: Some(referrer.clone()),
+    };
+    contract.create_escrow(&job_id, &client, &params);
+    contract.start_work(&job_id, &freelancer);
+    contract.release_milestone(&job_id, &0u32, &client);
+
+    let token_client = token::Client::new(&env, &token_id);
+    assert_eq!(token_client.balance(&referrer), 200);
+    assert_eq!(token_client.balance(&freelancer), 9_800);
+    assert_eq!(token_client.balance(&treasury), 0);
+}
