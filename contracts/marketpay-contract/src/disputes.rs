@@ -127,6 +127,7 @@ pub(crate) fn resolve_dispute(
     arbitrator: Address,
     winner: Address,
     split_percentage: u32,
+    arbitrator_fee_bps: u32,
 ) {
     arbitrator.require_auth();
     check_not_frozen(&env);
@@ -143,6 +144,10 @@ pub(crate) fn resolve_dispute(
 
     if split_percentage > 100 {
         panic!("Split percentage must be between 0 and 100");
+    }
+
+    if arbitrator_fee_bps > 10_000 {
+        panic!("Arbitrator fee cannot exceed 100% (10000 bps)");
     }
 
     let mut escrow: Escrow = env
@@ -166,15 +171,27 @@ pub(crate) fn resolve_dispute(
         escrow.client.clone()
     };
 
-    // Calculate split amounts
-    let winner_amount = escrow
+    // Calculate arbitrator fee first
+    let arbitrator_fee = escrow
         .amount
+        .checked_mul(arbitrator_fee_bps as i128)
+        .expect("Arithmetic overflow")
+        .checked_div(10_000)
+        .expect("Arithmetic overflow");
+
+    // Net distributable amount remaining for the dispute participants
+    let distributable_amount = escrow
+        .amount
+        .checked_sub(arbitrator_fee)
+        .expect("Arithmetic underflow");
+
+    // Calculate split amounts from the distributable amount
+    let winner_amount = distributable_amount
         .checked_mul(split_percentage as i128)
         .expect("Arithmetic overflow")
         .checked_div(100)
         .expect("Arithmetic overflow");
-    let loser_amount = escrow
-        .amount
+    let loser_amount = distributable_amount
         .checked_sub(winner_amount)
         .expect("Arithmetic underflow");
 
@@ -190,8 +207,11 @@ pub(crate) fn resolve_dispute(
         .instance()
         .remove(&DataKey::FreelancerDeliverableHash(job_id.clone()));
 
-    // Pay out the escrow principal — split between winner and loser
+    // Pay out arbitrator fee and escrow principal (winner / loser)
     let escrow_token_client = token::Client::new(&env, &escrow.token);
+    if arbitrator_fee > 0 {
+        escrow_token_client.transfer(&env.current_contract_address(), &arbitrator, &arbitrator_fee);
+    }
     if winner_amount > 0 {
         escrow_token_client.transfer(&env.current_contract_address(), &winner, &winner_amount);
     }
