@@ -55,7 +55,6 @@ const {
   migrateProfile,
 } = require("../services/profileMigrationService");
 const { validateProfileMigration } = require("../validators/profileMigrationValidator");
-const { getPriceAlertPreference, upsertPriceAlertPreference } = require("../services/priceAlertService");
 
 /**
  * @swagger
@@ -1043,4 +1042,3 @@ router.delete("/:publicKey/data", verifyJWT, profileUpdateRateLimiter, async (re
 });
 
 module.exports = router;
-
