@@ -1,10 +1,14 @@
 {
   "generators": {
-    "address": 3,
+    "address": 2,
     "nonce": 0,
     "mux_id": 0
   },
-  "auth": [[], [], []],
+  "auth": [
+    [],
+    [],
+    []
+  ],
   "ledger": {
     "protocol_version": 27,
     "sequence_number": 0,
@@ -56,6 +60,18 @@
                             "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                           }
                         ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "ContractVersion"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "string": "10.20.300"
                       }
                     },
                     {
@@ -115,7 +131,7 @@
                         ]
                       },
                       "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                       }
                     },
                     {

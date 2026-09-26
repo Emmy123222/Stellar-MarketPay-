@@ -228,6 +228,9 @@
                 },
                 {
                   "u32": 100
+                },
+                {
+                  "u32": 0
                 }
               ]
             }
@@ -343,6 +346,18 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "ContractVersion"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "string": "1.0.0"
                       }
                     },
                     {

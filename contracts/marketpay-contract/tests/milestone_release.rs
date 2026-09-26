@@ -37,7 +37,7 @@ mod tests {
         let id = env.register(MarketPayContract, ());
         let contract = MarketPayContractClient::new(env, &id);
         let admin = Address::generate(env);
-        contract.initialize(&admin, &admin);
+        contract.initialize(&admin, &admin, &String::from_str(&env, "1.0.0"));
 
         let client = Address::generate(env);
         let freelancer = Address::generate(env);

@@ -14,6 +14,16 @@ const pool    = require("../db/pool");
 const { createRating, getRatingsForUser } = require("../services/ratingService");
 const { verifyJWT } = require("../middleware/auth");
 const { scheduleReputationRecalc } = require("../services/reputationService");
+const rateLimit = require("express-rate-limit");
+
+const ratingsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 100, 
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.use(ratingsLimiter);
 
 /**
  * @swagger
@@ -104,6 +114,19 @@ router.post("/", verifyJWT, async (req, res, next) => {
       raterAddress === job.freelancer_address;
     if (!isParty) {
       return res.status(403).json({ error: "Only job participants can submit a rating" });
+    }
+
+    const { rows: existingRatings } = await pool.query(
+      `SELECT 1
+         FROM ratings
+        WHERE job_id = $1
+          AND rater_address = $2
+          AND rated_address = $3
+        LIMIT 1`,
+      [jobId, raterAddress, ratedAddress]
+    );
+    if (existingRatings.length) {
+      return res.status(409).json({ error: "Rating already submitted for this job" });
     }
 
     const rating = await createRating({ jobId, raterAddress, ratedAddress, stars: parsedStars, review });
