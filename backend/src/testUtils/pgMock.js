@@ -1406,4 +1406,4 @@ module.exports = {
   defaultPriceAlertRow,
 };
 
-}
+
