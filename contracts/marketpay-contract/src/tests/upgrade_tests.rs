@@ -11,15 +11,71 @@ use soroban_sdk::{
 const DUMMY_WASM: &[u8] = include_bytes!("../test_fixtures/dummy_upgrade_target.wasm");
 
 #[test]
-fn test_version_starts_at_one() {
+fn test_upgrade_count_starts_at_one() {
     let env = Env::default();
     env.mock_all_auths();
     let id = env.register(MarketPayContract, ());
     let client = MarketPayContractClient::new(&env, &id);
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.initialize(&admin, &treasury);
-    assert_eq!(client.get_version(), 1u32);
+    client.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
+    assert_eq!(client.get_upgrade_count(), 1u32);
+}
+
+#[test]
+fn test_get_version_returns_semver_set_at_initialize() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(MarketPayContract, ());
+    let client = MarketPayContractClient::new(&env, &id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &admin, &String::from_str(&env, "1.2.0"));
+    assert_eq!(client.get_version(), String::from_str(&env, "1.2.0"));
+}
+
+#[test]
+#[should_panic(expected = "Not initialized")]
+fn test_get_version_panics_before_initialize() {
+    let env = Env::default();
+    let id = env.register(MarketPayContract, ());
+    let client = MarketPayContractClient::new(&env, &id);
+    client.get_version();
+}
+
+#[test]
+fn test_initialize_rejects_malformed_versions() {
+    let bad = [
+        "",
+        "1",
+        "1.2",
+        "1.2.3.4",
+        "v1.2.3",
+        "1..3",
+        ".1.2",
+        "1.2.",
+        "1.2.x",
+        "1.2.3-rc1",
+    ];
+    for v in bad {
+        let env = Env::default();
+        env.mock_all_auths();
+        let id = env.register(MarketPayContract, ());
+        let client = MarketPayContractClient::new(&env, &id);
+        let admin = Address::generate(&env);
+        let res = client.try_initialize(&admin, &admin, &String::from_str(&env, v));
+        assert!(res.is_err(), "version {:?} should be rejected", v);
+    }
+}
+
+#[test]
+fn test_initialize_accepts_multi_digit_semver() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(MarketPayContract, ());
+    let client = MarketPayContractClient::new(&env, &id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &admin, &String::from_str(&env, "10.20.300"));
+    assert_eq!(client.get_version(), String::from_str(&env, "10.20.300"));
 }
 
 /// Runs a real WASM swap through `upgrade()` (installing an actual,
@@ -37,7 +93,7 @@ fn test_escrow_state_preserved_across_real_wasm_swap() {
 
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.initialize(&admin, &treasury);
+    client.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let depositor = Address::generate(&env);
     let freelancer = Address::generate(&env);
@@ -61,11 +117,17 @@ fn test_escrow_state_preserved_across_real_wasm_swap() {
     );
 
     let new_hash = env.deployer().upload_contract_wasm(DUMMY_WASM);
-    client.upgrade(&new_hash);
+    client.upgrade(&new_hash, &String::from_str(&env, "1.1.0"));
 
     env.as_contract(&id, || {
         let version: u32 = env.storage().instance().get(&DataKey::Version).unwrap();
         assert_eq!(version, 2);
+        let semver: String = env
+            .storage()
+            .instance()
+            .get(&DataKey::ContractVersion)
+            .unwrap();
+        assert_eq!(semver, String::from_str(&env, "1.1.0"));
         let escrow: Escrow = env
             .storage()
             .instance()
@@ -87,11 +149,11 @@ fn test_upgrade_rejects_uninstalled_wasm_hash() {
     let id = env.register(MarketPayContract, ());
     let client = MarketPayContractClient::new(&env, &id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &admin);
+    client.initialize(&admin, &admin, &String::from_str(&env, "1.0.0"));
 
     let garbage: &[u8] = &[1, 2, 3, 4, 5];
     let new_hash = env.deployer().upload_contract_wasm(garbage);
-    client.upgrade(&new_hash);
+    client.upgrade(&new_hash, &String::from_str(&env, "1.1.0"));
 }
 
 /// Baseline: calling `upgrade()` with no authorization mocked at all
@@ -106,11 +168,11 @@ fn test_upgrade_rejected_for_non_admin() {
 
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.initialize(&admin, &treasury);
+    client.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let fake_hash = BytesN::from_array(&env, &[0u8; 32]);
     // Called without admin auth → should panic
-    client.upgrade(&fake_hash);
+    client.upgrade(&fake_hash, &String::from_str(&env, "1.1.0"));
 }
 
 /// Adversarial case: a non-admin account presents its own genuine,
@@ -127,10 +189,11 @@ fn test_upgrade_rejected_for_authenticated_non_admin() {
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
     env.mock_all_auths();
-    client.initialize(&admin, &treasury);
+    client.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let non_admin = Address::generate(&env);
     let new_hash = env.deployer().upload_contract_wasm(DUMMY_WASM);
+    let new_version = String::from_str(&env, "1.1.0");
 
     client
         .mock_auths(&[MockAuth {
@@ -138,11 +201,11 @@ fn test_upgrade_rejected_for_authenticated_non_admin() {
             invoke: &MockAuthInvoke {
                 contract: &id,
                 fn_name: "upgrade",
-                args: (new_hash.clone(),).into_val(&env),
+                args: (new_hash.clone(), new_version.clone()).into_val(&env),
                 sub_invokes: &[],
             },
         }])
-        .upgrade(&new_hash);
+        .upgrade(&new_hash, &new_version);
 }
 
 #[test]
@@ -152,7 +215,7 @@ fn test_get_milestone_returns_correct_milestone() {
     let id = env.register(MarketPayContract, ());
     let client = MarketPayContractClient::new(&env, &id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &admin);
+    client.initialize(&admin, &admin, &String::from_str(&env, "1.0.0"));
 
     let depositor = Address::generate(&env);
     let freelancer = Address::generate(&env);
@@ -202,7 +265,7 @@ fn test_get_milestone_out_of_bounds_panics() {
     let id = env.register(MarketPayContract, ());
     let client = MarketPayContractClient::new(&env, &id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &admin);
+    client.initialize(&admin, &admin, &String::from_str(&env, "1.0.0"));
 
     let depositor = Address::generate(&env);
     let freelancer = Address::generate(&env);
@@ -241,6 +304,6 @@ fn test_is_frozen_defaults_false() {
     let id = env.register(MarketPayContract, ());
     let client = MarketPayContractClient::new(&env, &id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &admin);
+    client.initialize(&admin, &admin, &String::from_str(&env, "1.0.0"));
     assert!(!client.is_frozen());
 }

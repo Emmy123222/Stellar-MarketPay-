@@ -24,7 +24,7 @@ module.exports = {
   },
   detection: {
     order: ["localStorage", "navigator"],
-    lookupLocalStorage: "preferredLocale",
+    lookupLocalStorage: "stellar-marketpay:locale",
     caches: ["localStorage"],
   },
 };

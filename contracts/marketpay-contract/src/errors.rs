@@ -147,7 +147,7 @@ pub enum ContractError {
     /// "Freelancer rating already submitted for this job"
     FreelancerRatingAlreadySubmitted = 5004,
     /// "Escrow must be released to mint certificate"
-    EscrowMustBeReleased = 5005,
+    EscrowNotReleased = 5005,
     /// "Certificate already minted"
     CertificateAlreadyMinted = 5006,
 
@@ -312,7 +312,7 @@ impl ContractError {
             Self::FreelancerRatingAlreadySubmitted => {
                 "Freelancer rating already submitted for this job"
             }
-            Self::EscrowMustBeReleased => "Escrow must be released to mint certificate",
+            Self::EscrowNotReleased => "Escrow must be released to mint certificate",
             Self::CertificateAlreadyMinted => "Certificate already minted",
             // 6xxx
             Self::DurationPositive => "Duration must be positive",

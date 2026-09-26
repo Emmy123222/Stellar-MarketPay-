@@ -140,7 +140,7 @@ a higher dispute rate) lower reliability scores and can affect account standing.
 | on-chain evidence anchor | `backend/src/services/sorobanEvidence.js` | Build `submit_evidence_cid` XDR, read `get_evidence_cids` |
 | Arbitrator registry client | `backend/src/services/sorobanArbitratorRegistry.js` | Read on-chain arbitrators, merge DB metadata |
 | DAO service | `backend/src/services/daoService.js` | Off-chain arbitrator registry, voting, top panel |
-| IPFS / Pinata | `backend/src/services/ipfsService.js` | Pin evidence files, gateways, signed URL tokens |
+| IPFS / Pinata | `backend/src/services/ipfsService.js` | Pin evidence files, verify pins (`pin ls`), gateways, signed URL tokens |
 | MarketPay contract | `contracts/marketpay-contract/src/disputes.rs` | `raise_dispute`, `resolve_dispute`, bond handling |
 | Arbitrator-registry contract | `contracts/arbitrator-registry/src/lib.rs` | Staked registration, DAO add/remove, reads |
 | Event indexer | `backend/src/services/indexerService.js` | Mirrors on-chain events into PostgreSQL |
@@ -180,7 +180,9 @@ sequenceDiagram
     BE->>IP: Pin file (ipfsService.uploadFile)
     IP-->>BE: IPFS CID
     BE->>BE: validateIpfsCid(cid)
-    BE->>DB: INSERT dispute_evidence (job_id, uploader, cid)
+    BE->>IP: Verify pin exists (pin ls, 3 attempts, 2s apart)
+    IP-->>BE: pinned: true | false
+    BE->>DB: INSERT dispute_evidence (job_id, uploader, cid, pinned)
     BE->>CT: submit_evidence_cid(job_id, cid, caller)  [unsigned XDR]
     CT-->>BE: XDR for EvidenceCids(job_id)
     FE->>FE: Sign XDR in wallet, submit to Soroban RPC
@@ -235,6 +237,14 @@ sequenceDiagram
   `submit_evidence_cid(job_id, cid, caller)` XDR that the frontend signs and
   submits to Soroban RPC. Anchoring is **best-effort** — if the contract is not
   deployed, linkage still works off-chain.
+- **Pin verification (Issue #1439)** — after the upload, `ipfsService.uploadFile`
+  confirms the pin still exists via Pinata's pin list (the REST equivalent of
+  `ipfs pin ls <cid>`), retrying up to 3 times with a 2-second delay. The result
+  is stored in `dispute_evidence.pinned`. A pin that cannot be confirmed is
+  **not** fatal: the row is still written with `pinned = false`, an error is
+  logged and the `ipfs_pin_verification_failures_total` Prometheus counter is
+  incremented (`reason = not_pinned | api_error`) so it can be alerted on and
+  reconciled before the content is garbage-collected.
 - `GET /api/disputes/:jobId/onchain-cids` (`disputes.js:60`) reads the chain
   audit trail (`get_evidence_cids`), cached for 30 s.
 - `GET /api/disputes/:jobId/evidence/:id/url` returns a **15-minute signed proxy
