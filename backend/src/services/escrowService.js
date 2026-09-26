@@ -13,8 +13,10 @@ const { getClientIp } = require("../utils/clientIp");
 const { signWithServiceKey, getServicePublicKey } = require("./stellarServiceKey");
 
 const ESCROW_TIMEOUT_DAYS = 7;
-const ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS = 55 * 60 * 1000;
-const ESCROW_TIMEOUT_CHECK_MAX_DELAY_MS = 65 * 60 * 1000;
+// Spread each instance's one-minute guardian run over a ten-second window.
+// This avoids a thundering herd without changing the intended cadence.
+const ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS = 55 * 1000;
+const ESCROW_TIMEOUT_CHECK_MAX_DELAY_MS = 65 * 1000;
 
 function getEscrowTimeoutCheckDelay(random = Math.random) {
   return Math.floor(
