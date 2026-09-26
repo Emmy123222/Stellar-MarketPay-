@@ -7,7 +7,7 @@ use crate::types::*;
 /// Client commits to a budget amount (sealed-bid, prevents anchoring bias).
 pub(crate) fn commit_budget(env: Env, job_id: String, budget_amount: i128, client: Address) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     if budget_amount <= 0 {
         panic!("Budget must be positive");
@@ -31,7 +31,7 @@ pub(crate) fn commit_budget(env: Env, job_id: String, budget_amount: i128, clien
 /// Reveal the budget. Auto-rejects bids over 150% of budget.
 pub(crate) fn reveal_budget(env: Env, job_id: String, client: Address) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut commitment: BudgetCommitment = env
         .storage()
@@ -73,7 +73,7 @@ pub(crate) fn submit_bid_commitment(
     commitment: BytesN<32>,
 ) {
     freelancer.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     // Ensure this job has a client-owned bidding session via budget commitment.
     let _budget: BudgetCommitment = env
@@ -113,7 +113,7 @@ pub(crate) fn submit_bid_commitment(
 /// Client closes bidding and opens a reveal window.
 pub(crate) fn close_bidding(env: Env, job_id: String, client: Address) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let budget: BudgetCommitment = env
         .storage()
@@ -163,7 +163,7 @@ pub(crate) fn reveal_bid(
     nonce: BytesN<32>,
 ) {
     freelancer.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     if amount <= 0 {
         panic!("Bid amount must be positive");

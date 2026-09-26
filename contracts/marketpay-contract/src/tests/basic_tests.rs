@@ -8,7 +8,7 @@ fn test_initialize() {
     let client = MarketPayContractClient::new(&env, &id);
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.initialize(&admin, &treasury);
+    client.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
     assert_eq!(client.get_admin(), admin);
 }
 
@@ -20,8 +20,8 @@ fn test_double_init_panics() {
     let c = MarketPayContractClient::new(&env, &id);
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    c.initialize(&admin, &treasury);
-    c.initialize(&admin, &treasury);
+    c.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
+    c.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 }
 
 #[test]
@@ -31,7 +31,7 @@ fn test_escrow_count_starts_zero() {
     let c = MarketPayContractClient::new(&env, &id);
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    c.initialize(&admin, &treasury);
+    c.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
     assert_eq!(c.get_escrow_count(), 0);
 }
 
@@ -44,7 +44,7 @@ fn test_governance_flow() {
 
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.initialize(&admin, &treasury);
+    client.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let proposer = Address::generate(&env);
     let voter1 = Address::generate(&env);
@@ -96,7 +96,7 @@ fn test_governance_unauthorized_voter() {
 
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.initialize(&admin, &treasury);
+    client.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let proposer = Address::generate(&env);
     let voter = Address::generate(&env);
@@ -117,12 +117,23 @@ fn test_governance_rejects_double_vote() {
     let id = env.register(MarketPayContract, ());
     let client = MarketPayContractClient::new(&env, &id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &Address::generate(&env));
+    client.initialize(
+        &admin,
+        &Address::generate(&env),
+        &String::from_str(&env, "1.0.0"),
+    );
     let voter = Address::generate(&env);
     env.as_contract(&id, || {
-        env.storage().instance().set(&DataKey::CompletedJobs(voter.clone()), &1u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::CompletedJobs(voter.clone()), &1u32);
     });
-    let pid = client.create_proposal(&admin, &String::from_str(&env, "p"), &String::from_str(&env, "d"), &10);
+    let pid = client.create_proposal(
+        &admin,
+        &String::from_str(&env, "p"),
+        &String::from_str(&env, "d"),
+        &10,
+    );
     client.cast_vote(&voter, &pid, &true);
     client.cast_vote(&voter, &pid, &false);
 }
@@ -135,12 +146,23 @@ fn test_governance_rejects_vote_after_resolution() {
     let id = env.register(MarketPayContract, ());
     let client = MarketPayContractClient::new(&env, &id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &Address::generate(&env));
+    client.initialize(
+        &admin,
+        &Address::generate(&env),
+        &String::from_str(&env, "1.0.0"),
+    );
     let voter = Address::generate(&env);
     env.as_contract(&id, || {
-        env.storage().instance().set(&DataKey::CompletedJobs(voter.clone()), &1u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::CompletedJobs(voter.clone()), &1u32);
     });
-    let pid = client.create_proposal(&admin, &String::from_str(&env, "p"), &String::from_str(&env, "d"), &10);
+    let pid = client.create_proposal(
+        &admin,
+        &String::from_str(&env, "p"),
+        &String::from_str(&env, "d"),
+        &10,
+    );
     let mut ledger = env.ledger().get();
     ledger.sequence_number += 10;
     env.ledger().set(ledger);

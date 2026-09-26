@@ -20,6 +20,7 @@ The table below lists all custom application metrics exported by the backend API
 | `pg_pool_idle`                                       | Gauge     | _None_                           | Idle PostgreSQL connections available in the pool                               |
 | `pg_pool_waiting`                                    | Gauge     | _None_                           | Client requests waiting for an available database connection                    |
 | `notification_queue_pending`                         | Gauge     | _None_                           | Pending outbound notifications queued for processing                            |
+| `ipfs_pin_verification_failures_total`               | Counter   | `reason`                         | IPFS uploads whose pin could not be verified after retries (`not_pinned`, `api_error`, `invalid_cid`) |
 | `stellar_marketpay_horizon_request_duration_seconds` | Histogram | `method`, `status`               | Outbound Horizon API request duration in **seconds**                            |
 | `marketpay_http_requests_total`                      | Counter   | `method`, `route`, `status_code` | _(Legacy alias)_ Total HTTP requests handled                                    |
 | `marketpay_http_request_duration_seconds`            | Histogram | `method`, `route`, `status_code` | _(Legacy alias)_ HTTP request latency in **seconds**                            |
@@ -228,6 +229,26 @@ Database metrics are instrumented through the shared PostgreSQL connection pool 
   - **Backlog growth rate (derivative over 5m)**:
     ```promql
     deriv(notification_queue_pending{job="marketpay-backend"}[5m])
+    ```
+
+---
+
+### 4.1 IPFS Pin Verification (Issue #1439)
+
+#### `ipfs_pin_verification_failures_total`
+
+- **Type**: `Counter`
+- **Description**: Incremented when an IPFS upload returns a CID but the pin cannot be confirmed after retrying (3 attempts, 2s apart). Such a CID may be garbage-collected by the provider, so the row is stored with `dispute_evidence.pinned = false` for reconciliation.
+- **Labels**:
+  - `reason`: `not_pinned` (provider responded, pin absent), `api_error` (provider unreachable/error), `invalid_cid` (empty/malformed CID).
+- **Example PromQL Queries**:
+  - **Pin failures in the last 15 minutes**:
+    ```promql
+    increase(ipfs_pin_verification_failures_total{job="marketpay-backend"}[15m])
+    ```
+  - **Failures broken down by reason**:
+    ```promql
+    sum by (reason) (rate(ipfs_pin_verification_failures_total{job="marketpay-backend"}[1h]))
     ```
 
 ---

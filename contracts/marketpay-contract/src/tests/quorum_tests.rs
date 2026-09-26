@@ -8,7 +8,11 @@ fn setup(env: &Env) -> (MarketPayContractClient, Address, Address) {
     let id = env.register(MarketPayContract, ());
     let client = MarketPayContractClient::new(env, &id);
     let admin = Address::generate(env);
-    client.initialize(&admin, &Address::generate(env));
+    client.initialize(
+        &admin,
+        &Address::generate(env),
+        &String::from_str(&env, "1.0.0"),
+    );
     (client, id, admin)
 }
 

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { createInstance } from "i18next";
-import LanguageSwitcher from "@/components/LanguageSwitcher";
+import LanguageSwitcher, { LOCALE_STORAGE_KEY } from "@/components/LanguageSwitcher";
 
 import en from "@/public/locales/en/common.json";
 import es from "@/public/locales/es/common.json";
@@ -39,6 +39,6 @@ describe("LanguageSwitcher", () => {
       expect(i18n.language).toBe("es");
       expect(screen.getByLabelText("Cambiar Idioma")).toBeInTheDocument();
     });
-    expect(localStorage.getItem("preferredLocale")).toBe("es");
+    expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("es");
   });
 });

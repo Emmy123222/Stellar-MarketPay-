@@ -854,6 +854,7 @@
 /* eslint-disable */`n  status = "open",
 /* eslint-disable */`n  limit = 20,
 /* eslint-disable */`n  search,
+/* eslint-disable */`n  q,
 /* eslint-disable */`n  cursor,
 /* eslint-disable */`n  // eslint-disable-next-line no-unused-vars
 /* eslint-disable */`n  timezone,
@@ -873,7 +874,20 @@
 /* eslint-disable */`n  let selectColumns = "jobs.*";
 /* eslint-disable */`n  let orderClause = `CASE WHEN boosted = true AND (boosted_until IS NULL OR boosted_until > NOW()) THEN 0 ELSE 1 END, created_at DESC, id DESC`;
 /* eslint-disable */`n
-/* eslint-disable */`n  if (search && search.trim()) {
+/* eslint-disable */`n  const fullTextQuery = q && q.trim();
+/* eslint-disable */`n  if (fullTextQuery) {
+/* eslint-disable */`n    params.push(fullTextQuery);
+/* eslint-disable */`n    const searchIdx = params.length;
+/* eslint-disable */`n    const document = "to_tsvector('english', title || ' ' || description)";
+/* eslint-disable */`n    selectColumns = `jobs.*,
+/* eslint-disable */`n      ts_rank(${document}, websearch_to_tsquery('english', $${searchIdx})) AS rank,
+/* eslint-disable */`n      ts_headline('english', title, websearch_to_tsquery('english', $${searchIdx}),
+/* eslint-disable */`n        'StartSel=<mark>,StopSel=</mark>,MaxWords=50,MinWords=20') AS headline_title,
+/* eslint-disable */`n      ts_headline('english', description, websearch_to_tsquery('english', $${searchIdx}),
+/* eslint-disable */`n        'StartSel=<mark>,StopSel=</mark>,MaxWords=80,MinWords=30') AS headline_description`;
+/* eslint-disable */`n    conditions.push(`${document} @@ websearch_to_tsquery('english', $${searchIdx})`);
+/* eslint-disable */`n    orderClause = `rank DESC, ${orderClause}`;
+/* eslint-disable */`n  } else if (search && search.trim()) {
 /* eslint-disable */`n    params.push(search.trim());
 /* eslint-disable */`n    const searchIdx = params.length;
 /* eslint-disable */`n    selectColumns = `jobs.*,

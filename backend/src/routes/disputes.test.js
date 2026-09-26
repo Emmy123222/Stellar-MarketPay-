@@ -30,6 +30,7 @@ jest.mock("../services/sorobanEvidence", () => ({
 
 jest.mock("../services/ipfsService", () => ({
   uploadFile: jest.fn(),
+  verifyPin: jest.fn(),
   getGatewayUrl: jest.fn(),
   generateSignedUrlToken: jest.fn(),
   verifySignedUrlToken: jest.fn(),
@@ -39,6 +40,10 @@ jest.mock("../services/ipfsService", () => ({
 
 jest.mock("../services/disputeService", () => ({
   validateIpfsCid: jest.fn(),
+}));
+
+jest.mock("../services/sorobanArbitratorRegistry", () => ({
+  isArbitrator: jest.fn(),
 }));
 
 const pool = require("../db/pool");
@@ -58,6 +63,7 @@ const {
   proxyIpfsFile,
 } = require("../services/ipfsService");
 const { validateIpfsCid } = require("../services/disputeService");
+const { isArbitrator } = require("../services/sorobanArbitratorRegistry");
 
 // ── Minimal Express test app ─────────────────────────────────────────────────
 
@@ -75,6 +81,7 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 const CLIENT_ADDRESS = "G" + "A".repeat(55);
 const FREELANCER_ADDRESS = "G" + "B".repeat(55);
 const OTHER_ADDRESS = "G" + "C".repeat(55);
+const ARBITRATOR_ADDRESS = "G" + "D".repeat(55);
 const JOB_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const EVIDENCE_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const VALID_CID = "QmT78zSuBmuS4z925WZfrqQ1qHaJ56DQaTfyMUF7F8ff5o";
@@ -133,6 +140,7 @@ function fakeEvidenceRow(overrides = {}) {
     file_size: overrides.file_size || 1024,
     mime_type: overrides.mime_type || "application/pdf",
     ipfs_cid: overrides.ipfs_cid || VALID_CID,
+    pinned: overrides.pinned ?? true,
     created_at: overrides.created_at || new Date().toISOString(),
   };
 }
@@ -244,7 +252,7 @@ describe("Dispute Routes Suite (/api/disputes)", () => {
   describe("POST /api/disputes/:jobId/evidence", () => {
     it("201 — happy path: uploads file and returns evidence record", async () => {
       const job = seedJob();
-      uploadFile.mockResolvedValue({ cid: VALID_CID, size: 1024 });
+      uploadFile.mockResolvedValue({ cid: VALID_CID, size: 1024, pinned: true });
       validateIpfsCid.mockReturnValue(VALID_CID);
       getGatewayUrl.mockReturnValue(`https://gateway.pinata.cloud/ipfs/${VALID_CID}`);
 
@@ -267,7 +275,14 @@ describe("Dispute Routes Suite (/api/disputes)", () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data.fileName).toBe("document.pdf");
+      expect(res.body.data.pinned).toBe(true);
       expect(uploadFile).toHaveBeenCalled();
+
+      // Issue #1439 — the pin state is persisted on the evidence row.
+      const insertCall = pool.query.mock.calls.find(([sql]) => /INSERT INTO dispute_evidence/.test(sql));
+      expect(insertCall).toBeDefined();
+      expect(insertCall[0]).toMatch(/pinned/);
+      expect(insertCall[1][6]).toBe(true);
     });
 
     it("401 — rejects when no JWT is supplied", async () => {
@@ -346,6 +361,132 @@ describe("Dispute Routes Suite (/api/disputes)", () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/Maximum 5 files/);
       expect(uploadFile).not.toHaveBeenCalled();
+    });
+  });
+
+  // ===========================================================================
+  // 3b. GET /api/disputes/:jobId/evidence — list evidence (Issue #1435)
+  // ===========================================================================
+  describe("GET /api/disputes/:jobId/evidence", () => {
+    it("200 — returns evidence list for the dispute client", async () => {
+      seedJob();
+      getGatewayUrl.mockReturnValue(`https://gateway.pinata.cloud/ipfs/${VALID_CID}`);
+
+      // 1st query: job lookup → return job row
+      pool.query.mockResolvedValueOnce({ rows: [{ client_address: CLIENT_ADDRESS, freelancer_address: FREELANCER_ADDRESS }] });
+      // 2nd query: evidence list → return evidence rows
+      pool.query.mockResolvedValueOnce({ rows: [fakeEvidenceRow()] });
+
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}/evidence`)
+        .set("Authorization", `Bearer ${makeToken(CLIENT_ADDRESS)}`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.jobId).toBe(JOB_ID);
+      expect(res.body.data.evidence).toHaveLength(1);
+      expect(res.body.data.evidence[0].fileName).toBe("document.pdf");
+      expect(isArbitrator).not.toHaveBeenCalled();
+    });
+
+    it("200 — returns evidence list for the dispute freelancer", async () => {
+      seedJob();
+      getGatewayUrl.mockReturnValue(`https://gateway.pinata.cloud/ipfs/${VALID_CID}`);
+
+      pool.query.mockResolvedValueOnce({ rows: [{ client_address: CLIENT_ADDRESS, freelancer_address: FREELANCER_ADDRESS }] });
+      pool.query.mockResolvedValueOnce({ rows: [fakeEvidenceRow()] });
+
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}/evidence`)
+        .set("Authorization", `Bearer ${makeToken(FREELANCER_ADDRESS)}`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.evidence).toHaveLength(1);
+      expect(isArbitrator).not.toHaveBeenCalled();
+    });
+
+    it("200 — returns evidence list for an assigned on-chain arbitrator", async () => {
+      seedJob();
+      getGatewayUrl.mockReturnValue(`https://gateway.pinata.cloud/ipfs/${VALID_CID}`);
+      isArbitrator.mockResolvedValue(true);
+
+      pool.query.mockResolvedValueOnce({ rows: [{ client_address: CLIENT_ADDRESS, freelancer_address: FREELANCER_ADDRESS }] });
+      pool.query.mockResolvedValueOnce({ rows: [fakeEvidenceRow()] });
+
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}/evidence`)
+        .set("Authorization", `Bearer ${makeToken(ARBITRATOR_ADDRESS)}`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.evidence).toHaveLength(1);
+      expect(isArbitrator).toHaveBeenCalledWith(ARBITRATOR_ADDRESS);
+    });
+
+    it("403 — rejects a third-party user who is not a dispute participant", async () => {
+      seedJob();
+      isArbitrator.mockResolvedValue(false);
+
+      pool.query.mockResolvedValueOnce({ rows: [{ client_address: CLIENT_ADDRESS, freelancer_address: FREELANCER_ADDRESS }] });
+
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}/evidence`)
+        .set("Authorization", `Bearer ${makeToken(OTHER_ADDRESS)}`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/client, freelancer, or assigned arbitrator/);
+    });
+
+    it("403 — does not leak evidence rows when access is denied", async () => {
+      seedJob();
+      isArbitrator.mockResolvedValue(false);
+
+      pool.query.mockResolvedValueOnce({ rows: [{ client_address: CLIENT_ADDRESS, freelancer_address: FREELANCER_ADDRESS }] });
+
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}/evidence`)
+        .set("Authorization", `Bearer ${makeToken(OTHER_ADDRESS)}`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(403);
+      expect(res.body.data).toBeUndefined();
+    });
+
+    it("401 — rejects when no JWT is supplied", async () => {
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}/evidence`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toMatch(/Unauthorized/);
+    });
+
+    it("404 — returns 404 when job not found", async () => {
+      const res = await request(app)
+        .get("/api/disputes/non-existent-job/evidence")
+        .set("Authorization", `Bearer ${makeToken(CLIENT_ADDRESS)}`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toMatch(/Job not found/);
+    });
+
+    it("200 — returns empty evidence array when no evidence uploaded", async () => {
+      seedJob();
+
+      pool.query.mockResolvedValueOnce({ rows: [{ client_address: CLIENT_ADDRESS, freelancer_address: FREELANCER_ADDRESS }] });
+      pool.query.mockResolvedValueOnce({ rows: [] });
+
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}/evidence`)
+        .set("Authorization", `Bearer ${makeToken(CLIENT_ADDRESS)}`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.evidence).toEqual([]);
     });
   });
 
