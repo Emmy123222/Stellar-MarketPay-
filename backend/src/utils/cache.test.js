@@ -105,6 +105,19 @@ describe("bare keys are refused", () => {
     expect(console.warn).toHaveBeenCalled();
   });
 
+  it("does not write the rejected key into the log", async () => {
+    const secretLooking = "sk_live_abc123secret";
+
+    await cache.set(secretLooking, 1, 60);
+    await cache.get(secretLooking);
+    await cache.del(secretLooking);
+
+    expect(console.warn).toHaveBeenCalledTimes(3);
+    for (const call of console.warn.mock.calls) {
+      expect(call.join(" ")).not.toContain(secretLooking);
+    }
+  });
+
   it("still accepts the existing namespaced keys", async () => {
     const keys = [
       "stats:overview",

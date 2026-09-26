@@ -78,9 +78,11 @@ function isNamespacedKey(key) {
   return typeof key === "string" && /^[a-z][a-z0-9_-]*:.+/i.test(key);
 }
 
+// Never log the key itself: some keys embed identifiers such as API key ids
+// (e.g. rate-limit keys), so only the operation and the key's type are shown.
 function rejectBareKey(op, key) {
   console.warn(
-    `[cache] ${op} ignored: key ${JSON.stringify(key)} has no entity prefix (use job:<id>, profile:<id>, escrow:<id>)`,
+    `[cache] ${op} ignored: key (${typeof key}) has no entity prefix (use job:<id>, profile:<id>, escrow:<id>)`,
   );
 }
 
