@@ -287,6 +287,39 @@ function setWebsocketConnections(channel, count) {
   if (channel === "realtime") legacyWsConnectionsActive.set(count);
 }
 
+// Bounded failure-reason set for escrow releases. Raw error messages are never
+// used as label values (cardinality + PII safety).
+const ESCROW_RELEASE_REASONS = [
+  ["insufficient_balance", /insufficient|balance/],
+  ["network", /horizon|network|fetch|timeout|econn|socket/],
+  ["not_found", /not found|no escrow|already released|not in progress/],
+];
+
+/**
+ * Classify an escrow release failure into a bounded `reason` label.
+ *
+ * @param {Error|*} err error thrown while releasing escrow
+ * @returns {string} insufficient_balance | network | not_found | contract_error
+ */
+function escrowReleaseReason(err) {
+  const message = String((err && err.message) || "").toLowerCase();
+  for (const [reason, pattern] of ESCROW_RELEASE_REASONS) {
+    if (pattern.test(message)) return reason;
+  }
+  return "contract_error";
+}
+
+/**
+ * Record one escrow release attempt.
+ *
+ * @param {boolean} ok   whether the release succeeded
+ * @param {Error}  [err] the thrown error when `ok` is false
+ */
+function recordEscrowRelease(ok, err) {
+  escrowReleasesTotal.inc({ result: ok ? "success" : "error" });
+  if (!ok) escrowReleaseErrorsTotal.inc({ reason: escrowReleaseReason(err) });
+}
+
 /**
  * Render the registry in Prometheus text exposition format.
  *
@@ -306,6 +339,8 @@ module.exports = {
   activeWebsocketConnections,
   poolQueryDurationMs,
   poolQueriesTotal,
+  escrowReleasesTotal,
+  escrowReleaseErrorsTotal,
   // supporting metrics
   dbConnections,
   pgPoolTotal,
@@ -325,5 +360,7 @@ module.exports = {
   observeHttpRequest,
   observePoolQuery,
   setWebsocketConnections,
+  recordEscrowRelease,
+  escrowReleaseReason,
   renderMetrics,
 };
