@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, String, token};
+use soroban_sdk::{testutils::Address as _, token, Address, Env, String};
 
 #[test]
 #[should_panic(expected = "Escrow must be released to mint certificate")]
@@ -14,7 +14,7 @@ fn test_mint_certificate_locked_escrow_panics() {
 
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.initialize(&admin, &treasury);
+    client.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let escrow_client = Address::generate(&env);
     let freelancer = Address::generate(&env);
@@ -52,7 +52,7 @@ fn test_mint_certificate_success() {
 
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.initialize(&admin, &treasury);
+    client.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let escrow_client = Address::generate(&env);
     let freelancer = Address::generate(&env);

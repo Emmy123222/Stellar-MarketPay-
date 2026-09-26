@@ -10,7 +10,7 @@ fn test_release_escrow_state_consistency_regression() {
 
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    contract_client.initialize(&admin, &treasury);
+    contract_client.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let client = Address::generate(&env);
     let freelancer = Address::generate(&env);
@@ -53,7 +53,7 @@ fn test_release_with_conversion() {
 
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    contract_client.initialize(&admin, &treasury);
+    contract_client.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let client = Address::generate(&env);
     let freelancer = Address::generate(&env);
@@ -93,7 +93,7 @@ fn test_partial_release() {
 
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    contract_client.initialize(&admin, &treasury);
+    contract_client.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let client = Address::generate(&env);
     let freelancer = Address::generate(&env);
@@ -158,7 +158,11 @@ fn test_unfreeze_rejects_below_threshold() {
     let id = env.register(MarketPayContract, ());
     let client = MarketPayContractClient::new(&env, &id);
     let admin = Address::generate(&env);
-    client.initialize(&admin, &Address::generate(&env));
+    client.initialize(
+        &admin,
+        &Address::generate(&env),
+        &String::from_str(&env, "1.0.0"),
+    );
     client.freeze_contract(&admin);
     let signatures = Vec::from_array(&env, [admin]);
     client.unfreeze_contract(&signatures);
@@ -175,7 +179,11 @@ fn test_unfreeze_rejects_duplicate_signatures() {
     let client = MarketPayContractClient::new(&env, &id);
     let admin = Address::generate(&env);
     let second_admin = Address::generate(&env);
-    client.initialize(&admin, &Address::generate(&env));
+    client.initialize(
+        &admin,
+        &Address::generate(&env),
+        &String::from_str(&env, "1.0.0"),
+    );
     client.add_admin(&admin, &second_admin);
     client.freeze_contract(&admin);
     let signatures = Vec::from_array(&env, [admin.clone(), admin]);
