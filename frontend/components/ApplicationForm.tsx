@@ -14,6 +14,11 @@ import clsx from "clsx";
 const SCORE_DEBOUNCE_MS = 2000;
 // Don't bother the AI with very short drafts.
 const MIN_SCORE_CHARS = 20;
+// Issue #1416 — proposal character limit; surface it in the UI with a live
+// counter so writers never hit it blind.
+export const MAX_PROPOSAL_CHARS = 2000;
+// Turn the counter red when the writer is this close to the limit.
+const CHAR_WARNING_THRESHOLD = 100;
 
 interface ApplicationFormProps {
   job: Job;
@@ -69,6 +74,11 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
   const MIN_WORDS = 50;
   const wordsRemaining = Math.max(0, MIN_WORDS - wordCount);
   const meetsWordMinimum = wordCount >= MIN_WORDS;
+
+  // Issue #1416 — character counter: turns red once fewer than
+  // CHAR_WARNING_THRESHOLD characters remain.
+  const charsRemaining = MAX_PROPOSAL_CHARS - proposal.length;
+  const nearCharLimit = charsRemaining < CHAR_WARNING_THRESHOLD;
 
   const isValid = meetsWordMinimum && parseFloat(bidAmount) > 0;
 
@@ -211,13 +221,14 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
               id="cover-letter"
               value={proposal} onChange={(e) => setProposal(e.target.value)}
               rows={6}
+              maxLength={MAX_PROPOSAL_CHARS}
               placeholder="Describe your relevant experience, your approach to this project, and why you're the best fit..."
               className={clsx(
                 "textarea-field",
                 proposal.length > 0 && !meetsWordMinimum && "border-red-500/40"
               )}
               aria-invalid={proposal.length > 0 && !meetsWordMinimum}
-              aria-describedby="proposal-word-count"
+              aria-describedby="proposal-word-count proposal-char-count"
             />
             <p
               id="proposal-word-count"
@@ -232,6 +243,16 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
                   — {wordsRemaining} more {wordsRemaining === 1 ? "word" : "words"} needed
                 </span>
               )}
+            </p>
+            <p
+              id="proposal-char-count"
+              data-testid="proposal-char-count"
+              className={clsx(
+                "mt-0.5 text-xs font-medium tabular-nums",
+                nearCharLimit ? "text-red-400" : "text-amber-700"
+              )}
+            >
+              {proposal.length} / {MAX_PROPOSAL_CHARS}
             </p>
 
             <ProposalScores
