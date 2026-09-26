@@ -8,6 +8,7 @@ const {
   EVENT_TYPES,
 } = require("./notificationService");
 const { processReferralPayout } = require("./referralService");
+const insightsService = require("./insightsService");
 const { createServiceLogger, logError } = require("../utils/logger");
 const { getClientIp } = require("../utils/clientIp");
 const { signWithServiceKey, getServicePublicKey } = require("./stellarServiceKey");
@@ -275,7 +276,7 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
   if (!isNaN(budgetNum) && escrowAmountNum > budgetNum + 0.0000001) {
     logger.warn(
       { jobId, escrowAmount: amountXlm, jobBudget: job.budget },
-      'Escrow amount exceeds job budget — possible data inconsistency (Issue #850)',
+      'Escrow amount exceeds job budget â€” possible data inconsistency (Issue #850)',
     );
   }
 
@@ -300,6 +301,13 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
     await recordTimelineEvent(jobId, "escrow_released", contractTxHash || null);
   } catch (err) {
     console.error("[timeline] Failed to record escrow_released event:", err.message);
+  }
+
+  // Invalidate platform insights cache so totals reflect this release (#1512)
+  try {
+    await insightsService.invalidateCache();
+  } catch (err) {
+    console.warn("[insights] cache invalidation failed:", err.message);
   }
 
   await notifyEscrowEvent({

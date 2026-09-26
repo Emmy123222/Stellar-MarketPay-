@@ -15,7 +15,7 @@ function cacheKey(name, params = {}) {
   return `${name}:${dayKey}:${JSON.stringify(params)}`;
 }
 
-async function withDailyCache(name, params, loader) {
+async function withCache(name, params, loader) {
   const key = cacheKey(name, params);
   const cached = cache.get(key);
   if (cached && cached.expiresAt > Date.now()) {
@@ -28,7 +28,7 @@ async function withDailyCache(name, params, loader) {
 }
 
 async function getCategoryInsights(limit = 20) {
-  return withDailyCache("categories", { limit }, async () => {
+  return withCache("categories", { limit }, async () => {
     const { rows } = await pool.query(
       `
       WITH job_applications AS (
@@ -80,7 +80,7 @@ async function getCategoryInsights(limit = 20) {
 }
 
 async function getSkillInsights(limit = 20) {
-  return withDailyCache("skills", { limit }, async () => {
+  return withCache("skills", { limit }, async () => {
     const { rows } = await pool.query(
       `
       WITH skill_rows AS (
@@ -119,7 +119,7 @@ async function getSkillInsights(limit = 20) {
 }
 
 async function getCompetitiveJobs(limit = 20) {
-  return withDailyCache("competitive", { limit }, async () => {
+  return withCache("competitive", { limit }, async () => {
     const { rows } = await pool.query(
       `
       WITH app_counts AS (
@@ -166,7 +166,7 @@ async function getCompetitiveJobs(limit = 20) {
 }
 
 async function getPayTrends(days = 30) {
-  return withDailyCache("pay-trends", { days }, async () => {
+  return withCache("pay-trends", { days }, async () => {
     const { rows } = await pool.query(
       `
       SELECT
@@ -192,7 +192,7 @@ async function getPayTrends(days = 30) {
 }
 
 async function getClientMix() {
-  return withDailyCache("client-mix", {}, async () => {
+  return withCache("client-mix", {}, async () => {
     const { rows } = await pool.query(
       `
       WITH first_posts AS (
@@ -222,7 +222,7 @@ async function getClientMix() {
  * Cached for 1 hour.
  */
 async function getPlatformSummary() {
-  return withDailyCache("platform-summary", {}, async () => {
+  return withCache("platform-summary", {}, async () => {
     const [totals, byCategory, byCurrency, byMonth] = await Promise.all([
       pool.query(`
         SELECT
