@@ -9,6 +9,7 @@
 "use strict";
 
 const express = require("express");
+const { verifyJWT } = require("../middleware/auth");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const escrowActionRateLimiter = createRateLimiter(30, 1);
@@ -43,38 +44,41 @@ const {
 
 /**
  * POST /api/escrow/:jobId/release
+ *
+ * Issue #1401: escrow may only be released by the client who funded it. The
+ * caller is identified exclusively by the verified JWT (`req.user.publicKey`);
+ * the request body is never trusted to name the client, otherwise any
+ * authenticated user could release another user's escrow by passing the
+ * victim's wallet address.
  */
-router.post("/:jobId/release", async (req, res, next) => {
+router.post(
+  "/:jobId/release",
+  escrowActionRateLimiter,
+  verifyJWT,
+  async (req, res, next) => {
   try {
     const { jobId } = req.params;
-    const { clientAddress, contractTxHash } = req.body;
+    const { contractTxHash } = req.body;
 
-    if (!clientAddress || !/^G[A-Z0-9]{55}$/.test(clientAddress)) {
-      const e = new Error("Invalid client address");
-      e.status = 400;
+    // The authenticated wallet from the JWT is the only identity we trust.
+    const callerAddress = req.user && req.user.publicKey;
+    if (!callerAddress) {
+      const e = new Error("Unauthorized: missing authenticated wallet");
+      e.status = 401;
       throw e;
     }
 
-    const job = await getJob(jobId);
-    if (job.clientAddress !== clientAddress) {
-      const e = new Error("Only the job client can release escrow");
-      e.status = 403;
-      throw e;
-    }
-
-    if (job.status !== "in_progress") {
-      const e = new Error("Job is not in progress");
-      e.status = 400;
-      throw e;
-    }
-
-    // Fetch escrow amount and status for referral bonus and audit log.
-    // DB status is updated asynchronously by the indexer when it processes the on-chain event.
+    // Load the escrow record and the wallet that funded it. In this schema the
+    // escrow's client lives on the job row (jobs.client_address).
+    // DB status is updated asynchronously by the indexer when it processes the
+    // on-chain event.
     const { rows: escrowRows } = await pool.query(
-      `SELECT amount_xlm, status FROM escrows WHERE job_id = $1`,
+      `SELECT e.amount_xlm, e.status, j.client_address
+         FROM escrows e
+         JOIN jobs j ON e.job_id = j.id
+        WHERE e.job_id = $1`,
       [jobId],
     );
-    const escrowStatus = escrowRows.length ? escrowRows[0].status : null;
 
     if (!escrowRows.length) {
       const e = new Error("No escrow record found for this job");
@@ -82,10 +86,28 @@ router.post("/:jobId/release", async (req, res, next) => {
       throw e;
     }
 
+    const escrow = escrowRows[0];
+    const escrowStatus = escrow.status;
+
+    // Issue #1401: only the client on the escrow record may release the funds.
+    if (escrow.client_address !== callerAddress) {
+      const e = new Error("Only the job client can release escrow");
+      e.status = 403;
+      throw e;
+    }
+
+    const job = await getJob(jobId);
+
+    if (job.status !== "in_progress") {
+      const e = new Error("Job is not in progress");
+      e.status = 400;
+      throw e;
+    }
+
     // Process referral bonus payout (2% of earnings to referrer on referee's first job).
     // The on-chain transfer is handled by the Soroban contract's release_escrow();
     // this records the payout in the DB and updates referral status.
-    const amountXlm = escrowRows[0].amount_xlm;
+    const amountXlm = escrow.amount_xlm;
     const escrowAmountNum = parseFloat(amountXlm);
 
     // Bug #850: Validate escrow amount consistency before release.
@@ -112,7 +134,7 @@ router.post("/:jobId/release", async (req, res, next) => {
     // Audit log the escrow release event
     try {
       await insertAuditLog({
-        actorAddress: clientAddress,
+        actorAddress: callerAddress,
         action: "escrow_release",
         entityType: "escrow",
         entityId: jobId,

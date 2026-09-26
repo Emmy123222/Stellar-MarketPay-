@@ -32,6 +32,8 @@ function randomNonceHex(bytes = 16): string {
   const arr = new Uint8Array(bytes);
   if (typeof window !== "undefined" && window.crypto?.getRandomValues) {
     window.crypto.getRandomValues(arr);
+  } else if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(arr);
   } else {
     for (let i = 0; i < arr.length; i += 1) arr[i] = Math.floor(Math.random() * 256);
   }

@@ -265,7 +265,11 @@ class PriceAlertService {
   }
 
   async handleTrigger(pref, kind, currentPriceUsd, threshold) {
+    const allowedFields = new Set(["last_min_alert_at", "last_max_alert_at"]);
     const field = kind === "min" ? "last_min_alert_at" : "last_max_alert_at";
+    if (!allowedFields.has(field)) {
+      throw new Error("Invalid alert field");
+    }
     await pool.query(`UPDATE price_alert_preferences SET ${field} = NOW(), updated_at = NOW() WHERE freelancer_address = $1`, [
       pref.freelancer_address,
     ]);

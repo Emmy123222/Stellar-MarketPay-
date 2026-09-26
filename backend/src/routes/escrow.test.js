@@ -1,5 +1,10 @@
 "use strict";
 
+// This suite exercises every escrow route through a single shared
+// escrowActionRateLimiter instance, so relax the limiter for the test run
+// (same convention as insights/transactions/webhooks test suites).
+process.env.RATE_LIMIT_SCALE = process.env.RATE_LIMIT_SCALE || "1000";
+
 /**
  * src/routes/escrow.test.js
  *
@@ -85,7 +90,13 @@ const {
 
 const express = require("express");
 const request = require("supertest");
+const jwt = require("jsonwebtoken");
+const { JWT_SECRET } = require("../middleware/auth");
 const escrowRoutes = require("./escrow");
+
+function makeToken(publicKey) {
+  return jwt.sign({ publicKey }, JWT_SECRET, { expiresIn: "1h" });
+}
 
 // Setup minimal Express test application
 const app = express();
@@ -137,10 +148,8 @@ describe("Escrow Route Suite (/api/escrow)", () => {
 
       const res = await request(app)
         .post(`/api/escrow/${JOB_ID}/release`)
-        .send({
-          clientAddress: CLIENT_ADDRESS,
-          contractTxHash: "tx-release-123",
-        });
+        .set("Authorization", `Bearer ${makeToken(CLIENT_ADDRESS)}`)
+        .send({ contractTxHash: "tx-release-123" });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -169,7 +178,8 @@ describe("Escrow Route Suite (/api/escrow)", () => {
 
       const res = await request(app)
         .post(`/api/escrow/${JOB_ID}/release`)
-        .send({ clientAddress: CLIENT_ADDRESS });
+        .set("Authorization", `Bearer ${makeToken(CLIENT_ADDRESS)}`)
+        .send({});
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -179,28 +189,63 @@ describe("Escrow Route Suite (/api/escrow)", () => {
       });
     });
 
-    it("400 — rejects when client address format is invalid", async () => {
+    it("401 — rejects when no authentication token is provided", async () => {
+      const escrow = defaultEscrowRow({
+        job_id: JOB_ID,
+        client_address: CLIENT_ADDRESS,
+        amount_xlm: "500.0000000",
+        status: "funded",
+      });
+      pool.escrows.set(JOB_ID, escrow);
+
       const res = await request(app)
         .post(`/api/escrow/${JOB_ID}/release`)
-        .send({ clientAddress: "INVALID_ADDRESS" });
+        .send({ contractTxHash: "tx-release-123" });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toBe("Invalid client address");
+      expect(res.status).toBe(401);
     });
 
-    it("403 — rejects when caller is not the job client", async () => {
-      getJob.mockResolvedValue({
-        id: JOB_ID,
-        clientAddress: CLIENT_ADDRESS,
-        status: "in_progress",
+    it("403 — rejects a freelancer JWT releasing a job they do not own (Issue #1401)", async () => {
+      // The job was funded by CLIENT_ADDRESS, but the caller authenticates as
+      // the freelancer, so the release must be refused.
+      const escrow = defaultEscrowRow({
+        job_id: JOB_ID,
+        client_address: CLIENT_ADDRESS,
+        freelancer_address: FREELANCER_ADDRESS,
+        amount_xlm: "500.0000000",
+        status: "funded",
       });
+      pool.escrows.set(JOB_ID, escrow);
 
       const res = await request(app)
         .post(`/api/escrow/${JOB_ID}/release`)
-        .send({ clientAddress: OTHER_ADDRESS });
+        .set("Authorization", `Bearer ${makeToken(FREELANCER_ADDRESS)}`)
+        .send({ contractTxHash: "tx-release-123" });
 
       expect(res.status).toBe(403);
       expect(res.body.error).toBe("Only the job client can release escrow");
+      expect(updateJobStatus).not.toHaveBeenCalled();
+    });
+
+    it("403 — ignores a spoofed clientAddress in the body (Issue #1401)", async () => {
+      // Regression guard: even naming the real client in the body must not
+      // authorize a caller whose JWT belongs to someone else.
+      const escrow = defaultEscrowRow({
+        job_id: JOB_ID,
+        client_address: CLIENT_ADDRESS,
+        amount_xlm: "500.0000000",
+        status: "funded",
+      });
+      pool.escrows.set(JOB_ID, escrow);
+
+      const res = await request(app)
+        .post(`/api/escrow/${JOB_ID}/release`)
+        .set("Authorization", `Bearer ${makeToken(OTHER_ADDRESS)}`)
+        .send({ clientAddress: CLIENT_ADDRESS, contractTxHash: "tx-release-123" });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("Only the job client can release escrow");
+      expect(updateJobStatus).not.toHaveBeenCalled();
     });
 
     it("400 — rejects when job is not in progress", async () => {
@@ -209,10 +254,18 @@ describe("Escrow Route Suite (/api/escrow)", () => {
         clientAddress: CLIENT_ADDRESS,
         status: "completed",
       });
+      const escrow = defaultEscrowRow({
+        job_id: JOB_ID,
+        client_address: CLIENT_ADDRESS,
+        amount_xlm: "500.0000000",
+        status: "funded",
+      });
+      pool.escrows.set(JOB_ID, escrow);
 
       const res = await request(app)
         .post(`/api/escrow/${JOB_ID}/release`)
-        .send({ clientAddress: CLIENT_ADDRESS });
+        .set("Authorization", `Bearer ${makeToken(CLIENT_ADDRESS)}`)
+        .send({});
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("Job is not in progress");
@@ -227,7 +280,8 @@ describe("Escrow Route Suite (/api/escrow)", () => {
 
       const res = await request(app)
         .post(`/api/escrow/${JOB_ID}/release`)
-        .send({ clientAddress: CLIENT_ADDRESS });
+        .set("Authorization", `Bearer ${makeToken(CLIENT_ADDRESS)}`)
+        .send({});
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("No escrow record found for this job");
@@ -242,13 +296,15 @@ describe("Escrow Route Suite (/api/escrow)", () => {
 
       const escrow = defaultEscrowRow({
         job_id: JOB_ID,
+        client_address: CLIENT_ADDRESS,
         amount_xlm: "0",
       });
       pool.escrows.set(JOB_ID, escrow);
 
       const res = await request(app)
         .post(`/api/escrow/${JOB_ID}/release`)
-        .send({ clientAddress: CLIENT_ADDRESS });
+        .set("Authorization", `Bearer ${makeToken(CLIENT_ADDRESS)}`)
+        .send({});
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("Escrow amount is missing or invalid");

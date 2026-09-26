@@ -1,3 +1,4 @@
+/* global userAddress, userLastSeen, userClients, setWebsocketConnections, broadcastToUser, createServiceLogger, sendEmail, logError, startEscrowTimeoutChecker, refreshWsMetrics, startNotificationProcessor, startAdminReportScheduler, startWeeklyDigestScheduler, startPurgeDeletedRecords, startRecurringEscrowTicker */
 /* eslint-disable */
 /**
  * src/server.js
@@ -29,12 +30,26 @@ const eventRoutes       = require("./routes/events");
 const statsRoutes       = require("./routes/stats");
 const contributorRoutes = require("./routes/contributors");
 const verificationRoutes = require("./routes/verification");
+const nftRoutes         = require("./routes/nft");
+const aiScorerRoutes    = require("./routes/aiScorer");
+
 const nftRoutes          = require("./routes/nft");
 const aiScorerRoutes     = require("./routes/aiScorer");
 const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
+const priceAlertRoutes     = require("./routes/priceAlerts");
+
+const turretRoutes         = require("./routes/turrets");
+const referralRoutes       = require("./routes/referrals");
+const reputationRoutes     = require("./routes/reputation");
+const autoConvertRoutes    = require("./routes/autoConvert");
+
+const migrate           = require("./db/migrate");
+const IndexerService    = require("./services/indexerService");
+const { PriceAlertService } = require("./services/priceAlertService");
+const pool              = require("./db/pool");
 const priceAlertRoutes   = require("./routes/priceAlerts");
 const turretRoutes       = require("./routes/turrets");
 const referralRoutes     = require("./routes/referrals");
@@ -67,6 +82,41 @@ function broadcastRealtime(event, payload) {
   }
 }
 
+async function upsertScopeSession(sessionId, patch) {
+  const content = typeof patch.content === "string" ? patch.content : "";
+  const cursors = patch.cursors && typeof patch.cursors === "object" ? patch.cursors : {};
+  const finalized = Boolean(patch.finalized);
+  const finalizedPayload = patch.finalizedPayload || null;
+
+  const { rows } = await pool.query(
+    `INSERT INTO scope_sessions (session_id, content, cursors, finalized, finalized_payload, expires_at, created_at, updated_at)
+     VALUES ($1, $2, $3::jsonb, $4, $5::jsonb, NOW() + INTERVAL '24 hours', NOW(), NOW())
+     ON CONFLICT (session_id) DO UPDATE SET
+       content = EXCLUDED.content,
+       cursors = EXCLUDED.cursors,
+       finalized = EXCLUDED.finalized,
+       finalized_payload = EXCLUDED.finalized_payload,
+       expires_at = NOW() + INTERVAL '24 hours',
+       updated_at = NOW()
+     RETURNING session_id, content, cursors, finalized, finalized_payload, expires_at, updated_at`,
+    [sessionId, content, JSON.stringify(cursors), finalized, JSON.stringify(finalizedPayload)]
+  );
+  return rows[0];
+}
+
+async function loadScopeSession(sessionId) {
+  const { rows } = await pool.query(
+    `SELECT session_id, content, cursors, finalized, finalized_payload, expires_at, updated_at
+     FROM scope_sessions
+     WHERE session_id = $1 AND expires_at > NOW()`,
+    [sessionId]
+  );
+  return rows[0] || null;
+}
+
+async function cleanupExpiredScopeSessions() {
+  await pool.query("DELETE FROM scope_sessions WHERE expires_at <= NOW()");
+}
 const {
   upsertScopeSession,
   loadScopeSession,
@@ -151,6 +201,14 @@ app.get("/api/indexer/health", (req, res) => {
     indexer: indexerService.getHealth(),
   });
 });
+app.use("/api/contributors",    contributorRoutes);
+app.use("/api/gas-estimate",    gasEstimatorRoutes);
+app.use("/api/transactions",   transactionRoutes);
+app.use("/api/dao",            daoRoutes);
+app.use("/api/proposal-templates", proposalTemplateRoutes);
+app.use("/api/price-alerts",      priceAlertRoutes);
+app.use("/api/ai",                aiScorerRoutes);
+app.use("/api/nft",               nftRoutes);
 app.use("/api/scope",             scopeRoutes);
 app.use("/api/gas-estimate",      gasEstimatorRoutes);
 app.use("/api/transactions",      transactionRoutes);
@@ -309,6 +367,10 @@ wsServer.on("connection", async (ws, request) => {
         }
 
         if (message.type === "scope:finalize") {
+          session = await upsertScopeSession(sessionId, {
+            content: typeof message.content === "string" ? message.content : session.content,
+            cursors: session.cursors || {},
+            finalized: true,
           const finalContent =
             typeof message.content === "string"
               ? message.content
@@ -343,6 +405,7 @@ wsServer.on("connection", async (ws, request) => {
           }
         }
       } catch (error) {
+        sendJson(ws, "scope:error", { error: "Invalid message payload" });
         sendJson(ws, "scope:error", { error: error.message || "Invalid message payload" });
       }
     });
@@ -376,6 +439,9 @@ async function bootstrap() {
   await cleanupExpiredScopeSessions();
   await indexerService.start();
   priceAlertService.start();
+
+  // Start job expiry checker - run every hour
+  startJobExpiryChecker();
 
   // Issue #232 perf: start the 5-minute stats MV refresh cycle after migrations
   scheduleStatsRefresh();

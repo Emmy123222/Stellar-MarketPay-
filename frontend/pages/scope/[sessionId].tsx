@@ -22,6 +22,11 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 
 function randomSessionId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  const arr = new Uint8Array(8);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(arr);
+    return `session-${Date.now()}-${Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("")}`;
+  }
   return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 

@@ -1,7 +1,9 @@
 import createDOMPurify from "dompurify";
+import { createRequire } from "module";
 
+const require = createRequire(import.meta.url);
 const window = typeof globalThis.window === "undefined"
-  ? new (eval("require")("jsdom") as typeof import("jsdom")).JSDOM("").window
+  ? new (require("jsdom") as typeof import("jsdom")).JSDOM("").window
   : globalThis.window;
 const DOMPurify = createDOMPurify(window);
 
