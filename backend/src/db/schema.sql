@@ -530,6 +530,7 @@ CREATE TABLE IF NOT EXISTS job_invitations (
   status              TEXT        NOT NULL DEFAULT 'pending'
                                   CHECK (status IN ('pending', 'accepted', 'declined')),
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at          TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '7 days'),
   UNIQUE (job_id, freelancer_address)
 );
 

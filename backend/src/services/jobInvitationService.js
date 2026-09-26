@@ -51,12 +51,12 @@ async function inviteFreelancerToJob({ jobId, clientAddress, freelancerAddress }
     throw e;
   }
 
-  // Upsert invitation
+  // Upsert invitation (expires 7 days from now)
   const { rows } = await pool.query(
-    `INSERT INTO job_invitations (job_id, client_address, freelancer_address, status, created_at)
-     VALUES ($1, $2, $3, 'pending', NOW())
+    `INSERT INTO job_invitations (job_id, client_address, freelancer_address, status, created_at, expires_at)
+     VALUES ($1, $2, $3, 'pending', NOW(), NOW() + INTERVAL '7 days')
      ON CONFLICT (job_id, freelancer_address)
-     DO UPDATE SET status = 'pending', created_at = NOW()
+     DO UPDATE SET status = 'pending', created_at = NOW(), expires_at = NOW() + INTERVAL '7 days'
      RETURNING *`,
     [jobId, clientAddress, freelancerAddress]
   );
@@ -140,6 +140,7 @@ async function getInvitationsForFreelancer(freelancerAddress) {
 
   const { rows } = await pool.query(
     `SELECT ji.id, ji.job_id, ji.client_address, ji.freelancer_address, ji.status, ji.created_at,
+            ji.expires_at,
             j.title AS job_title, j.budget AS job_budget, j.currency AS job_currency,
             p.display_name AS client_name
      FROM job_invitations ji
@@ -147,6 +148,7 @@ async function getInvitationsForFreelancer(freelancerAddress) {
      LEFT JOIN profiles p ON p.public_key = ji.client_address
      WHERE ji.freelancer_address = $1
        AND ji.status = 'pending'
+       AND ji.expires_at > NOW()
      ORDER BY ji.created_at DESC`,
     [freelancerAddress]
   );
@@ -162,6 +164,7 @@ async function getInvitationsForFreelancer(freelancerAddress) {
     freelancerAddress: r.freelancer_address,
     status: r.status,
     createdAt: r.created_at,
+    expiresAt: r.expires_at,
   }));
 }
 
@@ -195,8 +198,55 @@ async function declineInvitation(invitationId, freelancerAddress) {
   return updated[0];
 }
 
+/**
+ * Revoke (delete) an invitation by its id.
+ *
+ * @param {string} invitationId
+ * @param {string} clientAddress — the job client who owns the invitation
+ * @returns {Promise<boolean>} true if a row was deleted
+ */
+async function revokeInvitation(invitationId, clientAddress) {
+  const { rows } = await pool.query(
+    "SELECT * FROM job_invitations WHERE id = $1",
+    [invitationId]
+  );
+  if (!rows.length) {
+    const e = new Error("Invitation not found");
+    e.status = 404;
+    throw e;
+  }
+  if (rows[0].client_address !== clientAddress) {
+    const e = new Error("Only the job client can revoke an invitation");
+    e.status = 403;
+    throw e;
+  }
+
+  const { rowCount } = await pool.query(
+    "DELETE FROM job_invitations WHERE id = $1",
+    [invitationId]
+  );
+  return rowCount > 0;
+}
+
+/**
+ * Purge invitations that are expired or already accepted/declined.
+ * Called periodically by the cleanup job.
+ *
+ * @returns {Promise<number>} number of rows deleted
+ */
+async function purgeExpiredInvitations() {
+  const { rowCount } = await pool.query(
+    `DELETE FROM job_invitations
+     WHERE expires_at < NOW()
+        OR status IN ('accepted', 'declined')`
+  );
+  return rowCount;
+}
+
 module.exports = {
   inviteFreelancerToJob,
   getInvitationsForFreelancer,
   declineInvitation,
+  revokeInvitation,
+  purgeExpiredInvitations,
 };
