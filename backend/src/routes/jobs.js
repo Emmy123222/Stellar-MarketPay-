@@ -266,7 +266,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
     const cached = await cache.get(cacheKey);
     if (cached) {
       res.set("X-Cache", "HIT");
-      return res.json({ success: true, ...cached, has_more: Boolean(cached.nextCursor), ...(page !== undefined && !effectiveCursor && { _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `after`." }) });
+      return res.json({ success: true, ...cached, total: cached.total ?? null, has_more: Boolean(cached.nextCursor), ...(page !== undefined && !effectiveCursor && { _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `after`." }) });
     }
 
     const result = await listJobs({
@@ -290,12 +290,13 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
     });
 
     const jobsWithRep = await enrichJobsWithClientReputation(result.jobs);
-    await cache.set(cacheKey, { data: jobsWithRep, nextCursor: result.nextCursor }, cache.TTL.JOBS_LIST);
+    await cache.set(cacheKey, { data: jobsWithRep, nextCursor: result.nextCursor, total: result.total }, cache.TTL.JOBS_LIST);
     res.set("X-Cache", "MISS");
     res.json({
       success: true,
       data: jobsWithRep,
       nextCursor: result.nextCursor,
+      total: result.total,
       has_more: Boolean(result.nextCursor),
       ...(page !== undefined && !effectiveCursor && {
         _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `after`.",
