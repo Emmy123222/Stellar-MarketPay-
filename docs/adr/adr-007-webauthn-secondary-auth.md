@@ -43,6 +43,23 @@ We will implement **WebAuthn (Web Authentication)** as an **optional secondary a
 5. Server verifies signature
 6. Full JWT token issued
 
+### Recovery Flow
+
+The current implementation deliberately does **not** support self-service
+passkey recovery. A passkey is a possession-bound second factor; allowing a
+user to replace it from an authenticated session would turn a stolen session
+or wallet signature into a way to bypass the second factor.
+
+If a user loses every registered authenticator, they must contact support
+through the verified account-recovery process. Support verifies ownership
+using the user's registered email OTP plus secondary account proof before
+disabling the lost credential. The user then completes SEP-10 authentication
+and registers a new passkey. No credential is deleted based on an email link
+alone, and the recovery decision is recorded for audit purposes.
+
+Self-service recovery may be introduced later with a separately reviewed,
+time-limited recovery ceremony and explicit re-authentication requirements.
+
 ### Implementation
 
 #### Database Schema
