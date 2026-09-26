@@ -44,6 +44,7 @@ export default function ExtendJobModal({ job, onClose, onExtended }: Props) {
   return (
     <AccessibleModal
       titleId="extend-job-title"
+      description="Review the available options for extending this job."
       onClose={onClose}
       panelClassName="card max-w-md w-full border-market-500/20 animate-in fade-in zoom-in duration-200"
     >

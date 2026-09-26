@@ -3180,61 +3180,6 @@ old address report the redirect target).
       responses:
         200:
           description: Conversion history
-  /api/auto-convert/quote:
-    post:
-      summary: Live XLM → USDC swap quote (rate, estimated receive, fee)
-      tags: ['AutoConvert']
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: ['amountXlm']
-              properties:
-                amountXlm:
-                  type: string
-                slippageBps:
-                  type: integer
-                  minimum: 10
-                  maximum: 1000
-      responses:
-        200:
-          description: Swap quote
-        400:
-          description: Invalid amount or slippage
-        404:
-          description: No XLM → USDC path available
-  /api/auto-convert/manual:
-    post:
-      summary: Start a manual XLM → USDC "Swap earnings" swap
-      description: Creates a pending swap the wallet signs with pathPaymentStrictSend.
-      tags: ['AutoConvert']
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: ['amountXlm']
-              properties:
-                amountXlm:
-                  type: string
-                slippageBps:
-                  type: integer
-                  minimum: 10
-                  maximum: 1000
-      responses:
-        200:
-          description: Pending swap with quote
-        400:
-          description: Invalid amount or slippage
-        404:
-          description: Profile not found or no path available
   /api/auto-convert/{id}/complete:
     post:
       summary: Record a submitted pathPaymentStrictSend swap

@@ -32,6 +32,9 @@ const {
   uploadEvidence,
   resolveDispute,
   getDispute,
+  recordDisputeEvent,
+  getDisputeEvents,
+  DISPUTE_EVENT_TYPES,
   MAX_EVIDENCE_FILES,
   MAX_FILE_SIZE,
   validateIpfsCid,
@@ -522,6 +525,116 @@ describe("disputeService", () => {
       expect(result.data.evidence[0].gatewayUrl).toBe(
         "https://gateway.pinata.cloud/ipfs/QmPresignedUrlTest",
       );
+    });
+  });
+
+  describe("dispute timeline events (Issue #1429)", () => {
+    describe("recordDisputeEvent", () => {
+      it("inserts a timeline event with evidence id and JSON payload", async () => {
+        await recordDisputeEvent(JOB_ID, "evidence_submitted", CLIENT_ADDRESS, {
+          evidenceId: "ev-1",
+          payload: { fileName: "evidence.pdf" },
+        });
+
+        expect(pool.query).toHaveBeenCalledTimes(1);
+        const [text, params] = pool.query.mock.calls[0];
+        expect(text).toContain("INSERT INTO dispute_events");
+        expect(params[0]).toBe(JOB_ID);
+        expect(params[1]).toBe("evidence_submitted");
+        expect(params[2]).toBe(CLIENT_ADDRESS);
+        expect(params[3]).toBe("ev-1");
+        expect(JSON.parse(params[4])).toEqual({ fileName: "evidence.pdf" });
+      });
+
+      it("swallows insert errors so the triggering operation never fails", async () => {
+        pool.query.mockRejectedValueOnce(new Error("db down"));
+
+        await expect(
+          recordDisputeEvent(JOB_ID, "opened", CLIENT_ADDRESS),
+        ).resolves.toBeUndefined();
+      });
+
+      it("skips unknown event types without querying", async () => {
+        await recordDisputeEvent(JOB_ID, "bogus_event", CLIENT_ADDRESS);
+
+        expect(pool.query).not.toHaveBeenCalled();
+      });
+
+      it("skips when the actor address is missing", async () => {
+        await recordDisputeEvent(JOB_ID, "opened", null);
+
+        expect(pool.query).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("getDisputeEvents", () => {
+      it("returns events with camelCase fields and embedded evidence metadata", async () => {
+        pool.query.mockResolvedValueOnce({
+          rows: [
+            {
+              id: "e1",
+              job_id: JOB_ID,
+              event_type: "opened",
+              actor_address: CLIENT_ADDRESS,
+              evidence_id: null,
+              payload: { disputeId: "dispute-1" },
+              created_at: "2026-01-01T10:00:00.000Z",
+            },
+            {
+              id: "e2",
+              job_id: JOB_ID,
+              event_type: "evidence_submitted",
+              actor_address: FREELANCER_ADDRESS,
+              evidence_id: "ev-9",
+              payload: { fileName: "proof.pdf" },
+              file_name: "proof.pdf",
+              mime_type: "application/pdf",
+              ipfs_cid: VALID_CID_V0,
+              created_at: "2026-01-02T10:00:00.000Z",
+            },
+          ],
+        });
+
+        const events = await getDisputeEvents(JOB_ID);
+
+        expect(events).toHaveLength(2);
+        expect(events[0]).toMatchObject({
+          id: "e1",
+          jobId: JOB_ID,
+          eventType: "opened",
+          actorAddress: CLIENT_ADDRESS,
+          evidence: null,
+          payload: { disputeId: "dispute-1" },
+          createdAt: "2026-01-01T10:00:00.000Z",
+        });
+        expect(events[1].eventType).toBe("evidence_submitted");
+        expect(events[1].actorAddress).toBe(FREELANCER_ADDRESS);
+        expect(events[1].evidence).toEqual({
+          id: "ev-9",
+          fileName: "proof.pdf",
+          mimeType: "application/pdf",
+          gatewayUrl: `https://gateway.pinata.cloud/ipfs/${VALID_CID_V0}`,
+        });
+      });
+
+      it("returns an empty array when no events exist", async () => {
+        pool.query.mockResolvedValueOnce({ rows: [] });
+
+        const events = await getDisputeEvents(JOB_ID);
+
+        expect(events).toEqual([]);
+      });
+    });
+
+    describe("DISPUTE_EVENT_TYPES", () => {
+      it("covers the four timeline event types", () => {
+        expect(DISPUTE_EVENT_TYPES).toEqual([
+          "opened",
+          "evidence_submitted",
+          "arbitrator_assigned",
+          "resolved",
+        ]);
+      });
     });
   });
 });

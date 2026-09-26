@@ -15,6 +15,7 @@ const router = express.Router();
 const pool = require("../db/pool");
 const { verifyJWT, requireAdminRole, requireAdmin2FA } = require("../middleware/auth");
 const { updateJobStatus, listJobs } = require("../services/jobService");
+const { recordDisputeEvent } = require("../services/disputeService");
 const { scheduleReputationRecalcForJob } = require("../services/reputationService");
 const { logContractInteraction } = require("../services/contractAuditService");
 const { getApiKeyUsageStats } = require("../services/developerService");
@@ -526,6 +527,11 @@ router.patch("/disputes/:jobId/resolve", verifyJWT, requireAdminRole, requireAdm
     const newJobStatus = releaseTo === "client" ? "cancelled" : "completed";
     await updateJobStatus(jobId, newJobStatus);
     scheduleReputationRecalcForJob(jobId);
+
+    // Issue #1429 — timeline entry: the acting admin/arbitrator's ruling.
+    await recordDisputeEvent(jobId, "resolved", req.user.publicKey, {
+      payload: { resolution, releaseTo, newJobStatus },
+    });
 
     logAdminAction({
       action: "resolve_dispute",

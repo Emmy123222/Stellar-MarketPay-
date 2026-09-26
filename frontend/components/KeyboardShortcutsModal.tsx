@@ -43,6 +43,7 @@ export default function KeyboardShortcutsModal({
   return (
     <AccessibleModal
       titleId="shortcuts-title"
+      description="Review the available keyboard shortcuts."
       onClose={onClose}
       className="z-[70]"
       panelClassName="w-full max-w-xl rounded-2xl border border-market-500/20 bg-ink-900 p-6 shadow-2xl"

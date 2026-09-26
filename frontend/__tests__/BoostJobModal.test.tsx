@@ -3,6 +3,18 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import BoostJobModal from "../components/BoostJobModal";
 import * as stellarLib from "../lib/stellar";
 
+let mockXlmPriceUsd: number | null = 0.12;
+
+jest.mock("@/contexts/PriceContext", () => ({
+  usePriceContext: () => ({
+    xlmPriceUsd: mockXlmPriceUsd,
+    priceLoading: false,
+    currencyMode: "XLM",
+    setCurrencyMode: jest.fn(),
+  }),
+  PriceProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 // Mock the stellar library
 jest.mock("../lib/stellar", () => ({
   buildBoostJobTx: jest.fn(),
@@ -16,6 +28,7 @@ describe("BoostJobModal", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockXlmPriceUsd = 0.12;
     global.fetch = jest.fn(() =>
       Promise.resolve({
         ok: true,
@@ -120,4 +133,74 @@ describe("BoostJobModal", () => {
     
     expect(mockOnSuccess).toHaveBeenCalled();
   });
+
+  it("displays boost price in XLM and estimated USD equivalent with ~ prefix", () => {
+    mockXlmPriceUsd = 0.12;
+    render(
+      <BoostJobModal
+        jobId="job-1"
+        jobTitle="Test Job"
+        clientPublicKey="GCLIENT..."
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+      />
+    );
+
+    // 5 XLM * $0.12 = $0.60 -> 5 XLM (~$0.60)
+    expect(screen.getByText("5 XLM")).toBeInTheDocument();
+    expect(screen.getByText("(~$0.60)")).toBeInTheDocument();
+
+    // 15 XLM * $0.12 = $1.80 -> 15 XLM (~$1.80)
+    expect(screen.getByText("15 XLM")).toBeInTheDocument();
+    expect(screen.getByText("(~$1.80)")).toBeInTheDocument();
+  });
+
+  it("updates the displayed USD equivalent in real time when xlm price changes", () => {
+    mockXlmPriceUsd = 0.12;
+    const { rerender } = render(
+      <BoostJobModal
+        jobId="job-1"
+        jobTitle="Test Job"
+        clientPublicKey="GCLIENT..."
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+      />
+    );
+
+    expect(screen.getByText("(~$0.60)")).toBeInTheDocument();
+    expect(screen.getByText("(~$1.80)")).toBeInTheDocument();
+
+    // Change price: 5 XLM * $0.20 = $1.00, 15 XLM * $0.20 = $3.00
+    mockXlmPriceUsd = 0.20;
+    rerender(
+      <BoostJobModal
+        jobId="job-1"
+        jobTitle="Test Job"
+        clientPublicKey="GCLIENT..."
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+      />
+    );
+
+    expect(screen.getByText("(~$1.00)")).toBeInTheDocument();
+    expect(screen.getByText("(~$3.00)")).toBeInTheDocument();
+  });
+
+  it("displays only XLM when xlmPriceUsd is unavailable (null)", () => {
+    mockXlmPriceUsd = null;
+    render(
+      <BoostJobModal
+        jobId="job-1"
+        jobTitle="Test Job"
+        clientPublicKey="GCLIENT..."
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+      />
+    );
+
+    expect(screen.getByText("5 XLM")).toBeInTheDocument();
+    expect(screen.getByText("15 XLM")).toBeInTheDocument();
+    expect(screen.queryByText(/\(~\$/)).not.toBeInTheDocument();
+  });
 });
+

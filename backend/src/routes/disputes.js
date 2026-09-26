@@ -16,7 +16,7 @@ const pool       = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT }         = require("../middleware/auth");
 const ipfsService          = require("../services/ipfsService");
-const { validateIpfsCid }    = require("../services/disputeService");
+const { validateIpfsCid, getDisputeEvents } = require("../services/disputeService");
 const sorobanEvidence       = require("../services/sorobanEvidence");
 const sorobanArbitratorRegistry = require("../services/sorobanArbitratorRegistry");
 const { createError, ErrorCodes } = require("../utils/errors");
@@ -132,6 +132,52 @@ router.get("/:jobId", readRateLimiter, async (req, res, next) => {
           createdAt:       ev.created_at,
         })),
       },
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * @swagger
+ * /api/disputes/{jobId}/events:
+ *   get:
+ *     summary: Get dispute timeline events in chronological order
+ *     tags: [Disputes]
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Timeline events ordered oldest first
+ *       404:
+ *         description: Job not found
+ */
+// GET /api/disputes/:jobId/events — dispute timeline (Issue #1429)
+//
+// Public like GET /api/disputes/:jobId — the dispute detail and its timeline
+// share the same audience. Each event includes the acting address, the event
+// type, and (for evidence_submitted) the attached evidence metadata.
+router.get("/:jobId/events", readRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+
+    const { rows: jobRows } = await pool.query(
+      "SELECT id FROM jobs WHERE id = $1",
+      [jobId]
+    );
+
+    if (!jobRows.length) {
+      throw createError(ErrorCodes.JOB_NOT_FOUND, "Job not found", 404);
+    }
+
+    const events = await getDisputeEvents(jobId);
+
+    res.json({
+      success: true,
+      data: { jobId, events },
     });
   } catch (e) { next(e); }
 });
