@@ -21,9 +21,10 @@ jest.mock("../src/services/cacheService", () => ({
   set: jest.fn(),
 }));
 
-const mockGetContractVersion = jest.fn();
-jest.mock("../src/services/contractVersionService", () => ({
-  getContractVersion: () => mockGetContractVersion(),
+jest.mock("../src/services/sorobanClient", () => ({
+  getServer: () => ({
+    getLatestLedger: jest.fn().mockResolvedValue({ sequence: 123 }),
+  }),
 }));
 
 // Mock fetch for Horizon checks
@@ -104,11 +105,10 @@ describe("GET /health", () => {
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({
         status: "healthy",
-        checks: {
-          db: "ok",
-          redis: "ok",
-          stellar: "ok",
-        },
+        database: "up",
+        redis: "up",
+        stellar: "up",
+        soroban: "up",
       });
       expect(res.body).toHaveProperty("uptime_seconds");
       expect(res.body).toHaveProperty("version");

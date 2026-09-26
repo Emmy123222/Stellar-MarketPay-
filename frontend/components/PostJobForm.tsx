@@ -196,6 +196,7 @@ export default function PostJobForm({
     const draft = loadLocalDraft();
     return draft?.id || null;
   });
+  const draftIdRef = useRef<string | null>(draftId);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -407,11 +408,13 @@ export default function PostJobForm({
           deadline: form.deadline,
         };
 
-        if (draftId) {
-          const result = await updateDraft({ ...draftData, id: draftId });
+        if (draftIdRef.current) {
+          const result = await updateDraft({ ...draftData, id: draftIdRef.current });
+          draftIdRef.current = result.id;
           setDraftId(result.id);
         } else {
           const result = await saveDraft(draftData);
+          draftIdRef.current = result.id;
           setDraftId(result.id);
         }
 
@@ -428,7 +431,7 @@ export default function PostJobForm({
         clearTimeout(saveTimerRef.current);
       }
     };
-  }, [form, publicKey, draftId]);
+  }, [form, publicKey]);
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
@@ -494,6 +497,7 @@ export default function PostJobForm({
       setCurrentStep(1);
       setCompletedSteps(new Set());
       setTouched({});
+      draftIdRef.current = null;
       setDraftId(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "An unexpected error occurred.";
@@ -513,6 +517,7 @@ export default function PostJobForm({
     setPostedCurrency("");
     setCurrentStep(1);
     setCompletedSteps(new Set());
+    draftIdRef.current = null;
     setDraftId(null);
     setSaveStatus("idle");
     setSuggestions([]);
@@ -698,4 +703,3 @@ export default function PostJobForm({
     </div>
   );
 }
-

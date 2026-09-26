@@ -895,6 +895,11 @@ function createPgMock() {
         }
       }
 
+      if (text.includes("category = $")) {
+        const categoryIndex = text.indexOf("category = $2") >= 0 ? 1 : 0;
+        const category = params[categoryIndex];
+        if (category) rows = rows.filter((job) => job.category === category);
+      }
       if (
         text.includes("category = $") ||
         text.includes("c.slug = $") ||
