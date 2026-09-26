@@ -20,6 +20,14 @@ const { logContractInteraction } = require("../services/contractAuditService");
 const { getApiKeyUsageStats } = require("../services/developerService");
 const { listAuditLogs } = require("../services/auditLogService");
 const { auditQueue } = require("../utils/queue");
+const { createRateLimiter } = require("../middleware/rateLimiter");
+
+// Every route in this router is admin-only and hits the database, so apply a
+// single per-IP limiter to the whole router. Without it, a leaked admin token
+// (or repeated 401/403 attempts) can be used to hammer these endpoints.
+const adminRateLimiter = createRateLimiter(120, 1); // 120 requests/min per IP
+
+router.use(adminRateLimiter);
 
 // Helper: enqueue admin audit entries â€” never blocks the response.
 // Writes to both audit_logs (general) and admin_audit_log (admin-specific).
