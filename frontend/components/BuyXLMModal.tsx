@@ -9,6 +9,8 @@ import {
   fetchAnchorEndpoints,
   startInteractiveDeposit,
   pollAnchorTransaction,
+  fetchApprovedAnchors,
+  type ApprovedAnchor,
   type AnchorTransactionRecord,
 } from "@/lib/anchors";
 import { useToast } from "@/components/Toast";
@@ -28,6 +30,8 @@ export default function BuyXLMModal({ publicKey, onClose, onComplete }: BuyXLMMo
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [assetCode, setAssetCode] = useState<string>("XLM");
   const [availableAssets, setAvailableAssets] = useState<string[]>(["XLM"]);
+  const [approvedAnchors, setApprovedAnchors] = useState<ApprovedAnchor[]>([{ homeDomain: ANCHOR_HOME_DOMAIN }]);
+  const [anchorDomain, setAnchorDomain] = useState(ANCHOR_HOME_DOMAIN);
   const [interactiveUrl, setInteractiveUrl] = useState<string | null>(null);
   const [transaction, setTransaction] = useState<AnchorTransactionRecord | null>(null);
   const cancelRef = useRef(false);
@@ -36,7 +40,15 @@ export default function BuyXLMModal({ publicKey, onClose, onComplete }: BuyXLMMo
   const { xlmPriceUsd } = usePriceContext();
 
   useEffect(() => {
-    fetchAnchorEndpoints()
+    fetchApprovedAnchors()
+      .then((anchors) => {
+        if (anchors.length > 0) {
+          setApprovedAnchors(anchors);
+          if (!anchors.some((anchor) => anchor.homeDomain === anchorDomain)) setAnchorDomain(anchors[0].homeDomain);
+        }
+      })
+      .catch(() => {})
+      .then(() => fetchAnchorEndpoints(anchorDomain))
       .then((endpoints) => {
         const codes = endpoints.currencies.map((c) => c.code);
         if (codes.length > 0) {
@@ -51,13 +63,14 @@ export default function BuyXLMModal({ publicKey, onClose, onComplete }: BuyXLMMo
       cancelRef.current = true;
       popupRef.current?.close();
     };
-  }, [assetCode]);
+  }, [assetCode, anchorDomain]);
 
   const startDeposit = async () => {
     setPhase("loading");
     setErrorMessage(null);
     try {
       const response = await startInteractiveDeposit({
+        homeDomain: anchorDomain,
         account: publicKey,
         assetCode,
       });
@@ -74,6 +87,7 @@ export default function BuyXLMModal({ publicKey, onClose, onComplete }: BuyXLMMo
       const finalRecord = await pollAnchorTransaction({
         account: publicKey,
         id: response.id,
+        homeDomain: anchorDomain,
         onUpdate: (record) => {
           setTransaction(record);
           if (phase === "interactive") setPhase("polling");
@@ -129,6 +143,16 @@ export default function BuyXLMModal({ publicKey, onClose, onComplete }: BuyXLMMo
 
         {phase === "idle" && (
           <div className="space-y-4">
+            <label className="block">
+              <span className="label mb-1 block">Fiat anchor</span>
+              <select value={anchorDomain} onChange={(e) => setAnchorDomain(e.target.value)} className="input-field">
+                {approvedAnchors.map((anchor) => (
+                  <option key={anchor.homeDomain} value={anchor.homeDomain}>
+                    {anchor.displayName || anchor.name || anchor.homeDomain}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="block">
               <span className="label mb-1 block">Asset to receive</span>
               <select

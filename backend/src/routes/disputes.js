@@ -117,18 +117,28 @@ router.get("/:jobId", readRateLimiter, async (req, res, next) => {
       [jobId]
     );
 
+    const evidenceWithAvailability = await Promise.all(evidence.map(async (ev) => {
+      const gatewayUrl = ipfsService.getGatewayUrl(ev.ipfs_cid);
+      return {
+        ...ev,
+        gatewayUrl,
+        available: await sorobanEvidence.isEvidenceAvailable(gatewayUrl),
+      };
+    }));
+
     res.json({
       success: true,
       data: {
         job: jobRows[0],
-        evidence: evidence.map((ev) => ({
+        evidence: evidenceWithAvailability.map((ev) => ({
           id:              ev.id,
           uploaderAddress: ev.uploader_address,
           fileName:        ev.file_name,
           fileSize:        ev.file_size,
           mimeType:        ev.mime_type,
           fileUrl:         ev.ipfs_cid,
-          gatewayUrl:      ipfsService.getGatewayUrl(ev.ipfs_cid),
+          gatewayUrl:      ev.gatewayUrl,
+          available:       ev.available,
           createdAt:       ev.created_at,
         })),
       },

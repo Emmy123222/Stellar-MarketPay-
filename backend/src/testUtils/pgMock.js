@@ -895,6 +895,19 @@ function createPgMock() {
         }
       }
 
+      if (text.includes("category = $")) {
+        const categoryIndex = text.indexOf("category = $2") >= 0 ? 1 : 0;
+        const category = params[categoryIndex];
+        if (category) rows = rows.filter((job) => job.category === category);
+      }
+      // Sort by created_at DESC, id DESC to match real SQL ORDER BY
+      rows.sort((a, b) => {
+        if (a.created_at > b.created_at) return -1;
+        if (a.created_at < b.created_at) return 1;
+        if (a.id > b.id) return -1;
+        if (a.id < b.id) return 1;
+        return 0;
+      });
       if (
         text.includes("category = $") ||
         text.includes("c.slug = $") ||
