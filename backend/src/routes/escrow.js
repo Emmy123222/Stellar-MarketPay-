@@ -385,7 +385,7 @@ router.post("/:jobId/refund", async (req, res, next) => {
       },
     });
 
-    res.json({ success: true, message: "Escrow refunded" });
+      res.json({ success: true, message: "Escrow refunded" });
   } catch (e) {
     next(e);
   }

@@ -2,7 +2,7 @@
  * components/AdminAnalytics.tsx
  * Admin analytics dashboard with charts and metrics
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchAdminMetrics, fetchAuditLogs } from "@/lib/api";
 import type { AuditLogEntry } from "@/utils/types";
 import {
@@ -29,7 +29,7 @@ ChartJS.register(
   Title,
   Tooltip,
   Legend,
-  ArcElement
+  ArcElement,
 );
 
 interface AdminAnalyticsProps {
@@ -37,6 +37,12 @@ interface AdminAnalyticsProps {
 }
 
 type Period = "7d" | "30d" | "90d";
+
+/**
+ * Issue #1510 — the audit-log search inputs must settle for this long after
+ * the last keystroke before an API request is fired.
+ */
+const SEARCH_DEBOUNCE_MS = 500;
 
 interface MetricsData {
   period: string;
@@ -66,7 +72,11 @@ interface MetricsData {
     total_ratings: number;
     repeat_hires: number;
   };
-  disputeMetrics: Array<{ week: string; disputes_opened: number; disputes_resolved: number }>;
+  disputeMetrics: Array<{
+    week: string;
+    disputes_opened: number;
+    disputes_resolved: number;
+  }>;
   topEarners: Array<{
     public_key: string;
     display_name: string;
@@ -74,10 +84,19 @@ interface MetricsData {
     completed_jobs: number;
     rating: number;
   }>;
-  jobVolume: Array<{ date: string; jobs_created: number; jobs_completed: number }>;
+  jobVolume: Array<{
+    date: string;
+    jobs_created: number;
+    jobs_completed: number;
+  }>;
 }
 
-function MetricCard({ title, value, subtitle, color = "blue" }: {
+function MetricCard({
+  title,
+  value,
+  subtitle,
+  color = "blue",
+}: {
   title: string;
   value: string | number;
   subtitle?: string;
@@ -109,6 +128,15 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
   const [auditNextCursor, setAuditNextCursor] = useState<string | null>(null);
   const [auditActionFilter, setAuditActionFilter] = useState("");
   const [auditResourceTypeFilter, setAuditResourceTypeFilter] = useState("");
+  // Debounced mirrors of the filter inputs — the fetch effect below only
+  // reads these, so requests fire once per typing pause, not per keystroke.
+  const [debouncedActionFilter, setDebouncedActionFilter] = useState("");
+  const [debouncedResourceTypeFilter, setDebouncedResourceTypeFilter] =
+    useState("");
+  // AbortController for the in-flight audit-log request. Aborted as soon as
+  // a new keystroke cycle begins and on unmount, so a stale response can
+  // never land after a newer one.
+  const auditAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!publicKey) return;
@@ -129,31 +157,67 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
     loadMetrics();
   }, [publicKey, period]);
 
+  // Debounce window (Issue #1510): copy the raw filter values into the
+  // debounced ones only after SEARCH_DEBOUNCE_MS without a keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedActionFilter(auditActionFilter);
+      setDebouncedResourceTypeFilter(auditResourceTypeFilter);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [auditActionFilter, auditResourceTypeFilter]);
+
+  // A new keystroke cycle begins → cancel any in-flight audit-log request
+  // immediately; the debounced effect below starts a fresh request once
+  // typing pauses. Declared before the fetch effect so its mount-time run
+  // (a no-op) cannot abort the controller the fetch effect creates.
+  useEffect(() => {
+    auditAbortRef.current?.abort();
+  }, [auditActionFilter, auditResourceTypeFilter]);
+
+  // Fetch audit logs for the debounced filter values, wiring an
+  // AbortController into the axios request lifecycle (Issue #1510).
   useEffect(() => {
     if (!publicKey) return;
+
+    const controller = new AbortController();
+    auditAbortRef.current = controller;
 
     const loadAuditLogs = async () => {
       try {
         setAuditLoading(true);
-        const { logs, nextCursor } = await fetchAuditLogs({
-          action: auditActionFilter || undefined,
-          resource_type: auditResourceTypeFilter || undefined,
-        });
+        const { logs, nextCursor } = await fetchAuditLogs(
+          {
+            action: debouncedActionFilter || undefined,
+            resource_type: debouncedResourceTypeFilter || undefined,
+          },
+          { signal: controller.signal },
+        );
+        // Superseded by a newer keystroke cycle — discard this response.
+        if (controller.signal.aborted) return;
         setAuditLogs(logs);
         setAuditNextCursor(nextCursor);
       } catch {
+        // Cancellation is expected while typing; only surface genuine
+        // failures as an empty table.
+        if (controller.signal.aborted) return;
         setAuditLogs([]);
       } finally {
-        setAuditLoading(false);
+        if (!controller.signal.aborted) setAuditLoading(false);
       }
     };
 
     loadAuditLogs();
-  }, [publicKey, auditActionFilter, auditResourceTypeFilter]);
+
+    return () => {
+      controller.abort();
+      if (auditAbortRef.current === controller) auditAbortRef.current = null;
+    };
+  }, [publicKey, debouncedActionFilter, debouncedResourceTypeFilter]);
 
   const exportCSV = () => {
     if (!metrics) return;
-    
+
     const csvData = [
       ["Metric", "Value"],
       ["Total Jobs", metrics.platformHealth.total_jobs],
@@ -170,7 +234,7 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
       ["Average Rating", metrics.qualityMetrics.avg_rating],
     ];
 
-    const csvContent = csvData.map(row => row.join(",")).join("\n");
+    const csvContent = csvData.map((row) => row.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -200,11 +264,11 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
 
   // Chart data
   const userGrowthData = {
-    labels: metrics.weeklyGrowth.map(w => format(new Date(w.week), "MMM dd")),
+    labels: metrics.weeklyGrowth.map((w) => format(new Date(w.week), "MMM dd")),
     datasets: [
       {
         label: "New Users",
-        data: metrics.weeklyGrowth.map(w => w.new_users),
+        data: metrics.weeklyGrowth.map((w) => w.new_users),
         borderColor: "rgb(59, 130, 246)",
         backgroundColor: "rgba(59, 130, 246, 0.1)",
         tension: 0.4,
@@ -213,34 +277,38 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
   };
 
   const jobVolumeData = {
-    labels: metrics.jobVolume.slice(-14).map(d => format(new Date(d.date), "MMM dd")),
+    labels: metrics.jobVolume
+      .slice(-14)
+      .map((d) => format(new Date(d.date), "MMM dd")),
     datasets: [
       {
         label: "Jobs Created",
-        data: metrics.jobVolume.slice(-14).map(d => d.jobs_created),
+        data: metrics.jobVolume.slice(-14).map((d) => d.jobs_created),
         backgroundColor: "rgba(34, 197, 94, 0.8)",
       },
       {
         label: "Jobs Completed",
-        data: metrics.jobVolume.slice(-14).map(d => d.jobs_completed),
+        data: metrics.jobVolume.slice(-14).map((d) => d.jobs_completed),
         backgroundColor: "rgba(59, 130, 246, 0.8)",
       },
     ],
   };
 
   const disputeData = {
-    labels: metrics.disputeMetrics.map(d => format(new Date(d.week), "MMM dd")),
+    labels: metrics.disputeMetrics.map((d) =>
+      format(new Date(d.week), "MMM dd"),
+    ),
     datasets: [
       {
         label: "Disputes Opened",
-        data: metrics.disputeMetrics.map(d => d.disputes_opened),
+        data: metrics.disputeMetrics.map((d) => d.disputes_opened),
         borderColor: "rgb(239, 68, 68)",
         backgroundColor: "rgba(239, 68, 68, 0.1)",
         tension: 0.4,
       },
       {
         label: "Disputes Resolved",
-        data: metrics.disputeMetrics.map(d => d.disputes_resolved),
+        data: metrics.disputeMetrics.map((d) => d.disputes_resolved),
         borderColor: "rgb(34, 197, 94)",
         backgroundColor: "rgba(34, 197, 94, 0.1)",
         tension: 0.4,
@@ -271,7 +339,9 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="font-display text-xl font-bold text-amber-100">Analytics Dashboard</h2>
+        <h2 className="font-display text-xl font-bold text-amber-100">
+          Analytics Dashboard
+        </h2>
         <div className="flex items-center gap-3">
           <select
             value={period}
@@ -295,10 +365,26 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
       <section>
         <h3 className="font-semibold text-amber-100 mb-4">Platform Health</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <MetricCard title="Total Jobs" value={metrics.platformHealth.total_jobs} color="blue" />
-          <MetricCard title="Open Jobs" value={metrics.platformHealth.open_jobs} color="amber" />
-          <MetricCard title="Completion Rate" value={`${metrics.platformHealth.completion_rate}%`} color="green" />
-          <MetricCard title="Dispute Rate" value={`${metrics.platformHealth.dispute_rate}%`} color="red" />
+          <MetricCard
+            title="Total Jobs"
+            value={metrics.platformHealth.total_jobs}
+            color="blue"
+          />
+          <MetricCard
+            title="Open Jobs"
+            value={metrics.platformHealth.open_jobs}
+            color="amber"
+          />
+          <MetricCard
+            title="Completion Rate"
+            value={`${metrics.platformHealth.completion_rate}%`}
+            color="green"
+          />
+          <MetricCard
+            title="Dispute Rate"
+            value={`${metrics.platformHealth.dispute_rate}%`}
+            color="red"
+          />
         </div>
       </section>
 
@@ -306,25 +392,68 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
       <section>
         <h3 className="font-semibold text-amber-100 mb-4">User Growth</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <MetricCard title="Total Users" value={metrics.userGrowth.total_users} color="blue" />
-          <MetricCard title="Freelancers" value={metrics.userGrowth.freelancers} color="green" />
-          <MetricCard title="Clients" value={metrics.userGrowth.clients} color="amber" />
-          <MetricCard title="New Users" value={metrics.userGrowth.new_users_period} subtitle={`Last ${period}`} color="blue" />
+          <MetricCard
+            title="Total Users"
+            value={metrics.userGrowth.total_users}
+            color="blue"
+          />
+          <MetricCard
+            title="Freelancers"
+            value={metrics.userGrowth.freelancers}
+            color="green"
+          />
+          <MetricCard
+            title="Clients"
+            value={metrics.userGrowth.clients}
+            color="amber"
+          />
+          <MetricCard
+            title="New Users"
+            value={metrics.userGrowth.new_users_period}
+            subtitle={`Last ${period}`}
+            color="blue"
+          />
         </div>
         <div className="bg-market-800 p-4 rounded-lg">
-          <h4 className="font-medium text-amber-100 mb-3">Weekly User Growth</h4>
-          <Line data={userGrowthData} options={{ responsive: true, plugins: { legend: { display: false } } }} />
+          <h4 className="font-medium text-amber-100 mb-3">
+            Weekly User Growth
+          </h4>
+          <Line
+            data={userGrowthData}
+            options={{
+              responsive: true,
+              plugins: { legend: { display: false } },
+            }}
+          />
         </div>
       </section>
 
       {/* Financial Metrics */}
       <section>
-        <h3 className="font-semibold text-amber-100 mb-4">Financial Overview</h3>
+        <h3 className="font-semibold text-amber-100 mb-4">
+          Financial Overview
+        </h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <MetricCard title="XLM in Escrow" value={`${Number(metrics.financialMetrics.total_xlm_escrow).toFixed(2)}`} color="amber" />
-          <MetricCard title="XLM Released" value={`${Number(metrics.financialMetrics.total_xlm_released).toFixed(2)}`} color="green" />
-          <MetricCard title="Avg Job Budget" value={`${Number(metrics.financialMetrics.avg_job_budget).toFixed(2)} XLM`} color="blue" />
-          <MetricCard title="Active Escrows" value={metrics.financialMetrics.active_escrows} color="amber" />
+          <MetricCard
+            title="XLM in Escrow"
+            value={`${Number(metrics.financialMetrics.total_xlm_escrow).toFixed(2)}`}
+            color="amber"
+          />
+          <MetricCard
+            title="XLM Released"
+            value={`${Number(metrics.financialMetrics.total_xlm_released).toFixed(2)}`}
+            color="green"
+          />
+          <MetricCard
+            title="Avg Job Budget"
+            value={`${Number(metrics.financialMetrics.avg_job_budget).toFixed(2)} XLM`}
+            color="blue"
+          />
+          <MetricCard
+            title="Active Escrows"
+            value={metrics.financialMetrics.active_escrows}
+            color="amber"
+          />
         </div>
       </section>
 
@@ -332,20 +461,42 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Job Volume Chart */}
         <div className="bg-market-800 p-4 rounded-lg">
-          <h4 className="font-medium text-amber-100 mb-3">Daily Job Volume (Last 14 days)</h4>
-          <Bar data={jobVolumeData} options={{ responsive: true, plugins: { legend: { position: "top" } } }} />
+          <h4 className="font-medium text-amber-100 mb-3">
+            Daily Job Volume (Last 14 days)
+          </h4>
+          <Bar
+            data={jobVolumeData}
+            options={{
+              responsive: true,
+              plugins: { legend: { position: "top" } },
+            }}
+          />
         </div>
 
         {/* Job Status Distribution */}
         <div className="bg-market-800 p-4 rounded-lg">
-          <h4 className="font-medium text-amber-100 mb-3">Job Status Distribution</h4>
-          <Doughnut data={jobStatusData} options={{ responsive: true, plugins: { legend: { position: "bottom" } } }} />
+          <h4 className="font-medium text-amber-100 mb-3">
+            Job Status Distribution
+          </h4>
+          <Doughnut
+            data={jobStatusData}
+            options={{
+              responsive: true,
+              plugins: { legend: { position: "bottom" } },
+            }}
+          />
         </div>
 
         {/* Dispute Trends */}
         <div className="bg-market-800 p-4 rounded-lg">
           <h4 className="font-medium text-amber-100 mb-3">Dispute Trends</h4>
-          <Line data={disputeData} options={{ responsive: true, plugins: { legend: { position: "top" } } }} />
+          <Line
+            data={disputeData}
+            options={{
+              responsive: true,
+              plugins: { legend: { position: "top" } },
+            }}
+          />
         </div>
 
         {/* Top Earners */}
@@ -353,13 +504,17 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
           <h4 className="font-medium text-amber-100 mb-3">Top Earners</h4>
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {metrics.topEarners.map((earner, index) => (
-              <div key={earner.public_key} className="flex items-center justify-between p-2 bg-market-700 rounded">
+              <div
+                key={earner.public_key}
+                className="flex items-center justify-between p-2 bg-market-700 rounded"
+              >
                 <div>
                   <p className="text-sm font-medium text-amber-100">
                     #{index + 1} {earner.display_name || "Anonymous"}
                   </p>
                   <p className="text-xs text-amber-800">
-                    {earner.completed_jobs} jobs • {earner.rating?.toFixed(1) || "N/A"} ⭐
+                    {earner.completed_jobs} jobs •{" "}
+                    {earner.rating?.toFixed(1) || "N/A"} ⭐
                   </p>
                 </div>
                 <p className="text-sm font-bold text-green-400">
@@ -375,9 +530,21 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
       <section>
         <h3 className="font-semibold text-amber-100 mb-4">Quality Metrics</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <MetricCard title="Average Rating" value={`${Number(metrics.qualityMetrics.avg_rating).toFixed(1)} ⭐`} color="green" />
-          <MetricCard title="Total Ratings" value={metrics.qualityMetrics.total_ratings} color="blue" />
-          <MetricCard title="Repeat Hires" value={metrics.qualityMetrics.repeat_hires} color="amber" />
+          <MetricCard
+            title="Average Rating"
+            value={`${Number(metrics.qualityMetrics.avg_rating).toFixed(1)} ⭐`}
+            color="green"
+          />
+          <MetricCard
+            title="Total Ratings"
+            value={metrics.qualityMetrics.total_ratings}
+            color="blue"
+          />
+          <MetricCard
+            title="Repeat Hires"
+            value={metrics.qualityMetrics.repeat_hires}
+            color="amber"
+          />
         </div>
       </section>
 
@@ -410,7 +577,9 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-market-600">
-                    <th className="text-left py-2 text-amber-100">Admin Address</th>
+                    <th className="text-left py-2 text-amber-100">
+                      Admin Address
+                    </th>
                     <th className="text-left py-2 text-amber-100">Action</th>
                     <th className="text-left py-2 text-amber-100">Resource</th>
                     <th className="text-left py-2 text-amber-100">Timestamp</th>
@@ -420,19 +589,32 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
                 <tbody>
                   {auditLogs.map((log) => (
                     <tr key={log.id} className="border-b border-market-700/50">
-                      <td className="py-2 font-mono text-amber-200">{log.adminAddress?.slice(0, 8)}...</td>
+                      <td className="py-2 font-mono text-amber-200">
+                        {log.adminAddress?.slice(0, 8)}...
+                      </td>
                       <td className="py-2 text-amber-100">{log.action}</td>
-                      <td className="py-2 text-amber-100">{log.resource || "—"}</td>
-                      <td className="py-2 text-amber-800">{format(new Date(log.timestamp), "PPp")}</td>
+                      <td className="py-2 text-amber-100">
+                        {log.resource || "—"}
+                      </td>
                       <td className="py-2 text-amber-800">
-                        {log.changesDiff ? JSON.stringify(log.changesDiff).slice(0, 50) + (JSON.stringify(log.changesDiff).length > 50 ? "…" : "") : "—"}
+                        {format(new Date(log.timestamp), "PPp")}
+                      </td>
+                      <td className="py-2 text-amber-800">
+                        {log.changesDiff
+                          ? JSON.stringify(log.changesDiff).slice(0, 50) +
+                            (JSON.stringify(log.changesDiff).length > 50
+                              ? "…"
+                              : "")
+                          : "—"}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               {!auditLogs.length && (
-                <p className="text-center py-4 text-amber-800">No audit logs found.</p>
+                <p className="text-center py-4 text-amber-800">
+                  No audit logs found.
+                </p>
               )}
             </div>
           )}

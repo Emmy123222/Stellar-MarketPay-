@@ -184,14 +184,14 @@ export default function ClientSpendingTab({ analytics, loading, xlmPriceUsd }: P
         ) : (
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={filteredMonthly} margin={{ top: 4, right: 4, bottom: 4, left: 0 }}>
-              <XAxis dataKey="month" tick={{ fill: "#a8956a", fontSize: 11 }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="month" interval={3} tick={{ fill: "#a8956a", fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: "#a8956a", fontSize: 11 }} axisLine={false} tickLine={false} />
               <Tooltip
                 contentStyle={{ background: "#1a1610", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 8, color: "#fef3c7", fontSize: 12 }}
                 formatter={(value) => [`${Number(value).toFixed(2)} XLM`, "Spent"]}
                 cursor={{ fill: "rgba(245,158,11,0.06)" }}
               />
-              <Bar dataKey="total" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="total" fill="#f59e0b" radius={[4, 4, 0, 0]} barSize={24} />
             </BarChart>
           </ResponsiveContainer>
         )}

@@ -4,13 +4,12 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("../middleware/auth");
 const { generateCsrfToken } = require("../middleware/csrf");
+const pool = require("../db/pool");
 
 const ACCESS_TOKEN_EXPIRES_IN = "15m";
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const REFRESH_COOKIE_NAME = "refreshToken";
 const JWT_RESERVED_CLAIMS = new Set(["iat", "exp", "nbf", "jti"]);
-
-const refreshSessions = new Map();
 
 function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -28,41 +27,99 @@ function signAccessToken(payload) {
   });
 }
 
-function createRefreshToken(payload) {
+/**
+ * Create and persist a refresh token. Only its SHA-256 hash is stored.
+ * Tokens issued from the same login share a family_id so a replay can revoke
+ * the whole chain.
+ */
+async function createRefreshToken(payload, familyId = crypto.randomUUID()) {
   const token = crypto.randomBytes(48).toString("base64url");
-  refreshSessions.set(hashToken(token), {
-    payload: normalizePayload(payload),
-    expiresAt: Date.now() + REFRESH_TOKEN_TTL_MS,
-  });
+  const claims = normalizePayload(payload);
+
+  await pool.query(
+    `INSERT INTO refresh_tokens (token_hash, family_id, public_key, payload, expires_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [
+      hashToken(token),
+      familyId,
+      claims.publicKey || "",
+      JSON.stringify(claims),
+      new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+    ],
+  );
   return token;
 }
 
-function issueTokenPair(payload) {
+async function issueTokenPair(payload, familyId) {
   const accessToken = signAccessToken(payload);
-  const refreshToken = createRefreshToken(payload);
+  const refreshToken = await createRefreshToken(payload, familyId);
   return { accessToken, refreshToken };
 }
 
-function rotateRefreshToken(token) {
+/**
+ * Exchange a refresh token for a new access/refresh pair.
+ *
+ * The token is consumed with a single atomic UPDATE (used_at IS NULL), so two
+ * concurrent requests can never both succeed. Returns null when the token is
+ * unknown, expired, revoked or already used. Presenting an already-used token
+ * is treated as a replay and revokes every token in that login's family.
+ */
+async function rotateRefreshToken(token) {
   if (!token) return null;
 
   const tokenHash = hashToken(token);
-  const session = refreshSessions.get(tokenHash);
-  refreshSessions.delete(tokenHash);
 
-  if (!session || session.expiresAt <= Date.now()) {
+  const { rows } = await pool.query(
+    `UPDATE refresh_tokens
+        SET used_at = NOW()
+      WHERE token_hash = $1
+        AND used_at IS NULL
+        AND revoked_at IS NULL
+        AND expires_at > NOW()
+  RETURNING family_id, payload`,
+    [tokenHash],
+  );
+
+  if (rows.length === 0) {
+    await handleRejectedToken(tokenHash);
     return null;
   }
 
+  const { family_id: familyId, payload } = rows[0];
+  const claims = typeof payload === "string" ? JSON.parse(payload) : payload;
+
   // Rotate the access/refresh pair along with the CSRF token so a stale
   // pre-refresh token cannot be replayed.
-  return { ...issueTokenPair(session.payload) };
+  return issueTokenPair(claims, familyId);
 }
 
-function revokeRefreshToken(token) {
-  if (token) {
-    refreshSessions.delete(hashToken(token));
-  }
+async function handleRejectedToken(tokenHash) {
+  const { rows } = await pool.query(
+    `SELECT family_id, used_at FROM refresh_tokens WHERE token_hash = $1`,
+    [tokenHash],
+  );
+  const known = rows[0];
+  if (!known || !known.used_at) return;
+
+  // An already-used token came back: possible theft. Kill the whole family.
+  await pool.query(
+    `UPDATE refresh_tokens
+        SET revoked_at = NOW()
+      WHERE family_id = $1 AND revoked_at IS NULL`,
+    [known.family_id],
+  );
+  console.warn("[auth] Refresh token replay detected; token family revoked");
+}
+
+async function revokeRefreshToken(token) {
+  if (!token) return;
+  await pool.query(
+    `UPDATE refresh_tokens
+        SET revoked_at = NOW()
+      WHERE revoked_at IS NULL
+        AND family_id = (SELECT family_id FROM refresh_tokens WHERE token_hash = $1)`,
+    [hashToken(token)],
+  );
 }
 
 function parseCookieHeader(header) {
@@ -148,7 +205,6 @@ module.exports = {
   clearAuthCookies,
   getRefreshTokenFromRequest,
   issueTokenPair,
-  refreshSessions,
   revokeRefreshToken,
   rotateRefreshToken,
   setAuthCookies,
