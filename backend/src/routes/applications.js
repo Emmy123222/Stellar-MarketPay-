@@ -13,6 +13,7 @@ const {
   submitApplication, getApplicationsForJob,
   getApplicationsForFreelancer, acceptApplication,
   withdrawApplication,
+  getApplicationStatusHistory,
   closeBiddingForJob,
   revealApplicationBid,
 } = require("../services/applicationService");
@@ -260,6 +261,14 @@ router.post("/:id/accept", applicationRateLimiter, async (req, res, next) => {
     });
 
     res.json({ success: true, data: app });
+  } catch (e) { next(e); }
+});
+
+// GET /api/applications/:id/history — audit trail of status transitions
+router.get("/:id/history", generalApplicationRateLimiter, async (req, res, next) => {
+  try {
+    const history = await getApplicationStatusHistory(req.params.id);
+    res.json({ success: true, data: history });
   } catch (e) { next(e); }
 });
 
