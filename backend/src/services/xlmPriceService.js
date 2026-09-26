@@ -10,6 +10,7 @@ const PRICE_HISTORY_CACHE_KEY = "xlm:usd:history:7d";
 const PRICE_HISTORY_TTL_SECONDS = 5 * 60;
 const PRICE_CACHE_KEY = "xlm:price:usd";
 const PRICE_TTL_SECONDS = 60;
+const LAST_SUCCESSFUL_PRICE_TTL_MS = 10 * 60 * 1000;
 
 /**
  * Minimum remaining TTL (seconds) below which a background refresh is
@@ -24,6 +25,27 @@ const REFRESH_THRESHOLD_SECONDS = 15;
  * flag; only the first one fires the CoinGecko call.
  */
 let _refreshInFlight = false;
+let _lastSuccessfulPrice = null;
+
+function setLastSuccessfulPrice(priceData) {
+  if (!priceData || !Number.isFinite(priceData.priceUsd) || priceData.priceUsd <= 0) {
+    return;
+  }
+  _lastSuccessfulPrice = {
+    ...priceData,
+    fetchedAt: Date.now(),
+  };
+}
+
+function getLastSuccessfulPrice() {
+  if (!_lastSuccessfulPrice) return null;
+  const ageMs = Date.now() - (_lastSuccessfulPrice.fetchedAt || 0);
+  if (ageMs > LAST_SUCCESSFUL_PRICE_TTL_MS) {
+    _lastSuccessfulPrice = null;
+    return null;
+  }
+  return { ..._lastSuccessfulPrice };
+}
 
 async function fetchMarketChart7d() {
   const res = await fetch(
@@ -115,6 +137,63 @@ async function _getPriceTtl() {
  *
  * @returns {Promise<{priceUsd: number, cached: boolean, updatedAt: string}>}
  */
+async function fetchCoinGeckoPrice() {
+  const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd");
+  if (!res.ok) {
+    throw new Error(`CoinGecko request failed: ${res.status}`);
+  }
+
+  const payload = await res.json();
+  const priceUsd = Number(payload?.stellar?.usd);
+  if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
+    throw new Error("CoinGecko price payload missing or invalid");
+  }
+
+  return {
+    priceUsd,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function fetchCoinbasePrice() {
+  const res = await fetch("https://api.coinbase.com/v2/prices/XLM-USD/spot");
+  if (!res.ok) {
+    throw new Error(`Coinbase request failed: ${res.status}`);
+  }
+
+  const payload = await res.json();
+  const priceUsd = Number(payload?.data?.amount);
+  if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
+    throw new Error("Coinbase price payload missing or invalid");
+  }
+
+  return {
+    priceUsd,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function fetchCurrentPriceWithFallback() {
+  try {
+    const priceData = await fetchCoinGeckoPrice();
+    setLastSuccessfulPrice(priceData);
+    return priceData;
+  } catch (coinGeckoError) {
+    metrics.xlmPriceFetchErrorsTotal.inc();
+    logger.warn({ error: coinGeckoError.message }, 'CoinGecko XLM price fetch failed, trying Coinbase');
+
+    try {
+      const priceData = await fetchCoinbasePrice();
+      setLastSuccessfulPrice(priceData);
+      return priceData;
+    } catch (coinbaseError) {
+      metrics.xlmPriceFetchErrorsTotal.inc();
+      logger.warn({ error: coinbaseError.message }, 'Coinbase XLM price fallback failed');
+      throw coinbaseError;
+    }
+  }
+}
+
 async function getCurrentXlmPrice() {
   const cached = await cache.get(PRICE_CACHE_KEY);
 
@@ -133,20 +212,24 @@ async function getCurrentXlmPrice() {
 
   // Cache miss — fetch fresh and populate cache.
   logger.info('Cache miss for XLM price, fetching from CoinGecko');
-  const raw = await fetchMarketChart7d();
-  const normalized = normalizeMarketChartPayload(raw);
-  const priceData = {
-    priceUsd: normalized.currentPriceUsd,
-    updatedAt: normalized.updatedAt,
-  };
-  await cache.set(PRICE_CACHE_KEY, priceData, PRICE_TTL_SECONDS);
+  try {
+    const priceData = await fetchCurrentPriceWithFallback();
+    await cache.set(PRICE_CACHE_KEY, priceData, PRICE_TTL_SECONDS);
 
-  // Update Prometheus gauge on every successful fetch.
-  if (typeof normalized.currentPriceUsd === 'number') {
-    metrics.xlmPriceUsd.set(normalized.currentPriceUsd);
+    // Update Prometheus gauge on every successful fetch.
+    if (typeof priceData.priceUsd === 'number') {
+      metrics.xlmPriceUsd.set(priceData.priceUsd);
+    }
+
+    return { ...priceData, cached: false };
+  } catch (err) {
+    const stalePrice = getLastSuccessfulPrice();
+    if (stalePrice) {
+      logger.warn({ priceUsd: stalePrice.priceUsd }, 'Serving stale in-memory XLM price because both providers failed');
+      return { ...stalePrice, cached: true };
+    }
+    throw err;
   }
-
-  return { ...priceData, cached: false };
 }
 
 /**
@@ -160,23 +243,18 @@ async function refreshPriceInBackground() {
   if (_refreshInFlight) return;
   _refreshInFlight = true;
   try {
-    const raw = await fetchMarketChart7d();
-    const normalized = normalizeMarketChartPayload(raw);
-    const priceData = {
-      priceUsd: normalized.currentPriceUsd,
-      updatedAt: normalized.updatedAt,
-    };
+    const priceData = await fetchCurrentPriceWithFallback();
     await cache.set(PRICE_CACHE_KEY, priceData, PRICE_TTL_SECONDS);
 
     // Update Prometheus gauge on every successful fetch.
-    if (typeof normalized.currentPriceUsd === 'number') {
-      metrics.xlmPriceUsd.set(normalized.currentPriceUsd);
+    if (typeof priceData.priceUsd === 'number') {
+      metrics.xlmPriceUsd.set(priceData.priceUsd);
     }
 
     logger.debug({ priceUsd: priceData.priceUsd }, 'Background price refresh completed');
   } catch (err) {
     logger.warn({ error: err.message }, 'Background price refresh failed');
-    throw err; // Re-throw so the caller's .catch() handler can log it.
+    throw err;
   } finally {
     _refreshInFlight = false;
   }
@@ -187,7 +265,10 @@ module.exports = {
   getCurrentXlmPrice,
   PRICE_HISTORY_TTL_SECONDS,
   PRICE_TTL_SECONDS,
+  LAST_SUCCESSFUL_PRICE_TTL_MS,
   REFRESH_THRESHOLD_SECONDS,
   // Exported for testing only
   _resetRefreshInFlight: () => { _refreshInFlight = false; },
+  _setLastSuccessfulPrice: (priceData) => { setLastSuccessfulPrice(priceData); },
+  _resetLastSuccessfulPrice: () => { _lastSuccessfulPrice = null; },
 };
