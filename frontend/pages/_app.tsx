@@ -10,6 +10,7 @@ import { ToastProvider } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
+import CommandPalette from "@/components/CommandPalette";
 import OfflineBanner from "@/components/OfflineBanner";
 import RateLimitWatcher from "@/components/RateLimitWatcher";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -31,6 +32,7 @@ function getInitialLocale(): string {
 function App({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const router = useRouter();
   const { i18n } = useTranslation("common");
   const initialLocale = getInitialLocale();
@@ -48,13 +50,13 @@ function App({ Component, pageProps }: AppProps) {
   }, []);
 
   useKeyboardShortcuts({
-    isJobDetailPage,
     onGoToJobs: () => router.push("/jobs"),
     onGoToDashboard: () => router.push("/dashboard"),
-    onNewJobPost: () => router.push("/post-job"),
+    onPostJob: () => router.push("/post-job"),
     onToggleShortcutsModal: handleToggleShortcutsModal,
-    onJobApply: () => window.dispatchEvent(new CustomEvent("shortcut-apply-job")),
-    onJobBackToListing: () => router.push("/jobs"),
+    onFocusSearch: () => window.dispatchEvent(new CustomEvent("shortcut-focus-search")),
+    onToggleBookmark: () => window.dispatchEvent(new CustomEvent("shortcut-toggle-bookmark")),
+    onOpenCommandPalette: () => setCommandPaletteOpen(true),
     shortcutsModalOpen,
   });
 
@@ -130,6 +132,10 @@ function App({ Component, pageProps }: AppProps) {
             isOpen={shortcutsModalOpen}
             onClose={() => setShortcutsModalOpen(false)}
             showJobDetailShortcuts={isJobDetailPage}
+          />
+          <CommandPalette
+            isOpen={commandPaletteOpen}
+            onClose={() => setCommandPaletteOpen(false)}
           />
         </div>
         <RateLimitWatcher />

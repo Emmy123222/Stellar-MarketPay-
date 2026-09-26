@@ -101,18 +101,6 @@ export default function Navbar({
   }, [router.pathname]);
 
   useEffect(() => {
-    const handleGlobalShortcut = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setSearchOpen(true);
-        requestAnimationFrame(() => searchInputRef.current?.focus());
-      }
-    };
-    window.addEventListener("keydown", handleGlobalShortcut);
-    return () => window.removeEventListener("keydown", handleGlobalShortcut);
-  }, []);
-
-  useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
       if (
         searchContainerRef.current &&
@@ -303,7 +291,7 @@ export default function Navbar({
               }}
               className="p-2 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors"
               aria-label="Open global search"
-              title="Search (Ctrl/Cmd+K)"
+              title="Open global search"
             >
               <SearchIcon className="w-4 h-4" />
             </button>
