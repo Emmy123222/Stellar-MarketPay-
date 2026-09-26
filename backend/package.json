@@ -6,7 +6,7 @@
     "scripts": {
         "dev": "nodemon src/server.js",
         "start": "node src/server.js",
-        "lint": "eslint src tests __tests__",
+        "lint": "node scripts/verify-eslint-config.js && eslint src tests __tests__",
         "lint:fix": "eslint src tests __tests__ --fix",
         "test": "jest --coverage",
         "test:unit": "jest",
