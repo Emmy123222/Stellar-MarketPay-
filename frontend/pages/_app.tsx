@@ -8,16 +8,38 @@ import { fetchAuthChallenge, verifyAuthChallenge, setJwtToken } from "@/lib/api"
 import "@/styles/globals.css";
 import { ToastProvider } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
 import OfflineBanner from "@/components/OfflineBanner";
 import RateLimitWatcher from "@/components/RateLimitWatcher";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
-import "../lib/i18n";
+import { useTranslation } from "../lib/i18n";
+
+const LOCALE_STORAGE_KEY = "stellar-marketpay:locale";
+const SUPPORTED_LOCALES = new Set(["en", "es", "fr", "pt"]);
+
+function getInitialLocale(): string {
+  if (typeof window === "undefined") return "en";
+
+  const savedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+  const browserLocale = window.navigator.language?.split("-")[0];
+  return [savedLocale, browserLocale, "en"].find(
+    (locale): locale is string => Boolean(locale && SUPPORTED_LOCALES.has(locale)),
+  ) || "en";
+}
 
 function App({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const router = useRouter();
+  const { i18n } = useTranslation("common");
+  const initialLocale = getInitialLocale();
+
+  // Resolve the persisted/browser locale during render so the first client
+  // render uses the same locale preference instead of briefly showing English.
+  if (i18n.language !== initialLocale) {
+    void i18n.changeLanguage(initialLocale);
+  }
 
   const isJobDetailPage = router.pathname === "/jobs/[id]";
 
@@ -86,6 +108,7 @@ function App({ Component, pageProps }: AppProps) {
 
   return (
     <>
+      <ThemeProvider>
       <ToastProvider>
         <PriceProvider>
         <Head>
@@ -112,6 +135,7 @@ function App({ Component, pageProps }: AppProps) {
         <RateLimitWatcher />
         </PriceProvider>
       </ToastProvider>
+      </ThemeProvider>
     </>
   );
 }

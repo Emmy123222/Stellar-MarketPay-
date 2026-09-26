@@ -116,6 +116,40 @@ describe("Ratings Route Suite (/api/ratings)", () => {
       });
     });
 
+    it("409 — rejects a duplicate rating for the same job and ratee", async () => {
+      seedCompletedJob();
+
+      createRating.mockImplementation(async ({ jobId, raterAddress, ratedAddress, stars, review }) => {
+        const rating = {
+          id: "rating-duplicate-check",
+          job_id: jobId,
+          rater_address: raterAddress,
+          rated_address: ratedAddress,
+          stars,
+          review,
+        };
+        pool.ratings.set(rating.id, rating);
+        return rating;
+      });
+
+      const firstRes = await request(app)
+        .post("/api/ratings")
+        .set("Authorization", `Bearer ${makeToken()}`)
+        .set("X-CSRF-Token", "dummy-token")
+        .send(validBody);
+
+      const secondRes = await request(app)
+        .post("/api/ratings")
+        .set("Authorization", `Bearer ${makeToken()}`)
+        .set("X-CSRF-Token", "dummy-token")
+        .send(validBody);
+
+      expect(firstRes.status).toBe(201);
+      expect(secondRes.status).toBe(409);
+      expect(secondRes.body.error).toBe("Rating already submitted for this job");
+      expect(createRating).toHaveBeenCalledTimes(1);
+    });
+
     it("401 — rejects when no JWT is supplied", async () => {
       const res = await request(app)
         .post("/api/ratings")

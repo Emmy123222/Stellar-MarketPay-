@@ -10,7 +10,7 @@
 #
 # Note: husky v9 invokes this script with `sh -e`, so we disable errexit
 # here and handle every failure path explicitly with a non-zero exit.
-
+#
 set +e
 
 # ---------------------------------------------------------------------------
@@ -18,23 +18,44 @@ set +e
 # ---------------------------------------------------------------------------
 echo "🔍 Running gitleaks to detect secrets..."
 
-if ! command -v gitleaks >/dev/null 2>&1; then
-  echo "⚠️  gitleaks is not installed. Installing..."
-  if command -v brew >/dev/null 2>&1; then
-    brew install gitleaks
-  elif command -v go >/dev/null 2>&1; then
-    go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest
-  else
-    echo "❌ Please install gitleaks manually:"
-    echo "   macOS: brew install gitleaks"
-    echo "   Go: go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest"
-    echo "   Or download from: https://github.com/zricethezav/gitleaks/releases"
-    exit 1
+GITLEAKS_BIN=$(command -v gitleaks || true)
+if [ -z "$GITLEAKS_BIN" ]; then
+  # gitleaks is not on PATH. The repo's `go install` step fails on this Go
+  # version (module path mismatch), so look for the binary we installed and
+  # fall back to a direct release-asset download.
+  for candidate in "$(go env GOPATH)/bin/gitleaks" "/opt/homebrew/bin/gitleaks" "/usr/local/bin/gitleaks"; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+      GITLEAKS_BIN="$candidate"
+      break
+    fi
+  done
+  if [ -z "$GITLEAKS_BIN" ] && command -v go >/dev/null 2>&1; then
+    if command -v curl >/dev/null 2>&1; then
+      GITLEAKS_URL=$(curl -fsSL https://api.github.com/repos/zricethezav/gitleaks/releases/latest | grep -o "https://github.com/zricethezav/gitleaks/releases/download/[^\"]*" | head -1)
+      if [ -n "$GITLEAKS_URL" ]; then
+        TEMP_FILE=$(mktemp)
+        curl -fsSL -o "$TEMP_FILE" "$GITLEAKS_URL/gitleaks-linux-amd64" || true
+        if [ -x "$TEMP_FILE" ]; then
+          mv "$TEMP_FILE" "$(go env GOPATH)/bin/gitleaks"
+          GITLEAKS_BIN="$(go env GOPATH)/bin/gitleaks"
+        else
+          rm -f "$TEMP_FILE"
+        fi
+      fi
+    fi
   fi
 fi
 
+if [ -z "$GITLEAKS_BIN" ]; then
+  echo "❌ Please install gitleaks manually:"
+  echo "   macOS: brew install gitleaks"
+  echo "   Go: go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest"
+  echo "   Or download from: https://github.com/zricethezav/gitleaks/releases"
+  exit 1
+fi
+
 # Run gitleaks on staged files
-gitleaks protect -v --staged --config .gitleaks.toml
+$GITLEAKS_BIN protect -v --staged --config .gitleaks.toml
 gitleaks_status=$?
 
 if [ "$gitleaks_status" -ne 0 ]; then

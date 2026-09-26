@@ -149,6 +149,9 @@
               "args": [
                 {
                   "bytes": "290b8f34b498bb6bd549f970cb681e6d2bb8d4312c59b4768f34f419358ae3ef"
+                },
+                {
+                  "string": "1.1.0"
                 }
               ]
             }
@@ -251,6 +254,18 @@
                             "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                           }
                         ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "ContractVersion"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "string": "1.1.0"
                       }
                     },
                     {

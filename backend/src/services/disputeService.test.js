@@ -8,11 +8,20 @@ jest.mock("../db/pool", () => ({
 
 jest.mock("./ipfsService", () => ({
   uploadFile: jest.fn(),
+  verifyPin: jest.fn(),
   getGatewayUrl: jest.fn((cid) => `https://gateway.pinata.cloud/ipfs/${cid}`),
 }));
 
 jest.mock("./sorobanArbitratorRegistry", () => ({
   isArbitrator: jest.fn().mockResolvedValue(false),
+}));
+
+// sorobanEvidence pulls in @stellar/stellar-sdk (ESM-only deps under Jest), so
+// mock it to keep this a true unit test and to avoid any network calls when
+// uploadEvidence anchors the CID on-chain.
+jest.mock("./sorobanEvidence", () => ({
+  recordEvidenceCidOnChain: jest.fn().mockResolvedValue({ success: false, error: "not configured" }),
+  getOnchainEvidenceCids: jest.fn().mockResolvedValue([]),
 }));
 
 const pool = require("../db/pool");
@@ -61,6 +70,7 @@ function makeEvidenceRow(overrides = {}) {
     file_size: 1024,
     mime_type: "application/pdf",
     ipfs_cid: VALID_CID_V0,
+    pinned: true,
     created_at: new Date().toISOString(),
     ...overrides,
   };
@@ -155,7 +165,7 @@ describe("disputeService", () => {
         .mockResolvedValueOnce({ rows: [{ count: "0" }] })
         .mockResolvedValueOnce({ rows: [makeEvidenceRow()] });
 
-      ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V0 });
+      ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V0, pinned: true });
 
       const result = await uploadEvidence(
         JOB_ID,
@@ -167,6 +177,44 @@ describe("disputeService", () => {
 
       expect(result.success).toBe(true);
       expect(result.data.ipfsCid).toBe(VALID_CID_V0);
+      expect(result.data.pinned).toBe(true);
+
+      // Issue #1439 — AC #3: the verified pin state is persisted.
+      const [insertSql, insertParams] = pool.query.mock.calls[3];
+      expect(insertSql).toMatch(/INSERT INTO dispute_evidence/);
+      expect(insertSql).toMatch(/pinned/);
+      expect(insertParams).toEqual([
+        JOB_ID,
+        CLIENT_ADDRESS,
+        fileName,
+        fileBuffer.length,
+        mimeType,
+        VALID_CID_V0,
+        true,
+      ]);
+    });
+
+    it("records pinned: false when pin verification fails", async () => {
+      pool.query
+        .mockResolvedValueOnce({ rows: [makeJob()] })
+        .mockResolvedValueOnce({ rows: [{ id: "dispute-1", status: "open" }] })
+        .mockResolvedValueOnce({ rows: [{ count: "0" }] })
+        .mockResolvedValueOnce({ rows: [makeEvidenceRow({ pinned: false })] });
+
+      ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V0, pinned: false });
+
+      const result = await uploadEvidence(
+        JOB_ID,
+        CLIENT_ADDRESS,
+        fileBuffer,
+        fileName,
+        mimeType,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data.pinned).toBe(false);
+      const [, insertParams] = pool.query.mock.calls[3];
+      expect(insertParams[6]).toBe(false);
     });
 
     it("rejects evidence upload from non-participant", async () => {
@@ -238,7 +286,7 @@ describe("disputeService", () => {
           rows: [makeEvidenceRow({ ipfs_cid: VALID_CID_V1 })],
         });
 
-      ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V1 });
+      ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V1, pinned: true });
 
       const result = await uploadEvidence(
         JOB_ID,

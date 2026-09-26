@@ -79,8 +79,20 @@ router.get("/job/:jobId", generalApplicationRateLimiter, async (req, res, next) 
       throw e;
     }
 
-    const applications = await getApplicationsForJob(req.params.jobId, { tier });
-    res.json({ success: true, data: applications });
+    const limit = req.query.limit === undefined ? 20 : Number(req.query.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      const e = new Error("Invalid application limit");
+      e.status = 400;
+      throw e;
+    }
+    const cursor = typeof req.query.cursor === "string" && req.query.cursor ? req.query.cursor : null;
+    const options = { tier };
+    if (req.query.limit !== undefined) options.limit = limit;
+    if (cursor) options.cursor = cursor;
+    const result = await getApplicationsForJob(req.params.jobId, options);
+    const applications = Array.isArray(result) ? result : result.applications;
+    const nextCursor = Array.isArray(result) ? null : result.nextCursor;
+    res.json({ success: true, data: applications, applications, nextCursor });
   } catch (e) {
     next(e);
   }
