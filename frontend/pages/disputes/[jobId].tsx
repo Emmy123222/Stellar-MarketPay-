@@ -85,7 +85,9 @@ interface PageProps {
   publicKey: string | null;
 }
 
-export default function DisputePage({ publicKey }: PageProps) {
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+
+function DisputePage({ publicKey }: PageProps) {
   const router    = useRouter();
   const jobId     = Array.isArray(router.query.jobId) ? router.query.jobId[0] : router.query.jobId;
   const fileRef   = useRef<HTMLInputElement>(null);
@@ -463,5 +465,13 @@ export default function DisputePage({ publicKey }: PageProps) {
         </div>
       )}
     </div>
+  );
+}
+
+export default function DisputePageWrapper(props: PageProps) {
+  return (
+    <ErrorBoundary>
+      <DisputePage {...props} />
+    </ErrorBoundary>
   );
 }

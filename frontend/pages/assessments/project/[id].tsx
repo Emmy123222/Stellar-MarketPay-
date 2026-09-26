@@ -26,7 +26,9 @@ interface TakeAssessmentProps {
   publicKey: string | null;
 }
 
-export default function TakeAssessment({ publicKey }: TakeAssessmentProps) {
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+
+function TakeAssessment({ publicKey }: TakeAssessmentProps) {
   const router = useRouter();
   const toast = useToast();
   const { id } = router.query;
@@ -195,5 +197,13 @@ export default function TakeAssessment({ publicKey }: TakeAssessmentProps) {
         )}
       </div>
     </>
+  );
+}
+
+export default function TakeAssessmentWrapper(props: TakeAssessmentProps) {
+  return (
+    <ErrorBoundary>
+      <TakeAssessment {...props} />
+    </ErrorBoundary>
   );
 }

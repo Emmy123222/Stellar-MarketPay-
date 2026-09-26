@@ -28,7 +28,9 @@ const emptyQuestion = (): Question => ({
   correctAnswer: 0,
 });
 
-export default function CreateAssessment({ publicKey }: CreateAssessmentProps) {
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+
+function CreateAssessment({ publicKey }: CreateAssessmentProps) {
   const router = useRouter();
   const toast = useToast();
   const [title, setTitle] = useState('');
@@ -230,5 +232,13 @@ export default function CreateAssessment({ publicKey }: CreateAssessmentProps) {
         </form>
       </div>
     </>
+  );
+}
+
+export default function CreateAssessmentWrapper(props: CreateAssessmentProps) {
+  return (
+    <ErrorBoundary>
+      <CreateAssessment {...props} />
+    </ErrorBoundary>
   );
 }
