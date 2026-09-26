@@ -267,7 +267,7 @@ describe("Referrals Route Suite (/api/referrals)", () => {
         id: "referral-1",
         referrer_address: USER_KEY,
         referee_address: REFEREE_KEY,
-        status: "pending",
+        status: "referral_credit_pending",
         created_at: new Date().toISOString(),
       };
 

@@ -125,7 +125,7 @@
             }
         },
         "transformIgnorePatterns": [
-            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|sanitize-html|htmlparser2|domhandler|domutils|entities|dom-serializer|domelementtype)/)"
+            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|sanitize-html|htmlparser2|domhandler|domutils|entities|dom-serializer|domelementtype|uint8array-extras|@stellar)/)"
         ],
         "moduleNameMapper": {
             "^(\\.{1,2}/.*)\\.js$": "$1"
