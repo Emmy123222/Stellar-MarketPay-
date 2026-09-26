@@ -11,6 +11,23 @@ export interface DisputeEvidence {
   createdAt: string;
 }
 
+/** One entry on a dispute's timeline (Issue #1429). */
+export interface DisputeTimelineEvent {
+  id: string;
+  jobId: string;
+  eventType: "opened" | "evidence_submitted" | "arbitrator_assigned" | "resolved";
+  actorAddress: string;
+  evidenceId: string | null;
+  payload: Record<string, unknown>;
+  evidence: {
+    id: string;
+    fileName: string;
+    mimeType: string;
+    gatewayUrl: string;
+  } | null;
+  createdAt: string;
+}
+
 export interface DisputeDetail {
   job: {
     id: string;
@@ -30,6 +47,26 @@ export async function fetchDisputeDetail(
     `/api/disputes/${jobId}`,
   );
   return data.data;
+}
+
+/**
+ * Fetch a dispute's timeline events in chronological order (Issue #1429).
+ * Backed by GET /api/disputes/:jobId/events; the backend orders events
+ * oldest-first and embeds evidence metadata for evidence_submitted events.
+ */
+export async function fetchDisputeEvents(
+  jobId: string,
+): Promise<DisputeTimelineEvent[]> {
+  try {
+    const { data } = await api.get<{
+      success: boolean;
+      data: { jobId: string; events: DisputeTimelineEvent[] };
+    }>(`/api/disputes/${encodeURIComponent(jobId)}/events`);
+    return Array.isArray(data?.data?.events) ? data.data.events : [];
+  } catch {
+    // The timeline is supplementary — never block the dispute page on it.
+    return [];
+  }
 }
 
 export async function uploadDisputeEvidence(

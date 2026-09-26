@@ -10,6 +10,90 @@ const MAX_EVIDENCE_FILES = 10;
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const IPFS_CID_PATTERN = /^(?:Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-z2-7]{55})$/;
 
+// Issue #1429 — dispute timeline event types. Stored in dispute_events and
+// rendered chronologically by the frontend DisputeTimeline component.
+const DISPUTE_EVENT_TYPES = ["opened", "evidence_submitted", "arbitrator_assigned", "resolved"];
+
+/**
+ * Append an event to a dispute's timeline (Issue #1429).
+ *
+ * Best-effort and non-fatal: a failed insert must never break the operation
+ * that produced the event (creating a dispute, uploading evidence, ...), so
+ * every error is logged and swallowed. `actorAddress` is required — without
+ * it there is no meaningful "actor" to display — but the caller decides
+ * whether a missing actor is worth logging.
+ *
+ * @param {string} jobId        UUID of the job the dispute belongs to.
+ * @param {"opened"|"evidence_submitted"|"arbitrator_assigned"|"resolved"} eventType
+ * @param {string|null} actorAddress Stellar public key of the acting party.
+ * @param {{ evidenceId?: string|null, payload?: object }} [detail]
+ * @returns {Promise<void>}
+ */
+async function recordDisputeEvent(jobId, eventType, actorAddress, detail = {}) {
+  try {
+    if (!jobId || !DISPUTE_EVENT_TYPES.includes(eventType) || !actorAddress) {
+      return;
+    }
+    await pool.query(
+      `INSERT INTO dispute_events (job_id, event_type, actor_address, evidence_id, payload)
+       VALUES ($1, $2, $3, $4, $5::jsonb)`,
+      [
+        jobId,
+        eventType,
+        actorAddress,
+        detail.evidenceId || null,
+        JSON.stringify(detail.payload || {}),
+      ],
+    );
+  } catch (err) {
+    console.error("[disputeService] failed to record dispute event:", err.message);
+  }
+}
+
+/**
+ * Read a dispute's full event history in chronological order (Issue #1429).
+ *
+ * Events that reference an evidence file (evidence_submitted) include the
+ * evidence metadata so the timeline can render the attachment without a
+ * second round-trip.
+ *
+ * @param {string} jobId UUID of the job.
+ * @returns {Promise<Array<{id: string, jobId: string, eventType: string,
+ *   actorAddress: string, evidenceId: string|null, payload: object,
+ *   evidence: {id: string, fileName: string, mimeType: string, gatewayUrl: string}|null,
+ *   createdAt: string}>>}
+ */
+async function getDisputeEvents(jobId) {
+  const { rows } = await pool.query(
+    `SELECT de.id, de.job_id, de.event_type, de.actor_address, de.evidence_id,
+            de.payload, de.created_at,
+            ev.file_name, ev.mime_type, ev.ipfs_cid
+     FROM dispute_events de
+     LEFT JOIN dispute_evidence ev ON ev.id = de.evidence_id
+     WHERE de.job_id = $1
+     ORDER BY de.created_at ASC, de.id ASC`,
+    [jobId],
+  );
+
+  return rows.map((row) => ({
+    id:           row.id,
+    jobId:        row.job_id,
+    eventType:    row.event_type,
+    actorAddress: row.actor_address,
+    evidenceId:   row.evidence_id || null,
+    payload:      row.payload || {},
+    evidence: row.evidence_id
+      ? {
+          id:         row.evidence_id,
+          fileName:   row.file_name,
+          mimeType:   row.mime_type,
+          gatewayUrl: ipfsService.getGatewayUrl(row.ipfs_cid),
+        }
+      : null,
+    createdAt:    row.created_at,
+  }));
+}
+
 function validateIpfsCid(cid) {
   if (typeof cid !== "string" || !IPFS_CID_PATTERN.test(cid)) {
     const e = new Error("Invalid IPFS CID returned from upload service");
@@ -61,6 +145,11 @@ async function createDispute(jobId, raisedBy) {
      RETURNING *`,
     [jobId, raisedBy],
   );
+
+  // Issue #1429 — the first timeline entry: the dispute was opened.
+  await recordDisputeEvent(jobId, "opened", raisedBy, {
+    payload: { disputeId: rows[0]?.id },
+  });
 
   return { success: true, dispute: rows[0] };
 }
@@ -153,6 +242,16 @@ async function uploadEvidence(jobId, uploaderAddress, fileBuffer, fileName, mime
     callerAddress: uploaderAddress,
   });
 
+  // Issue #1429 — timeline entry with the evidence attached so the
+  // DisputeTimeline can render a link to the file next to the event.
+  await recordDisputeEvent(jobId, "evidence_submitted", uploaderAddress, {
+    evidenceId: ev.id,
+    payload: {
+      fileName: ev.file_name,
+      ipfsCid: ev.ipfs_cid,
+    },
+  });
+
   return {
     success: true,
     data: {
@@ -234,6 +333,11 @@ async function resolveDispute(jobId, resolvedBy, resolution) {
     );
   }
 
+  // Issue #1429 — final timeline entry: the ruling.
+  await recordDisputeEvent(jobId, "resolved", resolvedBy, {
+    payload: { resolution },
+  });
+
   // Issue #1561: dispute outcomes feed both parties' reputation scores.
   scheduleReputationRecalcForJob(jobId);
 
@@ -291,6 +395,9 @@ module.exports = {
   uploadEvidence,
   resolveDispute,
   getDispute,
+  recordDisputeEvent,
+  getDisputeEvents,
+  DISPUTE_EVENT_TYPES,
   MAX_EVIDENCE_FILES,
   MAX_FILE_SIZE,
   validateIpfsCid,
