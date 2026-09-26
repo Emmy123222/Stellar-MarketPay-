@@ -46,7 +46,12 @@ jest.mock("@stellar/stellar-sdk", () => ({
 
 const IndexerService = require("./indexerService");
 const escrowService = require("./escrowService");
-const { startEscrowTimeoutChecker } = escrowService;
+const {
+  startEscrowTimeoutChecker,
+  ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS,
+  ESCROW_TIMEOUT_CHECK_MAX_DELAY_MS,
+  getEscrowTimeoutCheckDelay,
+} = escrowService;
 
 // Spy on timeoutRefund to intercept internal module calls and prevent real execution
 jest.spyOn(escrowService, "timeoutRefund").mockImplementation(async () => {
@@ -148,6 +153,13 @@ describe("IndexerService & Escrow Timeout Checker", () => {
   });
 
   describe("startEscrowTimeoutChecker", () => {
+    it("jitter-schedules follow-up checks within the hourly spread", () => {
+      expect(getEscrowTimeoutCheckDelay(() => 0)).toBe(ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS);
+      expect(getEscrowTimeoutCheckDelay(() => 0.999999)).toBeLessThanOrEqual(
+        ESCROW_TIMEOUT_CHECK_MAX_DELAY_MS,
+      );
+    });
+
     it("queries expired escrows and calls timeoutRefund", async () => {
       mockQuery.mockResolvedValueOnce({
         rows: [{ job_id: "job-expired-1", client_address: "GClientAddress" }],

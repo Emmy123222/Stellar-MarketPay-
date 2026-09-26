@@ -13,6 +13,14 @@ const { getClientIp } = require("../utils/clientIp");
 const { signWithServiceKey, getServicePublicKey } = require("./stellarServiceKey");
 
 const ESCROW_TIMEOUT_DAYS = 7;
+const ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS = 55 * 60 * 1000;
+const ESCROW_TIMEOUT_CHECK_MAX_DELAY_MS = 65 * 60 * 1000;
+
+function getEscrowTimeoutCheckDelay(random = Math.random) {
+  return Math.floor(
+    random() * (ESCROW_TIMEOUT_CHECK_MAX_DELAY_MS - ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS + 1),
+  ) + ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS;
+}
 const logger = createServiceLogger('escrowService');
 
 const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
@@ -783,8 +791,18 @@ async function startEscrowTimeoutChecker() {
   // Run immediately on startup
   await checkAndRefund();
 
-  // Schedule every hour (60 * 60 * 1000 ms)
-  setInterval(checkAndRefund, 60 * 60 * 1000).unref();
+  // Schedule the next run with jitter so multiple instances do not query and
+  // refund the same escrow set at the same instant. Keep the normal cadence
+  // close to hourly while spreading runs across a 55–65 minute window.
+  const scheduleNextCheck = () => {
+    const timer = setTimeout(async () => {
+      await checkAndRefund();
+      scheduleNextCheck();
+    }, getEscrowTimeoutCheckDelay());
+    timer.unref();
+  };
+
+  scheduleNextCheck();
 }
 
 async function submitDeliverableHash(jobId, freelancerAddress, hashHex) {
@@ -987,6 +1005,9 @@ module.exports = {
 
   verifyFreelancerAccount,
   ESCROW_TIMEOUT_DAYS,
+  ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS,
+  ESCROW_TIMEOUT_CHECK_MAX_DELAY_MS,
+  getEscrowTimeoutCheckDelay,
   normalizeMilestones,
   validateCreateEscrowPayload,
 };
