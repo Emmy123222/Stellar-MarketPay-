@@ -76,6 +76,9 @@ services:
 
   backend-blue:
     image: ${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     restart: unless-stopped
     profiles: ["blue"]
     environment:
@@ -118,6 +121,9 @@ services:
 
   backend-green:
     image: ${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     restart: unless-stopped
     profiles: ["green"]
     environment:

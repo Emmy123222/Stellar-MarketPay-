@@ -37,6 +37,7 @@ function decodeApplicationCursor(cursor) {
 if (process.env.NODE_ENV === 'test') {
   const store = require('./store');
   const crypto = require('crypto');
+  const statusHistory = new Map();
 
   function validatePublicKey(key) {
     if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
@@ -163,6 +164,24 @@ if (process.env.NODE_ENV === 'test') {
     return rowToApp(store.applications.get(applicationId));
   }
 
+  async function updateStatus(applicationId, newStatus, changedBy) {
+    const app = store.applications.get(applicationId);
+    if (!app) { const e = new Error('Application not found'); e.status = 404; throw e; }
+    if (!['pending', 'shortlisted', 'accepted', 'rejected'].includes(newStatus)) {
+      const e = new Error('Invalid application status'); e.status = 400; throw e;
+    }
+    const entry = { id: crypto.randomUUID(), applicationId, oldStatus: app.status, newStatus, changedBy, changedAt: new Date().toISOString() };
+    app.status = newStatus;
+    store.applications.set(applicationId, app);
+    statusHistory.set(applicationId, [...(statusHistory.get(applicationId) || []), entry]);
+    return rowToApp(app);
+  }
+
+  async function getApplicationStatusHistory(applicationId) {
+    if (!store.applications.has(applicationId)) { const e = new Error('Application not found'); e.status = 404; throw e; }
+    return statusHistory.get(applicationId) || [];
+  }
+
   module.exports = {
     submitApplication,
     getApplicationsForJob: async (jobId, { limit = 20, cursor = null } = {}) => {
@@ -179,6 +198,8 @@ if (process.env.NODE_ENV === 'test') {
     },
     getApplicationsForFreelancer: async (freelancerAddress) => Array.from(store.applications.values()).filter(a => a.freelancerAddress === freelancerAddress).map(rowToApp),
     acceptApplication,
+    updateStatus,
+    getApplicationStatusHistory,
   };
 
 }
@@ -459,7 +480,7 @@ async function getApplicationsForFreelancer(freelancerAddress) {
  * @throws {Error} 403 — caller is not the job's client.
  * @throws {Error} 404 — application or job not found.
  */
-async function acceptApplication(applicationId, clientAddress) {
+  async function acceptApplication(applicationId, clientAddress) {
   validatePublicKey(clientAddress);
 
   const { rows: appRows } = await pool.query("SELECT * FROM applications WHERE id = $1", [applicationId]);
@@ -468,6 +489,7 @@ async function acceptApplication(applicationId, clientAddress) {
     e.status = 404;
     throw e;
   }
+
   const app = appRows[0];
 
   const job = await getJob(app.job_id);
@@ -511,10 +533,47 @@ async function acceptApplication(applicationId, clientAddress) {
   }
 }
 
+  async function updateStatus(applicationId, newStatus, changedBy) {
+    if (!['pending', 'shortlisted', 'accepted', 'rejected'].includes(newStatus)) {
+      const e = new Error('Invalid application status'); e.status = 400; throw e;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(
+        'SELECT id, status FROM applications WHERE id = $1 FOR UPDATE', [applicationId],
+      );
+      if (!rows.length) { const e = new Error('Application not found'); e.status = 404; throw e; }
+      const oldStatus = rows[0].status;
+      await client.query('UPDATE applications SET status = $1 WHERE id = $2', [newStatus, applicationId]);
+      await client.query(
+        `INSERT INTO application_status_history (application_id, old_status, new_status, changed_by)
+         VALUES ($1, $2, $3, $4)`, [applicationId, oldStatus, newStatus, changedBy || null],
+      );
+      await client.query('COMMIT');
+      const { rows: updated } = await pool.query('SELECT * FROM applications WHERE id = $1', [applicationId]);
+      return rowToApp(updated[0]);
+    } catch (err) { await client.query('ROLLBACK'); throw err; }
+    finally { client.release(); }
+  }
+
+  async function getApplicationStatusHistory(applicationId) {
+    const { rows: appRows } = await pool.query('SELECT id FROM applications WHERE id = $1', [applicationId]);
+    if (!appRows.length) { const e = new Error('Application not found'); e.status = 404; throw e; }
+    const { rows } = await pool.query(
+      `SELECT id, application_id AS "applicationId", old_status AS "oldStatus",
+              new_status AS "newStatus", changed_by AS "changedBy", changed_at AS "changedAt"
+       FROM application_status_history WHERE application_id = $1 ORDER BY changed_at ASC`, [applicationId],
+    );
+    return rows;
+  }
+
   module.exports = {
     submitApplication,
     getApplicationsForJob,
     getApplicationsForFreelancer,
     acceptApplication,
+    updateStatus,
+    getApplicationStatusHistory,
   };
 }
