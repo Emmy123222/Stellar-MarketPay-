@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import FreelancerCard from "@/components/FreelancerCard";
+import { PriceProvider } from "@/contexts/PriceContext";
 import type { UserProfile } from "@/utils/types";
 
 const baseProfile: UserProfile = {
@@ -21,6 +22,13 @@ const baseProfile: UserProfile = {
 const meta: Meta<typeof FreelancerCard> = {
   title: "Components/FreelancerCard",
   component: FreelancerCard,
+  decorators: [
+    (Story) => (
+      <PriceProvider>
+        <Story />
+      </PriceProvider>
+    ),
+  ],
   parameters: {
     layout: "padded",
     backgrounds: {

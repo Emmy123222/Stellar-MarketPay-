@@ -106,6 +106,7 @@ jest.mock("@/hooks/useBookmarks", () => ({
 jest.mock("@/contexts/PriceContext", () => ({
   usePriceContext: () => ({
     xlmPriceUsd: 0.12,
+    change24hPercent: 1.2,
     priceLoading: false,
     currencyMode: "XLM",
     setCurrencyMode: jest.fn(),
@@ -122,10 +123,18 @@ jest.mock("@/lib/i18n", () => ({
 }));
 
 jest.mock("recharts", () => ({
-  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div data-testid="recharts-container">{children}</div>,
-  BarChart: ({ children }: { children: React.ReactNode }) => <div data-testid="bar-chart">{children}</div>,
-  LineChart: ({ children }: { children: React.ReactNode }) => <div data-testid="line-chart">{children}</div>,
-  PieChart: ({ children }: { children: React.ReactNode }) => <div data-testid="pie-chart">{children}</div>,
+  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="recharts-container">{children}</div>
+  ),
+  BarChart: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="bar-chart">{children}</div>
+  ),
+  LineChart: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="line-chart">{children}</div>
+  ),
+  PieChart: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="pie-chart">{children}</div>
+  ),
   Bar: () => null,
   Line: () => null,
   XAxis: () => null,
@@ -204,7 +213,12 @@ jest.mock("@/lib/api", () => ({
       completion_rate: 80,
       dispute_rate: 10,
     },
-    userGrowth: { total_users: 20, freelancers: 12, clients: 8, new_users_period: 3 },
+    userGrowth: {
+      total_users: 20,
+      freelancers: 12,
+      clients: 8,
+      new_users_period: 3,
+    },
     weeklyGrowth: [{ week: "2026-01-01T00:00:00.000Z", new_users: 2 }],
     financialMetrics: {
       total_xlm_escrow: 1000,
@@ -213,9 +227,17 @@ jest.mock("@/lib/api", () => ({
       active_escrows: 3,
     },
     qualityMetrics: { avg_rating: 4.5, total_ratings: 12, repeat_hires: 2 },
-    disputeMetrics: [{ week: "2026-01-01T00:00:00.000Z", disputes_opened: 1, disputes_resolved: 0 }],
+    disputeMetrics: [
+      {
+        week: "2026-01-01T00:00:00.000Z",
+        disputes_opened: 1,
+        disputes_resolved: 0,
+      },
+    ],
     topEarners: [],
-    jobVolume: [{ date: "2026-01-10T00:00:00.000Z", jobs_created: 3, jobs_completed: 2 }],
+    jobVolume: [
+      { date: "2026-01-10T00:00:00.000Z", jobs_created: 3, jobs_completed: 2 },
+    ],
   }),
   fetchJobAnalytics: jest.fn().mockResolvedValue({
     jobId: "job-1",
@@ -266,7 +288,8 @@ jest.mock("@/lib/api", () => ({
         jobTitle: "Build escrow contract",
         amountXlm: "250.0000000",
         releasedAt: "2026-01-10T00:00:00.000Z",
-        clientAddress: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        clientAddress:
+          "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
       },
     ],
     monthly: [{ month: "2026-01", totalXlm: 250 }],
@@ -277,11 +300,17 @@ jest.mock("@/lib/api", () => ({
     change24hPercent: 1.2,
   }),
   getFaucetStatus: jest.fn().mockResolvedValue({ enabled: true }),
-  fundTestnetWallet: jest.fn().mockResolvedValue({ success: true, fundedAmount: "10000" }),
+  fundTestnetWallet: jest
+    .fn()
+    .mockResolvedValue({ success: true, fundedAmount: "10000" }),
   checkAccountNeedsFunding: jest.fn().mockResolvedValue(true),
-  setupAdmin2FA: jest.fn().mockResolvedValue({ qrCode: "otpauth://test", secret: "SECRET" }),
+  setupAdmin2FA: jest
+    .fn()
+    .mockResolvedValue({ qrCode: "otpauth://test", secret: "SECRET" }),
   verifyAdmin2FA: jest.fn().mockResolvedValue({ success: true }),
-  fetchPasskeyRegistrationOptions: jest.fn().mockResolvedValue({ challenge: "abc" }),
+  fetchPasskeyRegistrationOptions: jest
+    .fn()
+    .mockResolvedValue({ challenge: "abc" }),
   fetchPasskeyCredentials: jest.fn().mockResolvedValue([]),
   verifyPasskeyRegistration: jest.fn().mockResolvedValue({}),
   deletePasskeyCredential: jest.fn().mockResolvedValue({}),
@@ -301,33 +330,53 @@ jest.mock("@/lib/api", () => ({
   fetchSavedSearches: jest.fn().mockResolvedValue([]),
   updateSavedSearch: jest.fn().mockResolvedValue({}),
   deleteSavedSearch: jest.fn().mockResolvedValue({}),
-  createProposalTemplate: jest.fn().mockResolvedValue({ id: "tpl-1", name: "", content: "" }),
-  updateProposalTemplate: jest.fn().mockResolvedValue({ id: "tpl-1", name: "", content: "" }),
+  createProposalTemplate: jest
+    .fn()
+    .mockResolvedValue({ id: "tpl-1", name: "", content: "" }),
+  updateProposalTemplate: jest
+    .fn()
+    .mockResolvedValue({ id: "tpl-1", name: "", content: "" }),
   deleteProposalTemplate: jest.fn().mockResolvedValue({}),
 }));
 
 jest.mock("@/lib/stellar", () => ({
-  createEscrowOnChain: jest.fn().mockResolvedValue({ txHash: "tx-hash", jobId: "job-1" }),
+  createEscrowOnChain: jest
+    .fn()
+    .mockResolvedValue({ txHash: "tx-hash", jobId: "job-1" }),
   isFreighterInstalled: jest.fn().mockResolvedValue(true),
-  connectWallet: jest.fn().mockResolvedValue("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
+  connectWallet: jest
+    .fn()
+    .mockResolvedValue(
+      "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    ),
   performSEP0010Auth: jest.fn().mockResolvedValue("jwt-token"),
   getXLMBalance: jest.fn().mockResolvedValue("1000"),
   getUSDCBalance: jest.fn().mockResolvedValue("0"),
   streamAccountTransactions: jest.fn().mockReturnValue(() => {}),
   publishMessageOnChain: jest.fn().mockResolvedValue("tx-hash"),
-  accountUrl: jest.fn((key: string) => `https://stellar.expert/explorer/testnet/account/${key}`),
-  isValidStellarAddress: jest.fn((address: string) => /^G[A-Z0-9]{55}$/.test(address)),
+  accountUrl: jest.fn(
+    (key: string) => `https://stellar.expert/explorer/testnet/account/${key}`,
+  ),
+  isValidStellarAddress: jest.fn((address: string) =>
+    /^G[A-Z0-9]{55}$/.test(address),
+  ),
   buildPaymentTransaction: jest.fn(),
   signTransactionWithWallet: jest.fn(),
 }));
 
 jest.mock("@/lib/wallet", () => ({
   isFreighterInstalled: jest.fn().mockResolvedValue(true),
-  connectWallet: jest.fn().mockResolvedValue("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
+  connectWallet: jest
+    .fn()
+    .mockResolvedValue(
+      "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    ),
   performSEP0010Auth: jest.fn().mockResolvedValue("jwt-token"),
   getConnectedPublicKey: jest.fn().mockResolvedValue(null),
   subscribeToAccountChanges: jest.fn().mockReturnValue(() => {}),
-  signTransactionWithWallet: jest.fn().mockResolvedValue({ signedXDR: "MOCK_XDR", error: null }),
+  signTransactionWithWallet: jest
+    .fn()
+    .mockResolvedValue({ signedXDR: "MOCK_XDR", error: null }),
 }));
 
 jest.mock("@/lib/sorobanFees", () => ({
@@ -349,8 +398,12 @@ jest.mock("@/lib/anchors", () => ({
     WEB_AUTH_ENDPOINT: "https://anchor.example/auth",
     KYC_SERVER: "https://anchor.example/kyc",
   }),
-  startInteractiveDeposit: jest.fn().mockResolvedValue({ url: "https://anchor.example/deposit" }),
-  startInteractiveWithdraw: jest.fn().mockResolvedValue({ url: "https://anchor.example/withdraw" }),
+  startInteractiveDeposit: jest
+    .fn()
+    .mockResolvedValue({ url: "https://anchor.example/deposit" }),
+  startInteractiveWithdraw: jest
+    .fn()
+    .mockResolvedValue({ url: "https://anchor.example/withdraw" }),
   getAnchorJwt: jest.fn().mockResolvedValue("jwt"),
   fetchAnchorTransaction: jest.fn(),
   pollAnchorTransaction: jest.fn(),

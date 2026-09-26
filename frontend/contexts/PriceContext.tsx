@@ -10,8 +10,16 @@ export type CurrencyMode = "XLM" | "USD";
 
 const CURRENCY_STORAGE_KEY = "marketpay_currency_mode";
 
+/**
+ * How often the shared XLM/USD price refreshes. All components that read the
+ * price from context update together — no per-component polling anywhere.
+ */
+const PRICE_REFRESH_MS = 60_000;
+
 interface PriceContextValue {
   xlmPriceUsd: number | null;
+  /** 24h % change of XLM/USD, null when unavailable. */
+  change24hPercent: number | null;
   priceLoading: boolean;
   currencyMode: CurrencyMode;
   setCurrencyMode: (mode: CurrencyMode) => void;
@@ -21,6 +29,7 @@ const PriceContext = createContext<PriceContextValue | undefined>(undefined);
 
 export function PriceProvider({ children }: { children: React.ReactNode }) {
   const [xlmPriceUsd, setXlmPriceUsd] = useState<number | null>(null);
+  const [change24hPercent, setChange24hPercent] = useState<number | null>(null);
   const [priceLoading, setPriceLoading] = useState(true);
   const [currencyMode, setCurrencyModeState] = useState<CurrencyMode>("XLM");
 
@@ -38,17 +47,42 @@ export function PriceProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    setPriceLoading(true);
-    fetch("https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd")
-      .then((res) => res.json())
-      .then((data) => {
-        const price = data?.stellar?.usd;
-        if (typeof price === "number") setXlmPriceUsd(price);
-      })
-      .catch(() => {
-        // Fail silently — USD equivalent simply won't show
-      })
-      .finally(() => setPriceLoading(false));
+    // Guards against a state update after unmount when the timer fires late.
+    let cancelled = false;
+
+    const loadPrice = async () => {
+      try {
+        // markets endpoint returns current price + 24h change in one request
+        const res = await fetch(
+          "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=stellar",
+        );
+        const data = await res.json();
+        const market = Array.isArray(data) ? data[0] : undefined;
+        const price = market?.current_price;
+        const change = market?.price_change_percentage_24h;
+        if (!cancelled) {
+          if (typeof price === "number" && Number.isFinite(price))
+            setXlmPriceUsd(price);
+          if (typeof change === "number" && Number.isFinite(change)) {
+            setChange24hPercent(change);
+          } else {
+            setChange24hPercent(null);
+          }
+        }
+      } catch {
+        // Fail silently — USD equivalent simply won't show. Keep the last
+        // known price/change on transient failures instead of blanking UI.
+      } finally {
+        if (!cancelled) setPriceLoading(false);
+      }
+    };
+
+    loadPrice();
+    const interval = setInterval(loadPrice, PRICE_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   const setCurrencyMode = (mode: CurrencyMode) => {
@@ -61,7 +95,15 @@ export function PriceProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <PriceContext.Provider value={{ xlmPriceUsd, priceLoading, currencyMode, setCurrencyMode }}>
+    <PriceContext.Provider
+      value={{
+        xlmPriceUsd,
+        change24hPercent,
+        priceLoading,
+        currencyMode,
+        setCurrencyMode,
+      }}
+    >
       {children}
     </PriceContext.Provider>
   );
