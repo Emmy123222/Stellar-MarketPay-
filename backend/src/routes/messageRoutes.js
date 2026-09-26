@@ -11,13 +11,27 @@
 "use strict";
 const express = require("express");
 const multer  = require("multer");
+const rateLimit = require("express-rate-limit");
 const router  = express.Router();
-const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT } = require("../middleware/auth");
 
 const messageService = require("../services/messageService");
 const { uploadFile, MAX_FILE_SIZE, ALLOWED_MIME_TYPES } = require("../services/ipfsService");
-const generalRateLimiter = createRateLimiter(60, 1); // 60 req/min for message operations
+
+const generalRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60 * (Number(process.env.RATE_LIMIT_SCALE) || 1),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.set("Retry-After", 60);
+    return res.status(429).json({
+      message: "Too many requests — please wait before trying again",
+    });
+  },
+});
+
+router.use(generalRateLimiter);
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -61,7 +75,7 @@ const upload = multer({
  *       201:
  *         description: Message sent
  *   get:
- *     summary: Get messages for a job thread
+ *     summary: Get messages for a job thread with cursor-based pagination
  *     tags: [Messages]
  *     security:
  *       - bearerAuth: []
@@ -72,11 +86,22 @@ const upload = multer({
  *         schema:
  *           type: string
  *           format: uuid
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Number of messages to return (1-100)
+ *       - in: query
+ *         name: before
+ *         schema:
+ *           type: string
+ *         description: Cursor timestamp to fetch messages older than
  *     responses:
  *       200:
- *         description: Message list (marks as read)
+ *         description: Message list with next cursor (marks as read)
  */
-router.post("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next) => {
+router.post("/job/:jobId", generalRateLimiter, verifyJWT, async (req, res, next) => {
   try {
     const { jobId } = req.params;
     const { content, contractTxHash } = req.body;
@@ -99,17 +124,22 @@ router.post("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next)
   }
 });
 
-router.get("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next) => {
+const getMessagesHandler = async (req, res, next) => {
   try {
-    const { jobId } = req.params;
+    const { jobId, threadId } = req.params;
+    const targetId = jobId || threadId;
     const userAddress = req.user.publicKey;
+    const { limit, before } = req.query;
 
-    const messages = await messageService.getMessagesByJob(jobId, userAddress);
-    res.json({ success: true, data: messages });
+    const result = await messageService.getMessagesByJob(targetId, userAddress, { limit, before });
+    res.json({ success: true, data: result });
   } catch (e) {
     next(e);
   }
-});
+};
+
+router.get("/job/:jobId", generalRateLimiter, verifyJWT, getMessagesHandler);
+router.get("/thread/:threadId", generalRateLimiter, verifyJWT, getMessagesHandler);
 
 /**
  * @swagger
@@ -123,7 +153,7 @@ router.get("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next) 
  *       200:
  *         description: Unread count
  */
-router.get("/unread-count", verifyJWT, generalRateLimiter, async (req, res, next) => {
+router.get("/unread-count", generalRateLimiter, verifyJWT, async (req, res, next) => {
   try {
     const userAddress = req.user.publicKey;
     const count = await messageService.getUnreadCount(userAddress);
@@ -162,7 +192,7 @@ router.get("/unread-count", verifyJWT, generalRateLimiter, async (req, res, next
  *       200:
  *         description: Tx hash attached
  */
-router.patch("/:messageId/tx-hash", verifyJWT, generalRateLimiter, async (req, res, next) => {
+router.patch("/:messageId/tx-hash", generalRateLimiter, verifyJWT, async (req, res, next) => {
   try {
     const { messageId } = req.params;
     const { txHash } = req.body;
@@ -210,7 +240,7 @@ router.patch("/:messageId/tx-hash", verifyJWT, generalRateLimiter, async (req, r
  *       201:
  *         description: Attachment uploaded to IPFS
  */
-router.post("/job/:jobId/attachments", verifyJWT, generalRateLimiter, upload.single("file"), async (req, res, next) => {
+router.post("/job/:jobId/attachments", generalRateLimiter, verifyJWT, upload.single("file"), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: "File is required" });
     const { jobId } = req.params;

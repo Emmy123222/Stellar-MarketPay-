@@ -114,28 +114,39 @@ function AttachmentLine({ cid, name, mime, senderNaclPub }: AttachmentLineProps)
 // ── MessageThread ──────────────────────────────────────────────────────────────
 
 export default function MessageThread({ jobId, currentUserAddress, otherUserAddress }: MessageThreadProps) {
-  const [messages, setMessages]   = useState<Message[]>([]);
-  const [input, setInput]         = useState("");
-  const [sending, setSending]     = useState(false);
-  const [encrypting, setEncrypting] = useState(false);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState<string | null>(null);
+  const [messages, setMessages]       = useState<Message[]>([]);
+  const [nextCursor, setNextCursor]   = useState<string | null>(null);
+  const [hasMore, setHasMore]         = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [input, setInput]             = useState("");
+  const [sending, setSending]         = useState(false);
+  const [encrypting, setEncrypting]   = useState(false);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState<string | null>(null);
 
-  const messagesEndRef       = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const inputRef             = useRef<HTMLInputElement>(null);
-  const fileInputRef         = useRef<HTMLInputElement>(null);
-  const isMountedRef         = useRef<boolean>(true);
+  const messagesEndRef            = useRef<HTMLDivElement>(null);
+  const messagesContainerRef      = useRef<HTMLDivElement>(null);
+  const inputRef                  = useRef<HTMLInputElement>(null);
+  const fileInputRef              = useRef<HTMLInputElement>(null);
+  const isMountedRef              = useRef<boolean>(true);
+  const shouldScrollToBottomRef   = useRef<boolean>(true);
 
-  // Fetch messages on mount
+  // Fetch initial messages on mount
   useEffect(() => {
     isMountedRef.current = true;
     const loadMessages = async () => {
       try {
         setLoading(true);
         setError(null);
-        const msgs = await fetchMessages(jobId);
-        if (isMountedRef.current) setMessages(msgs);
+        const res = await fetchMessages(jobId, { limit: 50 });
+        const msgs = Array.isArray(res) ? res : res.messages;
+        const cursor = Array.isArray(res) ? null : res.nextCursor;
+        if (isMountedRef.current) {
+          setMessages(msgs || []);
+          setNextCursor(cursor || null);
+          setHasMore(Boolean(cursor));
+          shouldScrollToBottomRef.current = true;
+        }
       } catch (e: unknown) {
         if (isMountedRef.current) {
           setError(e instanceof Error ? e.message : "Failed to load messages");
@@ -162,8 +173,57 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
   }, []);
 
   useEffect(() => {
-    scrollToBottom();
+    if (shouldScrollToBottomRef.current) {
+      scrollToBottom();
+      shouldScrollToBottomRef.current = false;
+    }
   }, [messages, scrollToBottom]);
+
+  // Load older messages for infinite scroll
+  const loadOlderMessages = useCallback(async () => {
+    if (!nextCursor || loadingOlder || loading) return;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const prevScrollHeight = container.scrollHeight;
+    const prevScrollTop = container.scrollTop;
+
+    setLoadingOlder(true);
+    try {
+      const res = await fetchMessages(jobId, { limit: 50, before: nextCursor });
+      const olderMsgs = Array.isArray(res) ? res : res.messages;
+      const olderCursor = Array.isArray(res) ? null : res.nextCursor;
+
+      if (isMountedRef.current) {
+        setMessages((prev) => [...olderMsgs, ...prev]);
+        setNextCursor(olderCursor || null);
+        setHasMore(Boolean(olderCursor));
+
+        // Preserve scroll position
+        requestAnimationFrame(() => {
+          if (container) {
+            const heightDiff = container.scrollHeight - prevScrollHeight;
+            container.scrollTop = prevScrollTop + heightDiff;
+          }
+        });
+      }
+    } catch (e: unknown) {
+      console.error("[MessageThread] Failed to load older messages:", e);
+    } finally {
+      if (isMountedRef.current) {
+        setLoadingOlder(false);
+      }
+    }
+  }, [jobId, nextCursor, loadingOlder, loading]);
+
+  const handleScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    if (container.scrollTop <= 40 && hasMore && !loadingOlder && !loading) {
+      loadOlderMessages();
+    }
+  }, [hasMore, loadingOlder, loading, loadOlderMessages]);
 
   const handleSend = async (e: FormEvent) => {
     e.preventDefault();
@@ -181,6 +241,7 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
       createdAt: new Date().toISOString(),
     };
 
+    shouldScrollToBottomRef.current = true;
     setMessages((prev) => [...prev, optimisticMessage]);
     setInput("");
     setSending(true);
@@ -299,8 +360,31 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
       {/* Messages list */}
       <div
         ref={messagesContainerRef}
+        onScroll={handleScroll}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-[300px] max-h-[400px]"
       >
+        {/* Loading older messages indicator or manual load button */}
+        {loadingOlder && (
+          <div className="flex items-center justify-center gap-2 py-2 text-xs text-market-400">
+            <svg className="w-3.5 h-3.5 animate-spin text-market-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" strokeOpacity="0.3" />
+              <path d="M12 2a10 10 0 0110 10" strokeLinecap="round" />
+            </svg>
+            <span>Loading older messages…</span>
+          </div>
+        )}
+        {!loadingOlder && hasMore && (
+          <div className="flex justify-center py-1">
+            <button
+              type="button"
+              onClick={loadOlderMessages}
+              className="text-[11px] text-amber-600 hover:text-amber-400 underline py-1 px-3 rounded-md hover:bg-market-500/10 transition-colors"
+            >
+              Load earlier messages
+            </button>
+          </div>
+        )}
+
         {messages.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-amber-800 text-sm">No messages yet. Start the conversation!</p>

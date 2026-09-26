@@ -3869,7 +3869,7 @@
         }
       },
       "get": {
-        "summary": "Get messages for a job thread",
+        "summary": "Get messages for a job thread with cursor-based pagination",
         "tags": [
           "Messages"
         ],
@@ -3887,11 +3887,28 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            },
+            "description": "Number of messages to return (1-100)"
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Cursor timestamp to fetch messages older than"
           }
         ],
         "responses": {
           "200": {
-            "description": "Message list (marks as read)"
+            "description": "Message list with next cursor (marks as read)"
           }
         }
       }
@@ -6170,6 +6187,52 @@
           },
           "500": {
             "description": "AI API not configured"
+          }
+        }
+      }
+    },
+    "/api/ai-scorer/score-proposal": {
+      "post": {
+        "summary": "Score a freelancer proposal for relevance, clarity and completeness",
+        "tags": [
+          "AI Scorer"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "proposal"
+                ],
+                "properties": {
+                  "proposal": {
+                    "type": "string"
+                  },
+                  "jobTitle": {
+                    "type": "string"
+                  },
+                  "jobDescription": {
+                    "type": "string"
+                  },
+                  "skills": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Relevance, clarity and completeness scores (0–100). A `warning` is returned instead of an error when the AI is unavailable."
+          },
+          "400": {
+            "description": "Proposal text required"
           }
         }
       }
