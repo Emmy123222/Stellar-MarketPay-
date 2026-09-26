@@ -541,6 +541,19 @@ impl MarketPayContract {
         deliverable::submit_deliverable_hash(env, job_id, freelancer, hash)
     }
 
+    /// Freelancer updates a previously submitted deliverable hash. Permitted
+    /// only while the escrow is `InProgress`; rejected once the escrow has
+    /// settled (Released/Refunded) so the deliverable record cannot be
+    /// retroactively falsified after funds move.
+    pub fn update_deliverable_hash(
+        env: Env,
+        job_id: String,
+        freelancer: Address,
+        new_hash: BytesN<32>,
+    ) {
+        deliverable::update_deliverable_hash(env, job_id, freelancer, new_hash)
+    }
+
     /// Get the freelancer-submitted deliverable hash, if any.
     pub fn get_freelancer_deliverable_hash(env: Env, job_id: String) -> Option<BytesN<32>> {
         deliverable::get_freelancer_deliverable_hash(env, job_id)

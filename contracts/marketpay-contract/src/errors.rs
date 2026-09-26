@@ -96,6 +96,8 @@ pub enum ContractError {
     OnlyClientCanTimeoutRefund = 2012,
     /// "Timeout period has not expired yet"
     TimeoutNotExpired = 2013,
+    /// "Escrow already settled; deliverable hash cannot be updated"
+    EscrowAlreadySettled = 2014,
 
     // ── 3xxx: Milestones ──────────────────────────────────────────────────
     /// "Maximum 5 milestones allowed"
@@ -285,6 +287,9 @@ impl ContractError {
             Self::CanOnlyRefundLocked => "Can only refund before work has started",
             Self::OnlyClientCanTimeoutRefund => "Only the client can request a timeout refund",
             Self::TimeoutNotExpired => "Timeout period has not expired yet",
+            Self::EscrowAlreadySettled => {
+                "Escrow already settled; deliverable hash cannot be updated"
+            }
             // 3xxx
             Self::MaxMilestones => "Maximum 5 milestones allowed",
             Self::MilestonePercentagePositive => "Milestone percentage must be positive",
