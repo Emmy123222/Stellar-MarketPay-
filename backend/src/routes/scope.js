@@ -17,88 +17,137 @@ const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const createSessionRateLimiter = createRateLimiter(5, 1);
 const renewRateLimiter = createRateLimiter(5, 1);
-const finalizeRateLimiter = createRateLimiter(10, 1);
+const upsertRateLimiter = createRateLimiter(60, 1);
+
+const MAX_CONTENT_LENGTH = 500_000;
+
+router.use(express.json({ limit: "2mb" }));
 
 /**
- * Notify every WebSocket client currently attached to a scope session that
- * the document has been locked/finalized. The server exposes the shared
- * `scopeSessionClients` map and the `sendJson` helper on `app.locals` so this
- * route can fan out without owning the WebSocket server.
+ * Upsert a scope drafting session in PostgreSQL.
+ * Validates that content length does not exceed 500,000 characters (500 KB)
+ * to prevent denial-of-service (DoS) storage exhaustion.
+ *
+ * @param {string} sessionId  Unique session identifier
+ * @param {Object} patch      Session attributes to update
+ * @param {string} [patch.content] Document content
+ * @param {Object} [patch.cursors] Active collaborator cursors
+ * @param {boolean} [patch.finalized] Finalized flag
+ * @param {string|null} [patch.finalizedHash] SHA-256 hash of finalized content
+ * @param {Object|null} [patch.finalizedPayload] Finalized metadata payload
+ * @returns {Promise<Object>} The upserted scope session row
  */
-function broadcastScopeFinalized(req, sessionId, payload) {
-  try {
-    const clients = req.app && req.app.locals && req.app.locals.scopeSessionClients;
-    const send = req.app && req.app.locals && req.app.locals.sendJson;
-    if (!clients || typeof send !== "function") return;
-    const sockets = clients.get(sessionId);
-    if (!sockets) return;
-    for (const ws of sockets) send(ws, "scope:finalized", payload);
-  } catch {
-    /* realtime fan-out is best-effort */
+async function upsertScopeSession(sessionId, patch = {}) {
+  const content = typeof patch.content === "string" ? patch.content : "";
+  if (content.length > MAX_CONTENT_LENGTH) {
+    const err = new Error(
+      `Payload Too Large: content length ${content.length} exceeds maximum limit of ${MAX_CONTENT_LENGTH} characters`,
+    );
+    err.status = 413;
+    err.statusCode = 413;
+    err.code = "PAYLOAD_TOO_LARGE";
+    throw err;
   }
+
+  const cursors =
+    patch.cursors && typeof patch.cursors === "object" ? patch.cursors : {};
+  const finalized = Boolean(patch.finalized);
+  const finalizedHash = patch.finalizedHash || null;
+  const finalizedPayload = patch.finalizedPayload || null;
+
+  const { rows } = await pool.query(
+    `INSERT INTO scope_sessions (session_id, content, cursors, finalized, finalized_hash, finalized_payload, expires_at, created_at, updated_at)
+     VALUES ($1, $2, $3::jsonb, $4, $5, $6::jsonb, NOW() + INTERVAL '24 hours', NOW(), NOW())
+     ON CONFLICT (session_id) DO UPDATE SET
+       content = EXCLUDED.content,
+       cursors = EXCLUDED.cursors,
+       finalized = EXCLUDED.finalized,
+       finalized_hash = EXCLUDED.finalized_hash,
+       finalized_payload = EXCLUDED.finalized_payload,
+       expires_at = NOW() + INTERVAL '24 hours',
+       updated_at = NOW()
+     RETURNING session_id, content, cursors, finalized, finalized_hash, finalized_payload, expires_at, updated_at`,
+    [
+      sessionId,
+      content,
+      JSON.stringify(cursors),
+      finalized,
+      finalizedHash,
+      JSON.stringify(finalizedPayload),
+    ],
+  );
+  return rows[0];
+}
+
+async function loadScopeSession(sessionId) {
+  const { rows } = await pool.query(
+    `SELECT session_id, content, cursors, finalized, finalized_hash, finalized_payload, expires_at, updated_at
+     FROM scope_sessions
+     WHERE session_id = $1 AND expires_at > NOW()`,
+    [sessionId],
+  );
+  return rows[0] || null;
+}
+
+async function cleanupExpiredScopeSessions() {
+  await pool.query("DELETE FROM scope_sessions WHERE expires_at <= NOW()");
 }
 
 /**
- * @swagger
- * /api/scope:
- *   post:
- *     summary: Create a collaborative scope session for a co-written proposal
- *     tags: [Scope]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               jobId:
- *                 type: string
- *               content:
- *                 type: string
- *               createdBy:
- *                 type: string
- *     responses:
- *       201:
- *         description: Session created
- *       500:
- *         description: Database error
+ * Route handler for upserting scope session content.
+ * Enforces content.length <= 500_000 characters and returns 413 on violation.
  */
-router.post("/", createSessionRateLimiter, async (req, res, next) => {
+const handleUpsertScopeSession = async (req, res, next) => {
   try {
-    const body = req.body || {};
-    const jobId = typeof body.jobId === "string" ? body.jobId : null;
-    const createdBy =
-      typeof body.createdBy === "string" ? body.createdBy : null;
-    const content = typeof body.content === "string" ? body.content : "";
+    const sessionId = req.params.sessionId || req.body?.sessionId;
+    if (!sessionId) {
+      const e = new Error("Session ID is required");
+      e.status = 400;
+      throw e;
+    }
 
-    // The session id is generated server-side so a client cannot collide with
-    // (or guess) another team's session.
-    const sessionId = crypto.randomUUID();
-    const metadata = { jobId, createdBy };
+    const { content, cursors, finalized, finalizedPayload, finalizedHash } =
+      req.body || {};
 
-    const { rows } = await pool.query(
-      `INSERT INTO scope_sessions (session_id, content, cursors, finalized, finalized_payload, expires_at, created_at, updated_at)
-       VALUES ($1, $2, '{}'::jsonb, false, $3::jsonb, NOW() + INTERVAL '24 hours', NOW(), NOW())
-       RETURNING session_id, content, finalized, finalized_payload, expires_at`,
-      [sessionId, content, JSON.stringify(metadata)],
-    );
+    if (content !== undefined && content !== null) {
+      if (typeof content !== "string") {
+        const e = new Error("content must be a string");
+        e.status = 400;
+        throw e;
+      }
+      if (content.length > MAX_CONTENT_LENGTH) {
+        const e = new Error(
+          `Payload Too Large: content length ${content.length} exceeds maximum limit of ${MAX_CONTENT_LENGTH} characters`,
+        );
+        e.status = 413;
+        e.statusCode = 413;
+        e.code = "PAYLOAD_TOO_LARGE";
+        throw e;
+      }
+    }
 
-    res.status(201).json({
+    const session = await upsertScopeSession(sessionId, {
+      content,
+      cursors,
+      finalized,
+      finalizedPayload,
+      finalizedHash,
+    });
+
+    res.json({
       success: true,
-      sessionId: rows[0].session_id,
-      sharePath: `/scope/${rows[0].session_id}`,
-      expiresAt: rows[0].expires_at,
+      session,
     });
   } catch (e) {
     next(e);
   }
-});
+};
 
 /**
  * @swagger
- * /api/scope/{sessionId}/finalize:
+ * /api/scope/{sessionId}:
  *   post:
- *     summary: Lock a scope session (called when the proposal is submitted)
+ *     summary: Upsert a scope session
  *     tags: [Scope]
  *     parameters:
  *       - in: path
@@ -107,6 +156,7 @@ router.post("/", createSessionRateLimiter, async (req, res, next) => {
  *         schema:
  *           type: string
  *     requestBody:
+ *       required: true
  *       content:
  *         application/json:
  *           schema:
@@ -114,68 +164,85 @@ router.post("/", createSessionRateLimiter, async (req, res, next) => {
  *             properties:
  *               content:
  *                 type: string
- *               finalizedHash:
- *                 type: string
- *               payload:
+ *                 maxLength: 500000
+ *               cursors:
+ *                 type: object
+ *               finalized:
+ *                 type: boolean
+ *               finalizedPayload:
  *                 type: object
  *     responses:
  *       200:
- *         description: Session locked
+ *         description: Scope session upserted successfully
+ *       400:
+ *         description: Invalid input or missing sessionId
+ *       413:
+ *         description: Payload Too Large
+ *   put:
+ *     summary: Upsert a scope session
+ *     tags: [Scope]
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               content:
+ *                 type: string
+ *                 maxLength: 500000
+ *               cursors:
+ *                 type: object
+ *               finalized:
+ *                 type: boolean
+ *               finalizedPayload:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Scope session upserted successfully
+ *       400:
+ *         description: Invalid input or missing sessionId
+ *       413:
+ *         description: Payload Too Large
+ *   get:
+ *     summary: Retrieve an active scope session
+ *     tags: [Scope]
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Active scope session details
  *       404:
  *         description: Session not found or expired
  */
-router.post("/:sessionId/finalize", finalizeRateLimiter, async (req, res, next) => {
+router.post("/:sessionId", upsertRateLimiter, handleUpsertScopeSession);
+router.put("/:sessionId", upsertRateLimiter, handleUpsertScopeSession);
+router.post("/", upsertRateLimiter, handleUpsertScopeSession);
+router.put("/", upsertRateLimiter, handleUpsertScopeSession);
+
+router.get("/:sessionId", async (req, res, next) => {
   try {
     const { sessionId } = req.params;
-    const body = req.body || {};
-    const content = typeof body.content === "string" ? body.content : null;
-    const payload = body.payload && typeof body.payload === "object" ? body.payload : null;
-
-    // Deterministic content hash so the locked scope can be verified later.
-    const finalizedHash =
-      typeof body.finalizedHash === "string" && body.finalizedHash
-        ? body.finalizedHash
-        : content !== null
-          ? crypto.createHash("sha256").update(content).digest("hex")
-          : null;
-
-    const { rows } = await pool.query(
-      `UPDATE scope_sessions
-       SET finalized = true,
-           content = COALESCE($2, content),
-           finalized_hash = COALESCE($3, finalized_hash),
-           finalized_payload = COALESCE($4::jsonb, finalized_payload),
-           updated_at = NOW()
-       WHERE session_id = $1 AND expires_at > NOW()
-       RETURNING session_id, content, finalized, finalized_hash, finalized_payload, expires_at`,
-      [
-        sessionId,
-        content,
-        finalizedHash,
-        payload ? JSON.stringify(payload) : null,
-      ],
-    );
-
-    if (!rows.length) {
+    const session = await loadScopeSession(sessionId);
+    if (!session) {
       const e = new Error("Session not found or already expired");
       e.status = 404;
       throw e;
     }
-
-    const lockedPayload = {
-      sessionId: rows[0].session_id,
-      content: rows[0].content,
-      finalizedHash: rows[0].finalized_hash || finalizedHash,
-      payload: rows[0].finalized_payload || payload,
-      finalized: true,
-      expiresAt: rows[0].expires_at,
-    };
-
-    // Push the lock to every collaborator still connected so their editors
-    // become read-only immediately.
-    broadcastScopeFinalized(req, sessionId, lockedPayload);
-
-    res.json({ success: true, ...lockedPayload });
+    res.json({
+      success: true,
+      session,
+    });
   } catch (e) {
     next(e);
   }
@@ -210,10 +277,31 @@ router.post("/:sessionId/finalize", finalizeRateLimiter, async (req, res, next) 
  *                   format: date-time
  *       404:
  *         description: Session not found or expired
+ *       413:
+ *         description: Payload Too Large
  */
 router.post("/:sessionId/renew", renewRateLimiter, async (req, res, next) => {
   try {
     const { sessionId } = req.params;
+
+    if (
+      req.body &&
+      req.body.content !== undefined &&
+      req.body.content !== null
+    ) {
+      if (
+        typeof req.body.content === "string" &&
+        req.body.content.length > MAX_CONTENT_LENGTH
+      ) {
+        const e = new Error(
+          `Payload Too Large: content length ${req.body.content.length} exceeds maximum limit of ${MAX_CONTENT_LENGTH} characters`,
+        );
+        e.status = 413;
+        e.statusCode = 413;
+        e.code = "PAYLOAD_TOO_LARGE";
+        throw e;
+      }
+    }
 
     const { rows } = await pool.query(
       `UPDATE scope_sessions
@@ -221,7 +309,7 @@ router.post("/:sessionId/renew", renewRateLimiter, async (req, res, next) => {
            updated_at = NOW()
        WHERE session_id = $1 AND expires_at > NOW()
        RETURNING session_id, expires_at`,
-      [sessionId]
+      [sessionId],
     );
 
     if (!rows.length) {
@@ -240,4 +328,14 @@ router.post("/:sessionId/renew", renewRateLimiter, async (req, res, next) => {
   }
 });
 
+router.upsertScopeSession = upsertScopeSession;
+router.loadScopeSession = loadScopeSession;
+router.cleanupExpiredScopeSessions = cleanupExpiredScopeSessions;
+router.MAX_CONTENT_LENGTH = MAX_CONTENT_LENGTH;
+
 module.exports = router;
+module.exports.upsertScopeSession = upsertScopeSession;
+module.exports.loadScopeSession = loadScopeSession;
+module.exports.cleanupExpiredScopeSessions = cleanupExpiredScopeSessions;
+module.exports.MAX_CONTENT_LENGTH = MAX_CONTENT_LENGTH;
+

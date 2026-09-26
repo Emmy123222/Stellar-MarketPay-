@@ -315,6 +315,13 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
             >
               5
                XLM
+              <span
+                class="text-xs font-normal text-amber-300/80 ml-1"
+              >
+                (~$
+                0.60
+                )
+              </span>
             </span>
           </div>
         </div>
@@ -355,6 +362,13 @@ exports[`static component snapshots BoostJobModal default: BoostJobModal 1`] = `
             >
               15
                XLM
+              <span
+                class="text-xs font-normal text-amber-300/80 ml-1"
+              >
+                (~$
+                1.80
+                )
+              </span>
             </span>
           </div>
         </div>

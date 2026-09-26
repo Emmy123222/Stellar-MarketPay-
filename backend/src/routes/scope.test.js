@@ -24,7 +24,7 @@ const scopeRoutes = require("./scope");
 
 // Setup minimal Express test application
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "2mb" }));
 app.use("/api/scope", scopeRoutes);
 
 // Structured error handler
@@ -41,6 +41,7 @@ const TEST_SESSION_ID = "scope-session-1234-abcd";
 describe("Scope Routes Suite (/api/scope)", () => {
   beforeEach(() => {
     pool.reset();
+    pool.query.mockReset();
     jest.clearAllMocks();
   });
 
@@ -120,173 +121,178 @@ describe("Scope Routes Suite (/api/scope)", () => {
   });
 
   // =========================================================================
-  // 2. POST /api/scope — create a collaborative proposal session (#1552)
+  // 2. Scope Content Size Limit Validation (Issue #1457)
   // =========================================================================
-  describe("POST /api/scope", () => {
-    it("201 — creates a session with a server-generated id and a share path", async () => {
-      pool.query.mockResolvedValueOnce({
-        rows: [
-          {
-            session_id: "server-generated-id",
-            content: "draft",
-            finalized: false,
-            finalized_payload: { jobId: "job-42", createdBy: "GABC" },
-            expires_at: "2026-08-26T12:00:00.000Z",
-          },
-        ],
-      });
+  describe("Scope Content Size Limit Validation (Issue #1457)", () => {
+    it("413 — returns 413 Payload Too Large when content exceeds 500,000 characters on POST", async () => {
+      const oversizedContent = "a".repeat(500_001);
 
       const res = await request(app)
-        .post("/api/scope")
-        .set("X-CSRF-Token", "dummy-csrf-token")
-        .send({ jobId: "job-42", createdBy: "GABC", content: "draft" });
+        .post(`/api/scope/${TEST_SESSION_ID}`)
+        .send({ content: oversizedContent });
 
-      expect(res.status).toBe(201);
-      expect(res.body.success).toBe(true);
-      expect(res.body.sessionId).toBe("server-generated-id");
-      expect(res.body.sharePath).toBe("/scope/server-generated-id");
-      expect(res.body.expiresAt).toBe("2026-08-26T12:00:00.000Z");
-
-      expect(pool.query).toHaveBeenCalledTimes(1);
-      const [sql, params] = pool.query.mock.calls[0];
-      expect(sql).toContain("INSERT INTO scope_sessions");
-      // Session id is generated server-side (not supplied by the client).
-      expect(typeof params[0]).toBe("string");
-      expect(params[0].length).toBeGreaterThan(0);
-      expect(params[1]).toBe("draft");
-      expect(params[2]).toContain("job-42");
+      expect(res.status).toBe(413);
+      expect(res.body.error).toContain("Payload Too Large");
+      expect(pool.query).not.toHaveBeenCalled();
     });
 
-    it("201 — tolerates an empty body", async () => {
-      pool.query.mockResolvedValueOnce({
-        rows: [
-          {
-            session_id: "empty-body-id",
-            content: "",
-            finalized: false,
-            finalized_payload: { jobId: null, createdBy: null },
-            expires_at: "2026-08-26T12:00:00.000Z",
-          },
-        ],
-      });
+    it("413 — returns 413 on PUT /api/scope/:sessionId when content exceeds 500,000 characters", async () => {
+      const oversizedContent = "x".repeat(500_005);
+
+      const res = await request(app)
+        .put(`/api/scope/${TEST_SESSION_ID}`)
+        .send({ content: oversizedContent });
+
+      expect(res.status).toBe(413);
+      expect(res.body.error).toContain("Payload Too Large");
+      expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    it("413 — returns 413 on POST /api/scope when content exceeds 500,000 characters", async () => {
+      const oversizedContent = "z".repeat(500_100);
 
       const res = await request(app)
         .post("/api/scope")
-        .set("X-CSRF-Token", "dummy-csrf-token")
-        .send({});
+        .send({ sessionId: TEST_SESSION_ID, content: oversizedContent });
 
-      expect(res.status).toBe(201);
-      const [, params] = pool.query.mock.calls[0];
-      expect(params[1]).toBe("");
+      expect(res.status).toBe(413);
+      expect(res.body.error).toContain("Payload Too Large");
+      expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    it("413 — returns 413 on POST /api/scope/:sessionId/renew when request body content exceeds 500,000 characters", async () => {
+      const oversizedContent = "r".repeat(500_001);
+
+      const res = await request(app)
+        .post(`/api/scope/${TEST_SESSION_ID}/renew`)
+        .send({ content: oversizedContent });
+
+      expect(res.status).toBe(413);
+      expect(res.body.error).toContain("Payload Too Large");
+      expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    it("200 — happy path: accepts content of exactly 500,000 characters (boundary test)", async () => {
+      const boundaryContent = "b".repeat(500_000);
+      const mockSessionRow = {
+        session_id: TEST_SESSION_ID,
+        content: boundaryContent,
+        cursors: {},
+        finalized: false,
+        finalized_hash: null,
+        finalized_payload: null,
+        expires_at: "2026-08-27T12:00:00.000Z",
+        updated_at: "2026-08-26T12:00:00.000Z",
+      };
+
+      pool.query.mockResolvedValueOnce({ rows: [mockSessionRow] });
+
+      const res = await request(app)
+        .post(`/api/scope/${TEST_SESSION_ID}`)
+        .send({ content: boundaryContent });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.session.content.length).toBe(500_000);
+      expect(pool.query).toHaveBeenCalledTimes(1);
+    });
+
+    it("200 — happy path: accepts standard scope content under 500,000 characters", async () => {
+      const validContent = "# Scope Title\n\nDeliverable details here.";
+      const mockSessionRow = {
+        session_id: TEST_SESSION_ID,
+        content: validContent,
+        cursors: { user1: { start: 0, end: 5 } },
+        finalized: false,
+        finalized_hash: null,
+        finalized_payload: null,
+        expires_at: "2026-08-27T12:00:00.000Z",
+        updated_at: "2026-08-26T12:00:00.000Z",
+      };
+
+      pool.query.mockResolvedValueOnce({ rows: [mockSessionRow] });
+
+      const res = await request(app)
+        .put(`/api/scope/${TEST_SESSION_ID}`)
+        .send({
+          content: validContent,
+          cursors: { user1: { start: 0, end: 5 } },
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.session.content).toBe(validContent);
+      expect(pool.query).toHaveBeenCalledTimes(1);
+    });
+
+    it("400 — rejects when content is not a string", async () => {
+      const res = await request(app)
+        .post(`/api/scope/${TEST_SESSION_ID}`)
+        .send({ content: 12345 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("content must be a string");
     });
   });
 
   // =========================================================================
-  // 3. POST /api/scope/:sessionId/finalize — lock to proposal submission
+  // 3. upsertScopeSession helper function
   // =========================================================================
-  describe("POST /api/scope/:sessionId/finalize", () => {
-    it("200 — locks the session and returns a deterministic content hash", async () => {
+  describe("upsertScopeSession helper function", () => {
+    it("throws 413 error when content exceeds 500,000 characters", async () => {
+      const { upsertScopeSession } = scopeRoutes;
+      const oversizedContent = "e".repeat(500_001);
+
+      await expect(
+        upsertScopeSession(TEST_SESSION_ID, { content: oversizedContent }),
+      ).rejects.toMatchObject({
+        status: 413,
+        statusCode: 413,
+        code: "PAYLOAD_TOO_LARGE",
+      });
+    });
+
+    it("succeeds when content is within 500,000 characters", async () => {
+      const { upsertScopeSession } = scopeRoutes;
+      const validContent = "Valid content";
       pool.query.mockResolvedValueOnce({
-        rows: [
-          {
-            session_id: TEST_SESSION_ID,
-            content: "final proposal text",
-            finalized: true,
-            finalized_hash: null,
-            finalized_payload: { jobId: "job-42" },
-            expires_at: "2026-08-26T12:00:00.000Z",
-          },
-        ],
+        rows: [{ session_id: TEST_SESSION_ID, content: validContent }],
       });
 
-      const res = await request(app)
-        .post(`/api/scope/${TEST_SESSION_ID}/finalize`)
-        .set("X-CSRF-Token", "dummy-csrf-token")
-        .send({ content: "final proposal text", payload: { jobId: "job-42" } });
+      const result = await upsertScopeSession(TEST_SESSION_ID, {
+        content: validContent,
+      });
+      expect(result.content).toBe(validContent);
+    });
+  });
 
+  // =========================================================================
+  // 4. GET /api/scope/:sessionId
+  // =========================================================================
+  describe("GET /api/scope/:sessionId", () => {
+    it("200 — returns active scope session details", async () => {
+      const mockSessionRow = {
+        session_id: TEST_SESSION_ID,
+        content: "# Scope document",
+        cursors: {},
+        finalized: false,
+        expires_at: "2026-08-27T12:00:00.000Z",
+      };
+
+      pool.query.mockResolvedValueOnce({ rows: [mockSessionRow] });
+
+      const res = await request(app).get(`/api/scope/${TEST_SESSION_ID}`);
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.finalized).toBe(true);
-      expect(res.body.sessionId).toBe(TEST_SESSION_ID);
-      // sha256 hex digest of the supplied content
-      expect(res.body.finalizedHash).toMatch(/^[0-9a-f]{64}$/);
-
-      const [sql, params] = pool.query.mock.calls[0];
-      expect(sql).toContain("UPDATE scope_sessions");
-      expect(sql).toContain("finalized = true");
-      expect(sql).toContain("WHERE session_id = $1 AND expires_at > NOW()");
-      expect(params[0]).toBe(TEST_SESSION_ID);
-      expect(params[1]).toBe("final proposal text");
+      expect(res.body.session.session_id).toBe(TEST_SESSION_ID);
     });
 
-    it("200 — honours a caller-supplied finalizedHash", async () => {
-      pool.query.mockResolvedValueOnce({
-        rows: [
-          {
-            session_id: TEST_SESSION_ID,
-            content: "text",
-            finalized: true,
-            finalized_hash: "a".repeat(64),
-            finalized_payload: null,
-            expires_at: "2026-08-26T12:00:00.000Z",
-          },
-        ],
-      });
-
-      const res = await request(app)
-        .post(`/api/scope/${TEST_SESSION_ID}/finalize`)
-        .set("X-CSRF-Token", "dummy-csrf-token")
-        .send({ content: "text", finalizedHash: "a".repeat(64) });
-
-      expect(res.status).toBe(200);
-      expect(res.body.finalizedHash).toBe("a".repeat(64));
-    });
-
-    it("404 — not-found path when the session is missing or expired", async () => {
+    it("404 — returns 404 when session not found or expired", async () => {
       pool.query.mockResolvedValueOnce({ rows: [] });
 
-      const res = await request(app)
-        .post("/api/scope/missing/finalize")
-        .set("X-CSRF-Token", "dummy-csrf-token")
-        .send({ content: "x" });
-
+      const res = await request(app).get(`/api/scope/expired-or-missing`);
       expect(res.status).toBe(404);
-      expect(res.body.error).toBe("Session not found or already expired");
-    });
-
-    it("propagates a lock to connected collaborators via app.locals", async () => {
-      pool.query.mockResolvedValueOnce({
-        rows: [
-          {
-            session_id: TEST_SESSION_ID,
-            content: "locked",
-            finalized: true,
-            finalized_hash: null,
-            finalized_payload: null,
-            expires_at: "2026-08-26T12:00:00.000Z",
-          },
-        ],
-      });
-
-      const sendJson = jest.fn();
-      const socket = { readyState: 1 };
-      const sockets = new Set([socket]);
-      app.locals.scopeSessionClients = new Map([[TEST_SESSION_ID, sockets]]);
-      app.locals.sendJson = sendJson;
-
-      const res = await request(app)
-        .post(`/api/scope/${TEST_SESSION_ID}/finalize`)
-        .set("X-CSRF-Token", "dummy-csrf-token")
-        .send({ content: "locked" });
-
-      expect(res.status).toBe(200);
-      expect(sendJson).toHaveBeenCalledTimes(1);
-      expect(sendJson.mock.calls[0][0]).toBe(socket);
-      expect(sendJson.mock.calls[0][1]).toBe("scope:finalized");
-      expect(sendJson.mock.calls[0][2].finalized).toBe(true);
-
-      delete app.locals.scopeSessionClients;
-      delete app.locals.sendJson;
+      expect(res.body.error).toContain("Session not found or already expired");
     });
   });
 });

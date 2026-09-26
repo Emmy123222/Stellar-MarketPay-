@@ -147,7 +147,7 @@ mod tests {
         let contract = MarketPayContractClient::new(env, &contract_id);
 
         let admin = Address::generate(env);
-        contract.initialize(&admin, &admin);
+        contract.initialize(&admin, &admin, &String::from_str(&env, "1.0.0"));
 
         let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
         let token_id = token_contract.address();

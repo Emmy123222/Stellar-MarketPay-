@@ -41,7 +41,7 @@ mod tests {
         let id = env.register(MarketPayContract, ());
         let contract = MarketPayContractClient::new(env, &id);
         let admin = Address::generate(env);
-        contract.initialize(&admin, &admin);
+        contract.initialize(&admin, &admin, &String::from_str(&env, "1.0.0"));
 
         let client = Address::generate(env);
         let freelancer = Address::generate(env);
@@ -348,7 +348,10 @@ mod tests {
         contract.resolve_dispute(&job_id, &arbitrator, &client, &60, &500);
         assert_eq!(contract.get_escrow(&job_id).status, EscrowStatus::Released);
         assert_eq!(token_client.balance(&arbitrator), 50);
-        assert_eq!(token_client.balance(&client), (1_000_000 - ESCROW_AMOUNT) + 570);
+        assert_eq!(
+            token_client.balance(&client),
+            (1_000_000 - ESCROW_AMOUNT) + 570
+        );
         assert_eq!(token_client.balance(&freelancer), 380);
         assert_eq!(token_client.balance(&contract.address), 0);
     }

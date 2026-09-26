@@ -21,6 +21,11 @@ jest.mock("../src/services/cacheService", () => ({
   set: jest.fn(),
 }));
 
+const mockGetContractVersion = jest.fn();
+jest.mock("../src/services/contractVersionService", () => ({
+  getContractVersion: () => mockGetContractVersion(),
+}));
+
 // Mock fetch for Horizon checks
 const mockFetch = jest.fn();
 
@@ -82,6 +87,7 @@ function mockHorizonDown() {
 describe("GET /health", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetContractVersion.mockResolvedValue("1.2.0");
   });
 
   describe("all healthy", () => {
@@ -106,6 +112,26 @@ describe("GET /health", () => {
       });
       expect(res.body).toHaveProperty("uptime_seconds");
       expect(res.body).toHaveProperty("version");
+      expect(res.body.contractVersion).toBe("1.2.0");
+    });
+
+    it("reports contractVersion null without degrading when it cannot be read", async () => {
+      mockGetContractVersion.mockResolvedValue(null);
+      const app = createApp();
+      const res = await request(app).get("/api/health");
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("healthy");
+      expect(res.body).toHaveProperty("contractVersion", null);
+    });
+
+    it("reports contractVersion null when the lookup rejects", async () => {
+      mockGetContractVersion.mockRejectedValue(new Error("rpc down"));
+      const app = createApp();
+      const res = await request(app).get("/api/health");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("contractVersion", null);
     });
   });
 
@@ -129,6 +155,7 @@ describe("GET /health", () => {
           stellar: "ok",
         },
       });
+      expect(res.body.contractVersion).toBe("1.2.0");
       expect(res.body).not.toHaveProperty("database");
       expect(res.body).not.toHaveProperty("redis");
       expect(res.body).not.toHaveProperty("stellar");
