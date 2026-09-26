@@ -1,4 +1,4 @@
-use soroban_sdk::{symbol_short, Address, BytesN, Env, String, Vec};
+use soroban_sdk::{symbol_short, token, Address, BytesN, Env, String, Vec};
 
 use crate::helpers::{check_not_frozen, compute_bid_commitment};
 use crate::types::*;
@@ -232,4 +232,88 @@ pub(crate) fn get_revealed_bids(env: Env, job_id: String) -> Vec<RevealedBid> {
         .instance()
         .get(&DataKey::RevealedBids(job_id))
         .unwrap_or_else(|| Vec::new(&env))
+}
+
+/// Place a token-backed highest-bid-wins bid for an escrow job.
+///
+/// The escrow's token is used so callers cannot redirect funds to an
+/// unrelated asset. When a higher bid arrives, the previous winner is
+/// refunded atomically before the new bid is recorded.
+pub(crate) fn place_bid(env: Env, job_id: String, bidder: Address, amount: i128) {
+    bidder.require_auth();
+    check_not_frozen(&env);
+    if amount <= 0 {
+        panic!("Bid amount must be positive");
+    }
+
+    let escrow: Escrow = env
+        .storage()
+        .instance()
+        .get(&DataKey::Escrow(job_id.clone()))
+        .expect("Escrow not found");
+    let existing: Option<LiveAuction> = env
+        .storage()
+        .instance()
+        .get(&DataKey::LiveAuction(job_id.clone()));
+    if let Some(ref auction) = existing {
+        if amount <= auction.highest_bid {
+            panic!("Bid must exceed the current highest bid");
+        }
+    }
+
+    let token_client = token::Client::new(&env, &escrow.token);
+    let contract_address = env.current_contract_address();
+    token_client.transfer(&bidder, &contract_address, &amount);
+
+    if let Some(auction) = existing {
+        if let Some(previous_winner) = auction.winner {
+            token_client.transfer(&contract_address, &previous_winner, &auction.highest_bid);
+            env.storage()
+                .instance()
+                .remove(&DataKey::LiveBid(job_id.clone(), previous_winner.clone()));
+        }
+    }
+
+    let live_auction = LiveAuction {
+        job_id: job_id.clone(),
+        token: escrow.token,
+        highest_bid: amount,
+        winner: Some(bidder.clone()),
+    };
+    env.storage()
+        .instance()
+        .set(&DataKey::LiveAuction(job_id.clone()), &live_auction);
+    env.storage().instance().set(
+        &DataKey::LiveBid(job_id.clone(), bidder.clone()),
+        &LiveBid {
+            bidder: bidder.clone(),
+            amount,
+        },
+    );
+    env.events()
+        .publish((symbol_short!("bid"), job_id), (bidder, amount));
+}
+
+/// Refund a bidder that is no longer the current winner.
+pub(crate) fn refund_bid(env: Env, job_id: String, bidder: Address) {
+    bidder.require_auth();
+    check_not_frozen(&env);
+    let auction: LiveAuction = env
+        .storage()
+        .instance()
+        .get(&DataKey::LiveAuction(job_id.clone()))
+        .expect("Auction not found");
+    if auction.winner == Some(bidder.clone()) {
+        panic!("Current winning bid cannot be refunded");
+    }
+    let key = DataKey::LiveBid(job_id.clone(), bidder.clone());
+    let bid: LiveBid = env.storage().instance().get(&key).expect("Bid not found");
+    token::Client::new(&env, &auction.token).transfer(
+        &env.current_contract_address(),
+        &bidder,
+        &bid.amount,
+    );
+    env.storage().instance().remove(&key);
+    env.events()
+        .publish((symbol_short!("refund"), job_id), (bidder, bid.amount));
 }

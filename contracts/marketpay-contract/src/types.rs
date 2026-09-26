@@ -141,6 +141,24 @@ pub struct RevealedBid {
     pub revealed_at_ledger: u32,
 }
 
+/// A live, token-backed auction for the highest-bid-wins flow.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct LiveAuction {
+    pub job_id: String,
+    pub token: Address,
+    pub highest_bid: i128,
+    pub winner: Option<Address>,
+}
+
+/// Funds currently locked for a bidder in a live auction.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct LiveBid {
+    pub bidder: Address,
+    pub amount: i128,
+}
+
 /// A pending request to extend the escrow timeout, initiated by one party.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -265,6 +283,8 @@ pub enum DataKey {
     BidCommitment(String, Address),
     BiddingState(String),
     RevealedBids(String),
+    LiveAuction(String),
+    LiveBid(String, Address),
     Certificate(String),
     FreelancerCertificates(Address),
     CertificateTokenCounter,
@@ -304,6 +324,8 @@ pub enum DataKey {
     EligibleVoterCount,
     /// Quorum value (bps) a quorum-change proposal will apply once passed
     PendingQuorumChange(u32),
+    /// Delay between a passed proposal and its execution.
+    ExecutionDelaySeconds,
 }
 
 pub(crate) const DEFAULT_QUORUM_THRESHOLD_BPS: u32 = 1_000;
@@ -324,4 +346,6 @@ pub struct Proposal {
     pub deadline_ledger: u32,
     pub resolved: bool,
     pub result: bool,
+    pub resolved_at_timestamp: u64,
+    pub executed: bool,
 }

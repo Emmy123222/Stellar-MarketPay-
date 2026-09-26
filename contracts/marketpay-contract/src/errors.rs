@@ -174,6 +174,8 @@ pub enum ContractError {
     QuorumProposalNotPassed = 6010,
     /// "No matching quorum change proposal"
     NoMatchingQuorumProposal = 6011,
+    /// "TimelockActive"
+    TimelockActive = 6012,
 
     // ── 7xxx: Disputes & arbitration ──────────────────────────────────────
     /// "Only participants can raise a dispute"
@@ -326,6 +328,7 @@ impl ContractError {
             Self::QuorumExceedsMax => "Quorum cannot exceed 50% (5000 bps)",
             Self::QuorumProposalNotPassed => "Quorum change proposal has not passed",
             Self::NoMatchingQuorumProposal => "No matching quorum change proposal",
+            Self::TimelockActive => "TimelockActive",
             // 7xxx
             Self::OnlyParticipantsCanDispute => "Only participants can raise a dispute",
             Self::CannotDisputeResolved => {

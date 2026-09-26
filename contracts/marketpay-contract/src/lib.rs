@@ -340,6 +340,20 @@ impl MarketPayContract {
         governance::resolve_proposal(env, proposal_id)
     }
 
+    /// Execute a passed proposal after its timelock has elapsed.
+    pub fn execute_proposal(env: Env, proposal_id: u32) {
+        governance::execute_proposal(env, proposal_id)
+    }
+
+    /// Set the governance execution delay in seconds.
+    pub fn set_execution_delay(env: Env, admin: Address, seconds: u64) {
+        governance::set_execution_delay(env, admin, seconds)
+    }
+
+    pub fn get_execution_delay(env: Env) -> u64 {
+        governance::get_execution_delay(env)
+    }
+
     pub fn get_proposal(env: Env, id: u32) -> types::Proposal {
         governance::get_proposal(env, id)
     }
@@ -502,6 +516,17 @@ impl MarketPayContract {
     /// Read all bids that were revealed during reveal phase.
     pub fn get_revealed_bids(env: Env, job_id: String) -> Vec<types::RevealedBid> {
         auction::get_revealed_bids(env, job_id)
+    }
+
+    /// Place a token-backed bid. A higher bid automatically refunds the
+    /// previous winner, so losing funds never remain locked in the contract.
+    pub fn place_bid(env: Env, job_id: String, bidder: Address, amount: i128) {
+        auction::place_bid(env, job_id, bidder, amount)
+    }
+
+    /// Refund a bidder who is no longer the current winner.
+    pub fn refund_bid(env: Env, job_id: String, bidder: Address) {
+        auction::refund_bid(env, job_id, bidder)
     }
 
     // ─── Deliverable Hash Oracle ───────────────────────────────────────────
