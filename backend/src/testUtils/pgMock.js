@@ -398,8 +398,9 @@ function createPgMock() {
         deadline: params[7],
         timezone: params[8],
         screening_questions: params[9],
-        visibility: params[10] || "public",
-        milestones: [],
+        milestones:
+          typeof params[10] === "string" ? JSON.parse(params[10]) : params[10],
+        visibility: params[11] || "public",
       });
       jobs.set(row.id, row);
       return { rows: [formatJobRow(row)] };

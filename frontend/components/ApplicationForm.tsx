@@ -139,6 +139,44 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
     setShowConfirm(true);
   };
 
+  const handleInviteCollaborator = async () => {
+    // Once a session exists the button copies the existing invite link instead
+    // of minting a new session (so the same teammate keeps their workspace).
+    if (scopeShareUrl) {
+      try {
+        await navigator.clipboard?.writeText(scopeShareUrl);
+        setScopeCopied(true);
+      } catch {
+        /* clipboard may be unavailable; the link is still visible below */
+      }
+      return;
+    }
+
+    setScopeError(null);
+    setCreatingScope(true);
+    try {
+      const session = await createScopeSession({
+        jobId: String(job.id),
+        createdBy: publicKey,
+        content: proposal,
+      });
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const url = `${origin}${session.sharePath}`;
+      setScopeSessionId(session.sessionId);
+      setScopeShareUrl(url);
+      try {
+        await navigator.clipboard?.writeText(url);
+        setScopeCopied(true);
+      } catch {
+        /* clipboard may be unavailable; the link is still visible below */
+      }
+    } catch {
+      setScopeError("Could not create a co-writing session. Please try again.");
+    } finally {
+      setCreatingScope(false);
+    }
+  };
+
   const handleConfirmSubmit = async () => {
     setShowConfirm(false);
     setLoading(true);
@@ -159,6 +197,17 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
         screeningAnswers: job.screeningQuestions && job.screeningQuestions.length > 0 ? screeningAnswers : undefined,
         referredBy: referredBy || undefined,
       });
+      // Lock the shared scope session so collaborators can no longer edit it.
+      if (scopeSessionId) {
+        try {
+          await finalizeScopeSession(scopeSessionId, {
+            content: proposal.trim(),
+            payload: { jobId: String(job.id), freelancerAddress: publicKey },
+          });
+        } catch {
+          // The application is already submitted; locking is best-effort.
+        }
+      }
       setRevealLater(true);
       toast.success("Sealed bid commitment submitted.");
       onSuccess();
@@ -202,6 +251,57 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* Co-write proposal — invite a teammate (#1552) */}
+          <div className="rounded-xl border border-market-500/20 bg-market-900/30 p-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-amber-100">Co-write this proposal</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Invite a teammate to edit and review together in real time. The
+                  session locks automatically when you submit.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleInviteCollaborator}
+                disabled={creatingScope}
+                className="btn-secondary px-3 py-2 text-sm whitespace-nowrap"
+                data-testid="invite-collaborator"
+              >
+                {creatingScope
+                  ? "Creating..."
+                  : scopeShareUrl
+                    ? "Copy invite link"
+                    : "Invite collaborator"}
+              </button>
+            </div>
+            {scopeShareUrl && (
+              <div className="mt-3 flex gap-2">
+                <input
+                  className="input-field flex-1 text-xs"
+                  value={scopeShareUrl}
+                  readOnly
+                  aria-label="Co-writing invite link"
+                />
+                <button
+                  type="button"
+                  className="btn-secondary px-3 py-2 text-xs"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard?.writeText(scopeShareUrl);
+                      setScopeCopied(true);
+                    } catch {
+                      /* noop */
+                    }
+                  }}
+                >
+                  {scopeCopied ? "Copied" : "Copy"}
+                </button>
+              </div>
+            )}
+            {scopeError && <p className="mt-2 text-xs text-red-400">{scopeError}</p>}
           </div>
 
           {/* Cover letter */}
