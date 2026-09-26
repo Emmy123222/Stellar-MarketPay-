@@ -18,6 +18,7 @@ const { verifyJWT }         = require("../middleware/auth");
 const ipfsService          = require("../services/ipfsService");
 const { validateIpfsCid }    = require("../services/disputeService");
 const sorobanEvidence       = require("../services/sorobanEvidence");
+const sorobanArbitratorRegistry = require("../services/sorobanArbitratorRegistry");
 const { createError, ErrorCodes } = require("../utils/errors");
 
 const MAX_FILES_PER_PARTY = 5;
@@ -224,13 +225,16 @@ router.post(
       }
 
       const fileUrl = validateIpfsCid(ipfsResult?.cid);
+      // Issue #1439: uploadFile verifies the pin (with retries) and reports it;
+      // anything other than an explicit true is stored as not-pinned.
+      const pinned = ipfsResult?.pinned === true;
 
       const { rows } = await pool.query(
         `INSERT INTO dispute_evidence
-           (job_id, uploader_address, file_name, file_size, mime_type, ipfs_cid)
-         VALUES ($1, $2, $3, $4, $5, $6)
+           (job_id, uploader_address, file_name, file_size, mime_type, ipfs_cid, pinned)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
-        [jobId, uploaderAddress, req.file.originalname, req.file.size, req.file.mimetype, fileUrl]
+        [jobId, uploaderAddress, req.file.originalname, req.file.size, req.file.mimetype, fileUrl, pinned]
       );
 
       const ev = rows[0];
@@ -243,6 +247,7 @@ router.post(
           fileSize:        ev.file_size,
           mimeType:        ev.mime_type,
           fileUrl:         ev.ipfs_cid,
+          pinned:          ev.pinned === true,
           gatewayUrl:      ipfsService.getGatewayUrl(ev.ipfs_cid),
           createdAt:       ev.created_at,
         },
@@ -250,6 +255,89 @@ router.post(
     } catch (e) { next(e); }
   }
 );
+
+/**
+ * @swagger
+ * /api/disputes/{jobId}/evidence:
+ *   get:
+ *     summary: List dispute evidence (client, freelancer, or arbitrator only)
+ *     tags: [Disputes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Evidence list for the dispute
+ *       401:
+ *         description: Missing or invalid JWT
+ *       403:
+ *         description: Caller is not the client, freelancer, or assigned arbitrator
+ *       404:
+ *         description: Job not found
+ */
+// GET /api/disputes/:jobId/evidence — list evidence (Issue #1435)
+//
+// Access is restricted to the dispute's client, freelancer, or an active
+// on-chain arbitrator. Any other authenticated caller receives 403.
+router.get("/:jobId/evidence", verifyJWT, readRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const requesterAddress = req.user.publicKey;
+
+    const { rows: jobRows } = await pool.query(
+      "SELECT client_address, freelancer_address FROM jobs WHERE id = $1",
+      [jobId]
+    );
+    if (!jobRows.length) {
+      throw createError(ErrorCodes.JOB_NOT_FOUND, "Job not found", 404);
+    }
+
+    const { client_address, freelancer_address } = jobRows[0];
+    const isParticipant =
+      requesterAddress === client_address || requesterAddress === freelancer_address;
+    const isArbitrator = !isParticipant
+      ? await sorobanArbitratorRegistry.isArbitrator(requesterAddress)
+      : false;
+
+    if (!isParticipant && !isArbitrator) {
+      throw createError(
+        ErrorCodes.FORBIDDEN,
+        "Only the dispute client, freelancer, or assigned arbitrator can access evidence",
+        403
+      );
+    }
+
+    const { rows: evidence } = await pool.query(
+      `SELECT id, uploader_address, file_name, file_size, mime_type, ipfs_cid, created_at
+       FROM dispute_evidence
+       WHERE job_id = $1
+       ORDER BY created_at ASC`,
+      [jobId]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        jobId,
+        evidence: evidence.map((ev) => ({
+          id:              ev.id,
+          uploaderAddress: ev.uploader_address,
+          fileName:        ev.file_name,
+          fileSize:        ev.file_size,
+          mimeType:        ev.mime_type,
+          fileUrl:         ev.ipfs_cid,
+          gatewayUrl:      ipfsService.getGatewayUrl(ev.ipfs_cid),
+          createdAt:       ev.created_at,
+        })),
+      },
+    });
+  } catch (e) { next(e); }
+});
 
 /**
  * @swagger

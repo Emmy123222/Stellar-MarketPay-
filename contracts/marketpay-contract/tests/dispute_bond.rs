@@ -140,7 +140,7 @@ mod tests {
         );
 
         // Rule in favour of the freelancer (the bond caller).
-        contract.resolve_dispute(&job_id, &arbitrator, &freelancer, &100);
+        contract.resolve_dispute(&job_id, &arbitrator, &freelancer, &100, &0);
         assert_eq!(contract.get_escrow(&job_id).status, EscrowStatus::Released);
         assert!(contract.get_dispute_bond(&job_id).is_none());
 
@@ -177,7 +177,7 @@ mod tests {
 
         // Rule against the freelancer (the bond caller) — the client wins the
         // whole escrow (split 100 => winner keeps 100 %).
-        contract.resolve_dispute(&job_id, &arbitrator, &client, &100);
+        contract.resolve_dispute(&job_id, &arbitrator, &client, &100, &0);
         assert_eq!(contract.get_escrow(&job_id).status, EscrowStatus::Released);
         assert!(contract.get_dispute_bond(&job_id).is_none());
 
@@ -258,12 +258,112 @@ mod tests {
         // No tokens were moved for a dispute in zero-cost mode.
         assert_eq!(token_client.balance(&freelancer), freelancer_before);
 
-        contract.resolve_dispute(&job_id, &arbitrator, &freelancer, &100);
+        contract.resolve_dispute(&job_id, &arbitrator, &freelancer, &100, &0);
         assert_eq!(contract.get_escrow(&job_id).status, EscrowStatus::Released);
         // Freelancer receives the full escrow.
         assert_eq!(
             token_client.balance(&freelancer),
             freelancer_before + ESCROW_AMOUNT
         );
+    }
+
+    #[test]
+    fn test_resolve_dispute_zero_fee_full_payout() {
+        let env = Env::default();
+        let (contract, admin, client, freelancer, arbitrator, token_id) = setup(&env, 1_000_000);
+        contract.set_arbitrator(&admin, &arbitrator);
+
+        let job_id = String::from_str(&env, "fee-0-pct");
+        create_started_escrow(&contract, &env, &job_id, &client, &freelancer, &token_id);
+
+        let token_client = token::Client::new(&env, &token_id);
+        contract.raise_dispute(&job_id, &freelancer);
+
+        // 0% arbitrator fee -> arbitrator gets 0, winner (freelancer) gets 1000
+        contract.resolve_dispute(&job_id, &arbitrator, &freelancer, &100, &0);
+        assert_eq!(contract.get_escrow(&job_id).status, EscrowStatus::Released);
+        assert_eq!(token_client.balance(&arbitrator), 0);
+        assert_eq!(token_client.balance(&freelancer), ESCROW_AMOUNT);
+        assert_eq!(token_client.balance(&contract.address), 0);
+    }
+
+    #[test]
+    fn test_resolve_dispute_5_percent_fee() {
+        let env = Env::default();
+        let (contract, admin, client, freelancer, arbitrator, token_id) = setup(&env, 1_000_000);
+        contract.set_arbitrator(&admin, &arbitrator);
+
+        let job_id = String::from_str(&env, "fee-5-pct");
+        create_started_escrow(&contract, &env, &job_id, &client, &freelancer, &token_id);
+
+        let token_client = token::Client::new(&env, &token_id);
+        contract.raise_dispute(&job_id, &freelancer);
+
+        // 500 bps (5%) fee: 1000 * 500 / 10000 = 50 tokens to arbitrator
+        // Remaining 950 tokens to winner (freelancer at 100% split)
+        contract.resolve_dispute(&job_id, &arbitrator, &freelancer, &100, &500);
+        assert_eq!(contract.get_escrow(&job_id).status, EscrowStatus::Released);
+        assert_eq!(token_client.balance(&arbitrator), 50);
+        assert_eq!(token_client.balance(&freelancer), 950);
+        assert_eq!(token_client.balance(&contract.address), 0);
+    }
+
+    #[test]
+    fn test_resolve_dispute_100_percent_fee_boundary() {
+        let env = Env::default();
+        let (contract, admin, client, freelancer, arbitrator, token_id) = setup(&env, 1_000_000);
+        contract.set_arbitrator(&admin, &arbitrator);
+
+        let job_id = String::from_str(&env, "fee-100-pct");
+        create_started_escrow(&contract, &env, &job_id, &client, &freelancer, &token_id);
+
+        let token_client = token::Client::new(&env, &token_id);
+        contract.raise_dispute(&job_id, &freelancer);
+
+        // 10000 bps (100%) fee: 1000 tokens to arbitrator, 0 to winner
+        contract.resolve_dispute(&job_id, &arbitrator, &freelancer, &100, &10_000);
+        assert_eq!(contract.get_escrow(&job_id).status, EscrowStatus::Released);
+        assert_eq!(token_client.balance(&arbitrator), ESCROW_AMOUNT);
+        assert_eq!(token_client.balance(&freelancer), 0);
+        assert_eq!(token_client.balance(&contract.address), 0);
+    }
+
+    #[test]
+    fn test_resolve_dispute_5_percent_fee_with_split_payout() {
+        let env = Env::default();
+        let (contract, admin, client, freelancer, arbitrator, token_id) = setup(&env, 1_000_000);
+        contract.set_arbitrator(&admin, &arbitrator);
+
+        let job_id = String::from_str(&env, "fee-5-pct-split");
+        create_started_escrow(&contract, &env, &job_id, &client, &freelancer, &token_id);
+
+        let token_client = token::Client::new(&env, &token_id);
+        contract.raise_dispute(&job_id, &freelancer);
+
+        // 500 bps (5%) fee = 50 tokens to arbitrator
+        // Remaining 950 tokens split 60/40:
+        // Winner (client): 950 * 60 / 100 = 570 tokens (+ 1_000_000 - 1000 unspent client balance)
+        // Loser (freelancer): 950 - 570 = 380 tokens
+        // Total funds = 50 + 570 + 380 = 1000 tokens
+        contract.resolve_dispute(&job_id, &arbitrator, &client, &60, &500);
+        assert_eq!(contract.get_escrow(&job_id).status, EscrowStatus::Released);
+        assert_eq!(token_client.balance(&arbitrator), 50);
+        assert_eq!(token_client.balance(&client), (1_000_000 - ESCROW_AMOUNT) + 570);
+        assert_eq!(token_client.balance(&freelancer), 380);
+        assert_eq!(token_client.balance(&contract.address), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Arbitrator fee cannot exceed 100% (10000 bps)")]
+    fn test_resolve_dispute_rejects_fee_exceeding_100_percent() {
+        let env = Env::default();
+        let (contract, admin, client, freelancer, arbitrator, token_id) = setup(&env, 1_000_000);
+        contract.set_arbitrator(&admin, &arbitrator);
+
+        let job_id = String::from_str(&env, "fee-invalid");
+        create_started_escrow(&contract, &env, &job_id, &client, &freelancer, &token_id);
+
+        contract.raise_dispute(&job_id, &freelancer);
+        contract.resolve_dispute(&job_id, &arbitrator, &freelancer, &100, &10_001);
     }
 }

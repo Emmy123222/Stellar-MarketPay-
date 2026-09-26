@@ -5,6 +5,15 @@
  * POST /api/admin/2fa/disable — disable 2FA (requires valid TOTP or backup code)
  * GET  /api/admin/2fa/status  — check enabled state
  *
+ * 2FA Implementation Notes:
+ * - TOTP Validation Window: Configured with `window: 1` (allowing ±1 time step of 30 seconds drift).
+ *   This accepts codes generated within [-30s, +30s] of the server time, strictly rejecting
+ *   codes from 61+ seconds ago to protect privileged admin operations against replay attacks.
+ *   A wider window (such as window: 2 / ±90s) is considered too permissive for admin actions.
+ * - Secret Storage: Stored base32 TOTP secret is AES-256-GCM encrypted in `admin_profiles.totp_secret`.
+ * - Brute-Force Rate Limiting: 5 consecutive failed verification attempts lock the admin account for 15 minutes.
+ * - Backup Codes: 10 single-use cryptographically hashed backup codes generated at setup.
+ *
  * @swagger
  * tags:
  *   name: Admin 2FA
@@ -30,6 +39,7 @@ const {
   get2FAStatus,
   ensureAdminProfile,
   getDecryptedSecret,
+  TOTP_WINDOW: SERVICE_TOTP_WINDOW,
 } = require("../services/twoFactorService");
 
 const router = express.Router();
@@ -39,9 +49,18 @@ const router = express.Router();
 // profile table, so cap them per IP. Reads get a looser ceiling.
 const twoFactorAuthRateLimiter = createRateLimiter(10, 1); // 10 req/min per IP
 const twoFactorStatusRateLimiter = createRateLimiter(30, 1); // 30 req/min per IP
+/**
+ * Validation window for TOTP verification (Issue #1459).
+ * window: 1 corresponds to ±1 time step (±30 seconds) tolerance.
+ */
+const TOTP_WINDOW = SERVICE_TOTP_WINDOW || 1;
 
 function issueAdminToken(publicKey, twoFaVerified) {
-  return signAccessToken({ publicKey, role: "admin", "2fa_verified": twoFaVerified });
+  return signAccessToken({
+    publicKey,
+    role: "admin",
+    "2fa_verified": twoFaVerified,
+  });
 }
 
 /**
@@ -65,7 +84,7 @@ router.post("/setup", twoFactorAuthRateLimiter, verifyJWT, requireAdminRole, asy
 
     const { rows } = await pool.query(
       "SELECT totp_enabled FROM admin_profiles WHERE id = $1",
-      [publicKey]
+      [publicKey],
     );
     if (rows[0]?.totp_enabled) {
       return res.status(400).json({ error: "2FA is already enabled" });
@@ -76,7 +95,7 @@ router.post("/setup", twoFactorAuthRateLimiter, verifyJWT, requireAdminRole, asy
 
     await pool.query(
       "UPDATE admin_profiles SET totp_secret = $1, totp_enabled = false, updated_at = NOW() WHERE id = $2",
-      [encrypt(secret.base32), publicKey]
+      [encrypt(secret.base32), publicKey],
     );
 
     res.json({
@@ -128,7 +147,9 @@ router.post("/verify", twoFactorAuthRateLimiter, verifyJWT, requireAdminRole, as
     const secret = await getDecryptedSecret(publicKey);
 
     if (!secret) {
-      return res.status(400).json({ error: "2FA setup not initiated. Call /setup first." });
+      return res
+        .status(400)
+        .json({ error: "2FA setup not initiated. Call /setup first." });
     }
 
     let plainBackupCodes;
@@ -139,7 +160,7 @@ router.post("/verify", twoFactorAuthRateLimiter, verifyJWT, requireAdminRole, as
         secret,
         encoding: "base32",
         token: String(token),
-        window: 1,
+        window: TOTP_WINDOW,
       });
 
       if (!verified) {
@@ -181,7 +202,9 @@ router.post("/disable", twoFactorAuthRateLimiter, verifyJWT, requireAdminRole, a
     const { token, backupCode } = req.body;
 
     if (!token && !backupCode) {
-      return res.status(400).json({ error: "A TOTP token or backup code is required" });
+      return res
+        .status(400)
+        .json({ error: "A TOTP token or backup code is required" });
     }
 
     let ok = false;
@@ -226,4 +249,7 @@ router.get("/status", twoFactorStatusRateLimiter, verifyJWT, requireAdminRole, a
   }
 });
 
+router.TOTP_WINDOW = TOTP_WINDOW;
+
 module.exports = router;
+module.exports.TOTP_WINDOW = TOTP_WINDOW;
