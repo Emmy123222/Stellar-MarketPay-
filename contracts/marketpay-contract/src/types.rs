@@ -158,6 +158,7 @@ pub struct ExtensionRequest {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Certificate {
+    pub token_id: BytesN<32>,
     pub job_id: String,
     pub title: String,
     pub client: Address,
@@ -266,6 +267,7 @@ pub enum DataKey {
     RevealedBids(String),
     Certificate(String),
     FreelancerCertificates(Address),
+    CertificateTokenCounter,
     ClientRating(String),
     FreelancerRating(String),
     FreelancerRatingStats(Address),

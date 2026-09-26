@@ -11,7 +11,7 @@ pub(crate) fn publish_message(
     ipfs_cid: String,
 ) {
     sender.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     // Basic validation
     if ipfs_cid.is_empty() {

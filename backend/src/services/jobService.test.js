@@ -330,11 +330,44 @@ describe("jobService", () => {
       });
     });
 
-    it("filters by status", async () => {
-      const { jobs: openJobs } = await listJobs({ status: "open" });
-      expect(openJobs.length).toBeGreaterThanOrEqual(1);
-      expect(openJobs.every((job) => job.status === "open")).toBe(true);
-    });
+it("filters by status", async () => {
+       const { jobs: openJobs } = await listJobs({ status: "open" });
+       expect(openJobs.length).toBeGreaterThanOrEqual(1);
+       expect(openJobs.every((job) => job.status === "open")).toBe(true);
+     });
+
+     it("excludes non-open jobs when no status filter is provided", async () => {
+       const cancelledJob = await createJob({
+         title: "Cancelled Job long enough",
+         description:
+           "This is a cancelled job description that is long enough to pass validation.",
+         budget: "400",
+         category: "Backend Development",
+         clientAddress: validClientAddress,
+         currency: "XLM",
+       });
+       await updateJobStatus(cancelledJob.id, "cancelled");
+
+       const { jobs: allJobs } = await listJobs({});
+       expect(allJobs.every((job) => job.status === "open")).toBe(true);
+       expect(allJobs.some((job) => job.id === cancelledJob.id)).toBe(false);
+     });
+
+     it("returns all statuses when status is 'all'", async () => {
+       const cancelledJob = await createJob({
+         title: "Cancelled Job 2 long enough",
+         description:
+           "This is another cancelled job description that is long enough to pass validation.",
+         budget: "400",
+         category: "Backend Development",
+         clientAddress: validClientAddress,
+         currency: "XLM",
+       });
+       await updateJobStatus(cancelledJob.id, "cancelled");
+
+       const { jobs: allJobs } = await listJobs({ status: "all" });
+       expect(allJobs.some((job) => job.id === cancelledJob.id)).toBe(true);
+     });
 
     it("filters by category", async () => {
       const { jobs: frontendJobs } = await listJobs({
