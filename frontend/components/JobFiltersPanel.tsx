@@ -6,22 +6,30 @@ import { useTranslation } from "@/lib/i18n";
 import { POPULAR_SKILLS } from "@/utils/format";
 import clsx from "clsx";
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/router";
 import { createSavedSearch, fetchSavedSearches, type SavedSearch } from "@/lib/api";
 
 export interface JobFilterQuery {
   search?: string;
   minBudget?: string;
   maxBudget?: string;
+  min_budget?: string;
+  max_budget?: string;
   skills?: string;
   minClientRating?: string;
+  min_client_rating?: string;
   duration?: string;
   postedSince?: string;
+  posted_since?: string;
   maxApplications?: string;
+  max_applications?: string;
+  status?: string;
+  category?: string;
 }
 
 interface JobFiltersPanelProps {
-  query: JobFilterQuery;
-  onQueryChange: (patch: Partial<JobFilterQuery>, removeKeys?: string[]) => void;
+  query?: JobFilterQuery;
+  onQueryChange?: (patch: Partial<JobFilterQuery>, removeKeys?: string[]) => void;
   className?: string;
   collapsible?: boolean;
 }
@@ -38,11 +46,13 @@ export function buildActiveFilterChips(
       removeKeys: ["search"],
     });
   }
-  if (query.minBudget || query.maxBudget) {
+  const minB = query.minBudget || query.min_budget;
+  const maxB = query.maxBudget || query.max_budget;
+  if (minB || maxB) {
     chips.push({
       key: "budget",
-      label: `${labels.budget}: ${query.minBudget || "0"} – ${query.maxBudget || "∞"}`,
-      removeKeys: ["minBudget", "maxBudget"],
+      label: `${labels.budget}: ${minB || "0"} – ${maxB || "∞"}`,
+      removeKeys: ["minBudget", "maxBudget", "min_budget", "max_budget"],
     });
   }
   if (query.skills) {
@@ -52,11 +62,19 @@ export function buildActiveFilterChips(
       removeKeys: ["skills"],
     });
   }
-  if (query.minClientRating) {
+  const minRating = query.minClientRating || query.min_client_rating;
+  if (minRating) {
     chips.push({
       key: "rating",
-      label: `${labels.rating}: ${query.minClientRating}+`,
-      removeKeys: ["minClientRating"],
+      label: `${labels.rating}: ${minRating}+`,
+      removeKeys: ["minClientRating", "min_client_rating"],
+    });
+  }
+  if (query.status && query.status !== "all" && query.status !== "open" && query.status !== "") {
+    chips.push({
+      key: "status",
+      label: labels[`status_${query.status}`] || `${labels.status || "Status"}: ${query.status}`,
+      removeKeys: ["status"],
     });
   }
   if (query.duration) {
@@ -66,36 +84,68 @@ export function buildActiveFilterChips(
       removeKeys: ["duration"],
     });
   }
-  if (query.postedSince) {
+  const posted = query.postedSince || query.posted_since;
+  if (posted) {
     chips.push({
       key: "posted",
-      label: labels[`posted_${query.postedSince}`] || query.postedSince,
-      removeKeys: ["postedSince"],
+      label: labels[`posted_${posted}`] || posted,
+      removeKeys: ["postedSince", "posted_since"],
     });
   }
-  if (query.maxApplications) {
+  const maxApps = query.maxApplications || query.max_applications;
+  if (maxApps) {
     chips.push({
       key: "apps",
-      label: `${labels.applications}: ≤${query.maxApplications}`,
-      removeKeys: ["maxApplications"],
+      label: `${labels.applications}: ≤${maxApps}`,
+      removeKeys: ["maxApplications", "max_applications"],
     });
   }
   return chips;
 }
 
 export default function JobFiltersPanel({
-  query,
-  onQueryChange,
+  query: propQuery,
+  onQueryChange: propOnQueryChange,
   className,
   collapsible = true,
 }: JobFiltersPanelProps) {
+  const router = useRouter();
+  const query = propQuery ?? (router?.isReady ? (router.query as JobFilterQuery) : {});
+  const onQueryChange = propOnQueryChange ?? ((patch, removeKeys) => {
+    if (!router?.isReady) return;
+    const next: Record<string, any> = { ...router.query, ...patch, page: undefined };
+    for (const key of removeKeys || []) {
+      delete next[key];
+      if (key === "minBudget") delete next["min_budget"];
+      if (key === "maxBudget") delete next["max_budget"];
+      if (key === "minClientRating") delete next["min_client_rating"];
+      if (key === "postedSince") delete next["posted_since"];
+      if (key === "maxApplications") delete next["max_applications"];
+    }
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined || v === "") {
+        delete next[k];
+        if (k === "minBudget") delete next["min_budget"];
+        if (k === "maxBudget") delete next["max_budget"];
+        if (k === "minClientRating") delete next["min_client_rating"];
+        if (k === "postedSince") delete next["posted_since"];
+        if (k === "maxApplications") delete next["max_applications"];
+      }
+    }
+    router.push({ pathname: router.pathname, query: next }, undefined, { shallow: true });
+  });
+
   const { t } = useTranslation("common");
   const [open, setOpen] = useState(!collapsible);
   const [skillInput, setSkillInput] = useState(query.skills || "");
   const [searchInput, setSearchInput] = useState(query.search || "");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sync search input when external query.search changes (e.g., URL navigation)
+  // Sync skill and search inputs when external query changes (e.g. URL navigation / back / forward)
+  useEffect(() => {
+    setSkillInput(query.skills || "");
+  }, [query.skills]);
+
   useEffect(() => {
     setSearchInput(query.search || "");
   }, [query.search]);
@@ -222,11 +272,11 @@ export default function JobFiltersPanel({
           <input
             type="number"
             placeholder={t("jobs.minBudget")}
-            value={query.minBudget || ""}
+            value={query.minBudget || query.min_budget || ""}
             onChange={(e) =>
               onQueryChange(
                 { minBudget: e.target.value || undefined },
-                e.target.value ? undefined : ["minBudget"],
+                e.target.value ? undefined : ["minBudget", "min_budget"],
               )
             }
             className="w-full bg-market-900/40 border border-amber-900/30 rounded px-2 py-1 text-xs text-amber-100"
@@ -235,11 +285,11 @@ export default function JobFiltersPanel({
           <input
             type="number"
             placeholder={t("jobs.maxBudget")}
-            value={query.maxBudget || ""}
+            value={query.maxBudget || query.max_budget || ""}
             onChange={(e) =>
               onQueryChange(
                 { maxBudget: e.target.value || undefined },
-                e.target.value ? undefined : ["maxBudget"],
+                e.target.value ? undefined : ["maxBudget", "max_budget"],
               )
             }
             className="w-full bg-market-900/40 border border-amber-900/30 rounded px-2 py-1 text-xs text-amber-100"
@@ -250,7 +300,7 @@ export default function JobFiltersPanel({
           min={0}
           max={5000}
           step={10}
-          value={query.maxBudget ? Number(query.maxBudget) : 500}
+          value={query.maxBudget ? Number(query.maxBudget) : (query.max_budget ? Number(query.max_budget) : 500)}
           onChange={(e) =>
             onQueryChange({ maxBudget: e.target.value }, undefined)
           }
@@ -265,6 +315,17 @@ export default function JobFiltersPanel({
           type="text"
           value={skillInput}
           onChange={(e) => setSkillInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (skillInput.trim() !== (query.skills || "")) {
+                onQueryChange(
+                  { skills: skillInput.trim() || undefined },
+                  skillInput.trim() ? undefined : ["skills"],
+                );
+              }
+            }
+          }}
           onBlur={() => {
             if (skillInput.trim() !== (query.skills || "")) {
               onQueryChange(
@@ -298,11 +359,11 @@ export default function JobFiltersPanel({
       <div>
         <p className="label mb-2">{t("jobs.clientRating")}</p>
         <select
-          value={query.minClientRating || ""}
+          value={query.minClientRating || query.min_client_rating || ""}
           onChange={(e) =>
             onQueryChange(
               { minClientRating: e.target.value || undefined },
-              e.target.value ? undefined : ["minClientRating"],
+              e.target.value ? undefined : ["minClientRating", "min_client_rating"],
             )
           }
           className="w-full bg-market-900/40 border border-amber-900/30 rounded px-2 py-1.5 text-xs text-amber-100"
@@ -337,11 +398,11 @@ export default function JobFiltersPanel({
       <div>
         <p className="label mb-2">{t("jobs.posted")}</p>
         <select
-          value={query.postedSince || ""}
+          value={query.postedSince || query.posted_since || ""}
           onChange={(e) =>
             onQueryChange(
               { postedSince: e.target.value || undefined },
-              e.target.value ? undefined : ["postedSince"],
+              e.target.value ? undefined : ["postedSince", "posted_since"],
             )
           }
           className="w-full bg-market-900/40 border border-amber-900/30 rounded px-2 py-1.5 text-xs text-amber-100"
@@ -357,15 +418,16 @@ export default function JobFiltersPanel({
         <p className="label mb-2">{t("jobs.applications")}</p>
         <button
           type="button"
-          onClick={() =>
+          onClick={() => {
+            const currentMax = query.maxApplications || query.max_applications;
             onQueryChange(
-              query.maxApplications === "5" ? {} : { maxApplications: "5" },
-              query.maxApplications === "5" ? ["maxApplications"] : undefined,
-            )
-          }
+              currentMax === "5" ? {} : { maxApplications: "5" },
+              currentMax === "5" ? ["maxApplications", "max_applications"] : undefined,
+            );
+          }}
           className={clsx(
             "w-full text-left px-3 py-2 rounded-lg text-sm transition-colors",
-            query.maxApplications === "5"
+            (query.maxApplications === "5" || query.max_applications === "5")
               ? "bg-market-500/15 text-market-300 font-medium"
               : "text-amber-700 hover:bg-market-500/8",
           )}
@@ -393,11 +455,18 @@ export default function JobFiltersPanel({
               "search",
               "minBudget",
               "maxBudget",
+              "min_budget",
+              "max_budget",
               "skills",
               "minClientRating",
+              "min_client_rating",
               "duration",
               "postedSince",
+              "posted_since",
               "maxApplications",
+              "max_applications",
+              "status",
+              "category",
             ],
           );
           setSkillInput("");

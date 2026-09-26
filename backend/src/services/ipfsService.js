@@ -7,6 +7,10 @@
 const FormData = require("form-data");
 const axios = require("axios");
 const jwt = require("jsonwebtoken");
+const metrics = require("../metrics");
+const { createServiceLogger } = require("../utils/logger");
+
+const logger = createServiceLogger("ipfsService");
 
 // Configuration
 const PINATA_API_URL = process.env.PINATA_API_URL || "https://api.pinata.cloud";
@@ -14,6 +18,99 @@ const PINATA_API_KEY = process.env.PINATA_API_KEY;
 const PINATA_SECRET_KEY = process.env.PINATA_SECRET_KEY;
 const SIGNED_URL_SECRET = process.env.SIGNED_URL_SECRET || process.env.JWT_SECRET || "change-me-in-production";
 const SIGNED_URL_TTL_SECONDS = 15 * 60; // 15 minutes
+
+// ── Pin verification (Issue #1439) ───────────────────────────────────────────
+// Pinata can accept a file, return an IpfsHash, and still fail to pin it (or
+// the pin can be dropped shortly after). Returning that CID to a caller without
+// checking means the evidence may be garbage-collected and permanently lost.
+// After every upload we therefore confirm the pin exists — the Pinata
+// equivalent of `ipfs pin ls <cid>` — retrying to absorb provider lag.
+const PIN_VERIFY_MAX_ATTEMPTS = 3;
+const PIN_VERIFY_RETRY_DELAY_MS = 2000;
+const PIN_VERIFY_TIMEOUT_MS = 10000;
+
+/** Overridable for tests so the 2s back-off does not slow the suite down. */
+let _pinVerifyRetryDelayMs = PIN_VERIFY_RETRY_DELAY_MS;
+
+/** @internal – allow tests to shorten the retry delay without fake timers. */
+function _setPinVerifyRetryDelay(ms) {
+  _pinVerifyRetryDelayMs = ms;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Ask Pinata whether a CID is currently pinned to this account. This is the
+ * REST equivalent of the `ipfs pin ls <cid>` command referenced by the issue.
+ *
+ * @param {string} cid - IPFS CID returned by an upload
+ * @returns {Promise<boolean>} true when the provider reports the pin
+ */
+async function isPinned(cid) {
+  const response = await axios.get(`${PINATA_API_URL}/data/pinList`, {
+    params: { hash: cid, status: "pinned", pageLimit: 1 },
+    headers: {
+      "pinata_api_key": PINATA_API_KEY,
+      "pinata_secret_api_key": PINATA_SECRET_KEY,
+    },
+    timeout: PIN_VERIFY_TIMEOUT_MS,
+  });
+
+  const rows = Array.isArray(response.data?.rows) ? response.data.rows : [];
+  return rows.length > 0 || Number(response.data?.count) > 0;
+}
+
+/**
+ * Verify that an uploaded CID is actually pinned, retrying up to
+ * `PIN_VERIFY_MAX_ATTEMPTS` times with `PIN_VERIFY_RETRY_DELAY_MS` (2s) between
+ * attempts. Never throws: a failure returns `false`, logs at error level and
+ * increments `ipfs_pin_verification_failures_total` so Prometheus can alert.
+ *
+ * @param {string} cid - IPFS CID returned by an upload
+ * @returns {Promise<boolean>} true only when the pin is confirmed
+ */
+async function verifyPin(cid) {
+  if (typeof cid !== "string" || !cid) {
+    metrics.ipfsPinVerificationFailuresTotal.inc({ reason: "invalid_cid" });
+    logger.error({ cid }, "IPFS pin verification skipped for invalid CID");
+    return false;
+  }
+
+  let lastError = null;
+  let reason = "api_error";
+
+  for (let attempt = 1; attempt <= PIN_VERIFY_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      if (await isPinned(cid)) {
+        return true;
+      }
+      lastError = new Error(`CID ${cid} is not pinned`);
+      lastError.code = "PIN_NOT_FOUND";
+      reason = "not_pinned";
+    } catch (error) {
+      lastError = error;
+      reason = "api_error";
+    }
+
+    if (attempt < PIN_VERIFY_MAX_ATTEMPTS) {
+      await sleep(_pinVerifyRetryDelayMs);
+    }
+  }
+
+  metrics.ipfsPinVerificationFailuresTotal.inc({ reason });
+  logger.error(
+    {
+      cid,
+      attempts: PIN_VERIFY_MAX_ATTEMPTS,
+      reason,
+      error: lastError?.message || String(lastError),
+    },
+    "IPFS pin verification failed after retries",
+  );
+  return false;
+}
 
 // File upload limits
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB in bytes
@@ -90,8 +187,16 @@ async function uploadFile(fileBuffer, fileName, mimeType) {
       throw new Error("Invalid response from Pinata");
     }
 
+    // Issue #1439: confirm the pin actually exists before handing the CID back
+    // to the caller. A failed verification is recorded (pinned: false) and
+    // alerted on rather than throwing, so the evidence row can still be stored
+    // and reconciled.
+    const cid = response.data.IpfsHash;
+    const pinned = await verifyPin(cid);
+
     return {
-      cid: response.data.IpfsHash,
+      cid,
+      pinned,
       size: fileBuffer.length,
       fileName: fileName,
       mimeType: mimeType,
@@ -252,8 +357,13 @@ async function uploadMessage(messagePayload) {
       throw new Error("Invalid response from Pinata");
     }
 
+    // Issue #1439: verify the pin before returning the CID (see uploadFile).
+    const cid = response.data.IpfsHash;
+    const pinned = await verifyPin(cid);
+
     return {
-      cid: response.data.IpfsHash,
+      cid,
+      pinned,
       size: buffer.length,
       uploadedAt: new Date().toISOString(),
     };
@@ -355,6 +465,7 @@ module.exports = {
   validatePortfolioFiles,
   getGatewayUrl,
   isConfigured,
+  verifyPin,
   generateSignedUrlToken,
   verifySignedUrlToken,
   proxyIpfsFile,
@@ -362,4 +473,8 @@ module.exports = {
   MAX_FILES_PER_PROFILE,
   ALLOWED_MIME_TYPES,
   SIGNED_URL_TTL_SECONDS,
+  PIN_VERIFY_MAX_ATTEMPTS,
+  PIN_VERIFY_RETRY_DELAY_MS,
+  // exported for testing
+  _setPinVerifyRetryDelay,
 };

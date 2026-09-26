@@ -1,6 +1,11 @@
 /**
  * TOTP 2FA for admin accounts (speakeasy + encrypted storage)
  * Backup codes are stored as SHA-256 hashes (one-way), never reversible.
+ *
+ * Implementation Notes:
+ * - TOTP Validation Window: Uses `window: 1` (allowing ±1 interval of 30 seconds clock drift).
+ *   Codes generated >= 61 seconds in the past or future are strictly rejected to limit
+ *   the replay attack surface for administrative accounts.
  */
 "use strict";
 
@@ -8,6 +13,12 @@ const crypto = require("crypto");
 const speakeasy = require("speakeasy");
 const pool = require("../db/pool");
 const { encrypt, decrypt } = require("../utils/encryption");
+
+/**
+ * Validation window for TOTP verification (Issue #1459).
+ * window: 1 corresponds to ±1 time step (±30 seconds) tolerance.
+ */
+const TOTP_WINDOW = 1;
 
 function generateSecret(adminId) {
   const secret = speakeasy.generateSecret({
@@ -23,9 +34,11 @@ function generateSecret(adminId) {
 /** Generate 8 random backup codes and return [plaintext[], hashed[]] */
 function generateBackupCodes() {
   const plain = Array.from({ length: 8 }, () =>
-    crypto.randomBytes(5).toString("hex").toUpperCase()
+    crypto.randomBytes(5).toString("hex").toUpperCase(),
   );
-  const hashed = plain.map((c) => crypto.createHash("sha256").update(c).digest("hex"));
+  const hashed = plain.map((c) =>
+    crypto.createHash("sha256").update(c).digest("hex"),
+  );
   return { plain, hashed };
 }
 
@@ -34,14 +47,14 @@ async function ensureAdminProfile(adminId) {
     `INSERT INTO admin_profiles (id, email, totp_enabled, created_at, updated_at)
      VALUES ($1, $2, false, NOW(), NOW())
      ON CONFLICT (id) DO NOTHING`,
-    [adminId, `${adminId.slice(0, 8)}@admin.local`]
+    [adminId, `${adminId.slice(0, 8)}@admin.local`],
   );
 }
 
 async function getDecryptedSecret(adminId) {
   const { rows } = await pool.query(
     "SELECT totp_secret FROM admin_profiles WHERE id = $1",
-    [adminId]
+    [adminId],
   );
   if (!rows[0]?.totp_secret) return null;
   return decrypt(rows[0].totp_secret);
@@ -53,7 +66,7 @@ async function enable2FA(adminId, plainSecret, hashedBackupCodes) {
      SET totp_secret = $1, totp_enabled = true, backup_codes = $2,
          totp_attempts = 0, totp_locked_until = NULL, updated_at = NOW()
      WHERE id = $3`,
-    [encrypt(plainSecret), encrypt(JSON.stringify(hashedBackupCodes)), adminId]
+    [encrypt(plainSecret), encrypt(JSON.stringify(hashedBackupCodes)), adminId],
   );
 }
 
@@ -61,13 +74,20 @@ async function verify2FA(adminId, token) {
   const { rows } = await pool.query(
     `SELECT totp_secret, totp_enabled, totp_attempts, totp_locked_until
      FROM admin_profiles WHERE id = $1`,
-    [adminId]
+    [adminId],
   );
   const admin = rows[0];
-  if (!admin || !admin.totp_enabled) return { success: false, error: "2FA not enabled" };
+  if (!admin || !admin.totp_enabled)
+    return { success: false, error: "2FA not enabled" };
 
-  if (admin.totp_locked_until && new Date(admin.totp_locked_until) > new Date()) {
-    return { success: false, error: "Account locked due to too many failed attempts. Try again later." };
+  if (
+    admin.totp_locked_until &&
+    new Date(admin.totp_locked_until) > new Date()
+  ) {
+    return {
+      success: false,
+      error: "Account locked due to too many failed attempts. Try again later.",
+    };
   }
 
   const secret = decrypt(admin.totp_secret);
@@ -75,11 +95,14 @@ async function verify2FA(adminId, token) {
     secret,
     encoding: "base32",
     token,
-    window: 1,
+    window: TOTP_WINDOW,
   });
 
   if (verified) {
-    await pool.query("UPDATE admin_profiles SET totp_attempts = 0 WHERE id = $1", [adminId]);
+    await pool.query(
+      "UPDATE admin_profiles SET totp_attempts = 0 WHERE id = $1",
+      [adminId],
+    );
     return { success: true };
   }
 
@@ -88,32 +111,42 @@ async function verify2FA(adminId, token) {
     const lockUntil = new Date(Date.now() + 15 * 60 * 1000);
     await pool.query(
       "UPDATE admin_profiles SET totp_attempts = $1, totp_locked_until = $2 WHERE id = $3",
-      [newAttempts, lockUntil, adminId]
+      [newAttempts, lockUntil, adminId],
     );
-    return { success: false, error: "Too many failed attempts. Account locked for 15 minutes." };
+    return {
+      success: false,
+      error: "Too many failed attempts. Account locked for 15 minutes.",
+    };
   }
 
-  await pool.query("UPDATE admin_profiles SET totp_attempts = $1 WHERE id = $2", [newAttempts, adminId]);
+  await pool.query(
+    "UPDATE admin_profiles SET totp_attempts = $1 WHERE id = $2",
+    [newAttempts, adminId],
+  );
   return { success: false, error: "Invalid 2FA code" };
 }
 
 async function verifyBackupCode(adminId, code) {
   const { rows } = await pool.query(
     "SELECT backup_codes FROM admin_profiles WHERE id = $1",
-    [adminId]
+    [adminId],
   );
   const admin = rows[0];
-  if (!admin?.backup_codes) return { success: false, error: "No backup codes found" };
+  if (!admin?.backup_codes)
+    return { success: false, error: "No backup codes found" };
 
   const hashed = JSON.parse(decrypt(admin.backup_codes));
-  const inputHash = crypto.createHash("sha256").update(String(code).toUpperCase()).digest("hex");
+  const inputHash = crypto
+    .createHash("sha256")
+    .update(String(code).toUpperCase())
+    .digest("hex");
   const index = hashed.indexOf(inputHash);
   if (index === -1) return { success: false, error: "Invalid backup code" };
 
   hashed.splice(index, 1);
   await pool.query(
     "UPDATE admin_profiles SET backup_codes = $1 WHERE id = $2",
-    [encrypt(JSON.stringify(hashed)), adminId]
+    [encrypt(JSON.stringify(hashed)), adminId],
   );
   return { success: true };
 }
@@ -124,14 +157,14 @@ async function disable2FA(adminId) {
      SET totp_secret = NULL, totp_enabled = false, backup_codes = NULL,
          totp_attempts = 0, totp_locked_until = NULL, updated_at = NOW()
      WHERE id = $1`,
-    [adminId]
+    [adminId],
   );
 }
 
 async function get2FAStatus(adminId) {
   const { rows } = await pool.query(
     "SELECT totp_enabled FROM admin_profiles WHERE id = $1",
-    [adminId]
+    [adminId],
   );
   return rows[0] || { totp_enabled: false };
 }
@@ -146,4 +179,5 @@ module.exports = {
   verifyBackupCode,
   disable2FA,
   get2FAStatus,
+  TOTP_WINDOW,
 };

@@ -1,12 +1,25 @@
 import { api } from "./client";
 import type { Application } from "@/utils/types";
 
-export async function fetchApplications(jobId: string, tier?: string) {
-  const { data } = await api.get<{ success: boolean; data: Application[] }>(
-    `/api/applications/job/${jobId}`,
-    { params: tier ? { tier } : undefined },
+export async function fetchApplicationsPage(jobId: string, tier?: string, cursor?: string, limit = 20) {
+  if (!/^[a-zA-Z0-9-]+$/.test(jobId)) {
+    throw new Error("Invalid job ID");
+  }
+  const safeJobId = encodeURIComponent(jobId);
+  const { data } = await api.get<{
+    success: boolean;
+    data: Application[];
+    applications?: Application[];
+    nextCursor: string | null;
+  }>(
+    `/api/applications/job/${safeJobId}`,
+    { params: { ...(tier ? { tier } : {}), limit, ...(cursor ? { cursor } : {}) } },
   );
-  return data.data;
+  return { applications: data.applications ?? data.data, nextCursor: data.nextCursor };
+}
+
+export async function fetchApplications(jobId: string, tier?: string) {
+  return (await fetchApplicationsPage(jobId, tier)).applications;
 }
 
 export async function submitApplication(payload: {

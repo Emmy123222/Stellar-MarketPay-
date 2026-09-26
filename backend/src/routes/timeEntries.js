@@ -55,6 +55,10 @@ const writeLimiter  = createRateLimiter(30, 1);
  *     responses:
  *       201:
  *         description: Time entry created
+ *       422:
+ *         description: >
+ *           Hour cap exceeded — a single entry is over 24 h (1440 minutes), or the
+ *           freelancer's total on this job in the trailing 7 days would exceed 168 h.
  */
 router.post("/", verifyJWT, writeLimiter, async (req, res, next) => {
   try {

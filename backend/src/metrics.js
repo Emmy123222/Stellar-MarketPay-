@@ -143,18 +143,35 @@ const xlmPriceUsd = createMetric(promClient.Gauge, {
   help: "Current XLM price in USD (updated on every successful CoinGecko fetch)",
 });
 
-// ─── Cache metrics ──────────────────────────────────────────────────────────
-/** Cache hit/miss counters for Redis-backed caches, labeled by cache name. */
+// ─── Cache metrics (Issue #1512) ─────────────────────────────────────────────
+/** Cache hit counter for Redis-backed caches, labeled by cache name. */
 const cacheHitsTotal = createMetric(promClient.Counter, {
   name: "marketpay_cache_hits_total",
   help: "Total cache hits, labeled by cache name",
   labelNames: ["cache"],
 });
 
+/** Cache miss counter for Redis-backed caches, labeled by cache name. */
 const cacheMissesTotal = createMetric(promClient.Counter, {
   name: "marketpay_cache_misses_total",
   help: "Total cache misses, labeled by cache name",
   labelNames: ["cache"],
+});
+
+// ─── IPFS pin verification ────────────────────────────────────────────────────
+/**
+ * Counts uploads whose IPFS pin could not be confirmed after the configured
+ * number of retries (Issue #1439). A non-zero rate means a CID was returned to
+ * a caller while the content is not actually pinned, so it may be
+ * garbage-collected by the provider.
+ *
+ * `reason` is bounded to "not_pinned" | "api_error" | "invalid_cid" so the
+ * series cannot explode in cardinality (we never label by CID).
+ */
+const ipfsPinVerificationFailuresTotal = createMetric(promClient.Counter, {
+  name: "ipfs_pin_verification_failures_total",
+  help: "Total IPFS uploads whose pin could not be verified after retries",
+  labelNames: ["reason"],
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -286,6 +303,24 @@ function setWebsocketConnections(channel, count) {
 }
 
 /**
+ * Record a cache hit for the named cache.
+ *
+ * @param {string} cache cache name, e.g. "insights"
+ */
+function recordCacheHit(cache) {
+  cacheHitsTotal.inc({ cache });
+}
+
+/**
+ * Record a cache miss for the named cache.
+ *
+ * @param {string} cache cache name, e.g. "insights"
+ */
+function recordCacheMiss(cache) {
+  cacheMissesTotal.inc({ cache });
+}
+
+/**
  * Render the registry in Prometheus text exposition format.
  *
  * @returns {Promise<string>} metrics payload
@@ -311,6 +346,10 @@ module.exports = {
   pgPoolWaiting,
   notificationQueuePending,
   xlmPriceUsd,
+  ipfsPinVerificationFailuresTotal,
+  // cache metrics
+  cacheHitsTotal,
+  cacheMissesTotal,
   // legacy aliases
   legacyHttpRequestsTotal,
   legacyHttpRequestDurationSeconds,
@@ -322,5 +361,7 @@ module.exports = {
   observeHttpRequest,
   observePoolQuery,
   setWebsocketConnections,
+  recordCacheHit,
+  recordCacheMiss,
   renderMetrics,
 };

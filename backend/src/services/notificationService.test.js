@@ -6,7 +6,11 @@
 
 // Mock the database pool before requiring the service
 jest.mock("../db/pool", () => ({
-  query: jest.fn(),
+  query: jest.fn().mockResolvedValue({ rows: [{ id: "1", user_address: "Gtest", type: "test", title: "test", body: "test", read: false, job_id: "1", link_path: "/test", created_at: new Date() }] }),
+}));
+
+jest.mock("axios", () => ({
+  post: jest.fn().mockResolvedValue({ status: 200 }),
 }));
 
 jest.mock("axios", () => ({

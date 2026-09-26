@@ -76,6 +76,81 @@ function normalizeMilestones(milestones, fallbackAmount) {
   }));
 }
 
+/**
+ * Zero-address spellings that must never reach the chain as the escrow
+ * token (Issue #1484).
+ */
+const ZERO_TOKEN_ADDRESSES = new Set([
+  "",
+  "0",
+  "0x0",
+  `0x${"0".repeat(40)}`,
+  "0".repeat(64),
+  `0x${"0".repeat(64)}`,
+]);
+
+/** Soroban contract address: `C` + 55 base32 characters (Stellar alphabet). */
+const TOKEN_CONTRACT_ADDRESS_PATTERN = /^C[A-Z2-7]{55}$/;
+
+/**
+ * Pre-flight validation for a `create_escrow` payload (Issue #1484).
+ *
+ * Mirrors the Soroban contract's `create_escrow` gate (canonical error
+ * string "Amount must be positive", ContractError 2001) and adds the
+ * participant and zero-address-token guards, so adversarial payloads are
+ * rejected with a clean, stable error STRING *before* any asset transfer is
+ * attempted on-chain.
+ *
+ * Never throws: every malformed input — zero amounts, non-numeric garbage,
+ * missing fields, zero-address or malformed tokens — maps to an error
+ * string, so callers observe contract-style errors instead of panics.
+ *
+ * @param {object} payload
+ * @param {*} [payload.client]     Client address (Stellar G-address).
+ * @param {*} [payload.freelancer] Freelancer address (Stellar G-address).
+ * @param {*} [payload.token]      Escrow token contract address.
+ * @param {*} [payload.amount]     Escrow amount (stroops / XLM units).
+ * @returns {string|null} Error message when invalid; `null` when valid.
+ */
+function validateCreateEscrowPayload({
+  client,
+  freelancer,
+  token,
+  amount,
+} = {}) {
+  // 1) Amount — mirrors ContractError::AmountMustBePositive (2001).
+  let numericAmount;
+  if (typeof amount === "number" || typeof amount === "bigint") {
+    numericAmount = Number(amount);
+  } else if (typeof amount === "string" && amount.trim() !== "") {
+    numericAmount = Number(amount.trim());
+  } else {
+    numericAmount = NaN;
+  }
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    return "Amount must be positive";
+  }
+
+  // 2) Participants — client and freelancer must be two distinct parties.
+  if (!client || !freelancer || client === freelancer) {
+    return "InvalidParticipants: client and freelancer must be distinct addresses";
+  }
+
+  // 3) Token — reject zero-address / malformed payloads BEFORE any transfer
+  //    is built or executed. The format check runs against the canonical
+  //    (trimmed) value; the zero-address set is matched case-insensitively.
+  const trimmedToken = typeof token === "string" ? token.trim() : token;
+  if (
+    typeof trimmedToken !== "string" ||
+    !TOKEN_CONTRACT_ADDRESS_PATTERN.test(trimmedToken) ||
+    ZERO_TOKEN_ADDRESSES.has(trimmedToken.toLowerCase())
+  ) {
+    return "Invalid token address: must be a non-zero contract address";
+  }
+
+  return null;
+}
+
 async function getMilestonesForJob(jobId, job) {
   const { rows } = await pool.query(
     "SELECT milestones, amount_xlm FROM escrows WHERE job_id = $1",
@@ -126,6 +201,18 @@ function validateMilestoneIndex(milestones, milestoneIndex) {
     throw e;
   }
   return index;
+}
+
+function validateMilestoneReleaseOrder(milestones, milestoneIndex) {
+  for (let i = 0; i < milestoneIndex; i += 1) {
+    if (milestones[i]?.status !== "released") {
+      const e = new Error(
+        `Milestone ${i + 1} must be released before milestone ${milestoneIndex + 1} can be released`,
+      );
+      e.status = 400;
+      throw e;
+    }
+  }
 }
 
 async function releaseFunds(jobId, clientAddress, contractTxHash) {
@@ -433,6 +520,7 @@ async function releaseMilestone(jobId, milestoneIndex, clientAddress, contractTx
 
   const milestones = await getMilestonesForJob(jobId, job);
   const index = validateMilestoneIndex(milestones, milestoneIndex);
+  validateMilestoneReleaseOrder(milestones, index);
   const milestone = milestones[index];
 
   if (milestone.status === "released") {
@@ -908,4 +996,5 @@ module.exports = {
   verifyFreelancerAccount,
   ESCROW_TIMEOUT_DAYS,
   normalizeMilestones,
+  validateCreateEscrowPayload,
 };
