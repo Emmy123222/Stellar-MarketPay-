@@ -90,8 +90,6 @@
     "js-yaml": "^4.1.0",
     "serialize-javascript": "^7.0.3",
     "sharp": "^0.35.3",
-    "eslint": "$eslint",
-    "axios": "^1.20.0",
-    "postcss": "$postcss"
+    "axios": "^1.20.0"
   }
 }
