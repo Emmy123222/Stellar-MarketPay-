@@ -53,6 +53,7 @@ const { startPushSubscriptionPurge } = require("./services/pushSubscriptionServi
 require("./workers/auditWorker");
 
 const app  = express();
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 4000;
 const server = http.createServer(app);
 const WS_OPEN = 1;
@@ -126,7 +127,7 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 150, standardHeaders: true, legacyHeaders: true }));
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 150, standardHeaders: true, legacyHeaders: true, keyGenerator: (req) => req.ip }));
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use("/health",            healthRoutes);
