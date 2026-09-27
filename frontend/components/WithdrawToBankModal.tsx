@@ -251,6 +251,7 @@ export default function WithdrawToBankModal({
   return (
     <AccessibleModal
       titleId="withdraw-bank-title"
+      description="Review the details of your withdrawal before continuing."
       onClose={() => {
         cancelRef.current = true;
         popupRef.current?.close();

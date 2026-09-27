@@ -156,4 +156,76 @@ describe("autoConvertService", () => {
       await expect(svc.completeAutoConversion(USER, CONV, { txHash: "xyz" })).rejects.toMatchObject({ status: 400 });
     });
   });
+
+  // ─── Issue #1547: dashboard "Swap earnings" manual swap ──────────────────
+
+  describe("getSwapQuote", () => {
+    it("prices the amount with strictSendPaths and applies slippage", async () => {
+      mockStrictSendCall.mockResolvedValueOnce({
+        records: [{ destination_amount: "5.5", path: [] }, { destination_amount: "6.0", path: [] }],
+      });
+
+      const quote = await svc.getSwapQuote("50", 100);
+
+      expect(quote).toMatchObject({
+        sourceAmountXlm: "50.0000000",
+        destinationAmount: "6.0000000",
+        destMinUsdc: "5.9400000",
+        rate: "0.1200000",
+        feeXlm: "0.0000100",
+        slippageBps: 100,
+      });
+    });
+
+    it("rejects a non-positive amount", async () => {
+      await expect(svc.getSwapQuote("0")).rejects.toMatchObject({ status: 400 });
+      await expect(svc.getSwapQuote("abc")).rejects.toMatchObject({ status: 400 });
+    });
+
+    it("rejects out-of-range slippage", async () => {
+      await expect(svc.getSwapQuote("50", 5000)).rejects.toMatchObject({ status: 400 });
+    });
+
+    it("404s when no path is available", async () => {
+      mockStrictSendCall.mockResolvedValueOnce({ records: [] });
+      await expect(svc.getSwapQuote("50")).rejects.toMatchObject({ status: 404 });
+    });
+  });
+
+  describe("createManualSwap", () => {
+    it("creates a pending swap with the quote for the wallet to sign", async () => {
+      pool.query
+        .mockResolvedValueOnce({ rows: [{ auto_convert_slippage_bps: 100 }] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: CONV,
+              user_address: USER,
+              job_id: null,
+              source_amount_xlm: "50.0000000",
+              quoted_usdc: "6.0000000",
+              dest_min_usdc: "5.9400000",
+              status: "pending",
+            },
+          ],
+        });
+      mockStrictSendCall.mockResolvedValueOnce({ records: [{ destination_amount: "6.0", path: [] }] });
+
+      const res = await svc.createManualSwap(USER, { amountXlm: "50" });
+
+      expect(res.conversion).toMatchObject({ id: CONV, status: "pending" });
+      expect(res.quote).toMatchObject({ destinationAmount: "6.0000000", destMinUsdc: "5.9400000" });
+      const insertParams = pool.query.mock.calls[1][1];
+      expect(insertParams).toEqual([USER, "50.0000000", "6.0000000", "5.9400000"]);
+    });
+
+    it("404s when the profile does not exist", async () => {
+      pool.query.mockResolvedValueOnce({ rows: [] });
+      await expect(svc.createManualSwap(USER, { amountXlm: "50" })).rejects.toMatchObject({ status: 404 });
+    });
+
+    it("rejects an invalid Stellar public key", async () => {
+      await expect(svc.createManualSwap("not-a-key", { amountXlm: "50" })).rejects.toMatchObject({ status: 400 });
+    });
+  });
 });

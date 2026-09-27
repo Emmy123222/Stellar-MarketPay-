@@ -158,6 +158,7 @@ pub struct ExtensionRequest {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Certificate {
+    pub token_id: BytesN<32>,
     pub job_id: String,
     pub title: String,
     pub client: Address,
@@ -266,6 +267,7 @@ pub enum DataKey {
     RevealedBids(String),
     Certificate(String),
     FreelancerCertificates(Address),
+    CertificateTokenCounter,
     ClientRating(String),
     FreelancerRating(String),
     FreelancerRatingStats(Address),
@@ -276,7 +278,10 @@ pub enum DataKey {
     ArbitrationCase(u32),
     ArbitrationCaseCount,
     DisputeCase(String),
+    /// Upgrade counter (starts at 1, bumped by every `upgrade()`)
     Version,
+    /// Semver string of the deployed WASM, returned by `get_version()`
+    ContractVersion,
     /// Stores list of IPFS CIDs for messages in a job thread
     MessageCid(String),
     /// Freelancer-submitted deliverable SHA-256 hash for release verification
@@ -293,7 +298,16 @@ pub enum DataKey {
     DisputeBondConfig,
     /// Per-job locked dispute bond record
     DisputeBond(String),
+    /// Minimum turnout for a proposal to pass, in bps of eligible voters
+    QuorumThresholdBps,
+    /// Number of distinct addresses with at least one completed job
+    EligibleVoterCount,
+    /// Quorum value (bps) a quorum-change proposal will apply once passed
+    PendingQuorumChange(u32),
 }
+
+pub(crate) const DEFAULT_QUORUM_THRESHOLD_BPS: u32 = 1_000;
+pub(crate) const MAX_QUORUM_THRESHOLD_BPS: u32 = 5_000;
 
 /// Reveal phase is open for roughly 24 hours after client closes bidding.
 pub(crate) const REVEAL_WINDOW_LEDGERS: u32 = 17_280;
