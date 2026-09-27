@@ -11,13 +11,16 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   fetchDisputeDetail,
+  fetchDisputeEvents,
   fetchEvidenceSignedUrl,
   fetchDisputeOnchainCids,
   uploadDisputeEvidence,
   DisputeDetail,
   DisputeEvidence,
+  DisputeTimelineEvent,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import DisputeTimeline from "@/components/DisputeTimeline";
 import { shortenAddress, timeAgo } from "@/utils/format";
 import clsx from "clsx";
 
@@ -100,6 +103,9 @@ export default function DisputePage({ publicKey }: PageProps) {
   // Issue #448 — AC #5: on-chain audit-trail CIDs (read from chain).
   const [onchainCids, setOnchainCids] = useState<string[] | null>(null);
   const [onchainLoading, setOnchainLoading] = useState(false);
+  // Issue #1429 — dispute timeline events (chronological, oldest-first).
+  const [timelineEvents, setTimelineEvents] = useState<DisputeTimelineEvent[]>([]);
+  const [timelineLoading, setTimelineLoading] = useState(true);
 
   useEffect(() => {
     if (!jobId) return;
@@ -108,6 +114,23 @@ export default function DisputePage({ publicKey }: PageProps) {
       .catch(() => info("Could not load dispute details."))
       .finally(() => setLoading(false));
   }, [jobId, info]);
+
+  // Issue #1429 — load the timeline alongside the dispute detail. fetchDisputeEvents
+  // resolves to [] on error, so a timeline failure never blocks the page.
+  const refreshTimeline = useCallback(async () => {
+    if (!jobId) return;
+    setTimelineLoading(true);
+    try {
+      const events = await fetchDisputeEvents(jobId);
+      setTimelineEvents(events);
+    } finally {
+      setTimelineLoading(false);
+    }
+  }, [jobId]);
+
+  useEffect(() => {
+    void refreshTimeline();
+  }, [refreshTimeline]);
 
   // Issue #448 — AC #5: read CIDs anchored on Stellar via the dispute contract
   // (DataKey::EvidenceCids(job_id) → Vec<Bytes>). Refreshed on mount and
@@ -156,6 +179,9 @@ export default function DisputePage({ publicKey }: PageProps) {
         );
         setDetail((prev) => prev ? { ...prev, evidence: [...prev.evidence, ev] } : prev);
         setPending((prev) => prev.map((f) => f.id === pf.id ? { ...f, status: "done", progress: 100 } : f));
+        // Issue #1429 — new evidence adds a timeline event; refresh so the
+        // timeline stays in sync without a manual reload.
+        void refreshTimeline();
       } catch (err: unknown) {
         const msg = (err as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error
           ?? (err instanceof Error ? err.message : "Upload failed.");
@@ -169,7 +195,7 @@ export default function DisputePage({ publicKey }: PageProps) {
     void refreshOnchainCids();
     // Remove done files from queue after a short delay
     setTimeout(() => setPending((prev) => prev.filter((f) => f.status !== "done")), 1500);
-  }, [jobId, pendingFiles, success, refreshOnchainCids]);
+  }, [jobId, pendingFiles, success, refreshOnchainCids, refreshTimeline]);
 
   const removeFile = (id: string) => setPending((prev) => prev.filter((f) => f.id !== id));
 
@@ -254,20 +280,8 @@ export default function DisputePage({ publicKey }: PageProps) {
         </div>
       </div>
 
-      {/* Timeline */}
-      <div className="card space-y-3">
-        <p className="text-xs uppercase tracking-wider text-amber-800/70">Timeline</p>
-        <div className="space-y-2 text-sm">
-          <div className="flex items-center gap-3">
-            <span className="w-2 h-2 rounded-full bg-market-400 flex-shrink-0" />
-            <span className="text-amber-800">Job created · {new Date(job.created_at).toLocaleDateString()}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
-            <span className="text-amber-800">Dispute opened</span>
-          </div>
-        </div>
-      </div>
+      {/* Timeline (Issue #1429 — real events, chronological order) */}
+      <DisputeTimeline events={timelineEvents} loading={timelineLoading} />
 
       {/* On-chain evidence audit trail (Issue #448 — AC #5) */}
       <section

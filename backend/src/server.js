@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * src/server.js
  * Stellar MarketPay — Express API server
@@ -20,6 +21,7 @@ const applicationRoutes = require("./routes/applications");
 const profileRoutes     = require("./routes/profiles");
 const escrowRoutes      = require("./routes/escrow");
 const healthRoutes      = require("./routes/health");
+const pingRoutes        = require("./routes/ping");
 const authRoutes        = require("./routes/auth");
 const ratingRoutes      = require("./routes/ratings");
 const progressRoutes    = require("./routes/progress");
@@ -27,24 +29,28 @@ const eventRoutes       = require("./routes/events");
 const statsRoutes       = require("./routes/stats");
 const contributorRoutes = require("./routes/contributors");
 const verificationRoutes = require("./routes/verification");
-const nftRoutes         = require("./routes/nft");
-const aiScorerRoutes    = require("./routes/aiScorer");
-const contributorRoutes  = require("./routes/contributors");
+const nftRoutes          = require("./routes/nft");
+const aiScorerRoutes     = require("./routes/aiScorer");
 const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
-const priceAlertRoutes     = require("./routes/priceAlerts");
-const nftRoutes            = require("./routes/nft");
-const turretRoutes         = require("./routes/turrets");
-const referralRoutes       = require("./routes/referrals");
-const reputationRoutes     = require("./routes/reputation");
-const autoConvertRoutes    = require("./routes/autoConvert");
+const priceAlertRoutes   = require("./routes/priceAlerts");
+const turretRoutes       = require("./routes/turrets");
+const referralRoutes     = require("./routes/referrals");
+const reputationRoutes   = require("./routes/reputation");
+const autoConvertRoutes  = require("./routes/autoConvert");
+const scopeRoutes        = require("./routes/scope");
 
-const migrate           = require("./db/migrate");
-const IndexerService    = require("./services/indexerService");
+const migrate               = require("./db/migrate");
+const IndexerService        = require("./services/indexerService");
 const { PriceAlertService } = require("./services/priceAlertService");
-const pool              = require("./db/pool");
+const pool                  = require("./db/pool");
+const { scheduleStatsRefresh } = require("./services/statsService");
+const { startPushSubscriptionPurge } = require("./services/pushSubscriptionService");
+
+// Start audit worker — processes fire-and-forget audit log writes
+require("./workers/auditWorker");
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
@@ -61,41 +67,12 @@ function broadcastRealtime(event, payload) {
   }
 }
 
-async function upsertScopeSession(sessionId, patch) {
-  const content = typeof patch.content === "string" ? patch.content : "";
-  const cursors = patch.cursors && typeof patch.cursors === "object" ? patch.cursors : {};
-  const finalized = Boolean(patch.finalized);
-  const finalizedPayload = patch.finalizedPayload || null;
-
-  const { rows } = await pool.query(
-    `INSERT INTO scope_sessions (session_id, content, cursors, finalized, finalized_payload, expires_at, created_at, updated_at)
-     VALUES ($1, $2, $3::jsonb, $4, $5::jsonb, NOW() + INTERVAL '24 hours', NOW(), NOW())
-     ON CONFLICT (session_id) DO UPDATE SET
-       content = EXCLUDED.content,
-       cursors = EXCLUDED.cursors,
-       finalized = EXCLUDED.finalized,
-       finalized_payload = EXCLUDED.finalized_payload,
-       expires_at = NOW() + INTERVAL '24 hours',
-       updated_at = NOW()
-     RETURNING session_id, content, cursors, finalized, finalized_payload, expires_at, updated_at`,
-    [sessionId, content, JSON.stringify(cursors), finalized, JSON.stringify(finalizedPayload)]
-  );
-  return rows[0];
-}
-
-async function loadScopeSession(sessionId) {
-  const { rows } = await pool.query(
-    `SELECT session_id, content, cursors, finalized, finalized_payload, expires_at, updated_at
-     FROM scope_sessions
-     WHERE session_id = $1 AND expires_at > NOW()`,
-    [sessionId]
-  );
-  return rows[0] || null;
-}
-
-async function cleanupExpiredScopeSessions() {
-  await pool.query("DELETE FROM scope_sessions WHERE expires_at <= NOW()");
-}
+const {
+  upsertScopeSession,
+  loadScopeSession,
+  cleanupExpiredScopeSessions,
+  MAX_CONTENT_LENGTH,
+} = require("./routes/scope");
 
 setInterval(() => {
   cleanupExpiredScopeSessions().catch((err) => {
@@ -153,6 +130,7 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 150, standardHeaders: true, l
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use("/health",            healthRoutes);
+app.use("/ping",              pingRoutes);
 app.use("/api/auth",          authRoutes);
 app.use("/api/jobs",          jobRoutes);
 app.use("/api/applications",  applicationRoutes);
@@ -172,16 +150,13 @@ app.get("/api/indexer/health", (req, res) => {
     status: "ok",
     indexer: indexerService.getHealth(),
   });
-  return router;
-})());
-app.use("/api/contributors",    contributorRoutes);
-app.use("/api/gas-estimate",    gasEstimatorRoutes);
-app.use("/api/transactions",   transactionRoutes);
-app.use("/api/dao",            daoRoutes);
+});
+app.use("/api/scope",             scopeRoutes);
+app.use("/api/gas-estimate",      gasEstimatorRoutes);
+app.use("/api/transactions",      transactionRoutes);
+app.use("/api/dao",               daoRoutes);
 app.use("/api/proposal-templates", proposalTemplateRoutes);
 app.use("/api/price-alerts",      priceAlertRoutes);
-app.use("/api/ai",                aiScorerRoutes);
-app.use("/api/nft",               nftRoutes);
 app.use("/api/turrets",           turretRoutes);
 app.use("/api/referrals",         referralRoutes);
 app.use("/api/reputation",        reputationRoutes);
@@ -304,11 +279,21 @@ wsServer.on("connection", async (ws, request) => {
         const message = JSON.parse(String(raw));
         if (!message || typeof message !== "object") return;
         if (message.type === "scope:update") {
+          if (
+            typeof message.content === "string" &&
+            message.content.length > MAX_CONTENT_LENGTH
+          ) {
+            sendJson(ws, "scope:error", {
+              error: `Payload Too Large: content length ${message.content.length} exceeds maximum limit of ${MAX_CONTENT_LENGTH} characters`,
+            });
+            return;
+          }
           const nextCursors = { ...(session.cursors || {}), ...(message.cursors || {}) };
           session = await upsertScopeSession(sessionId, {
             content: typeof message.content === "string" ? message.content : session.content,
             cursors: nextCursors,
             finalized: false,
+            finalizedHash: session.finalized_hash || null,
             finalizedPayload: session.finalized_payload || null,
           });
           for (const client of clients) {
@@ -316,6 +301,7 @@ wsServer.on("connection", async (ws, request) => {
               sessionId,
               content: session.content,
               cursors: session.cursors || {},
+              finalizedHash: session.finalized_hash || null,
               updatedAt: session.updated_at,
             });
           }
@@ -323,23 +309,41 @@ wsServer.on("connection", async (ws, request) => {
         }
 
         if (message.type === "scope:finalize") {
+          const finalContent =
+            typeof message.content === "string"
+              ? message.content
+              : (session.content || "");
+          if (finalContent.length > MAX_CONTENT_LENGTH) {
+            sendJson(ws, "scope:error", {
+              error: `Payload Too Large: content length ${finalContent.length} exceeds maximum limit of ${MAX_CONTENT_LENGTH} characters`,
+            });
+            return;
+          }
+          const crypto = require("crypto");
+          const contentHash = crypto
+            .createHash("sha256")
+            .update(finalContent)
+            .digest("hex");
+
           session = await upsertScopeSession(sessionId, {
-            content: typeof message.content === "string" ? message.content : session.content,
+            content: finalContent,
             cursors: session.cursors || {},
             finalized: true,
+            finalizedHash: contentHash,
             finalizedPayload: message.payload || null,
           });
           for (const client of clients) {
             sendJson(client, "scope:finalized", {
               sessionId,
               content: session.content,
+              finalizedHash: contentHash,
               payload: session.finalized_payload || null,
               updatedAt: session.updated_at,
             });
           }
         }
       } catch (error) {
-        sendJson(ws, "scope:error", { error: "Invalid message payload" });
+        sendJson(ws, "scope:error", { error: error.message || "Invalid message payload" });
       }
     });
 
@@ -373,8 +377,14 @@ async function bootstrap() {
   await indexerService.start();
   priceAlertService.start();
 
+  // Issue #232 perf: start the 5-minute stats MV refresh cycle after migrations
+  scheduleStatsRefresh();
+
   // Start job expiry checker - run every hour
   startJobExpiryChecker();
+
+  // Start daily purge of push subscriptions marked invalid (Issue #1438)
+  startPushSubscriptionPurge();
 
   server.listen(PORT, () => {
     console.log(`

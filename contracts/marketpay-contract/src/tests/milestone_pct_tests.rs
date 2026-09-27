@@ -7,7 +7,7 @@ fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, Address) {
     let contract = MarketPayContractClient::new(env, &id);
     let admin = Address::generate(env);
     let treasury = Address::generate(env);
-    contract.initialize(&admin, &treasury);
+    contract.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let client = Address::generate(env);
     let freelancer = Address::generate(env);

@@ -1,6 +1,7 @@
 "use strict";
 
 const pool = require("../db/pool");
+const { auditQueue } = require("../utils/queue");
 
 function getHorizonUrl() {
   return process.env.HORIZON_URL || "https://horizon-testnet.stellar.org";
@@ -78,7 +79,13 @@ function parseSorobanEvents(tx) {
   }));
 }
 
-async function logContractInteraction({
+/**
+ * Enqueue a contract audit log entry without blocking the caller.
+ * Preserves the enriched signature (ledgerSequence, feeCharged, eventData)
+ * added upstream. Failed writes are logged by the audit worker and never
+ * propagate back to the caller.
+ */
+function logContractInteraction({
   functionName,
   callerAddress,
   jobId,
@@ -87,28 +94,23 @@ async function logContractInteraction({
   feeCharged,
   eventData,
 }) {
-  if (!TRACKED_CONTRACT_FUNCTIONS.has(functionName)) return null;
-  if (!callerAddress || !txHash) return null;
+  if (!TRACKED_CONTRACT_FUNCTIONS.has(functionName)) return;
+  if (!callerAddress || !txHash) return;
 
-  const eventDataJson = eventData != null ? JSON.stringify(eventData) : null;
-
-  const { rows } = await pool.query(
-    `INSERT INTO contract_audit_log
-       (function_name, caller_address, job_id, tx_hash,
-        ledger_sequence, fee_charged, event_data, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-     RETURNING *`,
-    [
-      functionName,
-      callerAddress,
-      jobId || null,
-      txHash,
-      ledgerSequence || null,
-      feeCharged || null,
-      eventDataJson,
-    ],
-  );
-  return rows[0];
+  auditQueue
+    .add({
+      type: "contract_audit_log",
+      payload: {
+        functionName,
+        callerAddress,
+        jobId: jobId || null,
+        txHash,
+        ledgerSequence: ledgerSequence || null,
+        feeCharged: feeCharged || null,
+        eventData: eventData != null ? eventData : null,
+      },
+    })
+    .catch(() => {});
 }
 
 async function verifyAndLogContractInteraction(params) {

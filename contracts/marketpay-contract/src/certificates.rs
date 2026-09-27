@@ -1,4 +1,5 @@
-use soroban_sdk::{symbol_short, Address, Bytes, Env, String, Vec};
+use soroban_sdk::{symbol_short, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::xdr::ToXdr;
 
 use crate::helpers::check_not_frozen;
 use crate::types::*;
@@ -11,7 +12,7 @@ use crate::types::*;
 /// metadata so the certificate carries the job title (not just the id).
 pub(crate) fn mint_certificate(env: Env, job_id: String, title: String, client: Address) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let escrow: Escrow = env
         .storage()
@@ -36,7 +37,19 @@ pub(crate) fn mint_certificate(env: Env, job_id: String, title: String, client: 
         panic!("Certificate already minted");
     }
 
+    let counter: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::CertificateTokenCounter)
+        .unwrap_or(0);
+    let token_id = certificate_token_id(&env, counter);
+    let next_counter = counter.checked_add(1).expect("Counter overflow");
+    env.storage()
+        .instance()
+        .set(&DataKey::CertificateTokenCounter, &next_counter);
+
     let cert = Certificate {
+        token_id,
         job_id: job_id.clone(),
         title: title.clone(),
         client: escrow.client.clone(),
@@ -64,6 +77,35 @@ pub(crate) fn mint_certificate(env: Env, job_id: String, title: String, client: 
         .publish((symbol_short!("certmnt"), client), (job_id, escrow.amount));
 }
 
+fn certificate_token_id(env: &Env, counter: u64) -> BytesN<32> {
+    let mut payload = env.current_contract_address().to_xdr(env);
+    for byte in counter.to_be_bytes() {
+        payload.push_back(byte);
+    }
+    env.crypto().sha256(&payload).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::certificate_token_id;
+    use crate::MarketPayContract;
+    use soroban_sdk::Env;
+
+    #[test]
+    fn certificate_token_ids_differ_between_contract_deployments() {
+        let env = Env::default();
+        let first_contract = env.register(MarketPayContract, ());
+        let second_contract = env.register(MarketPayContract, ());
+
+        let first_token_id = env.as_contract(&first_contract, || certificate_token_id(&env, 0));
+        let second_token_id =
+            env.as_contract(&second_contract, || certificate_token_id(&env, 0));
+
+        assert_ne!(first_contract, second_contract);
+        assert_ne!(first_token_id, second_token_id);
+    }
+}
+
 /// Append an IPFS CID to a job's on-chain dispute-evidence audit trail
 /// (Issue #448 --- AC #1).
 ///
@@ -76,7 +118,7 @@ pub(crate) fn mint_certificate(env: Env, job_id: String, title: String, client: 
 /// entries are never overwritten.
 pub(crate) fn submit_evidence_cid(env: Env, job_id: String, cid: Bytes, caller: Address) {
     caller.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     if cid.is_empty() {
         panic!("IPFS CID cannot be empty");
@@ -131,7 +173,7 @@ pub(crate) fn get_freelancer_certificates(env: Env, freelancer: Address) -> Vec<
 
 pub(crate) fn submit_client_rating(env: Env, job_id: String, client: Address, score: u32) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
     if !(1..=5).contains(&score) {
         panic!("Score must be between 1 and 5");
     }
@@ -162,7 +204,7 @@ pub(crate) fn submit_client_rating(env: Env, job_id: String, client: Address, sc
 
 pub(crate) fn submit_freelancer_rating(env: Env, job_id: String, freelancer: Address, score: u32) {
     freelancer.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
     if !(1..=5).contains(&score) {
         panic!("Score must be between 1 and 5");
     }
@@ -199,7 +241,7 @@ pub(crate) fn submit_freelancer_rating(env: Env, job_id: String, freelancer: Add
 }
 
 pub(crate) fn resolve_arbitration(env: Env, case_id: u32) {
-    check_not_frozen(&env);
+    check_not_frozen(&env, case_id);
 
     let mut case: ArbitrationCase = env
         .storage()

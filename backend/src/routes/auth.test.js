@@ -13,7 +13,12 @@ beforeAll(() => {
 });
 
 jest.mock("../db/pool", () => {
-  const mockQuery = jest.fn().mockResolvedValue({ rows: [] });
+  // Stateful fake for the refresh_tokens table (rotation / replay tests);
+  // every other query resolves to { rows: [] } as before.
+  const {
+    createRefreshTokenStoreFake,
+  } = require("../testUtils/refreshTokenStoreFake");
+  const mockQuery = jest.fn(createRefreshTokenStoreFake().query);
   const mock = {
     query: mockQuery,
     connect: jest.fn().mockResolvedValue({

@@ -306,9 +306,9 @@ export default function SettingsPage({
               {/* Slippage Settings */}
               {settings?.enabled && (
                 <div className="mt-6 pt-6 border-t border-market-500/15">
-                  <div className="block text-xs font-semibold text-amber-200 uppercase tracking-wider mb-2">
+                  <p className="block text-xs font-semibold text-amber-200 uppercase tracking-wider mb-2">
                     Maximum Slippage Tolerance
-                  </div>
+                  </p>
                   <p className="text-xs text-amber-700 mb-3">
                     If the Stellar DEX exchange rate moves against you by more
                     than this amount during the swap, the transaction is

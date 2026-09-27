@@ -205,4 +205,51 @@ describe("recurringEscrowService", () => {
       expect(logContractInteraction).not.toHaveBeenCalled();
     });
   });
+
+  describe("DST Boundary Handling", () => {
+    it("monthly recurrence crossing a DST boundary fires on the correct calendar date", async () => {
+      getJob.mockResolvedValue(makeJob({ timezone: "America/New_York" }));
+      
+      const RealDate = Date;
+      const mockDate = new Date("2026-03-01T12:00:00Z"); // March 1st (before DST starts in US)
+      global.Date = class extends RealDate {
+        constructor(date) {
+          if (date) {
+            return super(date);
+          }
+          return mockDate;
+        }
+      };
+      global.Date.now = () => mockDate.getTime();
+
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ job_id: JOB_ID, is_recurring: true, releases_remaining: 4 }],
+      });
+
+      await createRecurringEscrow({
+        jobId: JOB_ID,
+        clientAddress: CLIENT_ADDRESS,
+        freelancerAddress: FREELANCER_ADDRESS,
+        contractId: "contract-1",
+        amountPerRelease: 100,
+        currency: "XLM",
+        intervalDays: 30,
+        totalReleases: 4,
+      });
+
+      global.Date = RealDate;
+
+      const calls = mockQuery.mock.calls;
+      const updateCall = calls.find(call => call[0].includes("UPDATE escrows"));
+      expect(updateCall).toBeDefined();
+
+      const nextBillingDateArg = updateCall[1][4];
+      expect(nextBillingDateArg).toBeDefined();
+      
+      const nextDate = new Date(nextBillingDateArg);
+      // March 1st 12:00Z is 07:00 EST. 
+      // Next month is April 1st. 07:00 EDT is 11:00Z.
+      expect(nextDate.toISOString()).toBe("2026-04-01T11:00:00.000Z");
+    });
+  });
 });
