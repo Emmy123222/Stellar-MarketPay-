@@ -41,6 +41,7 @@ const referralRoutes     = require("./routes/referrals");
 const reputationRoutes   = require("./routes/reputation");
 const autoConvertRoutes  = require("./routes/autoConvert");
 const scopeRoutes        = require("./routes/scope");
+const analyticsRoutes    = require("./routes/analytics");
 
 const migrate               = require("./db/migrate");
 const IndexerService        = require("./services/indexerService");
@@ -161,6 +162,7 @@ app.use("/api/turrets",           turretRoutes);
 app.use("/api/referrals",         referralRoutes);
 app.use("/api/reputation",        reputationRoutes);
 app.use("/api/auto-convert",      autoConvertRoutes);
+app.use("/api/analytics",         analyticsRoutes);
 
 // 404 handler — must come after all routes
 app.use((req, res) => {

@@ -398,8 +398,8 @@ function createPgMock() {
         deadline: params[7],
         timezone: params[8],
         screening_questions: params[9],
-        visibility: params[10] || "public",
-        milestones: [],
+        visibility: params[11] || "public",
+        milestones: params[10] ? (typeof params[10] === "string" ? JSON.parse(params[10]) : params[10]) : [],
       });
       jobs.set(row.id, row);
       return { rows: [formatJobRow(row)] };
@@ -862,6 +862,10 @@ function createPgMock() {
       let rows = [...jobs.values()].filter(
         (job) => job.visibility === "public",
       );
+      rows.sort((a, b) => {
+        if (b.created_at !== a.created_at) return String(b.created_at).localeCompare(String(a.created_at));
+        return String(b.id).localeCompare(String(a.id));
+      });
       // Apply cursor-based filtering if present in the SQL
       if (text.includes("created_at < $")) {
         // Cursor params are the two params before limit:
