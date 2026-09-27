@@ -24,6 +24,8 @@ Welcome to Stellar MarketPay documentation. This index helps you find what you n
 - **[Architecture Overview](./architecture.md)** - System design and components
 - **[Deployment Guide](./deployment.md)** - How to deploy Stellar MarketPay
 - **[Data Archiving Strategy](./data-archiving.md)** - Archiving old completed jobs for database performance
+- **[Database Data Model & ER Diagram](./data-model.md)** - Complete PostgreSQL entity relationship diagram and data dictionary
+- **[Database Schema & ERD](./database-schema.md)** - Detailed PostgreSQL table definitions and index tuning
 - **[Authentication Flow (SEP-10)](./auth-flow.md)** - Complete SEP-10 auth flow with sequence diagrams
 - **[Freelancer Onboarding Flow](./onboarding-flow.md)** - Multi-step freelancer onboarding walkthrough and UX architecture
 - **[Soroban Contract Deployment](./contract-deployment.md)** - Build, deploy, and configure the escrow contract

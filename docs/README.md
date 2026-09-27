@@ -4,10 +4,11 @@ Welcome to the Stellar MarketPay technical documentation directory.
 
 For the comprehensive index and navigation guide, please see **[INDEX.md](./INDEX.md)**.
 
-## Quick Links
+## Core Reference Guides
 
-- **[Freelancer Onboarding Flow](./onboarding-flow.md)** — Comprehensive walkthrough of the 5-step freelancer onboarding UX and state machine
-- **[Smart Contract API Reference](./contract-api-reference.md)** — Complete function, event, and error reference for Soroban contracts
+- **[Database Data Model & ER Diagram](./data-model.md)** — Complete PostgreSQL entity relationship diagram, relationships, and data dictionary
+- **[Smart Contract API Reference](./contract-api-reference.md)** — Comprehensive function, event, and error reference for Soroban contracts
+- **[Database Schema & ERD](./database-schema.md)** — Detailed schema definitions and index tuning
 - **[API Documentation](./api-documentation.md)** — REST API endpoints
 - **[Authentication Flow (SEP-10)](./auth-flow.md)** — Stellar SEP-10 wallet authentication flow
 - **[Dispute Resolution](./dispute-resolution.md)** — On-chain arbitration and evidence management
