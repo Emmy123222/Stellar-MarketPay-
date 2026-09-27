@@ -552,4 +552,44 @@ describe("applicationService", () => {
       ).rejects.toThrow("Commitment verification failed");
     });
   });
+
+  describe("extendBiddingClose", () => {
+    it("auction extends when bid arrives in final 10 ledgers", async () => {
+      const closeTime = new Date();
+      closeTime.setMinutes(closeTime.getMinutes() + 5);
+
+      await pool.query(
+        "UPDATE jobs SET bidding_closed_at = $1 WHERE id = $2 RETURNING bidding_closed_at",
+        [closeTime.toISOString(), openJob.id],
+      );
+
+      const result = await extendBiddingClose(openJob.id, validClientAddress);
+
+      expect(result.biddingClosedAt).toBeDefined();
+      const extendedTime = new Date(result.biddingClosedAt);
+      expect(extendedTime.getTime()).toBeGreaterThan(closeTime.getTime());
+    });
+
+    it("rejects non-client extension attempts", async () => {
+      const closeTime = new Date();
+      closeTime.setMinutes(closeTime.getMinutes() + 5);
+
+      await pool.query(
+        "UPDATE jobs SET bidding_closed_at = $1 WHERE id = $2",
+        [closeTime.toISOString(), openJob.id],
+      );
+
+      const wrongClient =
+        "GDDDDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
+      await expect(
+        extendBiddingClose(openJob.id, wrongClient),
+      ).rejects.toThrow("Only the job client can extend bidding");
+    });
+
+    it("rejects extension when bidding is not closed", async () => {
+      await expect(
+        extendBiddingClose(openJob.id, validClientAddress),
+      ).rejects.toThrow("Bidding has not been closed yet");
+    });
+  });
 });

@@ -219,7 +219,7 @@ export default function MobileTabBar({
               py-2 px-1 text-[10px] font-medium transition-colors duration-150
               min-h-[56px] min-w-0
               ${isActive
-                ? "text-market-400"
+                ? "mobile-tab-active text-market-400 border-b-2 border-market-400"
                 : "text-amber-700 hover:text-amber-300"
               }
             `}

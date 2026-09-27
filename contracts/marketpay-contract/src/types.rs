@@ -158,6 +158,7 @@ pub struct ExtensionRequest {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Certificate {
+    pub token_id: BytesN<32>,
     pub job_id: String,
     pub title: String,
     pub client: Address,
@@ -266,6 +267,7 @@ pub enum DataKey {
     RevealedBids(String),
     Certificate(String),
     FreelancerCertificates(Address),
+    CertificateTokenCounter,
     ClientRating(String),
     FreelancerRating(String),
     FreelancerRatingStats(Address),
@@ -276,7 +278,10 @@ pub enum DataKey {
     ArbitrationCase(u32),
     ArbitrationCaseCount,
     DisputeCase(String),
+    /// Upgrade counter (starts at 1, bumped by every `upgrade()`)
     Version,
+    /// Semver string of the deployed WASM, returned by `get_version()`
+    ContractVersion,
     /// Stores list of IPFS CIDs for messages in a job thread
     MessageCid(String),
     /// Freelancer-submitted deliverable SHA-256 hash for release verification

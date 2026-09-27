@@ -222,7 +222,7 @@ router.post("/", async (req, res, next) => {
       console.warn("[auth] Could not stamp last_login_at:", stampErr.message);
     }
 
-    const { accessToken, refreshToken } = issueTokenPair(payload);
+    const { accessToken, refreshToken } = await issueTokenPair(payload);
     const csrfToken = setAuthCookies(req, res, accessToken, refreshToken);
     res.json({ success: true, token: accessToken, csrfToken });
   } catch (e) {
@@ -233,9 +233,9 @@ router.post("/", async (req, res, next) => {
   }
 });
 
-router.post("/refresh", authWriteRateLimiter, (req, res) => {
+router.post("/refresh", authWriteRateLimiter, async (req, res) => {
   const refreshToken = getRefreshTokenFromRequest(req);
-  const rotated = rotateRefreshToken(refreshToken);
+  const rotated = await rotateRefreshToken(refreshToken);
 
   if (!rotated) {
     clearAuthCookies(res);
@@ -257,8 +257,8 @@ router.post("/refresh", authWriteRateLimiter, (req, res) => {
   });
 });
 
-router.post("/logout", authWriteRateLimiter, (req, res) => {
-  revokeRefreshToken(getRefreshTokenFromRequest(req));
+router.post("/logout", authWriteRateLimiter, async (req, res) => {
+  await revokeRefreshToken(getRefreshTokenFromRequest(req));
   clearAuthCookies(res);
   res.json({ success: true });
 });
