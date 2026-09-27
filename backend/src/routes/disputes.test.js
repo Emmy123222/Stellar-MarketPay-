@@ -40,6 +40,7 @@ jest.mock("../services/ipfsService", () => ({
 
 jest.mock("../services/disputeService", () => ({
   validateIpfsCid: jest.fn(),
+  getDisputeEvents: jest.fn(),
 }));
 
 jest.mock("../services/sorobanArbitratorRegistry", () => ({
@@ -62,7 +63,7 @@ const {
   verifySignedUrlToken,
   proxyIpfsFile,
 } = require("../services/ipfsService");
-const { validateIpfsCid } = require("../services/disputeService");
+const { validateIpfsCid, getDisputeEvents } = require("../services/disputeService");
 const { isArbitrator } = require("../services/sorobanArbitratorRegistry");
 
 // ── Minimal Express test app ─────────────────────────────────────────────────
@@ -651,6 +652,115 @@ describe("Dispute Routes Suite (/api/disputes)", () => {
 
       expect(res.status).toBe(403);
       expect(res.body.error).toMatch(/Token does not match/);
+    });
+  });
+
+  // ===========================================================================
+  // 6. GET /api/disputes/:jobId/events — dispute timeline (Issue #1429)
+  // ===========================================================================
+  describe("GET /api/disputes/:jobId/events", () => {
+    const EVENT_ID_1 = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+    const EVENT_ID_2 = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+    const EVENT_ID_3 = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+
+    function fakeEventRow(overrides = {}) {
+      return {
+        id: overrides.id || EVENT_ID_1,
+        jobId: overrides.jobId || JOB_ID,
+        eventType: overrides.eventType || "opened",
+        actorAddress: overrides.actorAddress || CLIENT_ADDRESS,
+        evidenceId: overrides.evidenceId ?? null,
+        payload: overrides.payload || {},
+        evidence: overrides.evidence || null,
+        createdAt: overrides.createdAt || "2026-01-01T10:00:00.000Z",
+      };
+    }
+
+    it("200 — happy path: returns timeline events in chronological order with evidence metadata", async () => {
+      seedJob();
+      const events = [
+        fakeEventRow({
+          id: EVENT_ID_1,
+          eventType: "opened",
+          actorAddress: CLIENT_ADDRESS,
+          payload: { disputeId: "dispute-1" },
+          createdAt: "2026-01-01T10:00:00.000Z",
+        }),
+        fakeEventRow({
+          id: EVENT_ID_2,
+          eventType: "evidence_submitted",
+          actorAddress: CLIENT_ADDRESS,
+          evidenceId: EVIDENCE_ID,
+          payload: { fileName: "document.pdf", ipfsCid: VALID_CID },
+          evidence: {
+            id: EVIDENCE_ID,
+            fileName: "document.pdf",
+            mimeType: "application/pdf",
+            gatewayUrl: `https://gateway.pinata.cloud/ipfs/${VALID_CID}`,
+          },
+          createdAt: "2026-01-02T11:00:00.000Z",
+        }),
+        fakeEventRow({
+          id: EVENT_ID_3,
+          eventType: "resolved",
+          actorAddress: ARBITRATOR_ADDRESS,
+          payload: { resolution: "release_funds" },
+          createdAt: "2026-01-03T12:00:00.000Z",
+        }),
+      ];
+      getDisputeEvents.mockResolvedValue(events);
+
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}/events`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.jobId).toBe(JOB_ID);
+      expect(getDisputeEvents).toHaveBeenCalledWith(JOB_ID);
+      expect(res.body.data.events).toHaveLength(3);
+
+      // Chronological: oldest first, exactly as the service returned them
+      const eventTypes = res.body.data.events.map((ev) => ev.eventType);
+      expect(eventTypes).toEqual(["opened", "evidence_submitted", "resolved"]);
+      const timestamps = res.body.data.events.map((ev) => ev.createdAt);
+      const sorted = [...timestamps].sort();
+      expect(timestamps).toEqual(sorted);
+
+      // Evidence metadata is embedded for the evidence_submitted event
+      expect(res.body.data.events[1].evidence).toEqual({
+        id: EVIDENCE_ID,
+        fileName: "document.pdf",
+        mimeType: "application/pdf",
+        gatewayUrl: `https://gateway.pinata.cloud/ipfs/${VALID_CID}`,
+      });
+      expect(res.body.data.events[2].actorAddress).toBe(ARBITRATOR_ADDRESS);
+    });
+
+    it("200 — returns empty events array when no timeline events exist", async () => {
+      seedJob();
+      getDisputeEvents.mockResolvedValue([]);
+
+      const res = await request(app)
+        .get(`/api/disputes/${JOB_ID}/events`)
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.jobId).toBe(JOB_ID);
+      expect(res.body.data.events).toEqual([]);
+    });
+
+    it("404 — returns 404 when job not found", async () => {
+      getDisputeEvents.mockResolvedValue([]);
+
+      const res = await request(app)
+        .get("/api/disputes/non-existent-job/events")
+        .set("X-CSRF-Token", "dummy-token");
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toMatch(/Job not found/);
+      expect(getDisputeEvents).not.toHaveBeenCalled();
     });
   });
 });
