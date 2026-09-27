@@ -1405,5 +1405,3 @@ module.exports = {
   defaultOnboardingRow,
   defaultPriceAlertRow,
 };
-
-}

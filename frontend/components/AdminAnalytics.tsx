@@ -351,7 +351,7 @@ export default function AdminAnalytics({ publicKey }: AdminAnalyticsProps) {
         {/* Top Earners */}
         <div className="bg-market-800 p-4 rounded-lg">
           <h4 className="font-medium text-amber-100 mb-3">Top Earners</h4>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
+            <div className="space-y-2 max-h-64 overflow-y-auto">
             {metrics.topEarners.map((earner, index) => (
               <div key={earner.public_key} className="flex items-center justify-between p-2 bg-market-700 rounded">
                 <div>
