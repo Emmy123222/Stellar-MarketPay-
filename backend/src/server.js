@@ -373,8 +373,14 @@ async function bootstrap() {
   await indexerService.start();
   priceAlertService.start();
 
-  // Start job expiry checker - run every hour
+  // Start background schedulers
   startJobExpiryChecker();
+  startNotificationProcessor();
+  startApiKeyRotationFinalizer();
+  startWeeklyDigestScheduler();
+  startAdminReportScheduler();
+  startPurgeDeletedRecords();
+  startRecurringEscrowTicker();
 
   server.listen(PORT, () => {
     console.log(`
@@ -432,8 +438,6 @@ async function startJobExpiryChecker() {
     }
   }, 60 * 60 * 1000).unref();
 }
-
-bootstrap();
 
 /**
  * Periodically process pending notifications (runs every 2 minutes).
