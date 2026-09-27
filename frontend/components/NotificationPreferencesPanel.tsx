@@ -3,7 +3,7 @@
  * Notification settings including push notification toggle
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import debounce from "lodash.debounce";
 import { useToast } from "@/components/Toast";
@@ -59,7 +59,7 @@ export default function NotificationPreferencesPanel() {
 
   // Use useCallback so debounce isn't recreated on every render
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const savePreferences = useCallback(
+  const savePreferences = useMemo(() =>
     debounce(async (newPrefs) => {
       try {
         await updateNotificationPreferences(newPrefs);
