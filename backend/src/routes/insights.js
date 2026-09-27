@@ -168,4 +168,49 @@ router.get("/trends/pay", insightsRateLimiter, async (req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/insights/{publicKey}:
+ *   get:
+ *     summary: Get insights for a public key
+ *     tags: [Insights]
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: from
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: to
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Public key insights
+ */
+router.get("/:publicKey", insightsRateLimiter, async (req, res, next) => {
+  try {
+    const { publicKey } = req.params;
+    let { from, to } = req.query;
+
+    if (!from) {
+      const d = new Date();
+      d.setDate(d.getDate() - 90);
+      from = d.toISOString();
+    }
+    if (!to) {
+      to = new Date().toISOString();
+    }
+
+    const data = await insightsService.getPublicKeyInsights(publicKey, from, to);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

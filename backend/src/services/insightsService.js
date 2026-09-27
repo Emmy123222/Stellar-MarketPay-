@@ -267,6 +267,18 @@ async function getPlatformSummary() {
   });
 }
 
+async function getPublicKeyInsights(publicKey, from, to) {
+  const query = `
+    SELECT count(*)::int as total_payments, COALESCE(sum(amount), 0)::numeric as total_amount
+    FROM payments
+    WHERE public_key = $1
+      AND created_at >= $2
+      AND created_at <= $3
+  `;
+  const { rows } = await pool.query(query, [publicKey, from, to]);
+  return rows[0];
+}
+
 module.exports = {
   getCategoryInsights,
   getSkillInsights,
@@ -274,4 +286,5 @@ module.exports = {
   getPayTrends,
   getClientMix,
   getPlatformSummary,
+  getPublicKeyInsights,
 };
