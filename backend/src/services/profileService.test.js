@@ -11,6 +11,7 @@ const {
   updateAvailability,
   getProfileStats,
   getResponseTime,
+  listProfiles,
   calculateFreelancerTier,
   MAX_PORTFOLIO_ITEMS,
 } = require("./profileService");
@@ -176,6 +177,66 @@ describe("profileService", () => {
       expect(profile.rating).toBe(4.8);
       expect(profile.ratingCount).toBe(2);
       expect(profile.tier).toBe("Rising Talent");
+    });
+  });
+
+  describe("listProfiles", () => {
+    const skillSets = [
+      ["React", "Node.js", "PostgreSQL"],
+      ["Rust", "Soroban", "Stellar"],
+      ["Python", "Django", "AWS"],
+      ["TypeScript", "GraphQL", "Docker"],
+      ["Solidity", "Ethereum", "Web3"],
+    ];
+
+    function makeRow(index, skills) {
+      return {
+        public_key: `GPROFILE${index}`,
+        display_name: `Profile ${index}`,
+        bio: `Bio for profile ${index}`,
+        skills,
+        portfolio_items: [],
+        portfolio_files: [],
+        availability: null,
+        role: "freelancer",
+        completed_jobs: 0,
+        total_earned_xlm: "0.0000000",
+        rating: "4.5",
+        referral_count: 0,
+        reputation_points: 0,
+        blocked_addresses: [],
+        email_notifications_enabled: true,
+        webhook_url: null,
+        is_kyc_verified: false,
+        did_hash: null,
+        created_at: "2026-01-15T00:00:00.000Z",
+        updated_at: "2026-01-15T00:00:00.000Z",
+      };
+    }
+
+    it("loads skills for 5 profiles in exactly one query", async () => {
+      const rows = skillSets.map((skills, index) => makeRow(index + 1, skills));
+
+      pool.query.mockResolvedValueOnce({ rows });
+
+      const result = await listProfiles({ limit: 20 });
+
+      expect(pool.query).toHaveBeenCalledTimes(1);
+
+      const [sql, params] = pool.query.mock.calls[0];
+      expect(sql).toMatch(/FROM profiles p/);
+      expect(sql).toContain("p.skills");
+      expect(sql).not.toContain("profile_skills");
+      expect(params).toEqual([21]);
+
+      expect(result.profiles).toHaveLength(5);
+      expect(result.hasMore).toBe(false);
+      expect(result.nextCursor).toBeNull();
+
+      skillSets.forEach((skills, index) => {
+        expect(result.profiles[index].publicKey).toBe(`GPROFILE${index + 1}`);
+        expect(result.profiles[index].skills).toEqual(skills);
+      });
     });
   });
 

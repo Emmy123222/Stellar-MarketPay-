@@ -127,6 +127,10 @@ the corresponding `panic!` message, and a human-readable description.
 | 6005 | `Only users with completed jobs can vote`      | `CompletedJobs(voter) == 0`               |
 | 6006 | `Voter has already cast a vote`                | Double-vote                               |
 | 6007 | `Voting period is not over yet`                | `resolve_proposal()` before deadline      |
+| 6008 | `Only admin can set the quorum`                | Non-admin calls `set_quorum()`            |
+| 6009 | `Quorum cannot exceed 50% (5000 bps)`          | `new_threshold_bps > 5000`                |
+| 6010 | `Quorum change proposal has not passed`        | Proposal unresolved or rejected           |
+| 6011 | `No matching quorum change proposal`           | Not a quorum proposal, value mismatch, or already applied |
 
 ---
 

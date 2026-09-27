@@ -39,7 +39,7 @@ describe("Prometheus metrics", () => {
   describe("prom-client dependency", () => {
     it("is declared in backend package.json dependencies", () => {
       const pkg = JSON.parse(
-        fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")
+        fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"),
       );
       expect(pkg.dependencies).toHaveProperty("prom-client");
     });
@@ -81,24 +81,35 @@ describe("Prometheus metrics", () => {
       expect(lines.length).toBeGreaterThan(0);
       for (const line of lines) {
         // Every line is a comment or `name{labels} value [timestamp]`.
-        expect(line.startsWith("#") || /^[a-zA-Z_:][a-zA-Z0-9_:]*(\{.*\})?\s+\S+/.test(line)).toBe(true);
+        expect(
+          line.startsWith("#") ||
+            /^[a-zA-Z_:][a-zA-Z0-9_:]*(\{.*\})?\s+\S+/.test(line),
+        ).toBe(true);
       }
     });
   });
 
   describe("observeHttpRequest", () => {
     it("increments the counter and the histogram together", async () => {
-      const labels = { method: "GET", route: "/__test__/http", status_code: "200" };
+      const labels = {
+        method: "GET",
+        route: "/__test__/http",
+        status_code: "200",
+      };
       metrics.observeHttpRequest(labels, 42);
 
       const counter = await metrics.httpRequestsTotal.get();
-      const sample = counter.values.find((v) => v.labels.route === "/__test__/http");
+      const sample = counter.values.find(
+        (v) => v.labels.route === "/__test__/http",
+      );
       expect(sample).toBeTruthy();
       expect(sample.value).toBeGreaterThanOrEqual(1);
 
       const hist = await metrics.httpRequestDurationMs.get();
       const sum = hist.values.find(
-        (v) => v.metricName === "http_request_duration_ms_sum" && v.labels.route === "/__test__/http"
+        (v) =>
+          v.metricName === "http_request_duration_ms_sum" &&
+          v.labels.route === "/__test__/http",
       );
       expect(sum).toBeTruthy();
       expect(sum.value).toBeCloseTo(42, 3);
@@ -107,13 +118,13 @@ describe("Prometheus metrics", () => {
     it("also feeds the legacy marketpay_* series in seconds", async () => {
       metrics.observeHttpRequest(
         { method: "GET", route: "/__test__/legacy", status_code: "200" },
-        2000
+        2000,
       );
       const hist = await metrics.legacyHttpRequestDurationSeconds.get();
       const sum = hist.values.find(
         (v) =>
           v.metricName === "marketpay_http_request_duration_seconds_sum" &&
-          v.labels.route === "/__test__/legacy"
+          v.labels.route === "/__test__/legacy",
       );
       expect(sum.value).toBeCloseTo(2, 3);
     });
@@ -128,7 +139,7 @@ describe("Prometheus metrics", () => {
         (v) =>
           v.metricName === "pool_query_duration_ms_sum" &&
           v.labels.operation === "select" &&
-          v.labels.status === "success"
+          v.labels.status === "success",
       );
       expect(sum).toBeTruthy();
       expect(sum.value).toBeGreaterThanOrEqual(12.5);
@@ -138,7 +149,7 @@ describe("Prometheus metrics", () => {
       metrics.observePoolQuery("insert", "error", 3);
       const counter = await metrics.poolQueriesTotal.get();
       const sample = counter.values.find(
-        (v) => v.labels.operation === "insert" && v.labels.status === "error"
+        (v) => v.labels.operation === "insert" && v.labels.status === "error",
       );
       expect(sample).toBeTruthy();
     });
@@ -167,7 +178,9 @@ describe("Prometheus metrics", () => {
     });
 
     it("never embeds query parameters in the label (bounded cardinality)", () => {
-      const op = metrics.sqlOperation("SELECT * FROM users WHERE email = 'a@b.c'");
+      const op = metrics.sqlOperation(
+        "SELECT * FROM users WHERE email = 'a@b.c'",
+      );
       expect(op).toBe("select");
       expect(op).not.toContain("@");
     });
@@ -177,8 +190,14 @@ describe("Prometheus metrics", () => {
     it.each([
       ["/api/jobs/8123", "/api/jobs/:id"],
       ["/api/jobs/8123/bids", "/api/jobs/:id/bids"],
-      ["/api/disputes/3fa85f64-5717-4562-b3fc-2c963f66afa6", "/api/disputes/:id"],
-      ["/api/profiles/GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUV", "/api/profiles/:id"],
+      [
+        "/api/disputes/3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "/api/disputes/:id",
+      ],
+      [
+        "/api/profiles/GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUV",
+        "/api/profiles/:id",
+      ],
       ["/api/jobs", "/api/jobs"],
       ["/api/jobs?status=open", "/api/jobs"],
       ["/", "/"],
@@ -196,7 +215,9 @@ describe("Prometheus metrics", () => {
     });
 
     it("caps pathologically long segments", () => {
-      expect(metrics.normalizeRoutePath(`/api/${"a".repeat(200)}`)).toBe("/api/:id");
+      expect(metrics.normalizeRoutePath(`/api/${"a".repeat(200)}`)).toBe(
+        "/api/:id",
+      );
     });
 
     it("handles malformed percent-encoding without throwing", () => {
@@ -206,13 +227,17 @@ describe("Prometheus metrics", () => {
 
   describe("resolveRouteLabel", () => {
     it("prefers the matched Express pattern", () => {
-      expect(metrics.resolveRouteLabel("/api/jobs/:id", "/api/jobs/8123")).toBe("/api/jobs/:id");
+      expect(metrics.resolveRouteLabel("/api/jobs/:id", "/api/jobs/8123")).toBe(
+        "/api/jobs/:id",
+      );
     });
 
     it("falls back to the normalised URL when the pattern lost its mount prefix", () => {
       // Express restores req.baseUrl to "" before error handlers respond, so a
       // bare ":id" pattern must not become the label.
-      expect(metrics.resolveRouteLabel("/:id", "/api/jobs/8123")).toBe("/api/jobs/:id");
+      expect(metrics.resolveRouteLabel("/:id", "/api/jobs/8123")).toBe(
+        "/api/jobs/:id",
+      );
     });
 
     it("falls back to the normalised URL when no pattern matched (404)", () => {
@@ -226,7 +251,9 @@ describe("Prometheus metrics", () => {
       metrics.setWebsocketConnections("scope", 3);
 
       const gauge = await metrics.activeWebsocketConnections.get();
-      const realtime = gauge.values.find((v) => v.labels.channel === "realtime");
+      const realtime = gauge.values.find(
+        (v) => v.labels.channel === "realtime",
+      );
       const scope = gauge.values.find((v) => v.labels.channel === "scope");
       expect(realtime.value).toBe(7);
       expect(scope.value).toBe(3);
@@ -333,14 +360,27 @@ describe("GET /metrics internal auth", () => {
   });
 
   describe("isInternalIp", () => {
-    it.each(["127.0.0.1", "::1", "10.1.2.3", "192.168.0.7", "172.16.5.9", "172.31.0.1", "fd00::1"])(
-      "treats %s as internal",
-      (ip) => expect(metricsAuth.isInternalIp(ip)).toBe(true)
+    it.each([
+      "127.0.0.1",
+      "::1",
+      "10.1.2.3",
+      "192.168.0.7",
+      "172.16.5.9",
+      "172.31.0.1",
+      "fd00::1",
+    ])("treats %s as internal", (ip) =>
+      expect(metricsAuth.isInternalIp(ip)).toBe(true),
     );
 
-    it.each(["8.8.8.8", "1.1.1.1", "172.32.0.1", "203.0.113.5", "2606:4700::1", ""])(
-      "treats %s as external",
-      (ip) => expect(metricsAuth.isInternalIp(ip)).toBe(false)
+    it.each([
+      "8.8.8.8",
+      "1.1.1.1",
+      "172.32.0.1",
+      "203.0.113.5",
+      "2606:4700::1",
+      "",
+    ])("treats %s as external", (ip) =>
+      expect(metricsAuth.isInternalIp(ip)).toBe(false),
     );
 
     it("normalises IPv4-mapped IPv6 addresses", () => {
@@ -383,7 +423,12 @@ describe("monitoring configuration", () => {
   });
 
   describe("Grafana dashboard", () => {
-    const file = path.join(MONITORING, "grafana", "dashboards", "marketpay-backend-metrics.json");
+    const file = path.join(
+      MONITORING,
+      "grafana",
+      "dashboards",
+      "marketpay-backend-metrics.json",
+    );
 
     it("exists and is valid JSON", () => {
       expect(fs.existsSync(file)).toBe(true);
@@ -418,10 +463,54 @@ describe("monitoring configuration", () => {
 
     it("is picked up by the dashboards provisioning path", () => {
       const provisioning = fs.readFileSync(
-        path.join(MONITORING, "grafana", "provisioning", "dashboards", "dashboards.yml"),
-        "utf8"
+        path.join(
+          MONITORING,
+          "grafana",
+          "provisioning",
+          "dashboards",
+          "dashboards.yml",
+        ),
+        "utf8",
       );
       expect(provisioning).toContain("/var/lib/grafana/dashboards");
+    });
+  });
+
+  describe("METRICS.md documentation", () => {
+    const metricsDoc = path.join(__dirname, "..", "docs", "METRICS.md");
+    const readmeFile = path.join(REPO_ROOT, "README.md");
+
+    it("exists in backend/docs/METRICS.md", () => {
+      expect(fs.existsSync(metricsDoc)).toBe(true);
+    });
+
+    it("is linked from the root README.md", () => {
+      const readme = fs.readFileSync(readmeFile, "utf8");
+      expect(readme).toContain("backend/docs/METRICS.md");
+    });
+
+    it("documents all custom metrics with descriptions and PromQL examples", () => {
+      const content = fs.readFileSync(metricsDoc, "utf8");
+      const expectedMetrics = [
+        "http_requests_total",
+        "http_request_duration_ms",
+        "active_websocket_connections",
+        "pool_queries_total",
+        "pool_query_duration_ms",
+        "marketpay_db_connections",
+        "pg_pool_total",
+        "pg_pool_idle",
+        "pg_pool_waiting",
+        "notification_queue_pending",
+        "stellar_marketpay_horizon_request_duration_seconds",
+        "marketpay_http_requests_total",
+        "marketpay_http_request_duration_seconds",
+        "ws_connections_active",
+      ];
+      for (const name of expectedMetrics) {
+        expect(content).toContain(`\`${name}\``);
+      }
+      expect(content).toContain("```promql");
     });
   });
 });

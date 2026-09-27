@@ -321,6 +321,7 @@ stellar-marketpay/
 
 **Disputes & Evidence**
 
+- [Dispute Resolution](./dispute-resolution.md)
 - [Pinata IPFS Setup](./ipfs-setup.md)
 - [FAQ: Disputes & Refunds](./FAQ.md#disputes--refunds)
 - [ADR-003: Database Schema](./adr/adr-003-database-schema-escrow.md)
