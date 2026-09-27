@@ -109,6 +109,14 @@ router.post("/:jobId/release", async (req, res, next) => {
     // Issue #1560: queue an XLM→USDC swap if the freelancer opted in.
     const autoConversion = await queueAutoConversion({ jobId, amountXlm });
 
+    // Recalculate freelancer tier after escrow release (may change tiers)
+    try {
+      const { refreshFreelancerTier } = require("../services/profileService");
+      refreshFreelancerTier(job.freelancerAddress).catch(() => {});
+    } catch (err) {
+      // non-fatal
+    }
+
     // Audit log the escrow release event
     try {
       await insertAuditLog({

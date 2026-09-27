@@ -339,6 +339,14 @@ router.post("/:skill/submit", verifyJWT, async (req, res, next) => {
       );
 
       certificate = certRows[0];
+
+      // If the freelancer passed an assessment, refresh their tier (might merit a Rising Talent upgrade)
+      try {
+        const { refreshFreelancerTier } = require("../services/profileService");
+        refreshFreelancerTier(publicKey).catch(() => {});
+      } catch (err) {
+        // non-fatal
+      }
     }
 
     res.json({

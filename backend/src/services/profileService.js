@@ -6,6 +6,7 @@
 "use strict";
 
 const pool = require("../db/pool");
+const notificationService = require("./notificationService");
 const { validatePortfolioFiles } = require("./ipfsService");
 const encryptionService = require("./encryptionService");
 const { JSDOM } = require("jsdom");
@@ -770,6 +771,13 @@ async function calculateTier(publicKey, queryRunner = pool) {
 async function refreshFreelancerTier(publicKey, queryRunner = pool) {
   validatePublicKey(publicKey);
 
+  // Read current stored tier so we can detect upgrades
+  const { rows: beforeRows } = await queryRunner.query(
+    `SELECT COALESCE(completed_jobs,0) AS completed_jobs, COALESCE(total_earned_xlm::numeric,0) AS total_earned_xlm, rating FROM profiles WHERE public_key = $1`,
+    [publicKey]
+  );
+  const previousTier = beforeRows.length ? calculateFreelancerTier({ completedJobs: beforeRows[0].completed_jobs, totalEarnedXlm: beforeRows[0].total_earned_xlm, rating: beforeRows[0].rating }) : FREELANCER_TIERS.NEWCOMER;
+
   await queryRunner.query(
     `
     UPDATE profiles
@@ -788,7 +796,23 @@ async function refreshFreelancerTier(publicKey, queryRunner = pool) {
     [publicKey],
   );
 
-  return calculateTier(publicKey, queryRunner);
+  const newTier = await calculateTier(publicKey, queryRunner);
+
+  // If tier has changed (upgrade), emit event + notification
+  if (newTier && newTier !== previousTier) {
+    try {
+      const title = `Tier upgraded to ${newTier}`;
+      const body = `Congratulations — your developer tier increased to ${newTier}.`;
+      await notificationService.createInAppNotification({ userAddress: publicKey, type: "tier_upgraded", title, body, sendPush: true }, queryRunner).catch(() => {});
+
+      await notificationService.queueNotification({ recipientAddress: publicKey, notificationType: "email", eventType: "tier_upgraded", jobId: null, payload: { newTier } }).catch(() => {});
+      await notificationService.queueNotification({ recipientAddress: publicKey, notificationType: "webhook", eventType: "tier_upgraded", jobId: null, payload: { newTier } }).catch(() => {});
+    } catch (err) {
+      // non-fatal
+    }
+  }
+
+  return newTier;
 }
 
 async function getClientSpendingAnalytics(publicKey) {
