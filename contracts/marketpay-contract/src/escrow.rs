@@ -300,6 +300,9 @@ pub(crate) fn apply_referral_bonus(
 }
 
 pub(crate) fn release_escrow_core(env: Env, job_id: String, mut escrow: Escrow) {
+    if escrow.status == EscrowStatus::Released || escrow.status == EscrowStatus::Refunded {
+        panic!("Escrow already settled");
+    }
     if escrow.status != EscrowStatus::InProgress && escrow.status != EscrowStatus::Locked {
         panic!("Cannot release escrow in current status");
     }
@@ -553,6 +556,9 @@ pub(crate) fn refund_escrow(env: Env, job_id: String, client: Address) {
 
     if escrow.client != client {
         panic!("Only the client can request a refund");
+    }
+    if escrow.status == EscrowStatus::Released || escrow.status == EscrowStatus::Refunded {
+        panic!("Escrow already settled");
     }
     if escrow.status != EscrowStatus::Locked {
         panic!("Can only refund before work has started");
