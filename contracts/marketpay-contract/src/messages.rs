@@ -1,7 +1,11 @@
 use soroban_sdk::{symbol_short, Address, Env, String};
 
+use crate::errors::ContractError;
 use crate::helpers::check_not_frozen;
 use crate::types::*;
+
+/// Maximum length in bytes of a message content stored in a ledger entry.
+const MAX_MESSAGE_LEN_BYTES: u32 = 1000;
 
 pub(crate) fn publish_message(
     env: Env,
@@ -16,6 +20,9 @@ pub(crate) fn publish_message(
     // Basic validation
     if ipfs_cid.is_empty() {
         panic!("IPFS CID cannot be empty");
+    }
+    if ipfs_cid.len() > MAX_MESSAGE_LEN_BYTES {
+        panic!("{}", ContractError::MessageTooLong.panic_message());
     }
 
     // Store CID in contract storage for on-chain verification
