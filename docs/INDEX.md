@@ -25,6 +25,7 @@ Welcome to Stellar MarketPay documentation. This index helps you find what you n
 - **[Deployment Guide](./deployment.md)** - How to deploy Stellar MarketPay
 - **[Data Archiving Strategy](./data-archiving.md)** - Archiving old completed jobs for database performance
 - **[Authentication Flow (SEP-10)](./auth-flow.md)** - Complete SEP-10 auth flow with sequence diagrams
+- **[Freelancer Onboarding Flow](./onboarding-flow.md)** - Multi-step freelancer onboarding walkthrough and UX architecture
 - **[Soroban Contract Deployment](./contract-deployment.md)** - Build, deploy, and configure the escrow contract
 - **[Smart Contract API Reference](./contract-api-reference.md)** - Complete function reference for the MarketPay Soroban contract
 - **[Environment Variables](./environment-variables.md)** - Single source of truth for runtime config
@@ -191,6 +192,31 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ---
 
+### Multi-Step Freelancer Onboarding Flow
+
+**Location**: `/dashboard` & Modal Wizard
+
+**Features**:
+
+- 5-step guided setup: Profile → Skills → Portfolio → Verification → Wallet
+- Resilient client-side checkpoint caching and database synchronization
+- Dynamic profile completeness score calculation (0–100%)
+- Interactive dashboard checklist and collapsible completeness widget with snooze support
+
+**Code**:
+
+- `frontend/components/Onboarding/OnboardingWizard.tsx` - Step wizard modal
+- `frontend/hooks/useOnboarding.tsx` - State management hook
+- `frontend/components/Onboarding/ProfileChecklist.tsx` - Dashboard checklist
+- `frontend/components/ProfileCompletenessWidget.tsx` - Completeness widget
+
+**Related**:
+
+- [Freelancer Onboarding Walkthrough](./onboarding-flow.md)
+- [Onboarding Components README](../frontend/components/Onboarding/README.md)
+
+---
+
 ## 📋 Implementation Guides
 
 ### Implementation Summary
@@ -205,8 +231,6 @@ Decisions that shaped Stellar MarketPay's architecture:
 - File structure
 - Next steps and roadmap
 - References and support
-
-
 
 ---
 
