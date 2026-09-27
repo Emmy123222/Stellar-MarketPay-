@@ -16,8 +16,9 @@
  *     "checks": {
  *       "db": "error",
  *       "redis": "ok" | "error",
- *       "stellar": "ok" | "error"
- *     }
+" *       "stellar": "ok" | "error"
+ *     },
+ *     "contractVersion": "1.2.0" | null
  *   }
  *
  * Full body (healthy):
@@ -26,8 +27,12 @@
  *     "checks": { "db": "ok", "redis": "ok", "stellar": "ok" },
  *     "uptime_seconds": 3600,
  *     "version": "1.0.0",
+ *     "contractVersion": "1.2.0",
  *     "migrationVersion": 21
  *   }
+ *
+ * `contractVersion` is the escrow contract's on-chain `get_version()` value,
+ * or null when it cannot be read. It does not affect the health status.
  */
 "use strict";
 
@@ -35,6 +40,7 @@ const express = require("express");
 const pool = require("../db/pool");
 const { getPoolStats } = require("../db/pool");
 const cacheService = require("../services/cacheService");
+const { getContractVersion } = require("../services/contractVersionService");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const router = express.Router();
@@ -154,6 +160,11 @@ async function checkHorizon() {
  *                     ledger: { type: number, example: 12345678 }
  *                 uptime_seconds: { type: number, example: 3600 }
  *                 version: { type: string, example: "1.0.0" }
+ *                 contractVersion:
+ *                   type: string
+ *                   nullable: true
+ *                   example: "1.2.0"
+ *                   description: Semver of the deployed escrow contract (get_version()), null if unreadable
  *                 migrationVersion:
  *                   type: integer
  *                   nullable: true
@@ -163,14 +174,15 @@ async function checkHorizon() {
  *         description: >
  *           One or more dependencies are down. When the database is
  *           unreachable, timed out, or throws, the body is a flattened
- *           degradation payload: { status: "degraded", checks: { db: "error", redis: "ok", stellar: "ok" } }
+ *           degradation payload: { status: "degraded", checks: { db: "error", redis: "ok", stellar: "ok" }, contractVersion }
  *           otherwise the full degraded body is returned.
  */
 router.get("/", healthRateLimiter, async (req, res) => {
-  const [postgres, redis, horizon] = await Promise.all([
+  const [postgres, redis, horizon, contractVersion] = await Promise.all([
     checkPostgres(),
     checkRedis(),
     checkHorizon(),
+    getContractVersion().catch(() => null),
   ]);
 
   const allUp = postgres === "up" && redis === "up" && horizon === "up";
@@ -184,6 +196,7 @@ router.get("/", healthRateLimiter, async (req, res) => {
     },
     uptime_seconds: Math.floor((Date.now() - SERVER_START) / 1000),
     version: VERSION,
+    contractVersion,
     indexer: req.app.locals.indexerService
       ? req.app.locals.indexerService.getHealth()
       : null,
@@ -194,7 +207,7 @@ router.get("/", healthRateLimiter, async (req, res) => {
   // unreachable, timed out, or throws, return 503 with an explicit
   // checks.db = "error" so every caller knows the DB is the failing probe.
   if (!allUp && body.checks.db === "error") {
-    res.status(503).json({ status: "degraded", checks: body.checks });
+    res.status(503).json({ status: "degraded", checks: body.checks, contractVersion });
     return;
   }
 
