@@ -160,8 +160,13 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   let activeTimezone = manualTimezone || (useGeolocation ? userTimezone : "");
   const category = (router.query.category as string) || "";
   const status = (router.query.status as string) || "open";
-  const minBudget = (router.query.minBudget as string) || "";
-  const maxBudget = (router.query.maxBudget as string) || "";
+  const minBudget = (router.query.minBudget as string) || (router.query.min_budget as string) || "";
+  const maxBudget = (router.query.maxBudget as string) || (router.query.max_budget as string) || "";
+  const skills = (router.query.skills as string) || "";
+  const minClientRating = (router.query.minClientRating as string) || (router.query.min_client_rating as string) || "";
+  const duration = (router.query.duration as string) || "";
+  const postedSince = (router.query.postedSince as string) || (router.query.posted_since as string) || "";
+  const maxApplications = (router.query.maxApplications as string) || (router.query.max_applications as string) || "";
 
   // Save current search filters as a saved search
   const handleSaveSearch = async () => {
@@ -172,6 +177,11 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     if (status && status !== "open") queryParams.status = status;
     if (minBudget) queryParams.minBudget = minBudget;
     if (maxBudget) queryParams.maxBudget = maxBudget;
+    if (skills) queryParams.skills = skills;
+    if (minClientRating) queryParams.minClientRating = minClientRating;
+    if (duration) queryParams.duration = duration;
+    if (postedSince) queryParams.postedSince = postedSince;
+    if (maxApplications) queryParams.maxApplications = maxApplications;
     if (activeTimezone) queryParams.timezone = activeTimezone;
 
     if (Object.keys(queryParams).length === 0) {
@@ -209,7 +219,17 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   };
 
   const hasActiveFilters = Boolean(
-    search.trim() || category || (status && status !== "open") || minBudget || maxBudget || activeTimezone
+    search.trim() ||
+      category ||
+      (status && status !== "open") ||
+      minBudget ||
+      maxBudget ||
+      skills ||
+      minClientRating ||
+      duration ||
+      postedSince ||
+      maxApplications ||
+      activeTimezone
   );
 
   useEffect(() => {
@@ -256,14 +276,27 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   const pageFromQuery = Math.max(1, Number(router.query.page) || 1);
   const filterQuery: JobFilterQuery = useMemo(() => ({
     search: (router.query.search as string) || undefined,
+    category: category || undefined,
+    status: status && status !== "open" ? status : undefined,
     minBudget: minBudget || undefined,
     maxBudget: maxBudget || undefined,
-    skills: (router.query.skills as string) || undefined,
-    minClientRating: (router.query.minClientRating as string) || undefined,
-    duration: (router.query.duration as string) || undefined,
-    postedSince: (router.query.postedSince as string) || undefined,
-    maxApplications: (router.query.maxApplications as string) || undefined,
-  }), [router.query.search, router.query.skills, router.query.minClientRating, router.query.duration, router.query.postedSince, router.query.maxApplications, minBudget, maxBudget]);
+    skills: skills || undefined,
+    minClientRating: minClientRating || undefined,
+    duration: duration || undefined,
+    postedSince: postedSince || undefined,
+    maxApplications: maxApplications || undefined,
+  }), [
+    router.query.search,
+    category,
+    status,
+    minBudget,
+    maxBudget,
+    skills,
+    minClientRating,
+    duration,
+    postedSince,
+    maxApplications,
+  ]);
 
   const updateFilters = (
     patch: Partial<JobFilterQuery>,
@@ -272,9 +305,21 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     const next: Record<string, any> = { ...router.query, ...patch, page: undefined };
     for (const key of removeKeys || []) {
       delete next[key];
+      if (key === "minBudget") delete next["min_budget"];
+      if (key === "maxBudget") delete next["max_budget"];
+      if (key === "minClientRating") delete next["min_client_rating"];
+      if (key === "postedSince") delete next["posted_since"];
+      if (key === "maxApplications") delete next["max_applications"];
     }
     for (const [k, v] of Object.entries(patch)) {
-      if (v === undefined || v === "") delete next[k];
+      if (v === undefined || v === "") {
+        delete next[k];
+        if (k === "minBudget") delete next["min_budget"];
+        if (k === "maxBudget") delete next["max_budget"];
+        if (k === "minClientRating") delete next["min_client_rating"];
+        if (k === "postedSince") delete next["posted_since"];
+        if (k === "maxApplications") delete next["max_applications"];
+      }
     }
     router.push({ pathname: "/jobs", query: next }, undefined, { shallow: true });
   };
@@ -529,11 +574,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
     : searchFiltered;
 
   const setFilter = (key: string, val: string) => {
-    router.push(
-      { pathname: "/jobs", query: { ...router.query, [key]: val || undefined, page: undefined } },
-      undefined,
-      { shallow: true }
-    );
+    updateFilters({ [key]: val || undefined }, val ? undefined : [key]);
   };
 
   const handleLoadMore = useCallback(async () => {
@@ -696,10 +737,10 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
   }, [focusedIndex, filtered, focusedJobId]);
 
   const setBudgetRange = (min: string, max: string) => {
-    router.push({
-      pathname: "/jobs",
-      query: { ...router.query, minBudget: min || undefined, maxBudget: max || undefined }
-    }, undefined, { shallow: true });
+    updateFilters(
+      { minBudget: min || undefined, maxBudget: max || undefined },
+      [!min ? "minBudget" : "", !max ? "maxBudget" : ""].filter(Boolean)
+    );
   };
 
   const groupedSuggestions = suggestions.reduce((acc, s) => {
@@ -836,7 +877,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
         </svg>
         Filters
-        {(category || status !== "open" || minBudget || maxBudget || activeTimezone) && (
+        {(category || (status && status !== "open") || minBudget || maxBudget || skills || minClientRating || duration || postedSince || maxApplications || activeTimezone) && (
           <span className="w-2 h-2 rounded-full bg-market-400" />
         )}
       </button>
@@ -1174,6 +1215,10 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
 
         {/* Job grid */}
         <div className="flex-1">
+          <ActiveFilterChips
+            query={filterQuery}
+            onRemove={(removeKeys) => updateFilters({}, removeKeys)}
+          />
           {loading ? (
             <div className="grid sm:grid-cols-2 gap-4">
               {Array.from({ length: 6 }).map((_, i) => (

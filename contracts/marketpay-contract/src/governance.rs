@@ -11,7 +11,7 @@ pub(crate) fn create_proposal(
     duration_ledgers: u32,
 ) -> u32 {
     proposer.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &title);
 
     if duration_ledgers == 0 {
         panic!("Duration must be positive");
@@ -57,7 +57,7 @@ pub(crate) fn create_proposal(
 
 pub(crate) fn cast_vote(env: Env, voter: Address, proposal_id: u32, approve: bool) {
     voter.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, proposal_id);
 
     let mut proposal: Proposal = env
         .storage()
@@ -108,7 +108,7 @@ pub(crate) fn cast_vote(env: Env, voter: Address, proposal_id: u32, approve: boo
 }
 
 pub(crate) fn resolve_proposal(env: Env, proposal_id: u32) {
-    check_not_frozen(&env);
+    check_not_frozen(&env, proposal_id);
 
     let mut proposal: Proposal = env
         .storage()
@@ -216,7 +216,7 @@ pub(crate) fn propose_quorum_change(
 
 pub(crate) fn set_quorum(env: Env, admin: Address, proposal_id: u32, new_threshold_bps: u32) {
     admin.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, proposal_id);
 
     let stored_admin: Address = env
         .storage()
