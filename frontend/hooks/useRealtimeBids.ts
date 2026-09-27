@@ -42,6 +42,8 @@ interface UseRealtimeBidsResult {
   optimisticAccept: (applicationId: string) => void;
   /** Optimistically mark an application as rejected */
   optimisticReject: (applicationId: string) => void;
+  /** Optimistically update status for multiple applications */
+  optimisticBulkUpdate: (applicationIds: string[], status: "rejected" | "shortlisted") => void;
   /** Ref to the newest card so the "scroll to new" button works */
   newestCardRef: React.MutableRefObject<HTMLDivElement | null>;
 }
@@ -174,6 +176,13 @@ export function useRealtimeBids({
               a.id === payload.applicationId ? { ...a, status: "accepted" as const } : a,
             ),
           );
+        } else if (payload.type === "applications:bulk_update") {
+          const ids = new Set(payload.applicationIds as string[]);
+          setApplications((prev) =>
+            prev.map((a) =>
+              ids.has(a.id) ? { ...a, status: payload.status as Application["status"] } : a,
+            ),
+          );
         }
       } catch {
         // malformed frame — ignore
@@ -245,6 +254,13 @@ export function useRealtimeBids({
     );
   }, []);
 
+  const optimisticBulkUpdate = useCallback((applicationIds: string[], status: "rejected" | "shortlisted") => {
+    const ids = new Set(applicationIds);
+    setApplications((prev) =>
+      prev.map((a) => (ids.has(a.id) ? { ...a, status } : a)),
+    );
+  }, []);
+
   const resetNewProposalsCount = useCallback(() => setNewProposalsCount(0), []);
 
   return {
@@ -256,6 +272,7 @@ export function useRealtimeBids({
     resetNewProposalsCount,
     optimisticAccept,
     optimisticReject,
+    optimisticBulkUpdate,
     newestCardRef,
   };
 }
