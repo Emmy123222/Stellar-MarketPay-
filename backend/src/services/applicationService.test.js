@@ -36,7 +36,7 @@ const {
   closeBiddingForJob,
   revealApplicationBid,
 } = applicationService;
-const { createJob } = require("./jobService");
+const { createJob, extendBiddingClose } = require("./jobService");
 
 describe("applicationService", () => {
   const validClientAddress =

@@ -216,9 +216,8 @@ describe("recurringEscrowService", () => {
         constructor(date) {
           if (date) {
             super(date);
-          } else {
-            super(mockDate);
           }
+          super(mockDate);
         }
       };
       global.Date.now = () => mockDate.getTime();
