@@ -399,6 +399,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
       try {
         let cursor: string | undefined;
         let loadedNextCursor: string | null = null;
+        let loadedTotal: number | null = null;
         let pagesLoaded = 0;
         let allJobs: Job[] = [];
 
@@ -433,6 +434,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
           const uniqueNewJobs = result.jobs.filter((job) => !seenIds.has(job.id));
           allJobs = allJobs.concat(uniqueNewJobs);
           loadedNextCursor = result.nextCursor;
+          loadedTotal = result.total ?? null;
           pagesLoaded = page;
 
           if (!result.nextCursor) break;
@@ -441,7 +443,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
 
         if (!isCancelled) {
           setJobs(allJobs);
-          setTotalJobs(result.total ?? null);
+          setTotalJobs(loadedTotal);
           setNextCursorTracked(loadedNextCursor);
           setCurrentPage(pagesLoaded);
         }
@@ -1286,7 +1288,7 @@ export default function JobsPage({ publicKey }: { publicKey?: string | null }) {
               </div>
 
               {loadingMore && (
-                <div className="mt-8 grid sm:grid-cols-2 gap-4" aria-live="polite" aria-label="Loading more jobs">
+                <div className="mt-8 grid sm:grid-cols-2 gap-4" role="status" aria-live="polite" aria-label="Loading more jobs">
                   {Array.from({ length: 2 }).map((_, i) => (
                     <JobCardSkeleton key={`more-job-skeleton-${i}`} />
                   ))}
