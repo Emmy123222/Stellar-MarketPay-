@@ -976,6 +976,51 @@ router.get(
   },
 );
 
+// POST /api/jobs/batch — unified batch endpoint for bulk operations (#869)
+router.post(
+  "/batch",
+  verifyJWT,
+  jobCreationRateLimiter,
+  async (req, res, next) => {
+    try {
+      const { action, ids } = req.body;
+      
+      // Validate input
+      if (!action || !["close", "delete"].includes(action)) {
+        return res.status(400).json({ 
+          success: false,
+          error: "action must be 'close' or 'delete'" 
+        });
+      }
+      
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ 
+          success: false,
+          error: "ids must be a non-empty array" 
+        });
+      }
+      
+      if (ids.length > 50) {
+        return res.status(400).json({ 
+          success: false,
+          error: "Maximum 50 IDs per batch request" 
+        });
+      }
+
+      const { batchJobOperation } = require("../services/jobService");
+      const result = await batchJobOperation(action, ids, req.user.publicKey);
+      
+      res.json({
+        success: true,
+        succeeded: result.succeeded,
+        failed: result.failed,
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 // POST /api/jobs/bulk-cancel — cancel multiple open jobs at once
 router.post(
   "/bulk-cancel",

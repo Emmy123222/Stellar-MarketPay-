@@ -1366,6 +1366,103 @@ async function bulkBoostJobs(jobIds, clientAddress, txHash) {
 }
 
 /**
+ * Unified batch operation endpoint (Issue #869).
+ * Processes multiple job operations in a single DB transaction.
+ * Supports 'close' (cancel) and 'delete' actions.
+ * 
+ * @param {('close'|'delete')} action - The batch action to perform
+ * @param {string[]} ids - Array of job IDs (max 50)
+ * @param {string} userPublicKey - Public key of the authenticated user
+ * @returns {Promise<{succeeded: Array<{id: string}>, failed: Array<{id: string, error: string}>}>}
+ */
+async function batchJobOperation(action, ids, userPublicKey) {
+  if (ids.length > 50) {
+    throw new Error("Maximum 50 IDs per batch request");
+  }
+
+  const succeeded = [];
+  const failed = [];
+  
+  const client = await pool.connect();
+  
+  try {
+    await client.query("BEGIN");
+    
+    for (const id of ids) {
+      try {
+        // Verify ownership
+        const { rows: ownerRows } = await client.query(
+          "SELECT id, client_address, status FROM jobs WHERE id = $1 AND deleted_at IS NULL",
+          [id]
+        );
+        
+        if (ownerRows.length === 0) {
+          failed.push({ id, error: "Job not found" });
+          continue;
+        }
+        
+        const job = ownerRows[0];
+        
+        if (job.client_address !== userPublicKey) {
+          failed.push({ id, error: "Unauthorized: you don't own this job" });
+          continue;
+        }
+        
+        if (action === "close") {
+          // Can only close jobs that are 'open'
+          if (job.status !== "open") {
+            failed.push({ id, error: `Cannot close job with status '${job.status}'` });
+            continue;
+          }
+          
+          await client.query(
+            "UPDATE jobs SET status = 'cancelled', updated_at = NOW() WHERE id = $1",
+            [id]
+          );
+          succeeded.push({ id });
+          
+        } else if (action === "delete") {
+          // Can only delete jobs without escrow or applications
+          const { rows: appRows } = await client.query(
+            "SELECT COUNT(*) as count FROM applications WHERE job_id = $1",
+            [id]
+          );
+          
+          if (parseInt(appRows[0].count, 10) > 0) {
+            failed.push({ id, error: "Cannot delete job with applications" });
+            continue;
+          }
+          
+          if (job.status === "in_progress" || job.status === "completed") {
+            failed.push({ id, error: "Cannot delete job that is in progress or completed" });
+            continue;
+          }
+          
+          await client.query(
+            "UPDATE jobs SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1",
+            [id]
+          );
+          succeeded.push({ id });
+        }
+        
+      } catch (err) {
+        failed.push({ id, error: err.message || "Operation failed" });
+      }
+    }
+    
+    await client.query("COMMIT");
+    
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+  
+  return { succeeded, failed };
+}
+
+/**
  * Get recommended jobs for a freelancer based on their skills.
  * Excludes jobs the freelancer has already applied to, been accepted for, or rejected from.
  * @param {string} publicKey
@@ -1609,6 +1706,7 @@ module.exports = {
   bulkCancelJobs,
   bulkExtendJobs,
   bulkBoostJobs,
+  batchJobOperation,
   getRecommendedJobs,
   getSuggestions,
   rowToJob,
