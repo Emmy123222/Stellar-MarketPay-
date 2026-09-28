@@ -1072,6 +1072,7 @@ router.post(
       next(e);
     }
   },
+);
 // GET /api/jobs/analytics/categories — stats per category
 router.get("/analytics/categories", generalJobRateLimiter, async (req, res, next) => {
   try {
