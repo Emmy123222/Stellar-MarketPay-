@@ -96,6 +96,8 @@ pub enum ContractError {
     OnlyClientCanTimeoutRefund = 2012,
     /// "Timeout period has not expired yet"
     TimeoutNotExpired = 2013,
+    /// "Escrow already settled; deliverable hash cannot be updated"
+    EscrowAlreadySettled = 2014,
 
     // ── 3xxx: Milestones ──────────────────────────────────────────────────
     /// "Maximum 5 milestones allowed"
@@ -212,6 +214,8 @@ pub enum ContractError {
     NoDeliverableHash = 8002,
     /// "IPFS CID cannot be empty"
     IpfsCidEmpty = 8003,
+    /// "Message too long"
+    MessageTooLong = 8004,
 
     // ── 9xxx: Job boost & extensions ──────────────────────────────────────
     /// "Minimum boost is 5 XLM"
@@ -285,6 +289,9 @@ impl ContractError {
             Self::CanOnlyRefundLocked => "Can only refund before work has started",
             Self::OnlyClientCanTimeoutRefund => "Only the client can request a timeout refund",
             Self::TimeoutNotExpired => "Timeout period has not expired yet",
+            Self::EscrowAlreadySettled => {
+                "Escrow already settled; deliverable hash cannot be updated"
+            }
             // 3xxx
             Self::MaxMilestones => "Maximum 5 milestones allowed",
             Self::MilestonePercentagePositive => "Milestone percentage must be positive",
@@ -347,6 +354,7 @@ impl ContractError {
             Self::OnlyFreelancerOrOracle => "Only freelancer or oracle can submit deliverable",
             Self::NoDeliverableHash => "Escrow has no deliverable hash",
             Self::IpfsCidEmpty => "IPFS CID cannot be empty",
+            Self::MessageTooLong => "Message too long",
             // 9xxx
             Self::MinimumBoost5Xlm => "Minimum boost is 5 XLM",
             Self::BoostAmountPositive => "Boost amount must be positive",
@@ -498,6 +506,7 @@ pub fn error_code_from_panic(msg: &str) -> Option<u32> {
         "Only freelancer or oracle can submit deliverable" => Some(8001),
         "Escrow has no deliverable hash" => Some(8002),
         "IPFS CID cannot be empty" => Some(8003),
+        "Message too long" => Some(8004),
         // 9xxx
         "Minimum boost is 5 XLM" => Some(9001),
         "Boost amount must be positive" => Some(9002),
@@ -544,6 +553,14 @@ mod tests {
         let msg = err.panic_message();
         let parsed = error_code_from_panic(msg);
         assert_eq!(parsed, Some(err.code()));
+    }
+
+    #[test]
+    fn message_too_long_round_trips() {
+        let err = ContractError::MessageTooLong;
+        let msg = err.panic_message();
+        assert_eq!(msg, "Message too long");
+        assert_eq!(error_code_from_panic(msg), Some(8004));
     }
 
     #[test]
