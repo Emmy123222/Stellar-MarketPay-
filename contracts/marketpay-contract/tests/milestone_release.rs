@@ -2,7 +2,7 @@
 //!
 //! Exercises `release_milestone` / `reject_milestone` edge cases:
 //!   - releasing the same milestone twice
-//!   - releasing milestones out of order
+//!   - rejecting milestone releases out of order
 //!   - milestone percentages that do not sum to 100
 //!   - releasing / rejecting a milestone that was already rejected
 //!   - rejecting the same milestone twice
@@ -109,7 +109,8 @@ mod tests {
     }
 
     #[test]
-    fn test_releasing_milestones_out_of_order_is_safe() {
+    #[should_panic(expected = "Previous milestone not approved")]
+    fn test_releasing_milestones_out_of_order_panics() {
         let env = Env::default();
         let (contract, _admin, client, freelancer, token_id) = setup(&env, 1_000);
         let job_id = String::from_str(&env, "ms-out-of-order");
@@ -126,26 +127,8 @@ mod tests {
         );
         contract.start_work(&job_id, &freelancer);
 
-        // Release the 60 % milestone before the 40 % one — order must not matter.
+        // Milestone 2 cannot be released while milestone 1 is pending.
         contract.release_milestone(&job_id, &1u32, &client);
-        let escrow = contract.get_escrow(&job_id);
-        assert_eq!(escrow.status, EscrowStatus::InProgress);
-        assert!(!escrow.milestones.get(0).unwrap().released);
-        assert!(escrow.milestones.get(1).unwrap().released);
-
-        // 60 % of 1000 = 600; fee = 600 * 1 % = 6 → freelancer gets 594.
-        let token_client = token::Client::new(&env, &token_id);
-        assert_eq!(token_client.balance(&freelancer), 594);
-
-        contract.release_milestone(&job_id, &0u32, &client);
-        let escrow = contract.get_escrow(&job_id);
-        assert_eq!(escrow.status, EscrowStatus::Released);
-        assert!(escrow.milestones.get(0).unwrap().released);
-        assert!(escrow.milestones.get(1).unwrap().released);
-
-        // 40 % of 1000 = 400; fee = 400 * 1 % = 4 → freelancer gets 396.
-        // Total paid out = 594 + 396 = 990 (10 kept as platform fees).
-        assert_eq!(token_client.balance(&freelancer), 990);
     }
 
     #[test]

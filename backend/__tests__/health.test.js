@@ -98,9 +98,11 @@ describe("GET /health", () => {
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({
         status: "healthy",
-        database: "up",
-        redis: "up",
-        stellar: "up",
+        checks: {
+          db: "ok",
+          redis: "ok",
+          stellar: "ok",
+        },
       });
       expect(res.body).toHaveProperty("uptime_seconds");
       expect(res.body).toHaveProperty("version");
@@ -121,10 +123,15 @@ describe("GET /health", () => {
       expect(res.status).toBe(503);
       expect(res.body).toMatchObject({
         status: "degraded",
-        database: "down",
-        redis: "up",
-        stellar: "up",
+        checks: {
+          db: "error",
+          redis: "ok",
+          stellar: "ok",
+        },
       });
+      expect(res.body).not.toHaveProperty("database");
+      expect(res.body).not.toHaveProperty("redis");
+      expect(res.body).not.toHaveProperty("stellar");
     });
   });
 
@@ -135,16 +142,18 @@ describe("GET /health", () => {
       mockHorizonUp();
     });
 
-    it("returns 503 with status degraded and redis down", async () => {
+    it("returns 503 with status degraded and redis down (db still ok)", async () => {
       const app = createApp();
       const res = await request(app).get("/api/health");
 
       expect(res.status).toBe(503);
       expect(res.body).toMatchObject({
         status: "degraded",
-        database: "up",
-        redis: "down",
-        stellar: "up",
+        checks: {
+          db: "ok",
+          redis: "error",
+          stellar: "ok",
+        },
       });
     });
   });
@@ -156,16 +165,18 @@ describe("GET /health", () => {
       mockHorizonDown();
     });
 
-    it("returns 503 with status degraded and stellar down", async () => {
+    it("returns 503 with status degraded and stellar down (db still ok)", async () => {
       const app = createApp();
       const res = await request(app).get("/api/health");
 
       expect(res.status).toBe(503);
       expect(res.body).toMatchObject({
         status: "degraded",
-        database: "up",
-        redis: "up",
-        stellar: "down",
+        checks: {
+          db: "ok",
+          redis: "ok",
+          stellar: "error",
+        },
       });
     });
   });
@@ -184,9 +195,11 @@ describe("GET /health", () => {
       expect(res.status).toBe(503);
       expect(res.body).toMatchObject({
         status: "degraded",
-        database: "down",
-        redis: "down",
-        stellar: "up",
+        checks: {
+          db: "error",
+          redis: "error",
+          stellar: "ok",
+        },
       });
     });
   });

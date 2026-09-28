@@ -467,10 +467,16 @@ CREATE TABLE IF NOT EXISTS dispute_evidence (
   file_size        INTEGER NOT NULL,
   mime_type        TEXT  NOT NULL,
   ipfs_cid         TEXT  NOT NULL,
+  pinned           BOOLEAN NOT NULL DEFAULT FALSE,  -- Issue #1439: pin confirmed after upload
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS dispute_evidence_job_id_idx ON dispute_evidence(job_id);
+
+-- Issue #1439: surface not-yet-confirmed pins first for reconciliation jobs.
+CREATE INDEX IF NOT EXISTS dispute_evidence_unpinned_idx
+  ON dispute_evidence(created_at DESC)
+  WHERE pinned = FALSE;
 
 -- ─────────────────────────────────────────
 -- time_entries  (Issue #346 — time tracking)
@@ -723,3 +729,27 @@ WITH DATA;
 
 CREATE UNIQUE INDEX IF NOT EXISTS platform_stats_mv_singleton_idx
   ON platform_stats_mv ((1));
+
+-- refresh_tokens  (V58 — Issue #1398)
+-- Hashed refresh tokens; rotated on every use, used_at marks consumed tokens
+-- so replays can be detected. family_id groups all tokens from one login.
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id          BIGSERIAL PRIMARY KEY,
+  token_hash  TEXT        NOT NULL UNIQUE,
+  family_id   UUID        NOT NULL,
+  public_key  TEXT        NOT NULL,
+  payload     JSONB       NOT NULL,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used_at     TIMESTAMPTZ,
+  revoked_at  TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family_id
+  ON refresh_tokens (family_id);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_public_key
+  ON refresh_tokens (public_key);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at
+  ON refresh_tokens (expires_at);

@@ -127,12 +127,17 @@ async function uploadEvidence(jobId, uploaderAddress, fileBuffer, fileName, mime
   const ipfsResult = await ipfsService.uploadFile(fileBuffer, fileName, mimeType);
   const ipfsCid = validateIpfsCid(ipfsResult?.cid);
 
+  // Issue #1439 — AC #3: persist whether the pin was confirmed. uploadFile
+  // performs the verification (with retries) and reports it as `pinned`;
+  // anything other than an explicit true is recorded as false.
+  const pinned = ipfsResult?.pinned === true;
+
   const { rows } = await pool.query(
     `INSERT INTO dispute_evidence
-       (job_id, uploader_address, file_name, file_size, mime_type, ipfs_cid)
-     VALUES ($1, $2, $3, $4, $5, $6)
+       (job_id, uploader_address, file_name, file_size, mime_type, ipfs_cid, pinned)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING *`,
-    [jobId, uploaderAddress, fileName, fileBuffer.length, mimeType, ipfsCid],
+    [jobId, uploaderAddress, fileName, fileBuffer.length, mimeType, ipfsCid, pinned],
   );
 
   const ev = rows[0];
@@ -157,6 +162,7 @@ async function uploadEvidence(jobId, uploaderAddress, fileBuffer, fileName, mime
       fileSize: ev.file_size,
       mimeType: ev.mime_type,
       ipfsCid: ev.ipfs_cid,
+      pinned: ev.pinned === true,
       gatewayUrl: ipfsService.getGatewayUrl(ev.ipfs_cid),
       createdAt: ev.created_at,
       // AC #4 surface — frontend signs the returned XDR and POSTs the tx
@@ -254,7 +260,7 @@ async function getDispute(jobId) {
   }
 
   const { rows: evidence } = await pool.query(
-    `SELECT id, uploader_address, file_name, file_size, mime_type, ipfs_cid, created_at
+    `SELECT id, uploader_address, file_name, file_size, mime_type, ipfs_cid, pinned, created_at
      FROM dispute_evidence
      WHERE job_id = $1
      ORDER BY created_at ASC`,
@@ -272,6 +278,7 @@ async function getDispute(jobId) {
         fileSize: ev.file_size,
         mimeType: ev.mime_type,
         ipfsCid: ev.ipfs_cid,
+        pinned: ev.pinned === true,
         gatewayUrl: ipfsService.getGatewayUrl(ev.ipfs_cid),
         createdAt: ev.created_at,
       })),

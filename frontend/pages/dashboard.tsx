@@ -37,6 +37,7 @@ import PriceAlertsTab from "@/components/dashboard-tabs/PriceAlertsTab";
 import WithdrawalsTab from "@/components/dashboard-tabs/WithdrawalsTab";
 import SavedSearchesTab from "@/components/dashboard-tabs/SavedSearchesTab";
 import AnalyticsTab from "@/components/dashboard-tabs/AnalyticsTab";
+import SwapEarningsTab from "@/components/dashboard-tabs/SwapEarningsTab";
 import ProposalComparison from "@/components/ProposalComparison";
 import TalentPoolTab from "@/components/dashboard-tabs/TalentPoolTab";
 import { usePriceContext } from "@/contexts/PriceContext";
@@ -69,7 +70,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "proposals" | "invitations" | "analytics" | "earnings" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals" | "talent_pool";
+type Tab = "posted" | "applied" | "proposals" | "invitations" | "analytics" | "earnings" | "swap" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals" | "talent_pool";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 async function fetchBalances(
@@ -599,6 +600,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
       />
     ),
     earnings: <EarningsChart publicKey={publicKey} />,
+    swap: (
+      <SwapEarningsTab
+        publicKey={publicKey}
+        xlmBalance={balance}
+        usdcBalance={usdcBalance}
+        onSwapComplete={refreshBalances}
+      />
+    ),
     spending: (
       <ClientSpendingTab
         analytics={spendingAnalytics}
@@ -844,6 +853,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           "invitations",
           "analytics",
           "earnings",
+          "swap",
           ...(canViewSpending ? (["spending"] as Tab[]) : []),
           "send",
           "edit_profile",
@@ -860,6 +870,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           t === "invitations" ? `Invitations${myInvitations.length > 0 ? ` (${myInvitations.length})` : ""}` :
           t === "analytics" ? "Job Analytics" :
           t === "earnings" ? "Earnings" :
+          t === "swap" ? "Swap earnings" :
           t === "spending" ? "Spending" :
           t === "send" ? "Send" :
           t === "templates" ? "Templates" :

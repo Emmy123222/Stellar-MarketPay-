@@ -340,6 +340,36 @@ impl MarketPayContract {
         governance::list_active_proposals(env)
     }
 
+    /// Open a proposal to change the quorum threshold (meta-governance).
+    pub fn propose_quorum_change(
+        env: Env,
+        proposer: Address,
+        new_threshold_bps: u32,
+        description: String,
+        duration_ledgers: u32,
+    ) -> u32 {
+        governance::propose_quorum_change(
+            env,
+            proposer,
+            new_threshold_bps,
+            description,
+            duration_ledgers,
+        )
+    }
+
+    /// Apply a quorum change approved by a passed `propose_quorum_change` proposal.
+    pub fn set_quorum(env: Env, admin: Address, proposal_id: u32, new_threshold_bps: u32) {
+        governance::set_quorum(env, admin, proposal_id, new_threshold_bps)
+    }
+
+    pub fn get_quorum_threshold_bps(env: Env) -> u32 {
+        governance::get_quorum_threshold_bps(env)
+    }
+
+    pub fn get_eligible_voter_count(env: Env) -> u32 {
+        governance::get_eligible_voter_count(env)
+    }
+
     // ─── Disputes ──────────────────────────────────────────────────────────
 
     /// Raise a dispute — requires admin resolution.
@@ -347,15 +377,23 @@ impl MarketPayContract {
         disputes::raise_dispute(env, job_id, caller)
     }
 
-    /// Resolve a disputed escrow with a split-percentage payout.
+    /// Resolve a disputed escrow with an arbitrator fee deduction and split-percentage payout.
     pub fn resolve_dispute(
         env: Env,
         job_id: String,
         arbitrator: Address,
         winner: Address,
         split_percentage: u32,
+        arbitrator_fee_bps: u32,
     ) {
-        disputes::resolve_dispute(env, job_id, arbitrator, winner, split_percentage)
+        disputes::resolve_dispute(
+            env,
+            job_id,
+            arbitrator,
+            winner,
+            split_percentage,
+            arbitrator_fee_bps,
+        )
     }
 
     /// Admin sets the global dispute bond configuration.
