@@ -10,7 +10,7 @@ use crate::types::*;
 /// Can be called even if the escrow is Disputed, to release completed work.
 pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, client: Address) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -79,7 +79,7 @@ pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, cli
         .expect("Arithmetic overflow")
         .checked_div(10_000)
         .expect("Arithmetic overflow");
-    let to_freelancer = payout.checked_sub(fee_amount).expect("Arithmetic overflow");
+    let after_fee = payout.checked_sub(fee_amount).expect("Arithmetic overflow");
 
     if fee_amount > 0 {
         token_client.transfer(&env.current_contract_address(), &treasury, &fee_amount);
@@ -88,6 +88,10 @@ pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, cli
             (treasury.clone(), fee_amount),
         );
     }
+
+    // Referral bonus is honoured on partial milestone releases too (Issue #1379).
+    let (to_freelancer, _referral_amount) =
+        crate::escrow::apply_referral_bonus(&env, &job_id, &escrow, after_fee);
 
     // Transfer remaining funds to freelancer
     token_client.transfer(
@@ -138,7 +142,7 @@ pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, cli
 /// (the index assigned at creation time).
 pub(crate) fn reject_milestone(env: Env, job_id: String, milestone_index: u32, client: Address) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()

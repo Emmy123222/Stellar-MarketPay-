@@ -5,10 +5,11 @@ use crate::types::*;
 /// Initialize the contract. Sets the admin and default configuration.
 ///
 /// This can only be called once. Attempting to re-initialize will panic.
-pub(crate) fn initialize(env: Env, admin: Address, treasury_address: Address) {
+pub(crate) fn initialize(env: Env, admin: Address, treasury_address: Address, version: String) {
     if env.storage().instance().has(&DataKey::Admin) {
         panic!("Already initialized");
     }
+    assert_semver(&version);
     env.storage().instance().set(&DataKey::Admin, &admin);
     env.storage()
         .instance()
@@ -21,6 +22,9 @@ pub(crate) fn initialize(env: Env, admin: Address, treasury_address: Address) {
         .instance()
         .set(&DataKey::DefaultTimeoutSeconds, &DEFAULT_TIMEOUT_SECONDS);
     env.storage().instance().set(&DataKey::Version, &1u32);
+    env.storage()
+        .instance()
+        .set(&DataKey::ContractVersion, &version);
 
     let mut admins: Vec<Address> = Vec::new(&env);
     admins.push_back(admin);
@@ -37,15 +41,18 @@ pub(crate) fn initialize(env: Env, admin: Address, treasury_address: Address) {
 ///
 /// `new_wasm_hash` is the 32-byte hash of the new WASM blob already
 /// uploaded to the network via `stellar contract install`.
+/// `new_version` is the semver string of the new WASM, reported afterwards
+/// by `get_version()`.
 /// All existing storage (escrows, proposals, ratings, …) is preserved
 /// because Soroban upgrades only replace the executable, not the state.
-pub(crate) fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+pub(crate) fn upgrade(env: Env, new_wasm_hash: BytesN<32>, new_version: String) {
     let admin: Address = env
         .storage()
         .instance()
         .get(&DataKey::Admin)
         .expect("Not initialized");
     admin.require_auth();
+    assert_semver(&new_version);
 
     env.deployer().update_current_contract_wasm(new_wasm_hash);
 
@@ -54,14 +61,62 @@ pub(crate) fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
     env.storage()
         .instance()
         .set(&DataKey::Version, &(version + 1));
+    env.storage()
+        .instance()
+        .set(&DataKey::ContractVersion, &new_version);
 
-    env.events()
-        .publish((symbol_short!("upgraded"), admin), version + 1);
+    env.events().publish(
+        (symbol_short!("upgraded"), admin),
+        (version + 1, new_version),
+    );
 }
 
-/// Return the current contract version (starts at 1, increments on each upgrade).
-pub(crate) fn get_version(env: Env) -> u32 {
+/// Return the semver string (e.g. "1.2.0") of the deployed contract, as set
+/// by `initialize()` and updated by `upgrade()`.
+pub(crate) fn get_version(env: Env) -> String {
+    env.storage()
+        .instance()
+        .get(&DataKey::ContractVersion)
+        .expect("Not initialized")
+}
+
+/// Return how many times the contract WASM has been upgraded, plus one
+/// (starts at 1, increments on each upgrade).
+pub(crate) fn get_upgrade_count(env: Env) -> u32 {
     env.storage().instance().get(&DataKey::Version).unwrap_or(1)
+}
+
+/// Longest accepted version string, e.g. "65535.65535.65535" fits easily.
+const MAX_VERSION_LEN: usize = 32;
+
+/// Panic with "Invalid version" unless `version` is `MAJOR.MINOR.PATCH`
+/// with each part a non-empty run of ASCII digits.
+fn assert_semver(version: &String) {
+    let len = version.len() as usize;
+    if len == 0 || len > MAX_VERSION_LEN {
+        panic!("Invalid version");
+    }
+    let mut buf = [0u8; MAX_VERSION_LEN];
+    version.copy_into_slice(&mut buf[..len]);
+
+    let mut dots = 0;
+    let mut part_len = 0;
+    for &b in &buf[..len] {
+        if b == b'.' {
+            if part_len == 0 {
+                panic!("Invalid version");
+            }
+            dots += 1;
+            part_len = 0;
+        } else if b.is_ascii_digit() {
+            part_len += 1;
+        } else {
+            panic!("Invalid version");
+        }
+    }
+    if dots != 2 || part_len == 0 {
+        panic!("Invalid version");
+    }
 }
 
 // ─── Getters ─────────────────────────────────────────────────────────────

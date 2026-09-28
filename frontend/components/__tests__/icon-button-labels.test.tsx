@@ -4,6 +4,16 @@ import ShareJobModal from "../ShareJobModal";
 import BudgetEscrowStep from "../post-job-steps/BudgetEscrowStep";
 import RequirementsStep from "../post-job-steps/RequirementsStep";
 
+jest.mock("@/contexts/PriceContext", () => ({
+  usePriceContext: () => ({
+    xlmPriceUsd: 0.12,
+    priceLoading: false,
+    currencyMode: "XLM",
+    setCurrencyMode: jest.fn(),
+  }),
+  PriceProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 describe("icon-only buttons have accessible names", () => {
   it("labels the boost modal close button", () => {
     render(
