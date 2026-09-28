@@ -41,6 +41,7 @@ const pool = require("../db/pool");
 const { getPoolStats } = require("../db/pool");
 const cacheService = require("../services/cacheService");
 const { getServer: getSorobanServer } = require("../services/sorobanClient");
+const { getContractVersion } = require("../services/contractVersionService");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const router = express.Router();
@@ -196,11 +197,12 @@ async function checkSoroban() {
  *           otherwise the full degraded body is returned.
  */
 router.get("/", healthRateLimiter, async (req, res) => {
-  const [postgres, redis, horizon, soroban] = await Promise.all([
+  const [postgres, redis, horizon, soroban, contractVersion] = await Promise.all([
     checkPostgres(),
     checkRedis(),
     checkHorizon(),
     checkSoroban(),
+    getContractVersion().catch(() => null),
   ]);
 
   const allUp =
@@ -223,14 +225,6 @@ router.get("/", healthRateLimiter, async (req, res) => {
       : null,
     migrationVersion: req.app.locals.migrationVersion ?? null,
   };
-
-  // Detailed degraded body for the probe pipeline: when the database is
-  // unreachable, timed out, or throws, return 503 with an explicit
-  // checks.db = "error" so every caller knows the DB is the failing probe.
-  if (!allUp && body.checks.db === "error") {
-    res.status(503).json({ status: "degraded", checks: body.checks, contractVersion });
-    return;
-  }
 
   res.status(allUp ? 200 : 503).json(body);
 });

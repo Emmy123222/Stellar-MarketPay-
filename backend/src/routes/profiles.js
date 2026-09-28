@@ -23,6 +23,10 @@ const generalProfileRateLimiter = createRateLimiter(30, 1);
 const cache = require("../services/cacheService");
 const { sendEmail } = require("../utils/email");
 const { createError, ErrorCodes } = require("../utils/errors");
+const {
+  getPriceAlertPreference,
+  upsertPriceAlertPreference,
+} = require("../services/priceAlertService");
 const { validateJsonb } = require("../middleware/jsonbValidator");
 const portfolioItemsSchema = require("../schemas/portfolioItems.schema");
 const {
