@@ -75,6 +75,81 @@ function normalizeMilestones(milestones, fallbackAmount) {
   }));
 }
 
+/**
+ * Zero-address spellings that must never reach the chain as the escrow
+ * token (Issue #1484).
+ */
+const ZERO_TOKEN_ADDRESSES = new Set([
+  "",
+  "0",
+  "0x0",
+  `0x${"0".repeat(40)}`,
+  "0".repeat(64),
+  `0x${"0".repeat(64)}`,
+]);
+
+/** Soroban contract address: `C` + 55 base32 characters (Stellar alphabet). */
+const TOKEN_CONTRACT_ADDRESS_PATTERN = /^C[A-Z2-7]{55}$/;
+
+/**
+ * Pre-flight validation for a `create_escrow` payload (Issue #1484).
+ *
+ * Mirrors the Soroban contract's `create_escrow` gate (canonical error
+ * string "Amount must be positive", ContractError 2001) and adds the
+ * participant and zero-address-token guards, so adversarial payloads are
+ * rejected with a clean, stable error STRING *before* any asset transfer is
+ * attempted on-chain.
+ *
+ * Never throws: every malformed input — zero amounts, non-numeric garbage,
+ * missing fields, zero-address or malformed tokens — maps to an error
+ * string, so callers observe contract-style errors instead of panics.
+ *
+ * @param {object} payload
+ * @param {*} [payload.client]     Client address (Stellar G-address).
+ * @param {*} [payload.freelancer] Freelancer address (Stellar G-address).
+ * @param {*} [payload.token]      Escrow token contract address.
+ * @param {*} [payload.amount]     Escrow amount (stroops / XLM units).
+ * @returns {string|null} Error message when invalid; `null` when valid.
+ */
+function validateCreateEscrowPayload({
+  client,
+  freelancer,
+  token,
+  amount,
+} = {}) {
+  // 1) Amount — mirrors ContractError::AmountMustBePositive (2001).
+  let numericAmount;
+  if (typeof amount === "number" || typeof amount === "bigint") {
+    numericAmount = Number(amount);
+  } else if (typeof amount === "string" && amount.trim() !== "") {
+    numericAmount = Number(amount.trim());
+  } else {
+    numericAmount = NaN;
+  }
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    return "Amount must be positive";
+  }
+
+  // 2) Participants — client and freelancer must be two distinct parties.
+  if (!client || !freelancer || client === freelancer) {
+    return "InvalidParticipants: client and freelancer must be distinct addresses";
+  }
+
+  // 3) Token — reject zero-address / malformed payloads BEFORE any transfer
+  //    is built or executed. The format check runs against the canonical
+  //    (trimmed) value; the zero-address set is matched case-insensitively.
+  const trimmedToken = typeof token === "string" ? token.trim() : token;
+  if (
+    typeof trimmedToken !== "string" ||
+    !TOKEN_CONTRACT_ADDRESS_PATTERN.test(trimmedToken) ||
+    ZERO_TOKEN_ADDRESSES.has(trimmedToken.toLowerCase())
+  ) {
+    return "Invalid token address: must be a non-zero contract address";
+  }
+
+  return null;
+}
+
 async function getMilestonesForJob(jobId, job) {
   const { rows } = await pool.query(
     "SELECT milestones, amount_xlm FROM escrows WHERE job_id = $1",
@@ -166,18 +241,7 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
   const txInfo = await verifyOnChainTransaction(contractTxHash);
   const txHash = contractTxHash || `offchain-${Date.now()}`;
 
-  const { rows: escrowRows } = await pool.query(
-    "SELECT amount_xlm FROM escrows WHERE job_id = $1",
-    [jobId],
-  );
-
-  if (!escrowRows.length) {
-    const e = new Error("No escrow record found for this job");
-    e.status = 400;
-    throw e;
-  }
-
-  const amountXlm = escrowRows[0].amount_xlm;
+  const amountXlm = await getEscrowField(jobId, 'amount_xlm');
 
   // Bug #850: Validate that the escrow amount is consistent with the job.
   // The escrow amount should reflect the accepted bid, not necessarily the
@@ -290,11 +354,7 @@ async function refundClient(jobId, clientAddress, contractTxHash) {
     eventData: txInfo ? txInfo.eventData : undefined,
   });
 
-  const { rows: escrowRows } = await pool.query(
-    "SELECT amount_xlm FROM escrows WHERE job_id = $1",
-    [jobId],
-  );
-  const escrowAmount = escrowRows.length ? escrowRows[0].amount_xlm : job.budget;
+  const escrowAmount = await getEscrowField(jobId, 'amount_xlm') ?? job.budget;
 
   await notifyEscrowEvent({
     eventType: EVENT_TYPES.REFUND_ISSUED,
@@ -649,6 +709,23 @@ async function getEscrow(jobId) {
   return rows[0];
 }
 
+// `field` becomes part of the SQL text, so it is validated as a bare
+// identifier and quoted; the values stay parameterised.
+const ESCROW_FIELD_PATTERN = /^[a-z_][a-z0-9_]{0,62}$/;
+
+async function getEscrowField(jobId, field) {
+  // typeof first: the pattern would otherwise coerce null/undefined into the
+  // strings "null"/"undefined", which are perfectly good column shapes.
+  if (typeof field !== "string" || !ESCROW_FIELD_PATTERN.test(field)) {
+    throw new TypeError(`Not an escrow column name: ${String(field)}`);
+  }
+  const { rows } = await pool.query(
+    `SELECT "${field}" FROM escrows WHERE job_id = $1`,
+    [jobId],
+  );
+  return rows.length ? rows[0][field] : undefined;
+}
+
 /**
  * Resolve a Stellar ledger sequence number to a UTC timestamp via the
  * `ledger_timestamps` table populated by the indexer.
@@ -727,17 +804,14 @@ async function submitDeliverableHash(jobId, freelancerAddress, hashHex) {
     throw e;
   }
 
-  const { rows: escrowRows } = await pool.query(
-    "SELECT status FROM escrows WHERE job_id = $1",
-    [jobId],
-  );
-  if (!escrowRows.length) {
+  const escrowStatus = await getEscrowField(jobId, 'status');
+  if (!escrowStatus) {
     const e = new Error("No escrow found for this job");
     e.status = 404;
     throw e;
   }
 
-  if (escrowRows[0].status !== "funded" && escrowRows[0].status !== "in_progress") {
+  if (escrowStatus !== "funded" && escrowStatus !== "in_progress") {
     const e = new Error("Can only submit hash for active escrow");
     e.status = 400;
     throw e;
@@ -845,18 +919,14 @@ async function approveEscrowExtension(jobId, approvedBy, contractTxHash) {
     throw e;
   }
 
-  const { rows: escrowRows } = await pool.query(
-    "SELECT status FROM escrows WHERE job_id = $1",
-    [jobId],
-  );
-  if (!escrowRows.length) {
+  const escrowStatus = await getEscrowField(jobId, 'status');
+  if (!escrowStatus) {
     const e = new Error("No escrow found for this job");
     e.status = 404;
     throw e;
   }
 
-  const escrow = escrowRows[0];
-  if (escrow.status !== "funded" && escrow.status !== "in_progress" && escrow.status !== "locked") {
+  if (escrowStatus !== "funded" && escrowStatus !== "in_progress" && escrowStatus !== "locked") {
     const e = new Error("Extension is only allowed while escrow is funded or in progress");
     e.status = 400;
     throw e;
@@ -910,7 +980,9 @@ module.exports = {
   requestEscrowExtension,
   approveEscrowExtension,
 
+  getEscrowField,
   verifyFreelancerAccount,
   ESCROW_TIMEOUT_DAYS,
   normalizeMilestones,
+  validateCreateEscrowPayload,
 };

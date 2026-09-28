@@ -23,7 +23,9 @@ interface AssessmentResultsResponse {
   data: AssessmentResult[];
 }
 
-export default function AssessmentResults({ publicKey }: AssessmentResultsProps) {
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+
+function AssessmentResults({ publicKey }: AssessmentResultsProps) {
   const router = useRouter();
   const toast = useToast();
   const { id } = router.query;
@@ -121,5 +123,13 @@ export default function AssessmentResults({ publicKey }: AssessmentResultsProps)
         </div>
       </div>
     </>
+  );
+}
+
+export default function AssessmentResultsWrapper(props: AssessmentResultsProps) {
+  return (
+    <ErrorBoundary>
+      <AssessmentResults {...props} />
+    </ErrorBoundary>
   );
 }

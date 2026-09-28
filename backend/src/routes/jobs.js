@@ -5,8 +5,6 @@
 
 const express = require("express");
 const router = express.Router();
-const pool = require("../db/pool");
-
 const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT } = require("../middleware/auth");
 const jobService = require("../services/jobService");
@@ -172,6 +170,11 @@ async function enrichJobsWithClientReputation(jobs) {
  *           type: string
  *         description: Search term for job titles and descriptions
  *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *         description: Full-text search query for job titles and descriptions
+ *       - in: query
  *         name: cursor
  *         schema:
  *           type: string
@@ -214,6 +217,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit,
       search,
+      q,
       cursor,
       after,
       timezone,
@@ -244,6 +248,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit: String(safeLimit),
       search,
+      q,
       cursor: effectiveCursor,
       timezone,
       viewerAddress,
@@ -267,6 +272,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit: safeLimit,
       search,
+      q,
       cursor: effectiveCursor,
       timezone,
       viewerAddress,
@@ -1067,6 +1073,26 @@ router.post(
       next(e);
     }
   },
-);
+// GET /api/jobs/analytics/categories — stats per category
+router.get("/analytics/categories", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { getCategoryAnalytics } = require("../services/jobService");
+    const data = await getCategoryAnalytics();
+    res.json({ success: true, data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/jobs/analytics/overview — platform-wide totals
+router.get("/analytics/overview", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { getAnalyticsOverview } = require("../services/jobService");
+    const data = await getAnalyticsOverview();
+    res.json({ success: true, data });
+  } catch (e) {
+    next(e);
+  }
+});
 
 module.exports = router;

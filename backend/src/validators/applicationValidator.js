@@ -54,6 +54,20 @@ const withdrawApplicationSchema = z
   })
   .passthrough();
 
+const bulkUpdateApplicationsSchema = z
+  .object({
+    applicationIds: z
+      .array(z.string().min(1, "Application ID cannot be empty"))
+      .min(1, "applicationIds must contain at least one ID"),
+    action: z.enum(["reject", "rejected", "shortlist", "shortlisted"]).optional(),
+    status: z.enum(["reject", "rejected", "shortlist", "shortlisted"]).optional(),
+    clientAddress: reqStr("clientAddress is required"),
+  })
+  .refine((data) => data.action || data.status, {
+    message: "Either action or status must be provided ('reject' or 'shortlist')",
+  })
+  .passthrough();
+
 module.exports = {
   validate,
   createApplicationSchema,
@@ -61,4 +75,6 @@ module.exports = {
   revealBidSchema,
   acceptApplicationSchema,
   withdrawApplicationSchema,
+  bulkUpdateApplicationsSchema,
 };
+

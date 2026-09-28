@@ -100,6 +100,68 @@ async function removeSubscription(userAddress, endpoint) {
 }
 
 /**
+ * Retry configuration for failed push deliveries (issue #1438).
+ * Transient failures are retried up to 3 times with exponential backoff:
+ * 1s before the 1st retry, 2s before the 2nd, 4s before the 3rd.
+ */
+const PUSH_MAX_RETRIES = 3;
+const PUSH_RETRY_DELAYS_MS = [1000, 2000, 4000];
+
+/**
+ * Wait for the given number of milliseconds (used between push retries)
+ */
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Whether an error means the subscription no longer exists on the push
+ * service (expired or unsubscribed endpoint). These can never succeed, so
+ * they are deactivated immediately instead of retried.
+ */
+function isExpiredSubscriptionError(error) {
+  return error?.statusCode === 410 || error?.statusCode === 404;
+}
+
+/**
+ * Deliver a payload to a single subscription.
+ *
+ * Transient/network failures are retried up to PUSH_MAX_RETRIES times with
+ * exponential backoff (1s, 2s, 4s). Expired endpoints (410/404) are not
+ * retried because they can never succeed.
+ *
+ * @param {Object} subscription - Push subscription (id, endpoint, keys)
+ * @param {string} payload - JSON payload string
+ * @returns {Promise<{delivered: boolean, expired?: boolean, attempts: number, error?: Error}>}
+ */
+async function sendToSubscription(subscription, payload) {
+  const endpointLabel = `${subscription.endpoint.slice(0, 30)}...`;
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= PUSH_MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      await delay(PUSH_RETRY_DELAYS_MS[attempt - 1]);
+    }
+
+    try {
+      await webpush.sendNotification(subscription, payload);
+      return { delivered: true, attempts: attempt + 1 };
+    } catch (error) {
+      if (isExpiredSubscriptionError(error)) {
+        return { delivered: false, expired: true, attempts: attempt + 1, error };
+      }
+
+      lastError = error;
+      pushLogger.debug(
+        `Push attempt ${attempt + 1}/${PUSH_MAX_RETRIES + 1} failed for ${endpointLabel}: ${error.message}`
+      );
+    }
+  }
+
+  return { delivered: false, attempts: PUSH_MAX_RETRIES + 1, error: lastError };
+}
+
+/**
  * Send push notification to a user
  */
 async function sendPushNotification(userAddress, notification) {
@@ -133,20 +195,33 @@ async function sendPushNotification(userAddress, notification) {
 
   // Send to all subscriptions in parallel
   const pushPromises = subscriptions.map(async (subscription) => {
-    try {
-      await webpush.sendNotification(subscription, payload);
-      successCount++;
-      pushLogger.debug(`Push sent to subscription: ${subscription.endpoint.slice(0, 30)}...`);
-    } catch (error) {
-      failureCount++;
+    const endpointLabel = `${subscription.endpoint.slice(0, 30)}...`;
+    const result = await sendToSubscription(subscription, payload);
 
-      // If subscription is invalid/expired, deactivate it
-      if (error.statusCode === 410 || error.statusCode === 404) {
-        await removeSubscription(userAddress, subscription.endpoint);
-        pushLogger.debug(`Subscription expired and removed: ${subscription.endpoint.slice(0, 30)}...`);
+    if (result.delivered) {
+      successCount++;
+      pushLogger.debug(`Push sent to subscription: ${endpointLabel}`);
+      return;
+    }
+
+    failureCount++;
+
+    // Expired endpoints and subscriptions that exhausted their retries are
+    // marked invalid so we stop sending notifications to them. The daily
+    // purge job (startPushSubscriptionPurge) removes them from the database.
+    try {
+      await removeSubscription(userAddress, subscription.endpoint);
+
+      if (result.expired) {
+        pushLogger.debug(`Subscription expired and removed: ${endpointLabel}`);
       } else {
-        pushLogger.error(`Failed to send push to ${subscription.endpoint.slice(0, 30)}...: ${error.message}`);
+        pushLogger.error(
+          `Subscription marked invalid after ${result.attempts} failed attempts: ${endpointLabel}: ${result.error.message}`
+        );
       }
+    } catch (dbError) {
+      // Never let deactivation failures break the fan-out for other subscriptions.
+      pushLogger.error(`Failed to mark subscription invalid (${endpointLabel}): ${dbError.message}`);
     }
   });
 
@@ -179,11 +254,59 @@ async function broadcastPushNotification(userAddresses, notification) {
   return results;
 }
 
+/**
+ * Remove subscriptions marked invalid (inactive) from the database.
+ * Covers subscriptions deactivated after exhausted retries, expired
+ * endpoints (410/404) and user unsubscriptions.
+ *
+ * Runs daily via startPushSubscriptionPurge (issue #1438).
+ *
+ * @returns {Promise<number>} Number of subscriptions removed
+ */
+async function purgeInvalidSubscriptions() {
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM push_subscriptions WHERE is_active = false`
+    );
+
+    if (rowCount > 0) {
+      pushLogger.info(`Purged ${rowCount} invalid push subscription(s)`);
+    }
+
+    return rowCount;
+  } catch (error) {
+    pushLogger.error(`Failed to purge invalid subscriptions: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * Start a daily job that purges subscriptions marked invalid (issue #1438).
+ */
+function startPushSubscriptionPurge() {
+  const logPurge = (label, purged) =>
+    pushLogger.info(`${label} push subscription purge completed (${purged} removed)`);
+
+  // Run immediately on startup
+  purgeInvalidSubscriptions()
+    .then((purged) => logPurge("Initial", purged))
+    .catch((err) => pushLogger.error({ err }, "Initial push subscription purge failed"));
+
+  // Schedule subsequent runs every 24 hours (86400000 ms)
+  setInterval(() => {
+    purgeInvalidSubscriptions()
+      .then((purged) => logPurge("Scheduled", purged))
+      .catch((err) => pushLogger.error({ err }, "Scheduled push subscription purge failed"));
+  }, 24 * 60 * 60 * 1000).unref();
+}
+
 module.exports = {
   saveSubscription,
   getUserSubscriptions,
   removeSubscription,
   sendPushNotification,
   broadcastPushNotification,
+  purgeInvalidSubscriptions,
+  startPushSubscriptionPurge,
   getVapidPublicKey: () => vapidPublicKey,
 };
