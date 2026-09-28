@@ -1,7 +1,7 @@
 use soroban_sdk::{symbol_short, token, Address, BytesN, Env, String};
 
 use crate::governance::record_completed_job;
-use crate::helpers::check_not_frozen;
+use crate::helpers::{check_escrow_not_frozen, check_not_frozen};
 use crate::types::*;
 
 /// Creates an escrow for a job between a client and freelancer.
@@ -96,30 +96,34 @@ pub(crate) fn create_escrow_internal(
         }
     }
 
-    // Validate milestones if provided
+    // Validate milestones if provided. An empty list is allowed: it is
+    // equivalent to `None` and creates a single-payment escrow, so the
+    // sum-to-100 rule only applies once at least one milestone exists.
     let mut milestone_list = soroban_sdk::Vec::new(&env);
     if let Some(ms) = milestones {
         if ms.len() > 5 {
             panic!("Maximum 5 milestones allowed");
         }
-        let mut total_percentage: u32 = 0;
-        for (next_id, m) in (0_u32..).zip(ms.iter()) {
-            if m.percentage == 0 {
-                panic!("Milestone percentage must be positive");
+        if !ms.is_empty() {
+            let mut total_percentage: u32 = 0;
+            for (next_id, m) in (0_u32..).zip(ms.iter()) {
+                if m.percentage == 0 {
+                    panic!("Milestone percentage must be positive");
+                }
+                total_percentage = total_percentage
+                    .checked_add(m.percentage)
+                    .expect("Arithmetic overflow");
+                milestone_list.push_back(Milestone {
+                    id: next_id,
+                    description: m.description.clone(),
+                    percentage: m.percentage,
+                    released: false,
+                    rejected: false,
+                });
             }
-            total_percentage = total_percentage
-                .checked_add(m.percentage)
-                .expect("Arithmetic overflow");
-            milestone_list.push_back(Milestone {
-                id: next_id,
-                description: m.description.clone(),
-                percentage: m.percentage,
-                released: false,
-                rejected: false,
-            });
-        }
-        if total_percentage != 100 {
-            panic!("Milestone percentages must sum to 100");
+            if total_percentage != 100 {
+                panic!("Milestone percentages must sum to 100");
+            }
         }
     }
 
@@ -200,7 +204,9 @@ pub(crate) fn create_escrow_internal(
 /// Freelancer signals that they have started work.
 pub(crate) fn start_work(env: Env, job_id: String, freelancer: Address) {
     freelancer.require_auth();
+
     check_not_frozen(&env, &job_id);
+check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -229,7 +235,9 @@ pub(crate) fn start_work(env: Env, job_id: String, freelancer: Address) {
 /// Client approves completed work and releases funds to the freelancer.
 pub(crate) fn release_escrow(env: Env, job_id: String, client: Address) {
     client.require_auth();
+
     check_not_frozen(&env, &job_id);
+check_escrow_not_frozen(&env, &job_id);
 
     let escrow: Escrow = env
         .storage()
@@ -428,7 +436,9 @@ pub(crate) fn release_with_conversion(
     _min_amount_out: i128,
 ) {
     client.require_auth();
+
     check_not_frozen(&env, &job_id);
+check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -543,7 +553,9 @@ pub(crate) fn release_with_conversion(
 /// Client cancels and gets a refund (only before work starts).
 pub(crate) fn refund_escrow(env: Env, job_id: String, client: Address) {
     client.require_auth();
+
     check_not_frozen(&env, &job_id);
+check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -586,7 +598,9 @@ pub(crate) fn refund_escrow(env: Env, job_id: String, client: Address) {
 /// older escrows fall back to the legacy ledger-sequence threshold.
 pub(crate) fn timeout_refund(env: Env, job_id: String, client: Address) {
     client.require_auth();
+
     check_not_frozen(&env, &job_id);
+check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -646,6 +660,8 @@ pub(crate) fn request_extension(
     new_timeout_ledger: u32,
 ) {
     caller.require_auth();
+    check_not_frozen(&env, &job_id);
+    check_escrow_not_frozen(&env, &job_id);
 
     let escrow: Escrow = env
         .storage()
@@ -690,6 +706,8 @@ pub(crate) fn request_extension(
 /// timeout_ledger and TimeoutTimestamp atomically.
 pub(crate) fn approve_extension(env: Env, job_id: String, caller: Address) {
     caller.require_auth();
+    check_not_frozen(&env, &job_id);
+    check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -768,7 +786,9 @@ pub(crate) fn boost_job(
     amount: i128,
 ) {
     client.require_auth();
+
     check_not_frozen(&env, &job_id);
+check_escrow_not_frozen(&env, &job_id);
 
     if amount <= 0 {
         panic!("Boost amount must be positive");

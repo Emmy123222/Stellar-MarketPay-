@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Head from "next/head";
 import {
   fetchCategoryAnalytics,
@@ -6,32 +6,29 @@ import {
   type CategoryAnalytics,
   type AnalyticsOverview,
 } from "@/lib/api";
+import { useApi } from "@/hooks/useApi";
+import InsightsChart from "@/components/InsightsChart";
 
 type SortKey = "jobCount" | "avgBudgetXLM" | "filledCount" | "avgDaysToFill";
 type SortDir = "asc" | "desc";
 
 export default function InsightsPage() {
-  const [categories, setCategories] = useState<CategoryAnalytics[]>([]);
-  const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("jobCount");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  useEffect(() => {
-    let active = true;
-    Promise.all([fetchCategoryAnalytics(), fetchAnalyticsOverview()])
-      .then(([cats, ov]) => {
-        if (!active) return;
-        setCategories(cats);
-        setOverview(ov);
-      })
-      .catch(() => active && setError("Failed to load market insights."))
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { data, error, isLoading } = useApi<{
+    categories: CategoryAnalytics[];
+    overview: AnalyticsOverview | null;
+  }>(
+    "market-insights",
+    async () => {
+      const [cats, ov] = await Promise.all([fetchCategoryAnalytics(), fetchAnalyticsOverview()]);
+      return { categories: cats, overview: ov };
+    }
+  );
+
+  const categories = useMemo(() => data?.categories ?? [], [data?.categories]);
+  const overview = data?.overview ?? null;
 
   const sorted = useMemo(() => {
     return [...categories].sort((a, b) => {
@@ -49,31 +46,14 @@ export default function InsightsPage() {
     }
   };
 
-  const maxJobCount = Math.max(1, ...categories.map((c) => c.jobCount));
   const totalFilled = categories.reduce((s, c) => s + c.filledCount, 0);
   const totalJobs = categories.reduce((s, c) => s + c.jobCount, 0);
   const fillRatePct = totalJobs ? Math.round((totalFilled / totalJobs) * 100) : 0;
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-ink-900 bg-noise px-4 py-16">
-        <div className="mx-auto max-w-6xl animate-pulse space-y-6">
-          <div className="h-10 w-72 rounded-xl bg-ink-700" />
-          <div className="grid gap-4 md:grid-cols-4">
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="h-32 rounded-2xl bg-ink-800" />
-            ))}
-          </div>
-          <div className="h-96 rounded-2xl bg-ink-800" />
-        </div>
-      </div>
-    );
-  }
-
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-ink-900">
-        <p className="text-red-500">{error}</p>
+        <p className="text-red-500">{typeof error === "string" ? error : (error as Error).message || "Failed to load market insights."}</p>
       </div>
     );
   }
@@ -95,9 +75,16 @@ export default function InsightsPage() {
           </p>
 
           {/* Overview cards */}
-          {overview && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
-              {[
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+            {isLoading || !overview ? (
+              [0, 1, 2, 3].map((i) => (
+                <div key={i} className="bg-white dark:bg-ink-800 rounded-lg shadow p-5 animate-pulse">
+                  <div className="h-3 w-16 bg-gray-200 dark:bg-ink-700 rounded mb-2" />
+                  <div className="h-7 w-24 bg-gray-200 dark:bg-ink-700 rounded" />
+                </div>
+              ))
+            ) : (
+              [
                 { label: "Total Jobs", value: overview.totalJobs.toLocaleString() },
                 { label: "Open Now", value: overview.openJobs.toLocaleString() },
                 {
@@ -116,52 +103,24 @@ export default function InsightsPage() {
                   <p className="text-xs text-gray-500 dark:text-amber-700 mb-1">{c.label}</p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-amber-100">{c.value}</p>
                 </div>
-              ))}
-              <div className="bg-white dark:bg-ink-800 rounded-lg shadow p-5 col-span-2 md:col-span-2">
-                <p className="text-xs text-gray-500 dark:text-amber-700 mb-2">
-                  Platform Fill Rate ({fillRatePct}%)
-                </p>
-                <div className="w-full h-2 bg-gray-200 dark:bg-ink-700 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-market-500 to-market-400 transition-all"
-                    style={{ width: `${fillRatePct}%` }}
-                  />
-                </div>
-                <p className="mt-2 text-xs text-gray-500 dark:text-amber-700">
-                  {totalFilled.toLocaleString()} filled of {totalJobs.toLocaleString()} total jobs
-                </p>
+              ))
+            )}
+            <div className="bg-white dark:bg-ink-800 rounded-lg shadow p-5 col-span-2 md:col-span-2">
+              <p className="text-xs text-gray-500 dark:text-amber-700 mb-2">
+                Platform Fill Rate ({fillRatePct}%)
+              </p>
+              <div className="w-full h-2 bg-gray-200 dark:bg-ink-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-market-500 to-market-400 transition-all"
+                  style={{ width: `${fillRatePct}%` }}
+                />
               </div>
-              <div className="bg-white dark:bg-ink-800 rounded-lg shadow p-5 col-span-2 md:col-span-2">
-                <p className="text-xs text-gray-500 dark:text-amber-700 mb-1">
-                  Jobs by Category
-                </p>
-                <div className="flex items-end gap-1 h-20">
-                  {sorted.slice(0, 10).map((c) => {
-                    const h = (c.jobCount / maxJobCount) * 100;
-                    return (
-                      <div
-                        key={c.category}
-                        title={`${c.category}: ${c.jobCount}`}
-                        className="flex-1 bg-gradient-to-t from-market-500/80 to-market-400 rounded-t min-w-0"
-                        style={{ height: `${Math.max(h, 2)}%` }}
-                      />
-                    );
-                  })}
-                </div>
-                <div className="flex gap-1 mt-1">
-                  {sorted.slice(0, 10).map((c) => (
-                    <div
-                      key={c.category}
-                      className="flex-1 text-[9px] truncate text-center text-gray-500 dark:text-amber-700 min-w-0"
-                      title={c.category}
-                    >
-                      {c.category.split(" ")[0]}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <p className="mt-2 text-xs text-gray-500 dark:text-amber-700">
+                {totalFilled.toLocaleString()} filled of {totalJobs.toLocaleString()} total jobs
+              </p>
             </div>
-          )}
+            <InsightsChart loading={isLoading} categories={sorted} />
+          </div>
 
           {/* Category analytics table */}
           <section className="bg-white dark:bg-ink-800 rounded-lg shadow overflow-hidden">
