@@ -213,11 +213,8 @@ describe("recurringEscrowService", () => {
       const RealDate = Date;
       const mockDate = new Date("2026-03-01T12:00:00Z"); // March 1st (before DST starts in US)
       global.Date = class extends RealDate {
-        constructor(date) {
-          if (date) {
-            return super(date);
-          }
-          return mockDate;
+        constructor(...args) {
+          super(...(args.length > 0 ? args : [mockDate.getTime()]));
         }
       };
       global.Date.now = () => mockDate.getTime();
