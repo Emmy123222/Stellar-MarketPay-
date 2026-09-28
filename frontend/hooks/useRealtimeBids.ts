@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Application } from "@/utils/types";
+import { refreshAccessToken } from "@/lib/api";
 
 /** Initial reconnect delay (ms). Doubles each attempt up to 30 s. */
 const WS_INITIAL_RECONNECT_DELAY = 1_000;
@@ -42,6 +43,8 @@ interface UseRealtimeBidsResult {
   optimisticAccept: (applicationId: string) => void;
   /** Optimistically mark an application as rejected */
   optimisticReject: (applicationId: string) => void;
+  /** Optimistically update status for multiple applications */
+  optimisticBulkUpdate: (applicationIds: string[], status: "rejected" | "shortlisted") => void;
   /** Ref to the newest card so the "scroll to new" button works */
   newestCardRef: React.MutableRefObject<HTMLDivElement | null>;
 }
@@ -174,27 +177,53 @@ export function useRealtimeBids({
               a.id === payload.applicationId ? { ...a, status: "accepted" as const } : a,
             ),
           );
+        } else if (payload.type === "applications:bulk_update") {
+          const ids = new Set(payload.applicationIds as string[]);
+          setApplications((prev) =>
+            prev.map((a) =>
+              ids.has(a.id) ? { ...a, status: payload.status as Application["status"] } : a,
+            ),
+          );
         }
       } catch {
         // malformed frame — ignore
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (!isCurrent()) return;
       wsRef.current = null;
       setWsStatus("closed");
-      startPoll(); // start polling until we reconnect
-      // Exponential back-off: double each attempt, cap at 30 s
+      startPoll();
+
+      const isAuthError =
+        event?.code === 4001 ||
+        event?.code === 4003 ||
+        event?.code === 401 ||
+        event?.code === 403;
+
       const attempt = reconnectAttemptRef.current;
       const delay = Math.min(
         WS_INITIAL_RECONNECT_DELAY * Math.pow(2, attempt),
         WS_MAX_RECONNECT_DELAY,
       );
       reconnectAttemptRef.current = attempt + 1;
-      reconnectTimerRef.current = setTimeout(() => {
-        connect();
-      }, delay);
+
+      if (isAuthError) {
+        reconnectTimerRef.current = setTimeout(async () => {
+          try {
+            await refreshAccessToken();
+          } catch {
+            // Refresh failed — user likely needs to re-login.
+            // Polling fallback is already active so the UI stays alive.
+          }
+          connect();
+        }, delay);
+      } else {
+        reconnectTimerRef.current = setTimeout(() => {
+          connect();
+        }, delay);
+      }
     };
 
     ws.onerror = () => {
@@ -245,6 +274,13 @@ export function useRealtimeBids({
     );
   }, []);
 
+  const optimisticBulkUpdate = useCallback((applicationIds: string[], status: "rejected" | "shortlisted") => {
+    const ids = new Set(applicationIds);
+    setApplications((prev) =>
+      prev.map((a) => (ids.has(a.id) ? { ...a, status } : a)),
+    );
+  }, []);
+
   const resetNewProposalsCount = useCallback(() => setNewProposalsCount(0), []);
 
   return {
@@ -256,6 +292,7 @@ export function useRealtimeBids({
     resetNewProposalsCount,
     optimisticAccept,
     optimisticReject,
+    optimisticBulkUpdate,
     newestCardRef,
   };
 }

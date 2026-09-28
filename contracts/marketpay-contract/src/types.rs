@@ -304,6 +304,8 @@ pub enum DataKey {
     EligibleVoterCount,
     /// Quorum value (bps) a quorum-change proposal will apply once passed
     PendingQuorumChange(u32),
+    /// Status an escrow had before it was frozen, restored on unfreeze
+    PreFreezeStatus(String),
 }
 
 pub(crate) const DEFAULT_QUORUM_THRESHOLD_BPS: u32 = 1_000;

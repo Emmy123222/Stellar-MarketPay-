@@ -6,21 +6,25 @@
  *   application:new        → card appended + highlighted
  *   application:withdrawn  → card fades out then removed
  *   application:accepted   → optimistic status badge update
+ *   applications:bulk_update → bulk update status for applications
  * Fallback: polls every 30 s while WebSocket is disconnected.
  * Toast: "X new proposals" with scroll-to-new button shown when tab is hidden.
  */
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { formatXLM, shortenAddress, timeAgo } from "@/utils/format";
 import { accountUrl } from "@/lib/stellar";
 import FreelancerTierBadge from "@/components/FreelancerTierBadge";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 import { useRealtimeBids } from "@/hooks/useRealtimeBids";
+import { bulkUpdateApplications } from "@/lib/api/applications";
 import type { Application, FreelancerTier } from "@/utils/types";
 
 interface RealtimeBidComparisonProps {
   jobId: string;
   initialApplications: Application[];
   isClient: boolean;
+  clientAddress?: string;
   biddingPhase?: "commitment" | "reveal";
   onAcceptApplication?: (applicationId: string) => void;
   onCloseBidding?: () => void;
@@ -31,6 +35,8 @@ interface RealtimeBidComparisonProps {
 function badgeClass(status: string) {
   if (status === "accepted") return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
   if (status === "rejected") return "bg-red-500/10 text-red-400 border-red-500/20";
+  if (status === "shortlisted")
+    return "bg-amber-500/20 text-amber-300 border-amber-500/40 font-semibold shadow-sm shadow-amber-500/10";
   return "bg-market-500/10 text-market-400 border-market-500/20";
 }
 
@@ -40,6 +46,7 @@ export default function RealtimeBidComparison({
   jobId,
   initialApplications,
   isClient,
+  clientAddress,
   biddingPhase = "commitment",
   onAcceptApplication,
   onCloseBidding,
@@ -47,6 +54,10 @@ export default function RealtimeBidComparison({
 }: RealtimeBidComparisonProps) {
   const toast = useToast();
   const listTopRef = useRef<HTMLDivElement | null>(null);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmRejectOpen, setConfirmRejectOpen] = useState(false);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
 
   const {
     applications,
@@ -56,12 +67,13 @@ export default function RealtimeBidComparison({
     newProposalsCount,
     resetNewProposalsCount,
     optimisticAccept,
+    optimisticBulkUpdate,
     newestCardRef,
   } = useRealtimeBids({
     jobId,
     initialApplications,
     fetchApplications: fetchApplications ?? (() => Promise.resolve(initialApplications)),
-    onNewBid: (application) => {
+    onNewBid: () => {
       toast.success("New bid received");
     },
   });
@@ -90,17 +102,98 @@ export default function RealtimeBidComparison({
 
   const visibleApplications = applications;
 
+  const selectableApplications = useMemo(
+    () => applications.filter((app) => app.status !== "accepted"),
+    [applications],
+  );
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === selectableApplications.length) {
+        return new Set();
+      }
+      return new Set(selectableApplications.map((a) => a.id));
+    });
+  }, [selectableApplications]);
+
+  const handleBulkShortlist = async () => {
+    if (selectedIds.size === 0) return;
+    if (!clientAddress) {
+      toast.error("Client address required to manage applications");
+      return;
+    }
+    setBulkUpdating(true);
+    try {
+      const ids = Array.from(selectedIds);
+      await bulkUpdateApplications({
+        applicationIds: ids,
+        action: "shortlist",
+        clientAddress,
+      });
+      optimisticBulkUpdate(ids, "shortlisted");
+      setSelectedIds(new Set());
+      toast.success(`Successfully shortlisted ${ids.length} application${ids.length > 1 ? "s" : ""}`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err.message || "Failed to shortlist applications");
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
+  const handleConfirmBulkReject = async () => {
+    if (selectedIds.size === 0) return;
+    if (!clientAddress) {
+      toast.error("Client address required to manage applications");
+      return;
+    }
+    setBulkUpdating(true);
+    try {
+      const ids = Array.from(selectedIds);
+      await bulkUpdateApplications({
+        applicationIds: ids,
+        action: "reject",
+        clientAddress,
+      });
+      optimisticBulkUpdate(ids, "rejected");
+      setSelectedIds(new Set());
+      setConfirmRejectOpen(false);
+      toast.success(`Successfully rejected ${ids.length} application${ids.length > 1 ? "s" : ""}`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err.message || "Failed to reject applications");
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
   const visibleBidAmount = (app: Application) =>
     app.bidRevealed && app.revealedBidAmount ? app.revealedBidAmount : app.bidAmount;
 
-  const sortedApplications = [...visibleApplications].sort((a, b) => {
-    if (biddingPhase === "commitment") {
+  // Shortlisted applications get visual highlight and appear at the top
+  const sortedApplications = useMemo(() => {
+    return [...visibleApplications].sort((a, b) => {
+      const aShortlisted = a.status === "shortlisted" ? 1 : 0;
+      const bShortlisted = b.status === "shortlisted" ? 1 : 0;
+      if (aShortlisted !== bShortlisted) {
+        return bShortlisted - aShortlisted;
+      }
+
+      if (biddingPhase === "commitment") {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+      const bidDiff = parseFloat(visibleBidAmount(a)) - parseFloat(visibleBidAmount(b));
+      if (bidDiff !== 0) return bidDiff;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    }
-    const bidDiff = parseFloat(visibleBidAmount(a)) - parseFloat(visibleBidAmount(b));
-    if (bidDiff !== 0) return bidDiff;
-    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-  });
+    });
+  }, [visibleApplications, biddingPhase]);
 
   const revealedApplications = applications.filter(
     (app) => app.bidRevealed && app.revealedBidAmount,
@@ -175,6 +268,56 @@ export default function RealtimeBidComparison({
         </div>
       </div>
 
+      {/* Bulk actions toolbar for client */}
+      {isClient && selectableApplications.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-market-900/60 border border-market-500/20 rounded-xl backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-amber-200 hover:text-amber-100 select-none">
+              <input
+                type="checkbox"
+                id="select-all-applications"
+                checked={
+                  selectableApplications.length > 0 &&
+                  selectedIds.size === selectableApplications.length
+                }
+                onChange={toggleSelectAll}
+                className="w-4 h-4 rounded border-market-500/40 bg-market-900 text-amber-500 focus:ring-amber-500 cursor-pointer"
+              />
+              <span>Select All ({selectableApplications.length})</span>
+            </label>
+            {selectedIds.size > 0 && (
+              <span className="text-xs font-semibold text-amber-300 bg-amber-500/15 px-2.5 py-0.5 rounded-full border border-amber-500/30">
+                {selectedIds.size} selected
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              id="btn-bulk-shortlist"
+              disabled={selectedIds.size === 0 || bulkUpdating}
+              onClick={handleBulkShortlist}
+              className="text-xs font-medium px-3.5 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-1.5 shadow-sm shadow-amber-950/20"
+            >
+              <span>★</span>
+              <span>Shortlist Selected</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-bulk-reject"
+              disabled={selectedIds.size === 0 || bulkUpdating}
+              onClick={() => setConfirmRejectOpen(true)}
+              className="text-xs font-medium px-3.5 py-1.5 rounded-lg border border-red-500/40 bg-red-500/10 hover:bg-red-500/20 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-1.5 shadow-sm shadow-red-950/20"
+            >
+              <span>✕</span>
+              <span>Reject Selected</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {isClient && biddingPhase === "commitment" && onCloseBidding && (
         <div className="flex justify-end">
           <button onClick={onCloseBidding} className="btn-secondary text-sm py-2 px-4">
@@ -202,6 +345,8 @@ export default function RealtimeBidComparison({
           {sortedApplications.map((application, index) => {
             const isHighlighted = highlightedIds.has(application.id);
             const isFading = fadingIds.has(application.id);
+            const isShortlisted = application.status === "shortlisted";
+            const isSelected = selectedIds.has(application.id);
             const bidValue = parseFloat(visibleBidAmount(application));
             const isLowestBid =
               biddingPhase === "reveal" && application.bidRevealed && bidValue === lowestBid;
@@ -213,14 +358,33 @@ export default function RealtimeBidComparison({
               <div
                 key={application.id}
                 ref={isNewest ? newestCardRef : undefined}
-                className={`card transition-all duration-500 ${
+                className={`card transition-all duration-300 ${
                   isFading ? "opacity-0 scale-95" : "opacity-100 scale-100"
                 } ${isHighlighted ? "ring-2 ring-amber-400 bg-amber-500/5" : ""} ${
                   isLowestBid ? "border-green-500/30 bg-green-500/5" : ""
+                } ${
+                  isShortlisted
+                    ? "border-amber-500/50 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent ring-1 ring-amber-400/40 shadow-lg shadow-amber-950/20"
+                    : ""
+                } ${
+                  isSelected ? "border-market-500/60 ring-1 ring-market-500/40 bg-market-500/5" : ""
                 }`}
               >
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
                   <div className="flex flex-wrap items-center gap-2">
+                    {/* Checkbox for client selection */}
+                    {isClient && (
+                      <input
+                        type="checkbox"
+                        id={`checkbox-app-${application.id}`}
+                        aria-label={`Select application from ${shortenAddress(application.freelancerAddress)}`}
+                        checked={isSelected}
+                        disabled={application.status === "accepted"}
+                        onChange={() => toggleSelect(application.id)}
+                        className="w-4 h-4 rounded border-market-500/40 bg-market-900 text-amber-500 focus:ring-amber-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                      />
+                    )}
+
                     <a
                       href={accountUrl(application.freelancerAddress)}
                       target="_blank"
@@ -230,6 +394,12 @@ export default function RealtimeBidComparison({
                       {shortenAddress(application.freelancerAddress)} ↗
                     </a>
                     <FreelancerTierBadge tier={application.freelancerTier} className="px-2 py-0.5" />
+
+                    {isShortlisted && (
+                      <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/40 font-semibold shadow-sm shadow-amber-500/10">
+                        ★ Shortlisted
+                      </span>
+                    )}
 
                     {index === 0 && biddingPhase === "reveal" && (
                       <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded-full border border-green-500/30">
@@ -282,20 +452,35 @@ export default function RealtimeBidComparison({
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-amber-800">Applied {timeAgo(application.createdAt)}</p>
 
-                  {isClient && application.status === "pending" && onAcceptApplication && (
-                    <button
-                      onClick={() => handleAccept(application.id)}
-                      className="btn-secondary text-sm py-2 px-4 min-h-[44px] min-w-[44px] hover:bg-market-500/20 transition-colors"
-                    >
-                      Accept Proposal
-                    </button>
-                  )}
+                  {isClient &&
+                    (application.status === "pending" || application.status === "shortlisted") &&
+                    onAcceptApplication && (
+                      <button
+                        onClick={() => handleAccept(application.id)}
+                        className="btn-secondary text-sm py-2 px-4 min-h-[44px] min-w-[44px] hover:bg-market-500/20 transition-colors"
+                      >
+                        Accept Proposal
+                      </button>
+                    )}
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {/* Confirmation Modal for Bulk Reject */}
+      <ConfirmDialog
+        open={confirmRejectOpen}
+        title="Reject Selected Applications"
+        description={`Are you sure you want to reject ${selectedIds.size} selected application${selectedIds.size > 1 ? "s" : ""}? This will update their status to rejected and notify the applicants.`}
+        confirmLabel={bulkUpdating ? "Rejecting..." : "Reject Applications"}
+        cancelLabel="Cancel"
+        variant="danger"
+        loading={bulkUpdating}
+        onConfirm={handleConfirmBulkReject}
+        onCancel={() => setConfirmRejectOpen(false)}
+      />
 
       {/* Connection status footer */}
       {wsStatus !== "open" && (
