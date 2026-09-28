@@ -35,6 +35,8 @@ const {
   withdrawApplication,
   closeBiddingForJob,
   revealApplicationBid,
+  extendBiddingClose,
+  bulkUpdateApplications,
 } = applicationService;
 const { createJob } = require("./jobService");
 
@@ -590,6 +592,75 @@ describe("applicationService", () => {
       await expect(
         extendBiddingClose(openJob.id, validClientAddress),
       ).rejects.toThrow("Bidding has not been closed yet");
+    });
+  });
+
+  describe("bulkUpdateApplications", () => {
+    let app1, app2;
+
+    beforeEach(async () => {
+      app1 = await submitApplication({
+        jobId: openJob.id,
+        freelancerAddress: validFreelancerAddress,
+        proposal:
+          "I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.",
+        bidAmount: "400",
+      });
+
+      const secondFreelancer = "G" + "C".repeat(55);
+      app2 = await submitApplication({
+        jobId: openJob.id,
+        freelancerAddress: secondFreelancer,
+        proposal:
+          "I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.",
+        bidAmount: "450",
+      });
+    });
+
+    it("bulk rejects applications", async () => {
+      const result = await bulkUpdateApplications({
+        applicationIds: [app1.id, app2.id],
+        action: "reject",
+        clientAddress: validClientAddress,
+      });
+
+      expect(result.updatedCount).toBe(2);
+      expect(result.status).toBe("rejected");
+      expect(result.applications.every((a) => a.status === "rejected")).toBe(true);
+    });
+
+    it("bulk shortlists applications", async () => {
+      const result = await bulkUpdateApplications({
+        applicationIds: [app1.id, app2.id],
+        action: "shortlist",
+        clientAddress: validClientAddress,
+      });
+
+      expect(result.updatedCount).toBe(2);
+      expect(result.status).toBe("shortlisted");
+      expect(result.applications.every((a) => a.status === "shortlisted")).toBe(true);
+    });
+
+    it("rejects non-owner client", async () => {
+      const wrongClient =
+        "GDDDDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
+      await expect(
+        bulkUpdateApplications({
+          applicationIds: [app1.id],
+          action: "shortlist",
+          clientAddress: wrongClient,
+        }),
+      ).rejects.toThrow("Only the job client can update applications");
+    });
+
+    it("rejects empty applicationIds array", async () => {
+      await expect(
+        bulkUpdateApplications({
+          applicationIds: [],
+          action: "shortlist",
+          clientAddress: validClientAddress,
+        }),
+      ).rejects.toThrow("applicationIds must be a non-empty array");
     });
   });
 });

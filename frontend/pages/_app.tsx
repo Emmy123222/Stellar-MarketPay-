@@ -3,17 +3,25 @@ import { useState, useEffect, useCallback } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import Navbar from "@/components/Navbar";
-import { connectWallet, getConnectedPublicKey, signTransactionWithWallet } from "@/lib/wallet";
-import { fetchAuthChallenge, verifyAuthChallenge, setJwtToken } from "@/lib/api";
+import {
+  connectWallet,
+  getConnectedPublicKey,
+  signTransactionWithWallet,
+} from "@/lib/wallet";
+import {
+  fetchAuthChallenge,
+  verifyAuthChallenge,
+  setJwtToken,
+} from "@/lib/api";
 import "@/styles/globals.css";
-import { ToastProvider } from "@/components/Toast";
+import { ToastProvider, toast } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
 import OfflineBanner from "@/components/OfflineBanner";
 import RateLimitWatcher from "@/components/RateLimitWatcher";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
-import { useTranslation } from "../lib/i18n";
+import { useTranslation } from "@/lib/i18n";
 
 const LOCALE_STORAGE_KEY = "stellar-marketpay:locale";
 const SUPPORTED_LOCALES = new Set(["en", "es", "fr", "pt"]);
@@ -23,9 +31,11 @@ function getInitialLocale(): string {
 
   const savedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
   const browserLocale = window.navigator.language?.split("-")[0];
-  return [savedLocale, browserLocale, "en"].find(
-    (locale): locale is string => Boolean(locale && SUPPORTED_LOCALES.has(locale)),
-  ) || "en";
+  return (
+    [savedLocale, browserLocale, "en"].find((locale): locale is string =>
+      Boolean(locale && SUPPORTED_LOCALES.has(locale)),
+    ) || "en"
+  );
 }
 
 function App({ Component, pageProps }: AppProps) {
@@ -48,13 +58,13 @@ function App({ Component, pageProps }: AppProps) {
   }, []);
 
   useKeyboardShortcuts({
-    isJobDetailPage,
     onGoToJobs: () => router.push("/jobs"),
     onGoToDashboard: () => router.push("/dashboard"),
-    onNewJobPost: () => router.push("/post-job"),
+    onPostJob: () => router.push("/post-job"),
     onToggleShortcutsModal: handleToggleShortcutsModal,
-    onJobApply: () => window.dispatchEvent(new CustomEvent("shortcut-apply-job")),
-    onJobBackToListing: () => router.push("/jobs"),
+    onFocusSearch: () => {},
+    onToggleBookmark: () => {},
+    onOpenCommandPalette: () => {},
     shortcutsModalOpen,
   });
 
@@ -109,32 +119,58 @@ function App({ Component, pageProps }: AppProps) {
   return (
     <>
       <ThemeProvider>
-      <ToastProvider>
-        <PriceProvider>
-        <Head>
-          <title>Stellar MarketPay — Decentralised Freelance Marketplace</title>
-          <meta name="description" content="Post jobs, hire freelancers, and pay with XLM — secured by Soroban smart contracts." />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <link rel="manifest" href="/manifest.json" />
-          <link rel="apple-touch-icon" href="/icon-192x192.png" />
-          <link rel="alternate" type="application/rss+xml" title="Stellar MarketPay — Job Listings (RSS)" href="/api/jobs/feed.rss" />
-          <link rel="alternate" type="application/atom+xml" title="Stellar MarketPay — Job Listings (Atom)" href="/api/jobs/feed.atom" />
-        </Head>
-        <OfflineBanner />
-        <div className="min-h-screen bg-ink-900 bg-lines">
-          <Navbar publicKey={publicKey} onConnect={handleConnect} onDisconnect={() => setPublicKey(null)} />
-          <main>
-            <Component {...pageProps} publicKey={publicKey} onConnect={handleConnect} />
-          </main>
-          <KeyboardShortcutsModal
-            isOpen={shortcutsModalOpen}
-            onClose={() => setShortcutsModalOpen(false)}
-            showJobDetailShortcuts={isJobDetailPage}
-          />
-        </div>
-        <RateLimitWatcher />
-        </PriceProvider>
-      </ToastProvider>
+        <ToastProvider>
+          <PriceProvider>
+            <Head>
+              <title>
+                Stellar MarketPay — Decentralised Freelance Marketplace
+              </title>
+              <meta
+                name="description"
+                content="Post jobs, hire freelancers, and pay with XLM — secured by Soroban smart contracts."
+              />
+              <meta
+                name="viewport"
+                content="width=device-width, initial-scale=1"
+              />
+              <link rel="manifest" href="/manifest.json" />
+              <link rel="apple-touch-icon" href="/icon-192x192.png" />
+              <link
+                rel="alternate"
+                type="application/rss+xml"
+                title="Stellar MarketPay — Job Listings (RSS)"
+                href="/api/jobs/feed.rss"
+              />
+              <link
+                rel="alternate"
+                type="application/atom+xml"
+                title="Stellar MarketPay — Job Listings (Atom)"
+                href="/api/jobs/feed.atom"
+              />
+            </Head>
+            <OfflineBanner />
+            <div className="min-h-screen bg-ink-900 bg-lines">
+              <Navbar
+                publicKey={publicKey}
+                onConnect={handleConnect}
+                onDisconnect={() => setPublicKey(null)}
+              />
+              <main>
+                <Component
+                  {...pageProps}
+                  publicKey={publicKey}
+                  onConnect={handleConnect}
+                />
+              </main>
+              <KeyboardShortcutsModal
+                isOpen={shortcutsModalOpen}
+                onClose={() => setShortcutsModalOpen(false)}
+                showJobDetailShortcuts={isJobDetailPage}
+              />
+            </div>
+            <RateLimitWatcher />
+          </PriceProvider>
+        </ToastProvider>
       </ThemeProvider>
     </>
   );
