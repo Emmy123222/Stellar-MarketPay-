@@ -26,9 +26,19 @@ const daoRateLimiter = createRateLimiter(60, 1);
  *         schema:
  *           type: string
  *           enum: [active, passed, rejected, executed, expired]
+ *       - in: query
+ *         name: limit
+ *         description: Page size (1-100). Enables cursor pagination; response includes nextCursor.
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: cursor
+ *         description: Opaque cursor from a previous page's nextCursor.
+ *         schema:
+ *           type: string
  *     responses:
  *       200:
- *         description: Proposal list
+ *         description: Proposal list (plus nextCursor when paginated)
  *   post:
  *     summary: Create a DAO proposal
  *     tags: [DAO]
@@ -65,10 +75,13 @@ const daoRateLimiter = createRateLimiter(60, 1);
 router.get("/proposals", daoRateLimiter, async (req, res, next) => {
   try {
     await daoService.finalizeExpiredProposals();
-    const proposals = await daoService.listProposals({
-      status: req.query.status,
-    });
-    res.json({ success: true, data: proposals });
+    const { status, limit, cursor } = req.query;
+    if (limit === undefined && cursor === undefined) {
+      const proposals = await daoService.listProposals({ status });
+      return res.json({ success: true, data: proposals });
+    }
+    const { proposals, nextCursor } = await daoService.listProposals({ status, limit, cursor });
+    res.json({ success: true, data: proposals, nextCursor });
   } catch (e) {
     next(e);
   }

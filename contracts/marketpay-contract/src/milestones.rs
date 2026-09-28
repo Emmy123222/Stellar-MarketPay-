@@ -1,5 +1,7 @@
 use soroban_sdk::{symbol_short, token, Address, Env, String, Symbol};
 
+use crate::errors::ContractError;
+use crate::governance::record_completed_job;
 use crate::helpers::check_not_frozen;
 use crate::types::*;
 
@@ -8,7 +10,7 @@ use crate::types::*;
 /// Can be called even if the escrow is Disputed, to release completed work.
 pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, client: Address) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -42,6 +44,11 @@ pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, cli
     if milestone.rejected {
         panic!("Milestone already rejected");
     }
+    for previous_milestone in escrow.milestones.iter() {
+        if previous_milestone.id < milestone_id && !previous_milestone.released {
+            panic!("{}", ContractError::PreviousMilestoneNotApproved.panic_message());
+        }
+    }
 
     milestone.released = true;
     escrow.milestones.set(milestone_index, milestone.clone());
@@ -72,7 +79,7 @@ pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, cli
         .expect("Arithmetic overflow")
         .checked_div(10_000)
         .expect("Arithmetic overflow");
-    let to_freelancer = payout.checked_sub(fee_amount).expect("Arithmetic overflow");
+    let after_fee = payout.checked_sub(fee_amount).expect("Arithmetic overflow");
 
     if fee_amount > 0 {
         token_client.transfer(&env.current_contract_address(), &treasury, &fee_amount);
@@ -81,6 +88,10 @@ pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, cli
             (treasury.clone(), fee_amount),
         );
     }
+
+    // Referral bonus is honoured on partial milestone releases too (Issue #1379).
+    let (to_freelancer, _referral_amount) =
+        crate::escrow::apply_referral_bonus(&env, &job_id, &escrow, after_fee);
 
     // Transfer remaining funds to freelancer
     token_client.transfer(
@@ -104,28 +115,8 @@ pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, cli
             .instance()
             .remove(&DataKey::TimeoutTimestamp(job_id.clone()));
 
-        // Increment CompletedJobs for the freelancer and client
-        let freelancer_jobs: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::CompletedJobs(escrow.freelancer.clone()))
-            .unwrap_or(0);
-        let new_freelancer_jobs = freelancer_jobs.checked_add(1).expect("Counter overflow");
-        env.storage().instance().set(
-            &DataKey::CompletedJobs(escrow.freelancer.clone()),
-            &new_freelancer_jobs,
-        );
-
-        let client_jobs: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::CompletedJobs(escrow.client.clone()))
-            .unwrap_or(0);
-        let new_client_jobs = client_jobs.checked_add(1).expect("Counter overflow");
-        env.storage().instance().set(
-            &DataKey::CompletedJobs(escrow.client.clone()),
-            &new_client_jobs,
-        );
+        record_completed_job(&env, &escrow.freelancer);
+        record_completed_job(&env, &escrow.client);
     }
 
     env.storage()
@@ -151,7 +142,7 @@ pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, cli
 /// (the index assigned at creation time).
 pub(crate) fn reject_milestone(env: Env, job_id: String, milestone_index: u32, client: Address) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
