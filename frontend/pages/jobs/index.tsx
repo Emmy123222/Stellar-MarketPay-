@@ -22,6 +22,8 @@ import { getConnectedPublicKey } from "@/lib/wallet";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { createSavedSearch, fetchSavedSearches, type SavedSearch } from "@/lib/api";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { serverSideTranslations } from "next-i18next/serverSideTranslations";
+import type { GetStaticProps } from "next";
 
 // Intersection Observer hook for infinite scroll
 function useInfiniteScroll(callback: () => void, hasNextPage: boolean, isLoading: boolean) {
@@ -1344,12 +1346,11 @@ function CategoryMiniIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-import { serverSideTranslations } from "next-i18next/serverSideTranslations";
-import type { GetStaticProps } from "next";
+
 export const getStaticProps: GetStaticProps = async ({ locale }) => {
   return {
     props: {
       ...(await serverSideTranslations(locale ?? "en", ["common"])),
     },
   };
-};
+}

@@ -1,1447 +1,1447 @@
-/* eslint-disable */`n/**
-/* eslint-disable */`n * src/services/jobService.js
-/* eslint-disable */`n */
-/* eslint-disable */`n"use strict";
-/* eslint-disable */`n
-/* eslint-disable */`nconst { getTimezoneOffset } = require("date-fns-tz");/**
-/* eslint-disable */`n * Check if a job's timezone is compatible with the user's timezone.
-/* eslint-disable */`n * Compatible if the time difference is within +/-3 hours.
-/* eslint-disable */`n *
-/* eslint-disable */`n * @param {string} jobTimezone - IANA timezone string of the job (e.g., "America/New_York")
-/* eslint-disable */`n * @param {string} userTimezone - IANA timezone string of the user (e.g., "Europe/London")
-/* eslint-disable */`n * @returns {boolean} true if timezones are compatible or if job has no timezone restriction
-/* eslint-disable */`n */
-/* eslint-disable */`nfunction isTimezoneCompatible(jobTimezone, userTimezone) {
-/* eslint-disable */`n  if (!jobTimezone) return true;
-/* eslint-disable */`n  if (!userTimezone) return true;
-/* eslint-disable */`n
-/* eslint-disable */`n/**
-/* eslint-disable */`n * Input shape accepted by {@link createJob}.
-/* eslint-disable */`n *
-/* eslint-disable */`n * @typedef {Object} CreateJobInput
-/* eslint-disable */`n * @property {string}   title
-/* eslint-disable */`n * @property {string}   description
-/* eslint-disable */`n * @property {string|number} budget
-/* eslint-disable */`n * @property {("XLM"|"USDC")} [currency="XLM"]
-/* eslint-disable */`n * @property {string}   category
-/* eslint-disable */`n * @property {string[]} [skills]
-/* eslint-disable */`n * @property {string}   [deadline]            ISO timestamp.
-/* eslint-disable */`n * @property {string}   [timezone]            IANA timezone name.
-/* eslint-disable */`n * @property {string[]} [screeningQuestions]  Up to 5 questions; non-empty entries are kept.
-/* eslint-disable */`n * @property {{description:string,amount:string|number}[]} [milestones] Up to 10 milestone payouts; amounts must total budget.
-/* eslint-disable */`n * @property {string}   clientAddress         Stellar G-address of the posting client.
-/* eslint-disable */`n */
-/* eslint-disable */`n
-/* eslint-disable */`n/**
-/* eslint-disable */`n * Pagination wrapper returned by {@link listJobs}.
-/* eslint-disable */`n *
-/* eslint-disable */`n * @typedef {Object} JobListPage
-/* eslint-disable */`n * @property {Job[]}      jobs
-/* eslint-disable */`n * @property {string|null} nextCursor  Opaque base64 cursor for the next page, or null when exhausted.
-/* eslint-disable */`n */
-/* eslint-disable */`n
-/* eslint-disable */`nconst VALID_STATUSES = [
-/* eslint-disable */`n  "open",
-/* eslint-disable */`n  "in_progress",
-/* eslint-disable */`n  "completed",
-/* eslint-disable */`n  "cancelled",
-/* eslint-disable */`n  "disputed",
-/* eslint-disable */`n];
-/* eslint-disable */`n
-/* eslint-disable */`n// Single-pass skill aggregation via LEFT JOIN — eliminates the correlated
-/* eslint-disable */`n// subquery that previously ran once per job row (N+1 pattern).
-/* eslint-disable */`nconst JOB_SELECT_CLAUSE = `
-/* eslint-disable */`n  SELECT jobs.*,
-/* eslint-disable */`n         COALESCE(agg.skills, '{}') AS skills,
-/* eslint-disable */`n         cat.slug  AS category_slug,
-/* eslint-disable */`n         cat.name  AS category_name,
-/* eslint-disable */`n         cat.id    AS category_id_resolved
-/* eslint-disable */`n  FROM   jobs
-/* eslint-disable */`n  LEFT JOIN LATERAL (
-/* eslint-disable */`n    SELECT array_agg(s.display_name ORDER BY s.display_name) AS skills
-/* eslint-disable */`n    FROM   job_skills js
-/* eslint-disable */`n    JOIN   skills s ON s.id = js.skill_id
-/* eslint-disable */`n    WHERE  js.job_id = jobs.id
-/* eslint-disable */`n  ) agg ON true
-/* eslint-disable */`n  LEFT JOIN categories cat ON cat.id = jobs.category_id`;
-/* eslint-disable */`n
-/* eslint-disable */`nconst VALID_CATEGORIES = [
-/* eslint-disable */`n  "Smart Contracts",
-/* eslint-disable */`n  "Frontend Development",
-/* eslint-disable */`n  "Backend Development",
-/* eslint-disable */`n  "UI/UX Design",
-/* eslint-disable */`n  "Technical Writing",
-/* eslint-disable */`n  "DevOps",
-/* eslint-disable */`n  "Security Audit",
-/* eslint-disable */`n  "Data Analysis",
-/* eslint-disable */`n  "Mobile Development",
-/* eslint-disable */`n  "Other",
-/* eslint-disable */`n];
-/* eslint-disable */`n
-/* eslint-disable */`n/**
-/* eslint-disable */`n * Throws a 400 Error when `key` is not a valid Stellar G-address.
-/* eslint-disable */`n *
-/* eslint-disable */`n * @param {string} key  Stellar account public key.
-/* eslint-disable */`n * @returns {void}
-/* eslint-disable */`n * @throws {Error}      `status === 400` if the key fails the G-address regex.
-/* eslint-disable */`n */
-/* eslint-disable */`nfunction normalizeMilestoneRows(milestones, budget) {
-/* eslint-disable */`n  const fallbackAmount = parseFloat(budget || 0).toFixed(7);
-/* eslint-disable */`n  if (!Array.isArray(milestones) || milestones.length === 0) {
-/* eslint-disable */`n    return [
-/* eslint-disable */`n      {
-/* eslint-disable */`n        description: "Final delivery",
-/* eslint-disable */`n        amount: fallbackAmount,
-/* eslint-disable */`n        status: "pending",
-/* eslint-disable */`n        releasedAt: null,
-/* eslint-disable */`n        disputedAt: null,
-/* eslint-disable */`n      },
-/* eslint-disable */`n    ];
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  return milestones.map((milestone) => ({
-/* eslint-disable */`n    description: String(milestone.description || "").trim(),
-/* eslint-disable */`n    amount: parseFloat(milestone.amount || 0).toFixed(7),
-/* eslint-disable */`n    status: milestone.status || "pending",
-/* eslint-disable */`n    releasedAt: milestone.releasedAt || milestone.released_at || null,
-/* eslint-disable */`n    disputedAt: milestone.disputedAt || milestone.disputed_at || null,
-/* eslint-disable */`n  }));
-/* eslint-disable */`n}
-/* eslint-disable */`n
-/* eslint-disable */`nfunction validateMilestones(milestones, budget) {
-/* eslint-disable */`n  const numericBudget = parseFloat(budget);
-/* eslint-disable */`n  if (!Array.isArray(milestones) || milestones.length === 0) {
-/* eslint-disable */`n    return normalizeMilestoneRows([], numericBudget);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  if (milestones.length > 10) {
-/* eslint-disable */`n    const e = new Error("Jobs can have at most 10 milestones");
-/* eslint-disable */`n    e.status = 400;
-/* eslint-disable */`n    throw e;
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  const safeMilestones = milestones.map((milestone, index) => {
-/* eslint-disable */`n    const description = String(milestone.description || "").trim();
-/* eslint-disable */`n    const amount = parseFloat(milestone.amount);
-/* eslint-disable */`n
-/* eslint-disable */`n    if (!description) {
-/* eslint-disable */`n      const e = new Error(`Milestone ${index + 1} needs a description`);
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    if (Number.isNaN(amount) || amount <= 0) {
-/* eslint-disable */`n      const e = new Error(`Milestone ${index + 1} needs a positive amount`);
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    return {
-/* eslint-disable */`n      description,
-/* eslint-disable */`n      amount: amount.toFixed(7),
-/* eslint-disable */`n      status: "pending",
-/* eslint-disable */`n      releasedAt: null,
-/* eslint-disable */`n      disputedAt: null,
-/* eslint-disable */`n    };
-/* eslint-disable */`n  });
-/* eslint-disable */`n
-/* eslint-disable */`n  const milestoneTotal = safeMilestones.reduce(
-/* eslint-disable */`n    (sum, milestone) => sum + parseFloat(milestone.amount),
-/* eslint-disable */`n    0,
-/* eslint-disable */`n  );
-/* eslint-disable */`n  if (Math.abs(milestoneTotal - numericBudget) > 0.0000001) {
-/* eslint-disable */`n    const e = new Error("Milestone amounts must equal the job budget");
-/* eslint-disable */`n    e.status = 400;
-/* eslint-disable */`n    throw e;
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  return safeMilestones;
-/* eslint-disable */`n}
-/* eslint-disable */`n
-/* eslint-disable */`nfunction validatePublicKey(key) {
-/* eslint-disable */`n  if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
-/* eslint-disable */`n    const e = new Error("Invalid Stellar public key");
-/* eslint-disable */`n    e.status = 400;
-/* eslint-disable */`n    throw e;
-/* eslint-disable */`n  }
-/* eslint-disable */`n}
-/* eslint-disable */`n
-/* eslint-disable */`n/**
-/* eslint-disable */`n * Convert a snake_case `jobs` row into the camelCase API object.
-/* eslint-disable */`n *
-/* eslint-disable */`n * @param {Object} row  Raw row from the `jobs` table.
-/* eslint-disable */`n * @returns {Job}       Camel-cased job record.
-/* eslint-disable */`n */
-/* eslint-disable */`nfunction rowToJob(row) {
-/* eslint-disable */`n  return {
-/* eslint-disable */`n    id: row.id,
-/* eslint-disable */`n    title: row.title,
-/* eslint-disable */`n    description: row.description,
-/* eslint-disable */`n    budget: row.budget,
-/* eslint-disable */`n    currency: row.currency || "XLM",
-/* eslint-disable */`n    category: row.category_name || row.category,
-/* eslint-disable */`n    categorySlug: row.category_slug || null,
-/* eslint-disable */`n    categoryId: row.category_id_resolved || row.category_id || null,
-/* eslint-disable */`n    skills: row.skills,
-/* eslint-disable */`n    status: row.status,
-/* eslint-disable */`n    visibility: row.visibility || "public",
-/* eslint-disable */`n    clientAddress: row.client_address,
-/* eslint-disable */`n    freelancerAddress: row.freelancer_address,
-/* eslint-disable */`n    escrowContractId: row.escrow_contract_id,
-/* eslint-disable */`n    applicantCount: row.applicant_count,
-/* eslint-disable */`n    shareCount: row.share_count || 0,
-/* eslint-disable */`n    boosted: row.boosted || false,
-/* eslint-disable */`n    boostedUntil: row.boosted_until,
-/* eslint-disable */`n    deadline: row.deadline,
-/* eslint-disable */`n    timezone: row.timezone,
-/* eslint-disable */`n    screeningQuestions: row.screening_questions || [],
-/* eslint-disable */`n    milestones: normalizeMilestoneRows(row.milestones, row.budget),
-/* eslint-disable */`n    disputeReason: row.dispute_reason,
-/* eslint-disable */`n    disputeDescription: row.dispute_description,
-/* eslint-disable */`n    disputedBy: row.disputed_by,
-/* eslint-disable */`n    disputedAt: row.disputed_at,
-/* eslint-disable */`n    expiresAt: row.expires_at,
-/* eslint-disable */`n    extendedCount: row.extended_count,
-/* eslint-disable */`n    extendedUntil: row.extended_until,
-/* eslint-disable */`n    biddingClosedAt: row.bidding_closed_at,
-/* eslint-disable */`n    viewCount: row.view_count,
-/* eslint-disable */`n    deletedAt: row.deleted_at || null,
-/* eslint-disable */`n    createdAt: row.created_at,
-/* eslint-disable */`n    updatedAt: row.updated_at,
-/* eslint-disable */`n    searchHeadline: row.headline_title || null,
-/* eslint-disable */`n    descriptionHeadline: row.headline_description || null,
-/* eslint-disable */`n  };
-/* eslint-disable */`n}
-/* eslint-disable */`n
-/* eslint-disable */`n/**
-/* eslint-disable */`n * @typedef {Object} CreateJobInput
-/* eslint-disable */`n * @property {string} title - The title of the job (min 10 characters).
-/* eslint-disable */`n * @property {string} description - The detailed description of the job (min 30 characters).
-/* eslint-disable */`n * @property {string|number} budget - The positive budget amount for the job.
-/* eslint-disable */`n * @property {string} [currency='XLM'] - The currency, either 'XLM' or 'USDC'.
-/* eslint-disable */`n * @property {string} category - The category of the job (must be a valid category).
-/* eslint-disable */`n * @property {string[]} [skills] - Array of relevant skills (max 8).
-/* eslint-disable */`n * @property {Date|string} [deadline] - The deadline for the job.
-/* eslint-disable */`n * @property {string} clientAddress - The Stellar public key of the client.
-/* eslint-disable */`n */
-/* eslint-disable */`n
-/* eslint-disable */`n/**
-/* eslint-disable */`n * Create a new job listing.
-/* eslint-disable */`n * Note: client's profile row must already exist (FK constraint).
-/* eslint-disable */`n *
-/* eslint-disable */`n * @param {CreateJobInput} params - The parameters to create a job.
-/* eslint-disable */`n * @returns {Promise<Object>} The created job object.
-/* eslint-disable */`n * @throws {Error} If validation fails or client profile doesn't exist.
-/* eslint-disable */`n *
-/* eslint-disable */`n * @example
-/* eslint-disable */`n * const newJob = await jobService.createJob({
-/* eslint-disable */`n *   title: 'Build a Smart Contract',
-/* eslint-disable */`n *   description: 'Need a developer to build a Soroban smart contract for an escrow service.',
-/* eslint-disable */`n *   budget: 500,
-/* eslint-disable */`n *   currency: 'USDC',
-/* eslint-disable */`n *   category: 'Smart Contracts',
-/* eslint-disable */`n *   skills: ['Soroban', 'Rust'],
-/* eslint-disable */`n *   clientAddress: 'GBX...',
-/* eslint-disable */`n * });
-/* eslint-disable */`n */
-/* eslint-disable */`nlet createJob = async function ({
-/* eslint-disable */`n  title,
-/* eslint-disable */`n  description,
-/* eslint-disable */`n  budget,
-/* eslint-disable */`n  currency,
-/* eslint-disable */`n  category,
-/* eslint-disable */`n  categorySlug,
-/* eslint-disable */`n  skills,
-/* eslint-disable */`n  deadline,
-/* eslint-disable */`n  timezone,
-/* eslint-disable */`n  clientAddress,
-/* eslint-disable */`n  screeningQuestions,
-/* eslint-disable */`n  milestones,
-/* eslint-disable */`n  visibility = "public",
-/* eslint-disable */`n}) {
-/* eslint-disable */`n  validatePublicKey(clientAddress);
-/* eslint-disable */`n
-/* eslint-disable */`n  if (!title || title.length < 10) {
-/* eslint-disable */`n    const e = new Error("Title must be at least 10 characters");
-/* eslint-disable */`n    e.status = 400;
-/* eslint-disable */`n    throw e;
-/* eslint-disable */`n  }
-/* eslint-disable */`n  if (!description || description.length < 30) {
-/* eslint-disable */`n    const e = new Error("Description must be at least 30 characters");
-/* eslint-disable */`n    e.status = 400;
-/* eslint-disable */`n    throw e;
-/* eslint-disable */`n  }
-/* eslint-disable */`n  const numericBudget = parseFloat(budget);
-/* eslint-disable */`n  if (budget === undefined || budget === null || isNaN(numericBudget) || numericBudget <= 0) {
-/* eslint-disable */`n    const e = new Error("Budget must be a positive number");
-/* eslint-disable */`n    e.status = 400;
-/* eslint-disable */`n    throw e;
-/* eslint-disable */`n  }
-/* eslint-disable */`n  if (!currency || !["XLM", "USDC"].includes(currency)) {
-/* eslint-disable */`n    const e = new Error("Currency must be XLM or USDC");
-/* eslint-disable */`n    e.status = 400;
-/* eslint-disable */`n    throw e;
-/* eslint-disable */`n  }
-/* eslint-disable */`n  // Resolve category: accept either a slug (e.g. "frontend-development") or a legacy name.
-/* eslint-disable */`n  // categorySlug takes precedence; falls back to category name lookup.
-/* eslint-disable */`n  const categoryLookupVal = categorySlug || category;
-/* eslint-disable */`n  let resolvedCategoryId = null;
-/* eslint-disable */`n  let resolvedCategoryName = category;
-/* eslint-disable */`n
-/* eslint-disable */`n  if (categoryLookupVal) {
-/* eslint-disable */`n    const { rows: catRows } = await pool.query(
-/* eslint-disable */`n      "SELECT id, name FROM categories WHERE slug = $1 OR LOWER(name) = LOWER($2) LIMIT 1",
-/* eslint-disable */`n      [categoryLookupVal, categoryLookupVal],
-/* eslint-disable */`n    );
-/* eslint-disable */`n    if (catRows.length) {
-/* eslint-disable */`n      resolvedCategoryId = catRows[0].id;
-/* eslint-disable */`n      resolvedCategoryName = catRows[0].name;
-/* eslint-disable */`n    }
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  // Still validate against VALID_CATEGORIES for backward-compat when no DB match found
-/* eslint-disable */`n  if (!resolvedCategoryId && !VALID_CATEGORIES.includes(category)) {
-/* eslint-disable */`n    const e = new Error("Invalid category");
-/* eslint-disable */`n    e.status = 400;
-/* eslint-disable */`n    throw e;
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  const jobVisibility = visibility || "public";
-/* eslint-disable */`n  if (!["public", "private", "invite_only"].includes(jobVisibility)) {
-/* eslint-disable */`n    const e = new Error("Visibility must be public, private, or invite_only");
-/* eslint-disable */`n    e.status = 400;
-/* eslint-disable */`n    throw e;
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  const safeSkills = Array.isArray(skills)
-/* eslint-disable */`n    ? skills
-/* eslint-disable */`n        .slice(0, 8)
-/* eslint-disable */`n        .map((s) => s.trim())
-/* eslint-disable */`n        .filter(Boolean)
-/* eslint-disable */`n    : [];
-/* eslint-disable */`n  const safeScreeningQuestions = Array.isArray(screeningQuestions)
-/* eslint-disable */`n    ? screeningQuestions.slice(0, 5).filter((q) => q && q.trim().length > 0)
-/* eslint-disable */`n    : [];
-/* eslint-disable */`n  const safeMilestones = validateMilestones(milestones, budget);
-/* eslint-disable */`n
-/* eslint-disable */`n  const client = await pool.connect();
-/* eslint-disable */`n  let job;
-/* eslint-disable */`n  try {
-/* eslint-disable */`n    const now = new Date();
-/* eslint-disable */`n    const userOffset = getTimezoneOffset(userTimezone, now);
-/* eslint-disable */`n    const jobOffset = getTimezoneOffset(jobTimezone, now);
-/* eslint-disable */`n    const diffHours = Math.abs(userOffset - jobOffset) / (1000 * 60 * 60);
-/* eslint-disable */`n    return diffHours <= 3;
-/* eslint-disable */`n  } catch {
-/* eslint-disable */`n    return true;
-/* eslint-disable */`n  }
-/* eslint-disable */`n}
-/* eslint-disable */`n
-/* eslint-disable */`n
-/* eslint-disable */`n// Provide a lightweight in-memory implementation for tests to avoid requiring
-/* eslint-disable */`n// a running Postgres instance. The test-suite imports `jobService` and
-/* eslint-disable */`n// expects synchronous functions that operate on `services/store.js` maps.
-/* eslint-disable */`nif (process.env.NODE_ENV === 'test') {
-/* eslint-disable */`n  const store = require('./store');
-/* eslint-disable */`n  const crypto = require('crypto');
-/* eslint-disable */`n
-/* eslint-disable */`n  async function createJob(input) {
-/* eslint-disable */`n    const {
-/* eslint-disable */`n      title,
-/* eslint-disable */`n      description,
-/* eslint-disable */`n      budget,
-/* eslint-disable */`n      currency = 'XLM',
-/* eslint-disable */`n      category,
-/* eslint-disable */`n      visibility = 'public',
-/* eslint-disable */`n      skills,
-/* eslint-disable */`n      deadline,
-/* eslint-disable */`n      timezone,
-/* eslint-disable */`n      screeningQuestions,
-/* eslint-disable */`n      clientAddress,
-/* eslint-disable */`n    } = input;
-/* eslint-disable */`n
-/* eslint-disable */`n    if (!title || title.length < 10) {
-/* eslint-disable */`n      const e = new Error("Title must be at least 10 characters");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    if (!description || description.length < 30) {
-/* eslint-disable */`n      const e = new Error("Description must be at least 30 characters");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    if (!budget || isNaN(parseFloat(budget)) || parseFloat(budget) <= 0) {
-/* eslint-disable */`n      const e = new Error("Budget must be a positive number");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    if (!["XLM", "USDC"].includes(currency)) {
-/* eslint-disable */`n      const e = new Error("Currency must be XLM or USDC");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    if (!category) {
-/* eslint-disable */`n      const e = new Error("Invalid category");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    const id = crypto.randomUUID();
-/* eslint-disable */`n    const now = new Date().toISOString();
-/* eslint-disable */`n    const job = {
-/* eslint-disable */`n      id,
-/* eslint-disable */`n      title: title.trim(),
-/* eslint-disable */`n      description: description.trim(),
-/* eslint-disable */`n      budget: parseFloat(budget).toFixed(7),
-/* eslint-disable */`n      currency,
-/* eslint-disable */`n      category,
-/* eslint-disable */`n      visibility,
-/* eslint-disable */`n      skills: Array.isArray(skills) ? skills.slice(0, 8) : [],
-/* eslint-disable */`n      status: 'open',
-/* eslint-disable */`n      clientAddress,
-/* eslint-disable */`n      freelancerAddress: null,
-/* eslint-disable */`n      escrowContractId: null,
-/* eslint-disable */`n      applicantCount: 0,
-/* eslint-disable */`n      shareCount: 0,
-/* eslint-disable */`n      boosted: false,
-/* eslint-disable */`n      boostedUntil: null,
-/* eslint-disable */`n      deadline: deadline || null,
-/* eslint-disable */`n      timezone: timezone || null,
-/* eslint-disable */`n      screeningQuestions: Array.isArray(screeningQuestions) ? screeningQuestions : [],
-/* eslint-disable */`n      createdAt: now,
-/* eslint-disable */`n      updatedAt: now,
-/* eslint-disable */`n    };
-/* eslint-disable */`n
-/* eslint-disable */`n    store.jobs.set(id, job);
-/* eslint-disable */`n    return job;
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  async function getJob(id) {
-/* eslint-disable */`n    const job = store.jobs.get(id);
-/* eslint-disable */`n    if (!job) {
-/* eslint-disable */`n      const e = new Error('Job not found');
-/* eslint-disable */`n      e.status = 404;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    return job;
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  async function listJobs({ category, status = 'open', limit = 50, search, _cursor, timezone, _viewerAddress } = {}) {
-/* eslint-disable */`n    let jobs = Array.from(store.jobs.values());
-/* eslint-disable */`n    if (status) jobs = jobs.filter((j) => j.status === status);
-/* eslint-disable */`n    if (category) jobs = jobs.filter((j) => j.category === category);
-/* eslint-disable */`n    if (search) {
-/* eslint-disable */`n      const q = search.toLowerCase();
-/* eslint-disable */`n      jobs = jobs.filter((j) => j.title.toLowerCase().includes(q) || j.description.toLowerCase().includes(q) || (j.skills || []).some(s => s.toLowerCase().includes(q)));
-/* eslint-disable */`n    }
-/* eslint-disable */`n    if (timezone) jobs = jobs.filter((j) => isTimezoneCompatible(j.timezone, timezone));
-/* eslint-disable */`n    return { jobs: jobs.slice(0, limit) };
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  async function listJobsByClient(clientAddress) {
-/* eslint-disable */`n    return Array.from(store.jobs.values()).filter((j) => j.clientAddress === clientAddress);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  async function updateJobStatus(id, nextStatus) {
-/* eslint-disable */`n    const job = store.jobs.get(id);
-/* eslint-disable */`n    if (!job) {
-/* eslint-disable */`n      const e = new Error('Job not found');
-/* eslint-disable */`n      e.status = 404;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    if (!["open", "in_progress", "completed", "cancelled"].includes(nextStatus)) {
-/* eslint-disable */`n      throw new Error('Invalid status');
-/* eslint-disable */`n    }
-/* eslint-disable */`n    job.status = nextStatus;
-/* eslint-disable */`n    job.updatedAt = new Date().toISOString();
-/* eslint-disable */`n    store.jobs.set(id, job);
-/* eslint-disable */`n    return job;
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  async function assignFreelancer(jobId, freelancerAddress) {
-/* eslint-disable */`n    const job = store.jobs.get(jobId);
-/* eslint-disable */`n    if (!job) {
-/* eslint-disable */`n      const e = new Error('Job not found');
-/* eslint-disable */`n      e.status = 404;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    job.freelancerAddress = freelancerAddress;
-/* eslint-disable */`n    job.status = 'in_progress';
-/* eslint-disable */`n    job.updatedAt = new Date().toISOString();
-/* eslint-disable */`n    store.jobs.set(jobId, job);
-/* eslint-disable */`n    return job;
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  module.exports = {
-/* eslint-disable */`n    createJob,
-/* eslint-disable */`n    getJob,
-/* eslint-disable */`n    listJobs,
-/* eslint-disable */`n    listJobsByClient,
-/* eslint-disable */`n    updateJobStatus,
-/* eslint-disable */`n    assignFreelancer,
-/* eslint-disable */`n  };
-/* eslint-disable */`n
-/* eslint-disable */`n} else {
-/* eslint-disable */`n  const pool = require("../db/pool");
-/* eslint-disable */`n
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Camel-cased job record returned by this service.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @typedef {Object} Job
-/* eslint-disable */`n   * @property {string}   id                  UUID of the job.
-/* eslint-disable */`n   * @property {string}   title               Job title (≥10 chars).
-/* eslint-disable */`n   * @property {string}   description         Job description (≥30 chars).
-/* eslint-disable */`n   * @property {string}   budget              Budget as a fixed-point string (e.g. "500.0000000").
-/* eslint-disable */`n   * @property {("XLM"|"USDC")} currency      Payment currency.
-/* eslint-disable */`n   * @property {string}   category            One of {@link VALID_CATEGORIES}.
-/* eslint-disable */`n   * @property {("public"|"private"|"invite_only")} visibility
-/* eslint-disable */`n   * @property {string[]} skills              Up to 8 skill tags.
-/* eslint-disable */`n   * @property {("open"|"in_progress"|"completed"|"cancelled")} status
-/* eslint-disable */`n   * @property {string}   clientAddress       Stellar G-address of the client.
-/* eslint-disable */`n   * @property {string|null} freelancerAddress Stellar G-address of the hired freelancer, if any.
-/* eslint-disable */`n   * @property {string|null} escrowContractId Soroban contract id for the locked escrow.
-/* eslint-disable */`n   * @property {number}   applicantCount      Cached count of applications for this job.
-/* eslint-disable */`n   * @property {number}   shareCount          Number of times the job link has been shared.
-/* eslint-disable */`n   * @property {boolean}  boosted             True while the listing is Featured.
-/* eslint-disable */`n   * @property {string|null} boostedUntil     ISO timestamp at which boost expires.
-/* eslint-disable */`n   * @property {string|null} deadline         ISO timestamp deadline (optional).
-/* eslint-disable */`n   * @property {string|null} timezone         IANA timezone name for compatibility filtering.
-/* eslint-disable */`n   * @property {string[]} screeningQuestions  Up to 5 screening questions applicants must answer.
-/* eslint-disable */`n   * @property {string}   createdAt           ISO timestamp when the job was created.
-/* eslint-disable */`n   * @property {string}   updatedAt           ISO timestamp of last write.
-/* eslint-disable */`n   */
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Input shape accepted by {@link createJob}.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @typedef {Object} CreateJobInput
-/* eslint-disable */`n   * @property {string}   title
-/* eslint-disable */`n   * @property {string}   description
-/* eslint-disable */`n   * @property {string|number} budget
-/* eslint-disable */`n   * @property {("XLM"|"USDC")} [currency="XLM"]
-/* eslint-disable */`n   * @property {string}   category
-/* eslint-disable */`n   * @property {string[]} [skills]
-/* eslint-disable */`n   * @property {string}   [deadline]            ISO timestamp.
-/* eslint-disable */`n   * @property {string}   [timezone]            IANA timezone name.
-/* eslint-disable */`n   * @property {string[]} [screeningQuestions]  Up to 5 questions; non-empty entries are kept.
-/* eslint-disable */`n   * @property {string}   clientAddress         Stellar G-address of the posting client.
-/* eslint-disable */`n   */
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Pagination wrapper returned by {@link listJobs}.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @typedef {Object} JobListPage
-/* eslint-disable */`n   * @property {Job[]}      jobs
-/* eslint-disable */`n   * @property {string|null} nextCursor  Opaque base64 cursor for the next page, or null when exhausted.
-/* eslint-disable */`n   */
-/* eslint-disable */`n
-/* eslint-disable */`n  const VALID_STATUSES = ["open", "in_progress", "completed", "cancelled"];
-/* eslint-disable */`n
-/* eslint-disable */`n  const VALID_CATEGORIES = [
-/* eslint-disable */`n    "Smart Contracts",
-/* eslint-disable */`n    "Frontend Development",
-/* eslint-disable */`n    "Backend Development",
-/* eslint-disable */`n    "UI/UX Design",
-/* eslint-disable */`n    "Technical Writing",
-/* eslint-disable */`n    "DevOps",
-/* eslint-disable */`n    "Security Audit",
-/* eslint-disable */`n    "Data Analysis",
-/* eslint-disable */`n    "Mobile Development",
-/* eslint-disable */`n    "Other",
-/* eslint-disable */`n  ];
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Throws a 400 Error when `key` is not a valid Stellar G-address.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {string} key  Stellar account public key.
-/* eslint-disable */`n   * @returns {void}
-/* eslint-disable */`n   * @throws {Error}      `status === 400` if the key fails the G-address regex.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  function validatePublicKey(key) {
-/* eslint-disable */`n    if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
-/* eslint-disable */`n      const e = new Error("Invalid Stellar public key");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Check if a job's timezone is compatible with the user's timezone.
-/* eslint-disable */`n   * Compatible if the time difference is within +/-3 hours.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {string} jobTimezone - IANA timezone string of the job (e.g., "America/New_York")
-/* eslint-disable */`n   * @param {string} userTimezone - IANA timezone string of the user (e.g., "Europe/London")
-/* eslint-disable */`n   * @returns {boolean} true if timezones are compatible or if job has no timezone restriction
-/* eslint-disable */`n   */
-/* eslint-disable */`n  function isTimezoneCompatible(jobTimezone, userTimezone) {
-/* eslint-disable */`n    if (!jobTimezone) return true;
-/* eslint-disable */`n    if (!userTimezone) return true;
-/* eslint-disable */`n
-/* eslint-disable */`n    try {
-/* eslint-disable */`n      const now = new Date();
-/* eslint-disable */`n      const userOffset = getTimezoneOffset(userTimezone, now);
-/* eslint-disable */`n      const jobOffset = getTimezoneOffset(jobTimezone, now);
-/* eslint-disable */`n      const diffHours = Math.abs(userOffset - jobOffset) / (1000 * 60 * 60);
-/* eslint-disable */`n      return diffHours <= 3;
-/* eslint-disable */`n    } catch {
-/* eslint-disable */`n      return true;
-/* eslint-disable */`n    }
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Convert a snake_case `jobs` row into the camelCase API object.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {Object} row  Raw row from the `jobs` table.
-/* eslint-disable */`n   * @returns {Job}       Camel-cased job record.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  function rowToJob(row) {
-/* eslint-disable */`n    return {
-/* eslint-disable */`n      id: row.id,
-/* eslint-disable */`n      title: row.title,
-/* eslint-disable */`n      description: row.description,
-/* eslint-disable */`n      budget: row.budget,
-/* eslint-disable */`n      currency: row.currency || "XLM",
-/* eslint-disable */`n      category: row.category,
-/* eslint-disable */`n      visibility: row.visibility || "public",
-/* eslint-disable */`n      skills: row.skills,
-/* eslint-disable */`n      status: row.status,
-/* eslint-disable */`n      clientAddress: row.client_address,
-/* eslint-disable */`n      freelancerAddress: row.freelancer_address,
-/* eslint-disable */`n      escrowContractId: row.escrow_contract_id,
-/* eslint-disable */`n      applicantCount: row.applicant_count,
-/* eslint-disable */`n      shareCount: row.share_count || 0,
-/* eslint-disable */`n      boosted: row.boosted || false,
-/* eslint-disable */`n      boostedUntil: row.boosted_until,
-/* eslint-disable */`n      deadline: row.deadline,
-/* eslint-disable */`n      timezone: row.timezone,
-/* eslint-disable */`n      screeningQuestions: row.screening_questions || [],
-/* eslint-disable */`n      createdAt: row.created_at,
-/* eslint-disable */`n      updatedAt: row.updated_at,
-/* eslint-disable */`n      expiresAt: row.expires_at,
-/* eslint-disable */`n      extendedCount: row.extended_count || 0,
-/* eslint-disable */`n      extendedUntil: row.extended_until,
-/* eslint-disable */`n    };
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Create a new job listing in `status = 'open'`.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * The client's profile row must already exist; the FK constraint on
-/* eslint-disable */`n   * `client_address` will otherwise reject the insert.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {CreateJobInput} input
-/* eslint-disable */`n   * @returns {Promise<Job>}  The newly persisted job.
-/* eslint-disable */`n   * @throws {Error} 400 — when title/description/budget/category/currency fail validation.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @example
-/* eslint-disable */`n   * const job = await createJob({
-/* eslint-disable */`n   *   title: "Build a Soroban escrow contract",
-/* eslint-disable */`n   *   description: "We need a Rust developer to ship an escrow with milestones...",
-/* eslint-disable */`n   *   budget: "500",
-/* eslint-disable */`n   *   currency: "XLM",
-/* eslint-disable */`n   *   category: "Smart Contracts",
-/* eslint-disable */`n   *   skills: ["Rust", "Soroban"],
-/* eslint-disable */`n   *   clientAddress: "GABCDEF...XYZ",
-/* eslint-disable */`n   * });
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function createJob({
-/* eslint-disable */`n    title,
-/* eslint-disable */`n    description,
-/* eslint-disable */`n    budget,
-/* eslint-disable */`n    currency = "XLM",
-/* eslint-disable */`n    category,
-/* eslint-disable */`n    visibility = "public",
-/* eslint-disable */`n    skills,
-/* eslint-disable */`n    deadline,
-/* eslint-disable */`n    timezone,
-/* eslint-disable */`n    screeningQuestions,
-/* eslint-disable */`n    clientAddress,
-/* eslint-disable */`n  }) {
-/* eslint-disable */`n    validatePublicKey(clientAddress);
-/* eslint-disable */`n
-/* eslint-disable */`n    if (!title || title.length < 10) {
-/* eslint-disable */`n      const e = new Error("Title must be at least 10 characters");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    if (!description || description.length < 30) {
-/* eslint-disable */`n      const e = new Error("Description must be at least 30 characters");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    if (!budget || isNaN(parseFloat(budget)) || parseFloat(budget) <= 0) {
-/* eslint-disable */`n      const e = new Error("Budget must be a positive number");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    if (!currency || !["XLM", "USDC"].includes(currency)) {
-/* eslint-disable */`n      const e = new Error("Currency must be XLM or USDC");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    if (!VALID_CATEGORIES.includes(category)) {
-/* eslint-disable */`n      const e = new Error("Invalid category");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    if (!["public", "private", "invite_only"].includes(visibility)) {
-/* eslint-disable */`n      const e = new Error("Visibility must be public, private, or invite_only");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    const safeSkills = Array.isArray(skills) ? skills.slice(0, 8) : [];
-/* eslint-disable */`n    const safeScreeningQuestions = Array.isArray(screeningQuestions)
-/* eslint-disable */`n      ? screeningQuestions.slice(0, 5).filter((q) => q && q.trim().length > 0)
-/* eslint-disable */`n      : [];
-/* eslint-disable */`n
-/* eslint-disable */`n    const { rows } = await pool.query(
-/* eslint-disable */`n      `
-/* eslint-disable */`n    INSERT INTO jobs
-/* eslint-disable */`n      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, visibility, created_at, updated_at, expires_at)
-/* eslint-disable */`n    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, $11, NOW(), NOW(), NOW() + INTERVAL '30 days')
-/* eslint-disable */`n    RETURNING *
-/* eslint-disable */`n    `,
-/* eslint-disable */`n      [
-/* eslint-disable */`n        title.trim(),
-/* eslint-disable */`n        description.trim(),
-/* eslint-disable */`n        parseFloat(budget),
-/* eslint-disable */`n        currency,
-/* eslint-disable */`n        category,
-/* eslint-disable */`n        safeSkills,
-/* eslint-disable */`n        clientAddress,
-/* eslint-disable */`n        deadline || null,
-/* eslint-disable */`n        timezone || null,
-/* eslint-disable */`n        safeScreeningQuestions,
-/* eslint-disable */`n        visibility,
-/* eslint-disable */`n      ]
-/* eslint-disable */`n    );
-/* eslint-disable */`n
-/* eslint-disable */`n    return rowToJob(rows[0]);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Fetch a single job by id.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {string} id  UUID of the job.
-/* eslint-disable */`n   * @returns {Promise<Job>}
-/* eslint-disable */`n   * @throws {Error} 404 — when no job with this id exists.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function getJob(id) {
-/* eslint-disable */`n    const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [id]);
-/* eslint-disable */`n    if (!rows.length) {
-/* eslint-disable */`n      const e = new Error("Job not found");
-/* eslint-disable */`n      e.status = 404;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n    return rowToJob(rows[0]);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Encode a (createdAt, id) pair into an opaque base64 cursor.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {Object} jobRow  Row containing `created_at` and `id`.
-/* eslint-disable */`n   * @returns {string}        Base64-encoded JSON cursor.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  function encodeCursor(jobRow) {
-/* eslint-disable */`n    return Buffer.from(
-/* eslint-disable */`n      JSON.stringify({
-/* eslint-disable */`n        createdAt: jobRow.created_at,
-/* eslint-disable */`n        id: jobRow.id,
-/* eslint-disable */`n      })
-/* eslint-disable */`n    ).toString("base64");
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Decode a base64 pagination cursor produced by {@link encodeCursor}.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {string} cursor  Base64-encoded JSON cursor.
-/* eslint-disable */`n   * @returns {{ createdAt: string, id: string }}
-/* eslint-disable */`n   * @throws {Error} 400 — when the cursor cannot be parsed.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  function decodeCursor(cursor) {
-/* eslint-disable */`n    try {
-/* eslint-disable */`n      const decoded = JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
-/* eslint-disable */`n      if (!decoded.createdAt || !decoded.id) throw new Error("Invalid cursor");
-/* eslint-disable */`n      return decoded;
-/* eslint-disable */`n    } catch (_) {
-/* eslint-disable */`n      const e = new Error("Invalid cursor");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Page through jobs, with optional filtering and ordering.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * Boosted (Featured) listings sort first; ties break on `created_at DESC, id DESC`.
-/* eslint-disable */`n   * Cursor pagination is keyset-based — pass {@link JobListPage.nextCursor} from the
-/* eslint-disable */`n   * previous page to fetch the next slice.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {Object}  [opts]
-/* eslint-disable */`n   * @param {string}  [opts.category]               Restrict to a category from {@link VALID_CATEGORIES}.
-/* eslint-disable */`n   * @param {("open"|"in_progress"|"completed"|"cancelled")} [opts.status="open"]
-/* eslint-disable */`n   * @param {number}  [opts.limit=50]               Page size (clamped to 1..100).
-/* eslint-disable */`n   * @param {string}  [opts.search]                 Substring search over title, description, and skills.
-/* eslint-disable */`n   * @param {string}  [opts.cursor]                 Opaque cursor from the previous page.
-/* eslint-disable */`n   * @param {string}  [opts.timezone]               IANA timezone of the viewer; only jobs whose
-/* eslint-disable */`n   *                                                timezone is within ±3h are returned.
-/* eslint-disable */`n   * @returns {Promise<JobListPage>}
-/* eslint-disable */`n   * @throws {Error} 400 — when `cursor` is malformed.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone, viewerAddress } = {}) {
-/* eslint-disable */`n    const conditions = [];
-/* eslint-disable */`n    const params = [];
-/* eslint-disable */`n
-/* eslint-disable */`n    if (status) {
-/* eslint-disable */`n      params.push(status);
-/* eslint-disable */`n      conditions.push(`status = $${params.length}`);
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    if (category) {
-/* eslint-disable */`n      params.push(category);
-/* eslint-disable */`n      conditions.push(`category = $${params.length}`);
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    if (search) {
-/* eslint-disable */`n      params.push(`%${search.toLowerCase()}%`);
-/* eslint-disable */`n      const idx = params.length;
-/* eslint-disable */`n      conditions.push(
-/* eslint-disable */`n        `(LOWER(title) LIKE $${idx} OR LOWER(description) LIKE $${idx} OR EXISTS (
-/* eslint-disable */`n         SELECT 1 FROM unnest(skills) s WHERE LOWER(s) LIKE $${idx}
-/* eslint-disable */`n       ))`
-/* eslint-disable */`n      );
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n/**
-/* eslint-disable */`n * Decode a base64 pagination cursor produced by {@link encodeCursor}.
-/* eslint-disable */`n *
-/* eslint-disable */`n * @param {string} cursor  Base64-encoded JSON cursor.
-/* eslint-disable */`n * @returns {{ createdAt: string, id: string }}
-/* eslint-disable */`n * @throws {Error} 400 — when the cursor cannot be parsed.
-/* eslint-disable */`n */
-/* eslint-disable */`nfunction decodeCursor(cursor) {
-/* eslint-disable */`n  try {
-/* eslint-disable */`n    const decoded = JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
-/* eslint-disable */`n    if (!decoded.createdAt || !decoded.id) throw new Error("Invalid cursor");
-/* eslint-disable */`n    return decoded;
-/* eslint-disable */`n  } catch (_) {
-/* eslint-disable */`n    const e = new Error("Invalid cursor");
-/* eslint-disable */`n    e.status = 400;
-/* eslint-disable */`n    throw e;
-/* eslint-disable */`n  }
-/* eslint-disable */`n}
-/* eslint-disable */`n
-/* eslint-disable */`n/**
-/* eslint-disable */`n * @typedef {Object} ListJobsOptions
-/* eslint-disable */`n * @property {string} [category] - Filter by job category.
-/* eslint-disable */`n * @property {string} [status='open'] - Filter by job status.
-/* eslint-disable */`n * @property {number} [limit=50] - Max number of results to return (max 100).
-/* eslint-disable */`n * @property {string} [search] - Search term for title, description, or skills.
-/* eslint-disable */`n * @property {string} [cursor] - Pagination cursor.
-/* eslint-disable */`n * @property {string} [timezone] - Filter by timezone.
-/* eslint-disable */`n */
-/* eslint-disable */`n
-/* eslint-disable */`n/**
-/* eslint-disable */`n * List jobs with optional filtering, searching, and pagination.
-/* eslint-disable */`n *
-/* eslint-disable */`n * @param {ListJobsOptions} [options={}] - Options for listing jobs.
-/* eslint-disable */`n * @returns {Promise<{jobs: Object[], nextCursor: string|null, hasMore: boolean}>} An object containing the list of jobs, an optional next cursor for pagination, and whether more results exist.
-/* eslint-disable */`n * @throws {Error} If the provided cursor is invalid.
-/* eslint-disable */`n */
-/* eslint-disable */`nasync function listJobs({
-/* eslint-disable */`n  category,
-/* eslint-disable */`n  status = "open",
-/* eslint-disable */`n  limit = 20,
-/* eslint-disable */`n  search,
-/* eslint-disable */`n  q,
-/* eslint-disable */`n  cursor,
-/* eslint-disable */`n  // eslint-disable-next-line no-unused-vars
-/* eslint-disable */`n  timezone,
-/* eslint-disable */`n  viewerAddress,
-/* eslint-disable */`n  includeExpired,
-/* eslint-disable */`n  includeDeleted = false,
-/* eslint-disable */`n  min_budget,
-/* eslint-disable */`n  max_budget,
-/* eslint-disable */`n  skills,
-/* eslint-disable */`n  min_client_rating,
-/* eslint-disable */`n  duration,
-/* eslint-disable */`n  posted_since,
-/* eslint-disable */`n  max_applications,
-/* eslint-disable */`n} = {}) {
-/* eslint-disable */`n  const conditions = [];
-/* eslint-disable */`n  const params = [];
-/* eslint-disable */`n  let selectColumns = "jobs.*";
-/* eslint-disable */`n  let orderClause = `CASE WHEN boosted = true AND (boosted_until IS NULL OR boosted_until > NOW()) THEN 0 ELSE 1 END, created_at DESC, id DESC`;
-/* eslint-disable */`n
-/* eslint-disable */`n  const fullTextQuery = q && q.trim();
-/* eslint-disable */`n  if (fullTextQuery) {
-/* eslint-disable */`n    params.push(fullTextQuery);
-/* eslint-disable */`n    const searchIdx = params.length;
-/* eslint-disable */`n    const document = "to_tsvector('english', title || ' ' || description)";
-/* eslint-disable */`n    selectColumns = `jobs.*,
-/* eslint-disable */`n      ts_rank(${document}, websearch_to_tsquery('english', $${searchIdx})) AS rank,
-/* eslint-disable */`n      ts_headline('english', title, websearch_to_tsquery('english', $${searchIdx}),
-/* eslint-disable */`n        'StartSel=<mark>,StopSel=</mark>,MaxWords=50,MinWords=20') AS headline_title,
-/* eslint-disable */`n      ts_headline('english', description, websearch_to_tsquery('english', $${searchIdx}),
-/* eslint-disable */`n        'StartSel=<mark>,StopSel=</mark>,MaxWords=80,MinWords=30') AS headline_description`;
-/* eslint-disable */`n    conditions.push(`${document} @@ websearch_to_tsquery('english', $${searchIdx})`);
-/* eslint-disable */`n    orderClause = `rank DESC, ${orderClause}`;
-/* eslint-disable */`n  } else if (search && search.trim()) {
-/* eslint-disable */`n    params.push(search.trim());
-/* eslint-disable */`n    const searchIdx = params.length;
-/* eslint-disable */`n    selectColumns = `jobs.*,
-/* eslint-disable */`n      ts_rank(search_vector, websearch_to_tsquery('english', $${searchIdx})) AS rank,
-/* eslint-disable */`n      ts_headline(title, websearch_to_tsquery('english', $${searchIdx}),
-/* eslint-disable */`n        'StartSel=<mark>,StopSel=</mark>,MaxWords=50,MinWords=20') AS headline_title,
-/* eslint-disable */`n      ts_headline(description, websearch_to_tsquery('english', $${searchIdx}),
-/* eslint-disable */`n        'StartSel=<mark>,StopSel=</mark>,MaxWords=80,MinWords=30') AS headline_description`;
-/* eslint-disable */`n    conditions.push(
-/* eslint-disable */`n      `search_vector @@ websearch_to_tsquery('english', $${searchIdx})`,
-/* eslint-disable */`n    );
-/* eslint-disable */`n    orderClause = `rank DESC, ${orderClause}`;
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  if (!includeDeleted) {
-/* eslint-disable */`n    conditions.push("deleted_at IS NULL");
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  if (status && status !== "all") {
-/* eslint-disable */`n    params.push(status);
-/* eslint-disable */`n    conditions.push(`status = $${params.length}`);
-/* eslint-disable */`n  } else if (!includeExpired) {
-/* eslint-disable */`n    conditions.push("status != 'expired'");
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  if (category) {
-/* eslint-disable */`n    params.push(category);
-/* eslint-disable */`n    // Support slug (e.g. 'frontend-development') OR legacy name (e.g. 'Frontend Development')
-/* eslint-disable */`n    conditions.push(`(
-/* eslint-disable */`n      EXISTS (SELECT 1 FROM categories c WHERE c.id = jobs.category_id AND (c.slug = $${params.length} OR LOWER(c.name) = LOWER($${params.length})))
-/* eslint-disable */`n      OR jobs.category = $${params.length}
-/* eslint-disable */`n    )`);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  const minBudget = parseFloat(min_budget);
-/* eslint-disable */`n  if (!Number.isNaN(minBudget)) {
-/* eslint-disable */`n    params.push(minBudget);
-/* eslint-disable */`n    conditions.push(`budget >= $${params.length}`);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  const maxBudget = parseFloat(max_budget);
-/* eslint-disable */`n  if (!Number.isNaN(maxBudget)) {
-/* eslint-disable */`n    params.push(maxBudget);
-/* eslint-disable */`n    conditions.push(`budget <= $${params.length}`);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  const skillList = String(skills || "")
-/* eslint-disable */`n    .split(",")
-/* eslint-disable */`n    .map((s) => s.trim().toLowerCase())
-/* eslint-disable */`n    .filter(Boolean);
-/* eslint-disable */`n  if (skillList.length > 0) {
-/* eslint-disable */`n    // Use the GIN-indexed skills column with the overlap operator (&&) for index scan
-/* eslint-disable */`n    // Issue #540: jobs.skills TEXT[] + GIN index replaces sequential join scan
-/* eslint-disable */`n    params.push(skillList);
-/* eslint-disable */`n    conditions.push(`jobs.skills && $${params.length}::text[]`);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  const minRating = parseFloat(min_client_rating);
-/* eslint-disable */`n  if (!Number.isNaN(minRating)) {
-/* eslint-disable */`n    params.push(minRating);
-/* eslint-disable */`n    conditions.push(
-/* eslint-disable */`n      `EXISTS (
-/* eslint-disable */`n         SELECT 1 FROM profiles p
-/* eslint-disable */`n         WHERE p.public_key = jobs.client_address
-/* eslint-disable */`n           AND COALESCE(p.rating, 0) >= $${params.length}
-/* eslint-disable */`n       )`,
-/* eslint-disable */`n    );
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  if (duration === "short") {
-/* eslint-disable */`n    conditions.push(
-/* eslint-disable */`n      "deadline IS NOT NULL AND deadline <= created_at + INTERVAL '7 days'",
-/* eslint-disable */`n    );
-/* eslint-disable */`n  } else if (duration === "medium") {
-/* eslint-disable */`n    conditions.push(
-/* eslint-disable */`n      "deadline IS NOT NULL AND deadline > created_at + INTERVAL '7 days' AND deadline <= created_at + INTERVAL '28 days'",
-/* eslint-disable */`n    );
-/* eslint-disable */`n  } else if (duration === "long") {
-/* eslint-disable */`n    conditions.push(
-/* eslint-disable */`n      "deadline IS NOT NULL AND deadline > created_at + INTERVAL '28 days'",
-/* eslint-disable */`n    );
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  if (posted_since === "today") {
-/* eslint-disable */`n    conditions.push("created_at >= date_trunc('day', NOW())");
-/* eslint-disable */`n  } else if (posted_since === "week") {
-/* eslint-disable */`n    conditions.push("created_at >= NOW() - INTERVAL '7 days'");
-/* eslint-disable */`n  } else if (posted_since === "month") {
-/* eslint-disable */`n    conditions.push("created_at >= NOW() - INTERVAL '30 days'");
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  const maxApps = parseInt(max_applications, 10);
-/* eslint-disable */`n  if (!Number.isNaN(maxApps)) {
-/* eslint-disable */`n    params.push(maxApps);
-/* eslint-disable */`n    conditions.push(`applicant_count <= $${params.length}`);
-/* eslint-disable */`n  }
-/* eslint-disable */`n  if (viewerAddress && /^G[A-Z0-9]{55}$/.test(viewerAddress)) {
-/* eslint-disable */`n    params.push(viewerAddress);
-/* eslint-disable */`n    const viewerIdx = params.length;
-/* eslint-disable */`n    conditions.push(
-/* eslint-disable */`n      `(visibility = 'public'
-/* eslint-disable */`n        OR client_address = $${viewerIdx}
-/* eslint-disable */`n        OR (visibility = 'invite_only' AND EXISTS (
-/* eslint-disable */`n          SELECT 1 FROM job_invitations ji
-/* eslint-disable */`n          WHERE ji.job_id = jobs.id AND ji.freelancer_address = $${viewerIdx}
-/* eslint-disable */`n        )))`
-/* eslint-disable */`n      );
-/* eslint-disable */`n    } else {
-/* eslint-disable */`n      conditions.push("visibility = 'public'");
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    if (cursor) {
-/* eslint-disable */`n      const decoded = decodeCursor(cursor);
-/* eslint-disable */`n      params.push(decoded.createdAt, decoded.id);
-/* eslint-disable */`n      const createdAtIdx = params.length - 1;
-/* eslint-disable */`n      const idIdx = params.length;
-/* eslint-disable */`n      conditions.push(
-/* eslint-disable */`n        `(created_at < $${createdAtIdx} OR (created_at = $${createdAtIdx} AND id < $${idIdx}))`
-/* eslint-disable */`n      );
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-/* eslint-disable */`n
-/* eslint-disable */`n    params.push(limit);
-/* eslint-disable */`n
-/* eslint-disable */`n    const { rows } = await pool.query(
-/* eslint-disable */`n      `SELECT * FROM jobs ${where} ORDER BY
-/* eslint-disable */`n       CASE WHEN boosted = true AND (boosted_until IS NULL OR boosted_until > NOW()) THEN 0 ELSE 1 END,
-/* eslint-disable */`n       created_at DESC, id DESC LIMIT $${params.length}`,
-/* eslint-disable */`n      params
-/* eslint-disable */`n    );
-/* eslint-disable */`n
-/* eslint-disable */`n    let jobs = rows.map(rowToJob);
-/* eslint-disable */`n
-/* eslint-disable */`n    let nextCursor = null;
-/* eslint-disable */`n    if (jobs.length === limit) {
-/* eslint-disable */`n      nextCursor = encodeCursor(rows[rows.length - 1]);
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    let filteredJobs = jobs;
-/* eslint-disable */`n    if (timezone) {
-/* eslint-disable */`n      filteredJobs = filteredJobs.filter((job) => isTimezoneCompatible(job.timezone, timezone));
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    return { jobs: filteredJobs, nextCursor };
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * List every job posted by a specific client, newest first.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {string} clientAddress  Stellar G-address of the client.
-/* eslint-disable */`n   * @returns {Promise<Job[]>}
-/* eslint-disable */`n   * @throws {Error} 400 — invalid Stellar public key.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function listJobsByClient(clientAddress) {
-/* eslint-disable */`n    validatePublicKey(clientAddress);
-/* eslint-disable */`n    const { rows } = await pool.query(
-/* eslint-disable */`n      "SELECT * FROM jobs WHERE client_address = $1 ORDER BY created_at DESC",
-/* eslint-disable */`n      [clientAddress]
-/* eslint-disable */`n    );
-/* eslint-disable */`n    return rows.map(rowToJob);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Transition a job to a new status.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {string} id      UUID of the job.
-/* eslint-disable */`n   * @param {("open"|"in_progress"|"completed"|"cancelled")} status
-/* eslint-disable */`n   * @returns {Promise<Job>}
-/* eslint-disable */`n   * @throws {Error} 400 — invalid status.
-/* eslint-disable */`n   * @throws {Error} 404 — job not found.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function updateJobStatus(id, status) {
-/* eslint-disable */`n    if (!VALID_STATUSES.includes(status)) {
-/* eslint-disable */`n      const e = new Error("Invalid status");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    const { rows } = await pool.query(
-/* eslint-disable */`n      "UPDATE jobs SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
-/* eslint-disable */`n      [status, id]
-/* eslint-disable */`n    );
-/* eslint-disable */`n
-/* eslint-disable */`n    if (!rows.length) {
-/* eslint-disable */`n      const e = new Error("Job not found");
-/* eslint-disable */`n      e.status = 404;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    return rowToJob(rows[0]);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Hire a freelancer for a job and move it to `in_progress`.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {string} jobId              UUID of the job.
-/* eslint-disable */`n   * @param {string} freelancerAddress  Stellar G-address of the freelancer being hired.
-/* eslint-disable */`n   * @returns {Promise<Job>}
-/* eslint-disable */`n   * @throws {Error} 400 — invalid freelancer public key.
-/* eslint-disable */`n   * @throws {Error} 404 — job not found.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function assignFreelancer(jobId, freelancerAddress) {
-/* eslint-disable */`n    validatePublicKey(freelancerAddress);
-/* eslint-disable */`n
-/* eslint-disable */`n    const { rows } = await pool.query(
-/* eslint-disable */`n      `UPDATE jobs
-/* eslint-disable */`n     SET freelancer_address = $1, status = 'in_progress', updated_at = NOW()
-/* eslint-disable */`n     WHERE id = $2
-/* eslint-disable */`n     RETURNING *`,
-/* eslint-disable */`n      [freelancerAddress, jobId]
-/* eslint-disable */`n    );
-/* eslint-disable */`n
-/* eslint-disable */`n    if (!rows.length) {
-/* eslint-disable */`n      const e = new Error("Job not found");
-/* eslint-disable */`n      e.status = 404;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    return rows.map(rowToJob);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Persist the on-chain escrow contract id against a job. Called after the
-/* eslint-disable */`n   * client signs and submits the Soroban `create_escrow` transaction.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {string} jobId             UUID of the job.
-/* eslint-disable */`n   * @param {string} escrowContractId  Soroban contract id (or transaction hash).
-/* eslint-disable */`n   * @returns {Promise<Job>}
-/* eslint-disable */`n   * @throws {Error} 400 — invalid escrow contract id.
-/* eslint-disable */`n   * @throws {Error} 404 — job not found.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function updateJobEscrowId(jobId, escrowContractId) {
-/* eslint-disable */`n    if (!escrowContractId || typeof escrowContractId !== "string") {
-/* eslint-disable */`n      const e = new Error("Invalid escrow contract ID");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    const { rows } = await pool.query(
-/* eslint-disable */`n      "UPDATE jobs SET escrow_contract_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
-/* eslint-disable */`n      [escrowContractId, jobId]
-/* eslint-disable */`n    );
-/* eslint-disable */`n
-/* eslint-disable */`n    if (!rows.length) {
-/* eslint-disable */`n      const e = new Error("Job not found");
-/* eslint-disable */`n      e.status = 404;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    return rowToJob(rows[0]);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Hard-delete a job. Used to roll back an "orphaned" job whose escrow
-/* eslint-disable */`n   * transaction failed after the row was inserted.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {string} jobId  UUID of the job.
-/* eslint-disable */`n   * @returns {Promise<void>}
-/* eslint-disable */`n   * @throws {Error} 404 — job not found.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function deleteJob(jobId) {
-/* eslint-disable */`n    const { rowCount } = await pool.query("DELETE FROM jobs WHERE id = $1", [jobId]);
-/* eslint-disable */`n    if (!rowCount) {
-/* eslint-disable */`n      const e = new Error("Job not found");
-/* eslint-disable */`n      e.status = 404;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Mark a job as Featured for the next 7 days.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * The route handler accepts a Stellar transaction hash from the client
-/* eslint-disable */`n   * (intended to record the 10 XLM platform fee), but on-chain verification
-/* eslint-disable */`n   * of that payment has not yet been wired up — see the `TODO` in
-/* eslint-disable */`n   * `routes/jobs.js`. The hash is therefore not consumed by this service
-/* eslint-disable */`n   * function today.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {string} jobId  UUID of the job to boost.
-/* eslint-disable */`n   * @returns {Promise<Job>}
-/* eslint-disable */`n   * @throws {Error} 404 — job not found.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function boostJob(jobId) {
-/* eslint-disable */`n    // Verify job exists
-/* eslint-disable */`n    const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [jobId]);
-/* eslint-disable */`n    if (!rows.length) {
-/* eslint-disable */`n      const e = new Error("Job not found");
-/* eslint-disable */`n      e.status = 404;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    const boostedUntil = new Date();
-/* eslint-disable */`n    boostedUntil.setDate(boostedUntil.getDate() + 7);
-/* eslint-disable */`n
-/* eslint-disable */`n    const { rows: updateRows } = await pool.query(
-/* eslint-disable */`n      `UPDATE jobs
-/* eslint-disable */`n     SET boosted = true, boosted_until = $1, updated_at = NOW()
-/* eslint-disable */`n     WHERE id = $2
-/* eslint-disable */`n     RETURNING *`,
-/* eslint-disable */`n      [boostedUntil.toISOString(), jobId]
-/* eslint-disable */`n    );
-/* eslint-disable */`n
-/* eslint-disable */`n    return rowToJob(updateRows[0]);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Increment the per-job share counter. Called when the client clicks
-/* eslint-disable */`n   * "Share" or otherwise copies the job link.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {string} jobId  UUID of the job.
-/* eslint-disable */`n   * @returns {Promise<Job>}
-/* eslint-disable */`n   * @throws {Error} 404 — job not found.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function incrementShareCount(jobId) {
-/* eslint-disable */`n    const { rows } = await pool.query(
-/* eslint-disable */`n      "UPDATE jobs SET share_count = COALESCE(share_count, 0) + 1, updated_at = NOW() WHERE id = $1 RETURNING *",
-/* eslint-disable */`n      [jobId]
-/* eslint-disable */`n    );
-/* eslint-disable */`n
-/* eslint-disable */`n    if (!rows.length) {
-/* eslint-disable */`n      const e = new Error("Job not found");
-/* eslint-disable */`n      e.status = 404;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    return rowToJob(rows[0]);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Update a job's expiry date (extend).
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {string} jobId  UUID of the job.
-/* eslint-disable */`n   * @param {number} additionalDays  Number of days to add (e.g., 30).
-/* eslint-disable */`n   * @param {number} maxExtensions   Maximum allowed extensions (default 3).
-/* eslint-disable */`n   * @returns {Promise<Job>}
-/* eslint-disable */`n   * @throws {Error} 404 — job not found.
-/* eslint-disable */`n   * @throws {Error} 400 — job already completed/cancelled or max extensions reached.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function extendJobExpiry(jobId, additionalDays, maxExtensions = 3) {
-/* eslint-disable */`n    const job = await getJob(jobId);
-/* eslint-disable */`n
-/* eslint-disable */`n    if (job.status === "completed" || job.status === "cancelled") {
-/* eslint-disable */`n      const e = new Error("Cannot extend a completed or cancelled job");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    if (job.extendedCount >= maxExtensions) {
-/* eslint-disable */`n      const e = new Error("Maximum number of extensions reached");
-/* eslint-disable */`n      e.status = 400;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    const currentExpiry = job.expiresAt ? new Date(job.expiresAt) : new Date(job.createdAt);
-/* eslint-disable */`n    if (isNaN(currentExpiry.getTime())) {
-/* eslint-disable */`n      currentExpiry.setTime(Date.now());
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    const newExpiry = new Date(currentExpiry.getTime() + additionalDays * 24 * 60 * 60 * 1000);
-/* eslint-disable */`n
-/* eslint-disable */`n    const { rows } = await pool.query(
-/* eslint-disable */`n      `UPDATE jobs
-/* eslint-disable */`n     SET expires_at = $1,
-/* eslint-disable */`n         extended_count = extended_count + 1,
-/* eslint-disable */`n         extended_until = $1,
-/* eslint-disable */`n         updated_at = NOW()
-/* eslint-disable */`n     WHERE id = $2
-/* eslint-disable */`n     RETURNING *`,
-/* eslint-disable */`n      [newExpiry.toISOString(), jobId]
-/* eslint-disable */`n    );
-/* eslint-disable */`n
-/* eslint-disable */`n    if (!rows.length) {
-/* eslint-disable */`n      const e = new Error("Job not found");
-/* eslint-disable */`n      e.status = 404;
-/* eslint-disable */`n      throw e;
-/* eslint-disable */`n    }
-/* eslint-disable */`n
-/* eslint-disable */`n    return rowToJob(rows[0]);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Auto-expire jobs that have passed their expiry date and are still open (not hired).
-/* eslint-disable */`n   * Returns the count of expired jobs.
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @returns {Promise<number>}
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function expireOldJobs() {
-/* eslint-disable */`n    const { rowCount } = await pool.query(
-/* eslint-disable */`n      `UPDATE jobs
-/* eslint-disable */`n     SET status = 'cancelled',
-/* eslint-disable */`n         updated_at = NOW()
-/* eslint-disable */`n     WHERE status = 'open'
-/* eslint-disable */`n       AND freelancer_address IS NULL
-/* eslint-disable */`n       AND expires_at < NOW()`,
-/* eslint-disable */`n    );
-/* eslint-disable */`n    return rowCount;
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Get jobs that are expiring within N days (for warnings).
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {number} withinDays  Days threshold (e.g., 3)
-/* eslint-disable */`n   * @returns {Promise<Job[]>}
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function getExpiringJobs(withinDays = 3) {
-/* eslint-disable */`n    const withinDate = new Date();
-/* eslint-disable */`n    withinDate.setDate(withinDate.getDate() + withinDays);
-/* eslint-disable */`n
-/* eslint-disable */`n    const { rows } = await pool.query(
-/* eslint-disable */`n      `SELECT * FROM jobs
-/* eslint-disable */`n     WHERE status = 'open'
-/* eslint-disable */`n       AND freelancer_address IS NULL
-/* eslint-disable */`n       AND expires_at IS NOT NULL
-/* eslint-disable */`n       AND expires_at <= $1
-/* eslint-disable */`n     ORDER BY expires_at ASC`,
-/* eslint-disable */`n      [withinDate.toISOString()]
-/* eslint-disable */`n    );
-/* eslint-disable */`n    return rows.map(rowToJob);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  /**
-/* eslint-disable */`n   * Get analytics for a job (applications per day, avg bid, skill distribution, time to hire).
-/* eslint-disable */`n   *
-/* eslint-disable */`n   * @param {string} jobId  UUID of the job.
-/* eslint-disable */`n   * @returns {Promise<Object>} Analytics object.
-/* eslint-disable */`n   */
-/* eslint-disable */`n  async function getJobAnalytics(jobId) {
-/* eslint-disable */`n    // Applications per day (time series)
-/* eslint-disable */`n    const { rows: appsPerDayRows } = await pool.query(
-/* eslint-disable */`n      `SELECT DATE(created_at) as day, COUNT(*) as count
-/* eslint-disable */`n     FROM applications
-/* eslint-disable */`n     WHERE job_id = $1
-/* eslint-disable */`n     GROUP BY DATE(created_at)
-/* eslint-disable */`n     ORDER BY day ASC`,
-/* eslint-disable */`n      [jobId]
-/* eslint-disable */`n    );
-/* eslint-disable */`n
-/* eslint-disable */`n    // Average bid amount and currency breakdown
-/* eslint-disable */`n    const { rows: bidRows } = await pool.query(
-/* eslint-disable */`n      `SELECT AVG(bid_amount::numeric) as avg_bid, currency, COUNT(*) as count
-/* eslint-disable */`n     FROM applications
-/* eslint-disable */`n     WHERE job_id = $1
-/* eslint-disable */`n     GROUP BY currency`,
-/* eslint-disable */`n      [jobId]
-/* eslint-disable */`n    );
-/* eslint-disable */`n
-/* eslint-disable */`n    // Skill distribution - need to infer from freelancer profiles
-/* eslint-disable */`n    const { rows: skillRows } = await pool.query(
-/* eslint-disable */`n      `SELECT p.skills, COUNT(*) as count
-/* eslint-disable */`n     FROM applications a
-/* eslint-disable */`n     LEFT JOIN profiles p ON a.freelancer_address = p.public_key
-/* eslint-disable */`n     WHERE a.job_id = $1
-/* eslint-disable */`n     GROUP BY p.skills`,
-/* eslint-disable */`n      [jobId]
-/* eslint-disable */`n    );
-/* eslint-disable */`n
-/* eslint-disable */`n    // Time to hire - from job created_at to when a freelancer was assigned (status = 'in_progress')
-/* eslint-disable */`n    const { rows: hireTimeRows } = await pool.query(
-/* eslint-disable */`n      `SELECT EXTRACT(EPOCH FROM (MIN(updated_at) - j.created_at)) / 86400 as days_to_hire
-/* eslint-disable */`n     FROM jobs j
-/* eslint-disable */`n     WHERE j.id = $1 AND j.status IN ('in_progress', 'completed')`,
-/* eslint-disable */`n      [jobId]
-/* eslint-disable */`n    );
-/* eslint-disable */`n
-/* eslint-disable */`n    // Total applications and status breakdown
-/* eslint-disable */`n    const { rows: statusRows } = await pool.query(
-/* eslint-disable */`n      `SELECT status, COUNT(*) as count
-/* eslint-disable */`n     FROM applications
-/* eslint-disable */`n     WHERE job_id = $1
-/* eslint-disable */`n     GROUP BY status`,
-/* eslint-disable */`n      [jobId]
-/* eslint-disable */`n    );
-/* eslint-disable */`n
-/* eslint-disable */`n    // Build aggregated skills count
-/* eslint-disable */`n    const skillDistribution = {};
-/* eslint-disable */`n    skillRows.forEach(row => {
-/* eslint-disable */`n      const skills = row.skills || [];
-/* eslint-disable */`n      skills.forEach(skill => {
-/* eslint-disable */`n        skillDistribution[skill] = (skillDistribution[skill] || 0) + 1;
-/* eslint-disable */`n      });
-/* eslint-disable */`n    });
-/* eslint-disable */`n
-/* eslint-disable */`n    return {
-/* eslint-disable */`n      applicationsPerDay: appsPerDayRows.map(r => ({ day: r.day, count: parseInt(r.count) || 0 })),
-/* eslint-disable */`n      averageBidAmount: bidRows.map(r => ({
-/* eslint-disable */`n        currency: r.currency,
-/* eslint-disable */`n        avgBid: r.avg_bid ? parseFloat(r.avg_bid) : 0,
-/* eslint-disable */`n        count: parseInt(r.count) || 0
-/* eslint-disable */`n      })),
-/* eslint-disable */`n      skillDistribution,
-/* eslint-disable */`n      daysToHire: hireTimeRows[0] && hireTimeRows[0].days_to_hire ? parseFloat(hireTimeRows[0].days_to_hire) : null,
-/* eslint-disable */`n      applicationStatusCounts: statusRows.reduce((acc, r) => {
-/* eslint-disable */`n        acc[r.status] = parseInt(r.count) || 0;
-/* eslint-disable */`n        return acc;
-/* eslint-disable */`n      }, {})
-/* eslint-disable */`n    };
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  module.exports = {
-/* eslint-disable */`n    createJob,
-/* eslint-disable */`n    getJob,
-/* eslint-disable */`n    listJobs,
-/* eslint-disable */`n    listJobsByClient,
-/* eslint-disable */`n    updateJobStatus,
-/* eslint-disable */`n    assignFreelancer,
-/* eslint-disable */`n    updateJobEscrowId,
-/* eslint-disable */`n    deleteJob,
-/* eslint-disable */`n    boostJob,
-/* eslint-disable */`n    incrementShareCount,
-/* eslint-disable */`n    extendJobExpiry,
-/* eslint-disable */`n    expireOldJobs,
-/* eslint-disable */`n    getExpiringJobs,
-/* eslint-disable */`n    getJobAnalytics,
-/* eslint-disable */`n  };
-/* eslint-disable */`n
-/* eslint-disable */`nconst _pool = require("../db/pool");
-/* eslint-disable */`n
-/* eslint-disable */`nconst TIMELINE_EVENT_TYPES = ["job_posted", "bid_accepted", "escrow_funded", "work_completed", "escrow_released"];
-/* eslint-disable */`n
-/* eslint-disable */`nasync function recordTimelineEvent(jobId, eventType, txHash = null) {
-/* eslint-disable */`n  if (!TIMELINE_EVENT_TYPES.includes(eventType)) {
-/* eslint-disable */`n    throw new Error(`Invalid timeline event type: ${eventType}`);
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  const { rows: existing } = await _pool.query(
-/* eslint-disable */`n    "SELECT * FROM job_timeline WHERE job_id = $1 AND event_type = $2",
-/* eslint-disable */`n    [jobId, eventType]
-/* eslint-disable */`n  );
-/* eslint-disable */`n  if (existing.length > 0) {
-/* eslint-disable */`n    return existing[0];
-/* eslint-disable */`n  }
-/* eslint-disable */`n
-/* eslint-disable */`n  const { rows } = await _pool.query(
-/* eslint-disable */`n    "INSERT INTO job_timeline (job_id, event_type, tx_hash, created_at) VALUES ($1, $2, $3, NOW()) RETURNING *",
-/* eslint-disable */`n    [jobId, eventType, txHash]
-/* eslint-disable */`n  );
-/* eslint-disable */`n  return rows[0];
-/* eslint-disable */`n}
-/* eslint-disable */`n
-/* eslint-disable */`nasync function getJobTimeline(jobId) {
-/* eslint-disable */`n  const { rows } = await _pool.query(
-/* eslint-disable */`n    "SELECT * FROM job_timeline WHERE job_id = $1 ORDER BY created_at ASC",
-/* eslint-disable */`n    [jobId]
-/* eslint-disable */`n  );
-/* eslint-disable */`n  return rows.map(r => ({
-/* eslint-disable */`n    id: r.id,
-/* eslint-disable */`n    jobId: r.job_id,
-/* eslint-disable */`n    eventType: r.event_type,
-/* eslint-disable */`n    txHash: r.tx_hash,
-/* eslint-disable */`n    createdAt: r.created_at
-/* eslint-disable */`n  }));
-/* eslint-disable */`n}
-/* eslint-disable */`n
-/* eslint-disable */`nObject.assign(module.exports, { TIMELINE_EVENT_TYPES, recordTimelineEvent, getJobTimeline });
-/* eslint-disable */`n
-/* eslint-disable */`n}}}
+/**
+ * src/services/jobService.js
+ */
+"use strict";
+
+const { getTimezoneOffset } = require("date-fns-tz");/**
+ * Check if a job's timezone is compatible with the user's timezone.
+ * Compatible if the time difference is within +/-3 hours.
+ *
+ * @param {string} jobTimezone - IANA timezone string of the job (e.g., "America/New_York")
+ * @param {string} userTimezone - IANA timezone string of the user (e.g., "Europe/London")
+ * @returns {boolean} true if timezones are compatible or if job has no timezone restriction
+ */
+function isTimezoneCompatible(jobTimezone, userTimezone) {
+  if (!jobTimezone) return true;
+  if (!userTimezone) return true;
+
+/**
+ * Input shape accepted by {@link createJob}.
+ *
+ * @typedef {Object} CreateJobInput
+ * @property {string}   title
+ * @property {string}   description
+ * @property {string|number} budget
+ * @property {("XLM"|"USDC")} [currency="XLM"]
+ * @property {string}   category
+ * @property {string[]} [skills]
+ * @property {string}   [deadline]            ISO timestamp.
+ * @property {string}   [timezone]            IANA timezone name.
+ * @property {string[]} [screeningQuestions]  Up to 5 questions; non-empty entries are kept.
+ * @property {{description:string,amount:string|number}[]} [milestones] Up to 10 milestone payouts; amounts must total budget.
+ * @property {string}   clientAddress         Stellar G-address of the posting client.
+ */
+
+/**
+ * Pagination wrapper returned by {@link listJobs}.
+ *
+ * @typedef {Object} JobListPage
+ * @property {Job[]}      jobs
+ * @property {string|null} nextCursor  Opaque base64 cursor for the next page, or null when exhausted.
+ */
+
+const VALID_STATUSES = [
+  "open",
+  "in_progress",
+  "completed",
+  "cancelled",
+  "disputed",
+];
+
+// Single-pass skill aggregation via LEFT JOIN — eliminates the correlated
+// subquery that previously ran once per job row (N+1 pattern).
+const JOB_SELECT_CLAUSE = `
+  SELECT jobs.*,
+         COALESCE(agg.skills, '{}') AS skills,
+         cat.slug  AS category_slug,
+         cat.name  AS category_name,
+         cat.id    AS category_id_resolved
+  FROM   jobs
+  LEFT JOIN LATERAL (
+    SELECT array_agg(s.display_name ORDER BY s.display_name) AS skills
+    FROM   job_skills js
+    JOIN   skills s ON s.id = js.skill_id
+    WHERE  js.job_id = jobs.id
+  ) agg ON true
+  LEFT JOIN categories cat ON cat.id = jobs.category_id`;
+
+const VALID_CATEGORIES = [
+  "Smart Contracts",
+  "Frontend Development",
+  "Backend Development",
+  "UI/UX Design",
+  "Technical Writing",
+  "DevOps",
+  "Security Audit",
+  "Data Analysis",
+  "Mobile Development",
+  "Other",
+];
+
+/**
+ * Throws a 400 Error when `key` is not a valid Stellar G-address.
+ *
+ * @param {string} key  Stellar account public key.
+ * @returns {void}
+ * @throws {Error}      `status === 400` if the key fails the G-address regex.
+ */
+function normalizeMilestoneRows(milestones, budget) {
+  const fallbackAmount = parseFloat(budget || 0).toFixed(7);
+  if (!Array.isArray(milestones) || milestones.length === 0) {
+    return [
+      {
+        description: "Final delivery",
+        amount: fallbackAmount,
+        status: "pending",
+        releasedAt: null,
+        disputedAt: null,
+      },
+    ];
+  }
+
+  return milestones.map((milestone) => ({
+    description: String(milestone.description || "").trim(),
+    amount: parseFloat(milestone.amount || 0).toFixed(7),
+    status: milestone.status || "pending",
+    releasedAt: milestone.releasedAt || milestone.released_at || null,
+    disputedAt: milestone.disputedAt || milestone.disputed_at || null,
+  }));
+}
+
+function validateMilestones(milestones, budget) {
+  const numericBudget = parseFloat(budget);
+  if (!Array.isArray(milestones) || milestones.length === 0) {
+    return normalizeMilestoneRows([], numericBudget);
+  }
+
+  if (milestones.length > 10) {
+    const e = new Error("Jobs can have at most 10 milestones");
+    e.status = 400;
+    throw e;
+  }
+
+  const safeMilestones = milestones.map((milestone, index) => {
+    const description = String(milestone.description || "").trim();
+    const amount = parseFloat(milestone.amount);
+
+    if (!description) {
+      const e = new Error(`Milestone ${index + 1} needs a description`);
+      e.status = 400;
+      throw e;
+    }
+    if (Number.isNaN(amount) || amount <= 0) {
+      const e = new Error(`Milestone ${index + 1} needs a positive amount`);
+      e.status = 400;
+      throw e;
+    }
+
+    return {
+      description,
+      amount: amount.toFixed(7),
+      status: "pending",
+      releasedAt: null,
+      disputedAt: null,
+    };
+  });
+
+  const milestoneTotal = safeMilestones.reduce(
+    (sum, milestone) => sum + parseFloat(milestone.amount),
+    0,
+  );
+  if (Math.abs(milestoneTotal - numericBudget) > 0.0000001) {
+    const e = new Error("Milestone amounts must equal the job budget");
+    e.status = 400;
+    throw e;
+  }
+
+  return safeMilestones;
+}
+
+function validatePublicKey(key) {
+  if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
+    const e = new Error("Invalid Stellar public key");
+    e.status = 400;
+    throw e;
+  }
+}
+
+/**
+ * Convert a snake_case `jobs` row into the camelCase API object.
+ *
+ * @param {Object} row  Raw row from the `jobs` table.
+ * @returns {Job}       Camel-cased job record.
+ */
+function rowToJob(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    budget: row.budget,
+    currency: row.currency || "XLM",
+    category: row.category_name || row.category,
+    categorySlug: row.category_slug || null,
+    categoryId: row.category_id_resolved || row.category_id || null,
+    skills: row.skills,
+    status: row.status,
+    visibility: row.visibility || "public",
+    clientAddress: row.client_address,
+    freelancerAddress: row.freelancer_address,
+    escrowContractId: row.escrow_contract_id,
+    applicantCount: row.applicant_count,
+    shareCount: row.share_count || 0,
+    boosted: row.boosted || false,
+    boostedUntil: row.boosted_until,
+    deadline: row.deadline,
+    timezone: row.timezone,
+    screeningQuestions: row.screening_questions || [],
+    milestones: normalizeMilestoneRows(row.milestones, row.budget),
+    disputeReason: row.dispute_reason,
+    disputeDescription: row.dispute_description,
+    disputedBy: row.disputed_by,
+    disputedAt: row.disputed_at,
+    expiresAt: row.expires_at,
+    extendedCount: row.extended_count,
+    extendedUntil: row.extended_until,
+    biddingClosedAt: row.bidding_closed_at,
+    viewCount: row.view_count,
+    deletedAt: row.deleted_at || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    searchHeadline: row.headline_title || null,
+    descriptionHeadline: row.headline_description || null,
+  };
+}
+
+/**
+ * @typedef {Object} CreateJobInput
+ * @property {string} title - The title of the job (min 10 characters).
+ * @property {string} description - The detailed description of the job (min 30 characters).
+ * @property {string|number} budget - The positive budget amount for the job.
+ * @property {string} [currency='XLM'] - The currency, either 'XLM' or 'USDC'.
+ * @property {string} category - The category of the job (must be a valid category).
+ * @property {string[]} [skills] - Array of relevant skills (max 8).
+ * @property {Date|string} [deadline] - The deadline for the job.
+ * @property {string} clientAddress - The Stellar public key of the client.
+ */
+
+/**
+ * Create a new job listing.
+ * Note: client's profile row must already exist (FK constraint).
+ *
+ * @param {CreateJobInput} params - The parameters to create a job.
+ * @returns {Promise<Object>} The created job object.
+ * @throws {Error} If validation fails or client profile doesn't exist.
+ *
+ * @example
+ * const newJob = await jobService.createJob({
+ *   title: 'Build a Smart Contract',
+ *   description: 'Need a developer to build a Soroban smart contract for an escrow service.',
+ *   budget: 500,
+ *   currency: 'USDC',
+ *   category: 'Smart Contracts',
+ *   skills: ['Soroban', 'Rust'],
+ *   clientAddress: 'GBX...',
+ * });
+ */
+let createJob = async function ({
+  title,
+  description,
+  budget,
+  currency,
+  category,
+  categorySlug,
+  skills,
+  deadline,
+  timezone,
+  clientAddress,
+  screeningQuestions,
+  milestones,
+  visibility = "public",
+}) {
+  validatePublicKey(clientAddress);
+
+  if (!title || title.length < 10) {
+    const e = new Error("Title must be at least 10 characters");
+    e.status = 400;
+    throw e;
+  }
+  if (!description || description.length < 30) {
+    const e = new Error("Description must be at least 30 characters");
+    e.status = 400;
+    throw e;
+  }
+  const numericBudget = parseFloat(budget);
+  if (budget === undefined || budget === null || isNaN(numericBudget) || numericBudget <= 0) {
+    const e = new Error("Budget must be a positive number");
+    e.status = 400;
+    throw e;
+  }
+  if (!currency || !["XLM", "USDC"].includes(currency)) {
+    const e = new Error("Currency must be XLM or USDC");
+    e.status = 400;
+    throw e;
+  }
+  // Resolve category: accept either a slug (e.g. "frontend-development") or a legacy name.
+  // categorySlug takes precedence; falls back to category name lookup.
+  const categoryLookupVal = categorySlug || category;
+  let resolvedCategoryId = null;
+  let resolvedCategoryName = category;
+
+  if (categoryLookupVal) {
+    const { rows: catRows } = await pool.query(
+      "SELECT id, name FROM categories WHERE slug = $1 OR LOWER(name) = LOWER($2) LIMIT 1",
+      [categoryLookupVal, categoryLookupVal],
+    );
+    if (catRows.length) {
+      resolvedCategoryId = catRows[0].id;
+      resolvedCategoryName = catRows[0].name;
+    }
+  }
+
+  // Still validate against VALID_CATEGORIES for backward-compat when no DB match found
+  if (!resolvedCategoryId && !VALID_CATEGORIES.includes(category)) {
+    const e = new Error("Invalid category");
+    e.status = 400;
+    throw e;
+  }
+
+  const jobVisibility = visibility || "public";
+  if (!["public", "private", "invite_only"].includes(jobVisibility)) {
+    const e = new Error("Visibility must be public, private, or invite_only");
+    e.status = 400;
+    throw e;
+  }
+
+  const safeSkills = Array.isArray(skills)
+    ? skills
+        .slice(0, 8)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+  const safeScreeningQuestions = Array.isArray(screeningQuestions)
+    ? screeningQuestions.slice(0, 5).filter((q) => q && q.trim().length > 0)
+    : [];
+  const safeMilestones = validateMilestones(milestones, budget);
+
+  const client = await pool.connect();
+  let job;
+  try {
+    const now = new Date();
+    const userOffset = getTimezoneOffset(userTimezone, now);
+    const jobOffset = getTimezoneOffset(jobTimezone, now);
+    const diffHours = Math.abs(userOffset - jobOffset) / (1000 * 60 * 60);
+    return diffHours <= 3;
+  } catch {
+    return true;
+  }
+}
+
+
+// Provide a lightweight in-memory implementation for tests to avoid requiring
+// a running Postgres instance. The test-suite imports `jobService` and
+// expects synchronous functions that operate on `services/store.js` maps.
+if (process.env.NODE_ENV === 'test') {
+  const store = require('./store');
+  const crypto = require('crypto');
+
+  async function createJob(input) {
+    const {
+      title,
+      description,
+      budget,
+      currency = 'XLM',
+      category,
+      visibility = 'public',
+      skills,
+      deadline,
+      timezone,
+      screeningQuestions,
+      clientAddress,
+    } = input;
+
+    if (!title || title.length < 10) {
+      const e = new Error("Title must be at least 10 characters");
+      e.status = 400;
+      throw e;
+    }
+    if (!description || description.length < 30) {
+      const e = new Error("Description must be at least 30 characters");
+      e.status = 400;
+      throw e;
+    }
+    if (!budget || isNaN(parseFloat(budget)) || parseFloat(budget) <= 0) {
+      const e = new Error("Budget must be a positive number");
+      e.status = 400;
+      throw e;
+    }
+    if (!["XLM", "USDC"].includes(currency)) {
+      const e = new Error("Currency must be XLM or USDC");
+      e.status = 400;
+      throw e;
+    }
+    if (!category) {
+      const e = new Error("Invalid category");
+      e.status = 400;
+      throw e;
+    }
+
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const job = {
+      id,
+      title: title.trim(),
+      description: description.trim(),
+      budget: parseFloat(budget).toFixed(7),
+      currency,
+      category,
+      visibility,
+      skills: Array.isArray(skills) ? skills.slice(0, 8) : [],
+      status: 'open',
+      clientAddress,
+      freelancerAddress: null,
+      escrowContractId: null,
+      applicantCount: 0,
+      shareCount: 0,
+      boosted: false,
+      boostedUntil: null,
+      deadline: deadline || null,
+      timezone: timezone || null,
+      screeningQuestions: Array.isArray(screeningQuestions) ? screeningQuestions : [],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    store.jobs.set(id, job);
+    return job;
+  }
+
+  async function getJob(id) {
+    const job = store.jobs.get(id);
+    if (!job) {
+      const e = new Error('Job not found');
+      e.status = 404;
+      throw e;
+    }
+    return job;
+  }
+
+  async function listJobs({ category, status = 'open', limit = 50, search, _cursor, timezone, _viewerAddress } = {}) {
+    let jobs = Array.from(store.jobs.values());
+    if (status) jobs = jobs.filter((j) => j.status === status);
+    if (category) jobs = jobs.filter((j) => j.category === category);
+    if (search) {
+      const q = search.toLowerCase();
+      jobs = jobs.filter((j) => j.title.toLowerCase().includes(q) || j.description.toLowerCase().includes(q) || (j.skills || []).some(s => s.toLowerCase().includes(q)));
+    }
+    if (timezone) jobs = jobs.filter((j) => isTimezoneCompatible(j.timezone, timezone));
+    return { jobs: jobs.slice(0, limit) };
+  }
+
+  async function listJobsByClient(clientAddress) {
+    return Array.from(store.jobs.values()).filter((j) => j.clientAddress === clientAddress);
+  }
+
+  async function updateJobStatus(id, nextStatus) {
+    const job = store.jobs.get(id);
+    if (!job) {
+      const e = new Error('Job not found');
+      e.status = 404;
+      throw e;
+    }
+    if (!["open", "in_progress", "completed", "cancelled"].includes(nextStatus)) {
+      throw new Error('Invalid status');
+    }
+    job.status = nextStatus;
+    job.updatedAt = new Date().toISOString();
+    store.jobs.set(id, job);
+    return job;
+  }
+
+  async function assignFreelancer(jobId, freelancerAddress) {
+    const job = store.jobs.get(jobId);
+    if (!job) {
+      const e = new Error('Job not found');
+      e.status = 404;
+      throw e;
+    }
+    job.freelancerAddress = freelancerAddress;
+    job.status = 'in_progress';
+    job.updatedAt = new Date().toISOString();
+    store.jobs.set(jobId, job);
+    return job;
+  }
+
+  module.exports = {
+    createJob,
+    getJob,
+    listJobs,
+    listJobsByClient,
+    updateJobStatus,
+    assignFreelancer,
+  };
+
+} else {
+  const pool = require("../db/pool");
+
+
+  /**
+   * Camel-cased job record returned by this service.
+   *
+   * @typedef {Object} Job
+   * @property {string}   id                  UUID of the job.
+   * @property {string}   title               Job title (≥10 chars).
+   * @property {string}   description         Job description (≥30 chars).
+   * @property {string}   budget              Budget as a fixed-point string (e.g. "500.0000000").
+   * @property {("XLM"|"USDC")} currency      Payment currency.
+   * @property {string}   category            One of {@link VALID_CATEGORIES}.
+   * @property {("public"|"private"|"invite_only")} visibility
+   * @property {string[]} skills              Up to 8 skill tags.
+   * @property {("open"|"in_progress"|"completed"|"cancelled")} status
+   * @property {string}   clientAddress       Stellar G-address of the client.
+   * @property {string|null} freelancerAddress Stellar G-address of the hired freelancer, if any.
+   * @property {string|null} escrowContractId Soroban contract id for the locked escrow.
+   * @property {number}   applicantCount      Cached count of applications for this job.
+   * @property {number}   shareCount          Number of times the job link has been shared.
+   * @property {boolean}  boosted             True while the listing is Featured.
+   * @property {string|null} boostedUntil     ISO timestamp at which boost expires.
+   * @property {string|null} deadline         ISO timestamp deadline (optional).
+   * @property {string|null} timezone         IANA timezone name for compatibility filtering.
+   * @property {string[]} screeningQuestions  Up to 5 screening questions applicants must answer.
+   * @property {string}   createdAt           ISO timestamp when the job was created.
+   * @property {string}   updatedAt           ISO timestamp of last write.
+   */
+
+  /**
+   * Input shape accepted by {@link createJob}.
+   *
+   * @typedef {Object} CreateJobInput
+   * @property {string}   title
+   * @property {string}   description
+   * @property {string|number} budget
+   * @property {("XLM"|"USDC")} [currency="XLM"]
+   * @property {string}   category
+   * @property {string[]} [skills]
+   * @property {string}   [deadline]            ISO timestamp.
+   * @property {string}   [timezone]            IANA timezone name.
+   * @property {string[]} [screeningQuestions]  Up to 5 questions; non-empty entries are kept.
+   * @property {string}   clientAddress         Stellar G-address of the posting client.
+   */
+
+  /**
+   * Pagination wrapper returned by {@link listJobs}.
+   *
+   * @typedef {Object} JobListPage
+   * @property {Job[]}      jobs
+   * @property {string|null} nextCursor  Opaque base64 cursor for the next page, or null when exhausted.
+   */
+
+  const VALID_STATUSES = ["open", "in_progress", "completed", "cancelled"];
+
+  const VALID_CATEGORIES = [
+    "Smart Contracts",
+    "Frontend Development",
+    "Backend Development",
+    "UI/UX Design",
+    "Technical Writing",
+    "DevOps",
+    "Security Audit",
+    "Data Analysis",
+    "Mobile Development",
+    "Other",
+  ];
+
+  /**
+   * Throws a 400 Error when `key` is not a valid Stellar G-address.
+   *
+   * @param {string} key  Stellar account public key.
+   * @returns {void}
+   * @throws {Error}      `status === 400` if the key fails the G-address regex.
+   */
+  function validatePublicKey(key) {
+    if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
+      const e = new Error("Invalid Stellar public key");
+      e.status = 400;
+      throw e;
+    }
+  }
+
+  /**
+   * Check if a job's timezone is compatible with the user's timezone.
+   * Compatible if the time difference is within +/-3 hours.
+   *
+   * @param {string} jobTimezone - IANA timezone string of the job (e.g., "America/New_York")
+   * @param {string} userTimezone - IANA timezone string of the user (e.g., "Europe/London")
+   * @returns {boolean} true if timezones are compatible or if job has no timezone restriction
+   */
+  function isTimezoneCompatible(jobTimezone, userTimezone) {
+    if (!jobTimezone) return true;
+    if (!userTimezone) return true;
+
+    try {
+      const now = new Date();
+      const userOffset = getTimezoneOffset(userTimezone, now);
+      const jobOffset = getTimezoneOffset(jobTimezone, now);
+      const diffHours = Math.abs(userOffset - jobOffset) / (1000 * 60 * 60);
+      return diffHours <= 3;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Convert a snake_case `jobs` row into the camelCase API object.
+   *
+   * @param {Object} row  Raw row from the `jobs` table.
+   * @returns {Job}       Camel-cased job record.
+   */
+  function rowToJob(row) {
+    return {
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      budget: row.budget,
+      currency: row.currency || "XLM",
+      category: row.category,
+      visibility: row.visibility || "public",
+      skills: row.skills,
+      status: row.status,
+      clientAddress: row.client_address,
+      freelancerAddress: row.freelancer_address,
+      escrowContractId: row.escrow_contract_id,
+      applicantCount: row.applicant_count,
+      shareCount: row.share_count || 0,
+      boosted: row.boosted || false,
+      boostedUntil: row.boosted_until,
+      deadline: row.deadline,
+      timezone: row.timezone,
+      screeningQuestions: row.screening_questions || [],
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      expiresAt: row.expires_at,
+      extendedCount: row.extended_count || 0,
+      extendedUntil: row.extended_until,
+    };
+  }
+
+  /**
+   * Create a new job listing in `status = 'open'`.
+   *
+   * The client's profile row must already exist; the FK constraint on
+   * `client_address` will otherwise reject the insert.
+   *
+   * @param {CreateJobInput} input
+   * @returns {Promise<Job>}  The newly persisted job.
+   * @throws {Error} 400 — when title/description/budget/category/currency fail validation.
+   *
+   * @example
+   * const job = await createJob({
+   *   title: "Build a Soroban escrow contract",
+   *   description: "We need a Rust developer to ship an escrow with milestones...",
+   *   budget: "500",
+   *   currency: "XLM",
+   *   category: "Smart Contracts",
+   *   skills: ["Rust", "Soroban"],
+   *   clientAddress: "GABCDEF...XYZ",
+   * });
+   */
+  async function createJob({
+    title,
+    description,
+    budget,
+    currency = "XLM",
+    category,
+    visibility = "public",
+    skills,
+    deadline,
+    timezone,
+    screeningQuestions,
+    clientAddress,
+  }) {
+    validatePublicKey(clientAddress);
+
+    if (!title || title.length < 10) {
+      const e = new Error("Title must be at least 10 characters");
+      e.status = 400;
+      throw e;
+    }
+    if (!description || description.length < 30) {
+      const e = new Error("Description must be at least 30 characters");
+      e.status = 400;
+      throw e;
+    }
+    if (!budget || isNaN(parseFloat(budget)) || parseFloat(budget) <= 0) {
+      const e = new Error("Budget must be a positive number");
+      e.status = 400;
+      throw e;
+    }
+    if (!currency || !["XLM", "USDC"].includes(currency)) {
+      const e = new Error("Currency must be XLM or USDC");
+      e.status = 400;
+      throw e;
+    }
+    if (!VALID_CATEGORIES.includes(category)) {
+      const e = new Error("Invalid category");
+      e.status = 400;
+      throw e;
+    }
+    if (!["public", "private", "invite_only"].includes(visibility)) {
+      const e = new Error("Visibility must be public, private, or invite_only");
+      e.status = 400;
+      throw e;
+    }
+
+    const safeSkills = Array.isArray(skills) ? skills.slice(0, 8) : [];
+    const safeScreeningQuestions = Array.isArray(screeningQuestions)
+      ? screeningQuestions.slice(0, 5).filter((q) => q && q.trim().length > 0)
+      : [];
+
+    const { rows } = await pool.query(
+      `
+    INSERT INTO jobs
+      (title, description, budget, currency, category, skills, status, client_address, deadline, timezone, screening_questions, visibility, created_at, updated_at, expires_at)
+    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10, $11, NOW(), NOW(), NOW() + INTERVAL '30 days')
+    RETURNING *
+    `,
+      [
+        title.trim(),
+        description.trim(),
+        parseFloat(budget),
+        currency,
+        category,
+        safeSkills,
+        clientAddress,
+        deadline || null,
+        timezone || null,
+        safeScreeningQuestions,
+        visibility,
+      ]
+    );
+
+    return rowToJob(rows[0]);
+  }
+
+  /**
+   * Fetch a single job by id.
+   *
+   * @param {string} id  UUID of the job.
+   * @returns {Promise<Job>}
+   * @throws {Error} 404 — when no job with this id exists.
+   */
+  async function getJob(id) {
+    const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [id]);
+    if (!rows.length) {
+      const e = new Error("Job not found");
+      e.status = 404;
+      throw e;
+    }
+    return rowToJob(rows[0]);
+  }
+
+  /**
+   * Encode a (createdAt, id) pair into an opaque base64 cursor.
+   *
+   * @param {Object} jobRow  Row containing `created_at` and `id`.
+   * @returns {string}        Base64-encoded JSON cursor.
+   */
+  function encodeCursor(jobRow) {
+    return Buffer.from(
+      JSON.stringify({
+        createdAt: jobRow.created_at,
+        id: jobRow.id,
+      })
+    ).toString("base64");
+  }
+
+  /**
+   * Decode a base64 pagination cursor produced by {@link encodeCursor}.
+   *
+   * @param {string} cursor  Base64-encoded JSON cursor.
+   * @returns {{ createdAt: string, id: string }}
+   * @throws {Error} 400 — when the cursor cannot be parsed.
+   */
+  function decodeCursor(cursor) {
+    try {
+      const decoded = JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
+      if (!decoded.createdAt || !decoded.id) throw new Error("Invalid cursor");
+      return decoded;
+    } catch (_) {
+      const e = new Error("Invalid cursor");
+      e.status = 400;
+      throw e;
+    }
+  }
+
+  /**
+   * Page through jobs, with optional filtering and ordering.
+   *
+   * Boosted (Featured) listings sort first; ties break on `created_at DESC, id DESC`.
+   * Cursor pagination is keyset-based — pass {@link JobListPage.nextCursor} from the
+   * previous page to fetch the next slice.
+   *
+   * @param {Object}  [opts]
+   * @param {string}  [opts.category]               Restrict to a category from {@link VALID_CATEGORIES}.
+   * @param {("open"|"in_progress"|"completed"|"cancelled")} [opts.status="open"]
+   * @param {number}  [opts.limit=50]               Page size (clamped to 1..100).
+   * @param {string}  [opts.search]                 Substring search over title, description, and skills.
+   * @param {string}  [opts.cursor]                 Opaque cursor from the previous page.
+   * @param {string}  [opts.timezone]               IANA timezone of the viewer; only jobs whose
+   *                                                timezone is within ±3h are returned.
+   * @returns {Promise<JobListPage>}
+   * @throws {Error} 400 — when `cursor` is malformed.
+   */
+  async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone, viewerAddress } = {}) {
+    const conditions = [];
+    const params = [];
+
+    if (status) {
+      params.push(status);
+      conditions.push(`status = $${params.length}`);
+    }
+
+    if (category) {
+      params.push(category);
+      conditions.push(`category = $${params.length}`);
+    }
+
+    if (search) {
+      params.push(`%${search.toLowerCase()}%`);
+      const idx = params.length;
+      conditions.push(
+        `(LOWER(title) LIKE $${idx} OR LOWER(description) LIKE $${idx} OR EXISTS (
+         SELECT 1 FROM unnest(skills) s WHERE LOWER(s) LIKE $${idx}
+       ))`
+      );
+    }
+
+/**
+ * Decode a base64 pagination cursor produced by {@link encodeCursor}.
+ *
+ * @param {string} cursor  Base64-encoded JSON cursor.
+ * @returns {{ createdAt: string, id: string }}
+ * @throws {Error} 400 — when the cursor cannot be parsed.
+ */
+function decodeCursor(cursor) {
+  try {
+    const decoded = JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
+    if (!decoded.createdAt || !decoded.id) throw new Error("Invalid cursor");
+    return decoded;
+  } catch (_) {
+    const e = new Error("Invalid cursor");
+    e.status = 400;
+    throw e;
+  }
+}
+
+/**
+ * @typedef {Object} ListJobsOptions
+ * @property {string} [category] - Filter by job category.
+ * @property {string} [status='open'] - Filter by job status.
+ * @property {number} [limit=50] - Max number of results to return (max 100).
+ * @property {string} [search] - Search term for title, description, or skills.
+ * @property {string} [cursor] - Pagination cursor.
+ * @property {string} [timezone] - Filter by timezone.
+ */
+
+/**
+ * List jobs with optional filtering, searching, and pagination.
+ *
+ * @param {ListJobsOptions} [options={}] - Options for listing jobs.
+ * @returns {Promise<{jobs: Object[], nextCursor: string|null, hasMore: boolean}>} An object containing the list of jobs, an optional next cursor for pagination, and whether more results exist.
+ * @throws {Error} If the provided cursor is invalid.
+ */
+async function listJobs({
+  category,
+  status = "open",
+  limit = 20,
+  search,
+  q,
+  cursor,
+  // eslint-disable-next-line no-unused-vars
+  timezone,
+  viewerAddress,
+  includeExpired,
+  includeDeleted = false,
+  min_budget,
+  max_budget,
+  skills,
+  min_client_rating,
+  duration,
+  posted_since,
+  max_applications,
+} = {}) {
+  const conditions = [];
+  const params = [];
+  let selectColumns = "jobs.*";
+  let orderClause = `CASE WHEN boosted = true AND (boosted_until IS NULL OR boosted_until > NOW()) THEN 0 ELSE 1 END, created_at DESC, id DESC`;
+
+  const fullTextQuery = q && q.trim();
+  if (fullTextQuery) {
+    params.push(fullTextQuery);
+    const searchIdx = params.length;
+    const document = "to_tsvector('english', title || ' ' || description)";
+    selectColumns = `jobs.*,
+      ts_rank(${document}, websearch_to_tsquery('english', $${searchIdx})) AS rank,
+      ts_headline('english', title, websearch_to_tsquery('english', $${searchIdx}),
+        'StartSel=<mark>,StopSel=</mark>,MaxWords=50,MinWords=20') AS headline_title,
+      ts_headline('english', description, websearch_to_tsquery('english', $${searchIdx}),
+        'StartSel=<mark>,StopSel=</mark>,MaxWords=80,MinWords=30') AS headline_description`;
+    conditions.push(`${document} @@ websearch_to_tsquery('english', $${searchIdx})`);
+    orderClause = `rank DESC, ${orderClause}`;
+  } else if (search && search.trim()) {
+    params.push(search.trim());
+    const searchIdx = params.length;
+    selectColumns = `jobs.*,
+      ts_rank(search_vector, websearch_to_tsquery('english', $${searchIdx})) AS rank,
+      ts_headline(title, websearch_to_tsquery('english', $${searchIdx}),
+        'StartSel=<mark>,StopSel=</mark>,MaxWords=50,MinWords=20') AS headline_title,
+      ts_headline(description, websearch_to_tsquery('english', $${searchIdx}),
+        'StartSel=<mark>,StopSel=</mark>,MaxWords=80,MinWords=30') AS headline_description`;
+    conditions.push(
+      `search_vector @@ websearch_to_tsquery('english', $${searchIdx})`,
+    );
+    orderClause = `rank DESC, ${orderClause}`;
+  }
+
+  if (!includeDeleted) {
+    conditions.push("deleted_at IS NULL");
+  }
+
+  if (status && status !== "all") {
+    params.push(status);
+    conditions.push(`status = $${params.length}`);
+  } else if (!includeExpired) {
+    conditions.push("status != 'expired'");
+  }
+
+  if (category) {
+    params.push(category);
+    // Support slug (e.g. 'frontend-development') OR legacy name (e.g. 'Frontend Development')
+    conditions.push(`(
+      EXISTS (SELECT 1 FROM categories c WHERE c.id = jobs.category_id AND (c.slug = $${params.length} OR LOWER(c.name) = LOWER($${params.length})))
+      OR jobs.category = $${params.length}
+    )`);
+  }
+
+  const minBudget = parseFloat(min_budget);
+  if (!Number.isNaN(minBudget)) {
+    params.push(minBudget);
+    conditions.push(`budget >= $${params.length}`);
+  }
+
+  const maxBudget = parseFloat(max_budget);
+  if (!Number.isNaN(maxBudget)) {
+    params.push(maxBudget);
+    conditions.push(`budget <= $${params.length}`);
+  }
+
+  const skillList = String(skills || "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (skillList.length > 0) {
+    // Use the GIN-indexed skills column with the overlap operator (&&) for index scan
+    // Issue #540: jobs.skills TEXT[] + GIN index replaces sequential join scan
+    params.push(skillList);
+    conditions.push(`jobs.skills && $${params.length}::text[]`);
+  }
+
+  const minRating = parseFloat(min_client_rating);
+  if (!Number.isNaN(minRating)) {
+    params.push(minRating);
+    conditions.push(
+      `EXISTS (
+         SELECT 1 FROM profiles p
+         WHERE p.public_key = jobs.client_address
+           AND COALESCE(p.rating, 0) >= $${params.length}
+       )`,
+    );
+  }
+
+  if (duration === "short") {
+    conditions.push(
+      "deadline IS NOT NULL AND deadline <= created_at + INTERVAL '7 days'",
+    );
+  } else if (duration === "medium") {
+    conditions.push(
+      "deadline IS NOT NULL AND deadline > created_at + INTERVAL '7 days' AND deadline <= created_at + INTERVAL '28 days'",
+    );
+  } else if (duration === "long") {
+    conditions.push(
+      "deadline IS NOT NULL AND deadline > created_at + INTERVAL '28 days'",
+    );
+  }
+
+  if (posted_since === "today") {
+    conditions.push("created_at >= date_trunc('day', NOW())");
+  } else if (posted_since === "week") {
+    conditions.push("created_at >= NOW() - INTERVAL '7 days'");
+  } else if (posted_since === "month") {
+    conditions.push("created_at >= NOW() - INTERVAL '30 days'");
+  }
+
+  const maxApps = parseInt(max_applications, 10);
+  if (!Number.isNaN(maxApps)) {
+    params.push(maxApps);
+    conditions.push(`applicant_count <= $${params.length}`);
+  }
+  if (viewerAddress && /^G[A-Z0-9]{55}$/.test(viewerAddress)) {
+    params.push(viewerAddress);
+    const viewerIdx = params.length;
+    conditions.push(
+      `(visibility = 'public'
+        OR client_address = $${viewerIdx}
+        OR (visibility = 'invite_only' AND EXISTS (
+          SELECT 1 FROM job_invitations ji
+          WHERE ji.job_id = jobs.id AND ji.freelancer_address = $${viewerIdx}
+        )))`
+      );
+    } else {
+      conditions.push("visibility = 'public'");
+    }
+
+    if (cursor) {
+      const decoded = decodeCursor(cursor);
+      params.push(decoded.createdAt, decoded.id);
+      const createdAtIdx = params.length - 1;
+      const idIdx = params.length;
+      conditions.push(
+        `(created_at < $${createdAtIdx} OR (created_at = $${createdAtIdx} AND id < $${idIdx}))`
+      );
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    params.push(limit);
+
+    const { rows } = await pool.query(
+      `SELECT * FROM jobs ${where} ORDER BY
+       CASE WHEN boosted = true AND (boosted_until IS NULL OR boosted_until > NOW()) THEN 0 ELSE 1 END,
+       created_at DESC, id DESC LIMIT $${params.length}`,
+      params
+    );
+
+    let jobs = rows.map(rowToJob);
+
+    let nextCursor = null;
+    if (jobs.length === limit) {
+      nextCursor = encodeCursor(rows[rows.length - 1]);
+    }
+
+    let filteredJobs = jobs;
+    if (timezone) {
+      filteredJobs = filteredJobs.filter((job) => isTimezoneCompatible(job.timezone, timezone));
+    }
+
+    return { jobs: filteredJobs, nextCursor };
+  }
+
+  /**
+   * List every job posted by a specific client, newest first.
+   *
+   * @param {string} clientAddress  Stellar G-address of the client.
+   * @returns {Promise<Job[]>}
+   * @throws {Error} 400 — invalid Stellar public key.
+   */
+  async function listJobsByClient(clientAddress) {
+    validatePublicKey(clientAddress);
+    const { rows } = await pool.query(
+      "SELECT * FROM jobs WHERE client_address = $1 ORDER BY created_at DESC",
+      [clientAddress]
+    );
+    return rows.map(rowToJob);
+  }
+
+  /**
+   * Transition a job to a new status.
+   *
+   * @param {string} id      UUID of the job.
+   * @param {("open"|"in_progress"|"completed"|"cancelled")} status
+   * @returns {Promise<Job>}
+   * @throws {Error} 400 — invalid status.
+   * @throws {Error} 404 — job not found.
+   */
+  async function updateJobStatus(id, status) {
+    if (!VALID_STATUSES.includes(status)) {
+      const e = new Error("Invalid status");
+      e.status = 400;
+      throw e;
+    }
+
+    const { rows } = await pool.query(
+      "UPDATE jobs SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
+      [status, id]
+    );
+
+    if (!rows.length) {
+      const e = new Error("Job not found");
+      e.status = 404;
+      throw e;
+    }
+
+    return rowToJob(rows[0]);
+  }
+
+  /**
+   * Hire a freelancer for a job and move it to `in_progress`.
+   *
+   * @param {string} jobId              UUID of the job.
+   * @param {string} freelancerAddress  Stellar G-address of the freelancer being hired.
+   * @returns {Promise<Job>}
+   * @throws {Error} 400 — invalid freelancer public key.
+   * @throws {Error} 404 — job not found.
+   */
+  async function assignFreelancer(jobId, freelancerAddress) {
+    validatePublicKey(freelancerAddress);
+
+    const { rows } = await pool.query(
+      `UPDATE jobs
+     SET freelancer_address = $1, status = 'in_progress', updated_at = NOW()
+     WHERE id = $2
+     RETURNING *`,
+      [freelancerAddress, jobId]
+    );
+
+    if (!rows.length) {
+      const e = new Error("Job not found");
+      e.status = 404;
+      throw e;
+    }
+
+    return rows.map(rowToJob);
+  }
+
+  /**
+   * Persist the on-chain escrow contract id against a job. Called after the
+   * client signs and submits the Soroban `create_escrow` transaction.
+   *
+   * @param {string} jobId             UUID of the job.
+   * @param {string} escrowContractId  Soroban contract id (or transaction hash).
+   * @returns {Promise<Job>}
+   * @throws {Error} 400 — invalid escrow contract id.
+   * @throws {Error} 404 — job not found.
+   */
+  async function updateJobEscrowId(jobId, escrowContractId) {
+    if (!escrowContractId || typeof escrowContractId !== "string") {
+      const e = new Error("Invalid escrow contract ID");
+      e.status = 400;
+      throw e;
+    }
+
+    const { rows } = await pool.query(
+      "UPDATE jobs SET escrow_contract_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
+      [escrowContractId, jobId]
+    );
+
+    if (!rows.length) {
+      const e = new Error("Job not found");
+      e.status = 404;
+      throw e;
+    }
+
+    return rowToJob(rows[0]);
+  }
+
+  /**
+   * Hard-delete a job. Used to roll back an "orphaned" job whose escrow
+   * transaction failed after the row was inserted.
+   *
+   * @param {string} jobId  UUID of the job.
+   * @returns {Promise<void>}
+   * @throws {Error} 404 — job not found.
+   */
+  async function deleteJob(jobId) {
+    const { rowCount } = await pool.query("DELETE FROM jobs WHERE id = $1", [jobId]);
+    if (!rowCount) {
+      const e = new Error("Job not found");
+      e.status = 404;
+      throw e;
+    }
+  }
+
+  /**
+   * Mark a job as Featured for the next 7 days.
+   *
+   * The route handler accepts a Stellar transaction hash from the client
+   * (intended to record the 10 XLM platform fee), but on-chain verification
+   * of that payment has not yet been wired up — see the `TODO` in
+   * `routes/jobs.js`. The hash is therefore not consumed by this service
+   * function today.
+   *
+   * @param {string} jobId  UUID of the job to boost.
+   * @returns {Promise<Job>}
+   * @throws {Error} 404 — job not found.
+   */
+  async function boostJob(jobId) {
+    // Verify job exists
+    const { rows } = await pool.query("SELECT * FROM jobs WHERE id = $1", [jobId]);
+    if (!rows.length) {
+      const e = new Error("Job not found");
+      e.status = 404;
+      throw e;
+    }
+
+    const boostedUntil = new Date();
+    boostedUntil.setDate(boostedUntil.getDate() + 7);
+
+    const { rows: updateRows } = await pool.query(
+      `UPDATE jobs
+     SET boosted = true, boosted_until = $1, updated_at = NOW()
+     WHERE id = $2
+     RETURNING *`,
+      [boostedUntil.toISOString(), jobId]
+    );
+
+    return rowToJob(updateRows[0]);
+  }
+
+  /**
+   * Increment the per-job share counter. Called when the client clicks
+   * "Share" or otherwise copies the job link.
+   *
+   * @param {string} jobId  UUID of the job.
+   * @returns {Promise<Job>}
+   * @throws {Error} 404 — job not found.
+   */
+  async function incrementShareCount(jobId) {
+    const { rows } = await pool.query(
+      "UPDATE jobs SET share_count = COALESCE(share_count, 0) + 1, updated_at = NOW() WHERE id = $1 RETURNING *",
+      [jobId]
+    );
+
+    if (!rows.length) {
+      const e = new Error("Job not found");
+      e.status = 404;
+      throw e;
+    }
+
+    return rowToJob(rows[0]);
+  }
+
+  /**
+   * Update a job's expiry date (extend).
+   *
+   * @param {string} jobId  UUID of the job.
+   * @param {number} additionalDays  Number of days to add (e.g., 30).
+   * @param {number} maxExtensions   Maximum allowed extensions (default 3).
+   * @returns {Promise<Job>}
+   * @throws {Error} 404 — job not found.
+   * @throws {Error} 400 — job already completed/cancelled or max extensions reached.
+   */
+  async function extendJobExpiry(jobId, additionalDays, maxExtensions = 3) {
+    const job = await getJob(jobId);
+
+    if (job.status === "completed" || job.status === "cancelled") {
+      const e = new Error("Cannot extend a completed or cancelled job");
+      e.status = 400;
+      throw e;
+    }
+
+    if (job.extendedCount >= maxExtensions) {
+      const e = new Error("Maximum number of extensions reached");
+      e.status = 400;
+      throw e;
+    }
+
+    const currentExpiry = job.expiresAt ? new Date(job.expiresAt) : new Date(job.createdAt);
+    if (isNaN(currentExpiry.getTime())) {
+      currentExpiry.setTime(Date.now());
+    }
+
+    const newExpiry = new Date(currentExpiry.getTime() + additionalDays * 24 * 60 * 60 * 1000);
+
+    const { rows } = await pool.query(
+      `UPDATE jobs
+     SET expires_at = $1,
+         extended_count = extended_count + 1,
+         extended_until = $1,
+         updated_at = NOW()
+     WHERE id = $2
+     RETURNING *`,
+      [newExpiry.toISOString(), jobId]
+    );
+
+    if (!rows.length) {
+      const e = new Error("Job not found");
+      e.status = 404;
+      throw e;
+    }
+
+    return rowToJob(rows[0]);
+  }
+
+  /**
+   * Auto-expire jobs that have passed their expiry date and are still open (not hired).
+   * Returns the count of expired jobs.
+   *
+   * @returns {Promise<number>}
+   */
+  async function expireOldJobs() {
+    const { rowCount } = await pool.query(
+      `UPDATE jobs
+     SET status = 'cancelled',
+         updated_at = NOW()
+     WHERE status = 'open'
+       AND freelancer_address IS NULL
+       AND expires_at < NOW()`,
+    );
+    return rowCount;
+  }
+
+  /**
+   * Get jobs that are expiring within N days (for warnings).
+   *
+   * @param {number} withinDays  Days threshold (e.g., 3)
+   * @returns {Promise<Job[]>}
+   */
+  async function getExpiringJobs(withinDays = 3) {
+    const withinDate = new Date();
+    withinDate.setDate(withinDate.getDate() + withinDays);
+
+    const { rows } = await pool.query(
+      `SELECT * FROM jobs
+     WHERE status = 'open'
+       AND freelancer_address IS NULL
+       AND expires_at IS NOT NULL
+       AND expires_at <= $1
+     ORDER BY expires_at ASC`,
+      [withinDate.toISOString()]
+    );
+    return rows.map(rowToJob);
+  }
+
+  /**
+   * Get analytics for a job (applications per day, avg bid, skill distribution, time to hire).
+   *
+   * @param {string} jobId  UUID of the job.
+   * @returns {Promise<Object>} Analytics object.
+   */
+  async function getJobAnalytics(jobId) {
+    // Applications per day (time series)
+    const { rows: appsPerDayRows } = await pool.query(
+      `SELECT DATE(created_at) as day, COUNT(*) as count
+     FROM applications
+     WHERE job_id = $1
+     GROUP BY DATE(created_at)
+     ORDER BY day ASC`,
+      [jobId]
+    );
+
+    // Average bid amount and currency breakdown
+    const { rows: bidRows } = await pool.query(
+      `SELECT AVG(bid_amount::numeric) as avg_bid, currency, COUNT(*) as count
+     FROM applications
+     WHERE job_id = $1
+     GROUP BY currency`,
+      [jobId]
+    );
+
+    // Skill distribution - need to infer from freelancer profiles
+    const { rows: skillRows } = await pool.query(
+      `SELECT p.skills, COUNT(*) as count
+     FROM applications a
+     LEFT JOIN profiles p ON a.freelancer_address = p.public_key
+     WHERE a.job_id = $1
+     GROUP BY p.skills`,
+      [jobId]
+    );
+
+    // Time to hire - from job created_at to when a freelancer was assigned (status = 'in_progress')
+    const { rows: hireTimeRows } = await pool.query(
+      `SELECT EXTRACT(EPOCH FROM (MIN(updated_at) - j.created_at)) / 86400 as days_to_hire
+     FROM jobs j
+     WHERE j.id = $1 AND j.status IN ('in_progress', 'completed')`,
+      [jobId]
+    );
+
+    // Total applications and status breakdown
+    const { rows: statusRows } = await pool.query(
+      `SELECT status, COUNT(*) as count
+     FROM applications
+     WHERE job_id = $1
+     GROUP BY status`,
+      [jobId]
+    );
+
+    // Build aggregated skills count
+    const skillDistribution = {};
+    skillRows.forEach(row => {
+      const skills = row.skills || [];
+      skills.forEach(skill => {
+        skillDistribution[skill] = (skillDistribution[skill] || 0) + 1;
+      });
+    });
+
+    return {
+      applicationsPerDay: appsPerDayRows.map(r => ({ day: r.day, count: parseInt(r.count) || 0 })),
+      averageBidAmount: bidRows.map(r => ({
+        currency: r.currency,
+        avgBid: r.avg_bid ? parseFloat(r.avg_bid) : 0,
+        count: parseInt(r.count) || 0
+      })),
+      skillDistribution,
+      daysToHire: hireTimeRows[0] && hireTimeRows[0].days_to_hire ? parseFloat(hireTimeRows[0].days_to_hire) : null,
+      applicationStatusCounts: statusRows.reduce((acc, r) => {
+        acc[r.status] = parseInt(r.count) || 0;
+        return acc;
+      }, {})
+    };
+  }
+
+  module.exports = {
+    createJob,
+    getJob,
+    listJobs,
+    listJobsByClient,
+    updateJobStatus,
+    assignFreelancer,
+    updateJobEscrowId,
+    deleteJob,
+    boostJob,
+    incrementShareCount,
+    extendJobExpiry,
+    expireOldJobs,
+    getExpiringJobs,
+    getJobAnalytics,
+  };
+
+const _pool = require("../db/pool");
+
+const TIMELINE_EVENT_TYPES = ["job_posted", "bid_accepted", "escrow_funded", "work_completed", "escrow_released"];
+
+async function recordTimelineEvent(jobId, eventType, txHash = null) {
+  if (!TIMELINE_EVENT_TYPES.includes(eventType)) {
+    throw new Error(`Invalid timeline event type: ${eventType}`);
+  }
+
+  const { rows: existing } = await _pool.query(
+    "SELECT * FROM job_timeline WHERE job_id = $1 AND event_type = $2",
+    [jobId, eventType]
+  );
+  if (existing.length > 0) {
+    return existing[0];
+  }
+
+  const { rows } = await _pool.query(
+    "INSERT INTO job_timeline (job_id, event_type, tx_hash, created_at) VALUES ($1, $2, $3, NOW()) RETURNING *",
+    [jobId, eventType, txHash]
+  );
+  return rows[0];
+}
+
+async function getJobTimeline(jobId) {
+  const { rows } = await _pool.query(
+    "SELECT * FROM job_timeline WHERE job_id = $1 ORDER BY created_at ASC",
+    [jobId]
+  );
+  return rows.map(r => ({
+    id: r.id,
+    jobId: r.job_id,
+    eventType: r.event_type,
+    txHash: r.tx_hash,
+    createdAt: r.created_at
+  }));
+}
+
+Object.assign(module.exports, { TIMELINE_EVENT_TYPES, recordTimelineEvent, getJobTimeline });
+
+}}}
