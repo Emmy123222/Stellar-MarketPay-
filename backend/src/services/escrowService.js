@@ -709,9 +709,18 @@ async function getEscrow(jobId) {
   return rows[0];
 }
 
+// `field` becomes part of the SQL text, so it is validated as a bare
+// identifier and quoted; the values stay parameterised.
+const ESCROW_FIELD_PATTERN = /^[a-z_][a-z0-9_]{0,62}$/;
+
 async function getEscrowField(jobId, field) {
+  // typeof first: the pattern would otherwise coerce null/undefined into the
+  // strings "null"/"undefined", which are perfectly good column shapes.
+  if (typeof field !== "string" || !ESCROW_FIELD_PATTERN.test(field)) {
+    throw new TypeError(`Not an escrow column name: ${String(field)}`);
+  }
   const { rows } = await pool.query(
-    `SELECT ${field} FROM escrows WHERE job_id = $1`,
+    `SELECT "${field}" FROM escrows WHERE job_id = $1`,
     [jobId],
   );
   return rows.length ? rows[0][field] : undefined;
