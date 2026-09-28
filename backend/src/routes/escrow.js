@@ -26,6 +26,7 @@ const { processReferralPayout } = require("../services/referralService");
 const { scheduleReputationRecalcForJob } = require("../services/reputationService");
 const { queueAutoConversion } = require("../services/autoConvertService");
 const {
+  submitDeliverableHash,
   timeoutRefund,
   releaseMilestone,
   rejectMilestone,
@@ -636,6 +637,35 @@ router.post("/:jobId/extend/approve", escrowActionRateLimiter, async (req, res, 
     }
 
     const result = await approveEscrowExtension(jobId, approvedBy, contractTxHash);
+
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/:jobId/deliverable-hash
+ * Submit a deliverable hash. Only the assigned freelancer may submit.
+ */
+router.post("/:jobId/deliverable-hash", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { freelancerAddress, hashHex } = req.body;
+
+    if (!freelancerAddress || !/^G[A-Z0-9]{55}$/.test(freelancerAddress)) {
+      const e = new Error("Invalid freelancer address");
+      e.status = 400;
+      throw e;
+    }
+
+    if (!hashHex || !/^[0-9a-fA-F]{64}$/.test(hashHex)) {
+      const e = new Error("hashHex must be a 64-character hex string (SHA-256)");
+      e.status = 400;
+      throw e;
+    }
+
+    const result = await submitDeliverableHash(jobId, freelancerAddress, hashHex);
 
     res.json(result);
   } catch (e) {
