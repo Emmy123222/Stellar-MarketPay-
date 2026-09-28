@@ -2,7 +2,7 @@ use soroban_sdk::{symbol_short, token, Address, Env, String, Symbol};
 
 use crate::errors::ContractError;
 use crate::governance::record_completed_job;
-use crate::helpers::check_not_frozen;
+use crate::helpers::{check_escrow_not_frozen, check_not_frozen};
 use crate::types::*;
 
 #[allow(clippy::too_many_arguments)]
@@ -11,6 +11,7 @@ use crate::types::*;
 pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, client: Address) {
     client.require_auth();
     check_not_frozen(&env, &job_id);
+check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -143,6 +144,7 @@ pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, cli
 pub(crate) fn reject_milestone(env: Env, job_id: String, milestone_index: u32, client: Address) {
     client.require_auth();
     check_not_frozen(&env, &job_id);
+check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()

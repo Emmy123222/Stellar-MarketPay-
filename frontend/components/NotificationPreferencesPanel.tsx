@@ -7,7 +7,10 @@ import { useEffect, useState, useCallback } from "react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import debounce from "lodash.debounce";
 import { useToast } from "@/components/Toast";
-import { fetchNotificationPreferences, updateNotificationPreferences } from "@/lib/api";
+import {
+  fetchNotificationPreferences,
+  updateNotificationPreferences,
+} from "@/lib/api";
 
 const TYPE_LABELS: Record<string, string> = {
   new_application: "New Applications",
@@ -33,7 +36,9 @@ export default function NotificationPreferencesPanel() {
   } = usePushNotifications();
 
   const [isMounted, setIsMounted] = useState(false);
-  const [preferences, setPreferences] = useState<Record<string, { email: boolean; inapp: boolean }>>({});
+  const [preferences, setPreferences] = useState<
+    Record<string, { email: boolean; inapp: boolean }>
+  >({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -45,39 +50,50 @@ export default function NotificationPreferencesPanel() {
 
   useEffect(() => {
     let mounted = true;
-    fetchNotificationPreferences().then((data) => {
-      if (mounted) {
-        setPreferences(data.preferences || {});
-        setLoading(false);
-      }
-    }).catch(err => {
-      console.error(err);
-      if (mounted) setLoading(false);
-    });
-    return () => { mounted = false; };
+    fetchNotificationPreferences()
+      .then((data) => {
+        if (mounted) {
+          setPreferences(data.preferences || {});
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Use useCallback so debounce isn't recreated on every render
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const savePreferences = useCallback(
-    debounce(async (newPrefs) => {
-      try {
-        await updateNotificationPreferences(newPrefs);
-        toast.success("Saved");
-      } catch (err) {
-        toast.error("Failed to save preferences");
-      }
-    }, 1000),
-    [toast]
+    debounce(
+      async (newPrefs: Record<string, { email: boolean; inapp: boolean }>) => {
+        try {
+          await updateNotificationPreferences(newPrefs);
+          toast.success("Saved");
+        } catch (err) {
+          toast.error("Failed to save preferences");
+        }
+      },
+      1000,
+    ),
+    [toast],
   );
 
-  const handleToggle = (type: string, channel: "email" | "inapp", checked: boolean) => {
+  const handleToggle = (
+    type: string,
+    channel: "email" | "inapp",
+    checked: boolean,
+  ) => {
     const newPrefs = {
       ...preferences,
       [type]: {
         ...(preferences[type] || { email: true, inapp: true }),
-        [channel]: checked
-      }
+        [channel]: checked,
+      },
     };
     setPreferences(newPrefs);
     savePreferences(newPrefs);
@@ -107,9 +123,7 @@ export default function NotificationPreferencesPanel() {
               onClick={isSubscribed ? unsubscribe : subscribe}
               disabled={isPushLoading}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                isSubscribed
-                  ? "btn-secondary"
-                  : "btn-primary"
+                isSubscribed ? "btn-secondary" : "btn-primary"
               } disabled:opacity-50`}
             >
               {isPushLoading
@@ -135,13 +149,18 @@ export default function NotificationPreferencesPanel() {
 
       {/* Email & In-App Preferences */}
       <div className="bg-ink-800 rounded-xl p-4 border border-market-500/15">
-        <h3 className="font-semibold text-amber-100 text-sm mb-4">Notification Preferences</h3>
+        <h3 className="font-semibold text-amber-100 text-sm mb-4">
+          Notification Preferences
+        </h3>
         {loading ? (
           <p className="text-amber-800 text-xs">Loading preferences...</p>
         ) : (
           <div className="space-y-4">
             {Object.keys(preferences).map((type) => (
-              <div key={type} className="flex items-center justify-between py-2 border-b border-market-500/10 last:border-0">
+              <div
+                key={type}
+                className="flex items-center justify-between py-2 border-b border-market-500/10 last:border-0"
+              >
                 <span className="text-sm text-amber-100 capitalize">
                   {TYPE_LABELS[type] || type.replace(/_/g, " ")}
                 </span>
@@ -150,7 +169,9 @@ export default function NotificationPreferencesPanel() {
                     <input
                       type="checkbox"
                       checked={preferences[type]?.inapp ?? true}
-                      onChange={(e) => handleToggle(type, "inapp", e.target.checked)}
+                      onChange={(e) =>
+                        handleToggle(type, "inapp", e.target.checked)
+                      }
                       className="rounded border-market-500/30 bg-ink-900 text-market-400 focus:ring-market-400"
                     />
                     In-App
@@ -159,7 +180,9 @@ export default function NotificationPreferencesPanel() {
                     <input
                       type="checkbox"
                       checked={preferences[type]?.email ?? true}
-                      onChange={(e) => handleToggle(type, "email", e.target.checked)}
+                      onChange={(e) =>
+                        handleToggle(type, "email", e.target.checked)
+                      }
                       className="rounded border-market-500/30 bg-ink-900 text-market-400 focus:ring-market-400"
                     />
                     Email
@@ -172,7 +195,9 @@ export default function NotificationPreferencesPanel() {
       </div>
 
       <div className="text-xs text-amber-800 p-3 bg-amber-500/10 rounded-lg border border-amber-500/20">
-        <p className="font-medium text-amber-100 mb-1">About push notifications:</p>
+        <p className="font-medium text-amber-100 mb-1">
+          About push notifications:
+        </p>
         <ul className="space-y-1 list-disc list-inside">
           <li>You&apos;ll receive notifications for new applications</li>
           <li>Important updates like escrow releases and disputes</li>

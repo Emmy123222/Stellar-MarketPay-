@@ -41,6 +41,7 @@ const referralRoutes     = require("./routes/referrals");
 const reputationRoutes   = require("./routes/reputation");
 const autoConvertRoutes  = require("./routes/autoConvert");
 const scopeRoutes        = require("./routes/scope");
+const analyticsRoutes    = require("./routes/analytics");
 
 const migrate               = require("./db/migrate");
 const IndexerService        = require("./services/indexerService");
@@ -48,11 +49,14 @@ const { PriceAlertService } = require("./services/priceAlertService");
 const pool                  = require("./db/pool");
 const { scheduleStatsRefresh } = require("./services/statsService");
 const { startPushSubscriptionPurge } = require("./services/pushSubscriptionService");
+const { startLinkVerificationScheduler } = require("./services/linkVerificationScheduler");
 
-// Start audit worker — processes fire-and-forget audit log writes
+// Start workers
 require("./workers/auditWorker");
+require("./workers/linkVerificationWorker");
 
 const app  = express();
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 4000;
 const server = http.createServer(app);
 const WS_OPEN = 1;
@@ -126,7 +130,7 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 150, standardHeaders: true, legacyHeaders: true }));
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 150, standardHeaders: true, legacyHeaders: true, keyGenerator: (req) => req.ip }));
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use("/health",            healthRoutes);
@@ -161,6 +165,7 @@ app.use("/api/turrets",           turretRoutes);
 app.use("/api/referrals",         referralRoutes);
 app.use("/api/reputation",        reputationRoutes);
 app.use("/api/auto-convert",      autoConvertRoutes);
+app.use("/api/analytics",         analyticsRoutes);
 
 // 404 handler — must come after all routes
 app.use((req, res) => {
@@ -174,6 +179,28 @@ app.use((err, req, res, _next) => {
     error: err.message || "Internal server error",
   });
 });
+
+function parseWsCookies(cookieHeader) {
+  return String(cookieHeader || "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((cookies, part) => {
+      const separatorIndex = part.indexOf("=");
+      if (separatorIndex === -1) return cookies;
+      const name = part.slice(0, separatorIndex);
+      const value = part.slice(separatorIndex + 1);
+      cookies[name] = decodeURIComponent(value);
+      return cookies;
+    }, {});
+}
+
+function getWsToken(request) {
+  const cookies = parseWsCookies(request.headers.cookie);
+  if (cookies.token) return cookies.token;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  return url.searchParams.get("token") || null;
+}
 
 const wsServer = new WebSocketServer({ noServer: true });
 
@@ -203,6 +230,28 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
+    const token = getWsToken(request);
+    let userAddress = null;
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        userAddress = decoded.publicKey;
+        ws.user = decoded;
+      } catch {
+        ws.close(4001, "Unauthorized: Invalid or expired token");
+        return;
+      }
+    }
+    if (userAddress) {
+      const existing = userClients.get(userAddress);
+      if (existing && existing.size >= MAX_WS_CONNECTIONS_PER_USER) {
+        sendJson(ws, "error", {
+          error: `Connection limit of ${MAX_WS_CONNECTIONS_PER_USER} reached for this account`,
+        });
+        ws.close(1008, "Too many connections");
+        return;
+      }
+    }
     realtimeClients.add(ws);
     sendJson(ws, "connected", { channel: "realtime" });
 
@@ -385,6 +434,9 @@ async function bootstrap() {
 
   // Start daily purge of push subscriptions marked invalid (Issue #1438)
   startPushSubscriptionPurge();
+
+  // Start portfolio link verification scheduler - daily re-verify stale items
+  startLinkVerificationScheduler();
 
   server.listen(PORT, () => {
     console.log(`
