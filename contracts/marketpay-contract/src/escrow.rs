@@ -83,7 +83,7 @@ pub(crate) fn create_escrow_internal(
     deliverable_hash: Option<BytesN<32>>,
 ) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     if amount <= 0 {
         panic!("Amount must be positive");
@@ -200,7 +200,7 @@ pub(crate) fn create_escrow_internal(
 /// Freelancer signals that they have started work.
 pub(crate) fn start_work(env: Env, job_id: String, freelancer: Address) {
     freelancer.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -229,7 +229,7 @@ pub(crate) fn start_work(env: Env, job_id: String, freelancer: Address) {
 /// Client approves completed work and releases funds to the freelancer.
 pub(crate) fn release_escrow(env: Env, job_id: String, client: Address) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let escrow: Escrow = env
         .storage()
@@ -255,6 +255,48 @@ pub(crate) fn release_escrow(env: Env, job_id: String, client: Address) {
     }
 
     release_escrow_core(env, job_id, escrow);
+}
+
+/// Applies the optional 2% referral bonus to a post-platform-fee payout.
+///
+/// When the escrow has a referrer, 2% of `after_fee` (clamped by the
+/// admin-configured `MaxReferrerBonusXlm` cap, Issue #440) is transferred to
+/// the referrer and the remainder is returned for the freelancer. Without a
+/// referrer the full `after_fee` goes to the freelancer.
+///
+/// Returns `(freelancer_amount, referral_amount)`.
+pub(crate) fn apply_referral_bonus(
+    env: &Env,
+    job_id: &String,
+    escrow: &Escrow,
+    after_fee: i128,
+) -> (i128, i128) {
+    match &escrow.referrer {
+        Some(referrer_addr) => {
+            let uncapped_bonus = after_fee
+                .checked_mul(200)
+                .expect("Arithmetic overflow")
+                .checked_div(10_000)
+                .expect("Arithmetic overflow");
+            let max_bonus: Option<i128> =
+                env.storage().instance().get(&DataKey::MaxReferrerBonusXlm);
+            let bonus = match max_bonus {
+                Some(cap) => uncapped_bonus.min(cap),
+                None => uncapped_bonus,
+            };
+            let to_freelancer = after_fee.checked_sub(bonus).expect("Arithmetic overflow");
+            if bonus > 0 {
+                let token_client = token::Client::new(env, &escrow.token);
+                token_client.transfer(&env.current_contract_address(), referrer_addr, &bonus);
+                env.events().publish(
+                    (symbol_short!("ref_bon"), referrer_addr.clone()),
+                    (job_id.clone(), bonus),
+                );
+            }
+            (to_freelancer, bonus)
+        }
+        None => (after_fee, 0i128),
+    }
 }
 
 pub(crate) fn release_escrow_core(env: Env, job_id: String, mut escrow: Escrow) {
@@ -340,31 +382,8 @@ pub(crate) fn release_escrow_core(env: Env, job_id: String, mut escrow: Escrow) 
 
         // ── Referral bonus: 2% of post-fee amount goes to referrer, ────────
         // capped at the admin-configured MaxReferrerBonusXlm (Issue #440).
-        let (freelancer_amount, referral_amount) = match &escrow.referrer {
-            Some(referrer_addr) => {
-                let uncapped_bonus = after_fee
-                    .checked_mul(200)
-                    .expect("Arithmetic overflow")
-                    .checked_div(10_000)
-                    .expect("Arithmetic overflow");
-                let max_bonus: Option<i128> =
-                    env.storage().instance().get(&DataKey::MaxReferrerBonusXlm);
-                let bonus = match max_bonus {
-                    Some(cap) => uncapped_bonus.min(cap),
-                    None => uncapped_bonus,
-                };
-                let to_freelancer = after_fee.checked_sub(bonus).expect("Arithmetic overflow");
-                if bonus > 0 {
-                    token_client.transfer(&env.current_contract_address(), referrer_addr, &bonus);
-                    env.events().publish(
-                        (symbol_short!("ref_bon"), referrer_addr.clone()),
-                        (job_id.clone(), bonus),
-                    );
-                }
-                (to_freelancer, bonus)
-            }
-            None => (after_fee, 0i128),
-        };
+        let (freelancer_amount, referral_amount) =
+            apply_referral_bonus(&env, &job_id, &escrow, after_fee);
 
         // Transfer remaining funds to freelancer
         if freelancer_amount > 0 {
@@ -409,7 +428,7 @@ pub(crate) fn release_with_conversion(
     _min_amount_out: i128,
 ) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -464,13 +483,17 @@ pub(crate) fn release_with_conversion(
             .expect("Arithmetic overflow")
             .checked_div(10_000)
             .expect("Arithmetic overflow");
-        let to_freelancer = release_amount
+        let after_fee = release_amount
             .checked_sub(fee_amount)
             .expect("Arithmetic overflow");
 
         if fee_amount > 0 {
             token_client.transfer(&env.current_contract_address(), &treasury, &fee_amount);
         }
+
+        // Referral bonus is honoured on the conversion path too (Issue #1379).
+        let (to_freelancer, _referral_amount) =
+            apply_referral_bonus(&env, &job_id, &escrow, after_fee);
 
         // [Issue #104] Path Payment / DEX Swap
         // In a real scenario, we would call a DEX contract here.
@@ -520,7 +543,7 @@ pub(crate) fn release_with_conversion(
 /// Client cancels and gets a refund (only before work starts).
 pub(crate) fn refund_escrow(env: Env, job_id: String, client: Address) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -563,7 +586,7 @@ pub(crate) fn refund_escrow(env: Env, job_id: String, client: Address) {
 /// older escrows fall back to the legacy ledger-sequence threshold.
 pub(crate) fn timeout_refund(env: Env, job_id: String, client: Address) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -745,7 +768,7 @@ pub(crate) fn boost_job(
     amount: i128,
 ) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     if amount <= 0 {
         panic!("Boost amount must be positive");

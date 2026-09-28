@@ -25,12 +25,19 @@ backend:
     STELLAR_NETWORK: testnet
     HORIZON_URL: https://horizon-testnet.stellar.org
   healthCheck:
-    path: /api/health
+    # Readiness probe targets the detailed /health endpoint, which actively
+    # runs SELECT 1 against the database pool so the kubelet can know whether
+    # the app is ready to serve traffic.
+    path: /health
     port: 4000
     initialDelaySeconds: 10
     periodSeconds: 5
     timeoutSeconds: 3
     failureThreshold: 3
+    # Liveness probe targets the lightweight /ping endpoint (no DB I/O) to
+    # avoid flooding the database with repeated health checks and to detect
+    # only process-level death.
+    livenessPath: /ping
 
 redis:
   image:

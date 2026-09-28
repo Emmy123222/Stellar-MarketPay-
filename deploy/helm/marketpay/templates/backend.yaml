@@ -34,16 +34,16 @@ spec:
               value: "redis://{{ include "marketpay.fullname" . }}-redis:6379"
           livenessProbe:
             httpGet:
-              path: {{ .Values.backend.healthCheck.path }}
-              port: {{ .Values.backend.healthCheck.port }}
+              path: /ping
+              port: http
             initialDelaySeconds: {{ .Values.backend.healthCheck.initialDelaySeconds }}
             periodSeconds: {{ .Values.backend.healthCheck.periodSeconds }}
             timeoutSeconds: {{ .Values.backend.healthCheck.timeoutSeconds }}
             failureThreshold: {{ .Values.backend.healthCheck.failureThreshold }}
           readinessProbe:
             httpGet:
-              path: {{ .Values.backend.healthCheck.path }}
-              port: {{ .Values.backend.healthCheck.port }}
+              path: /health
+              port: http
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3

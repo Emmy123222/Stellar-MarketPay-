@@ -78,8 +78,20 @@ router.get("/job/:jobId", generalApplicationRateLimiter, async (req, res, next) 
       throw e;
     }
 
-    const applications = await getApplicationsForJob(req.params.jobId, { tier });
-    res.json({ success: true, data: applications });
+    const limit = req.query.limit === undefined ? 20 : Number(req.query.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      const e = new Error("Invalid application limit");
+      e.status = 400;
+      throw e;
+    }
+    const cursor = typeof req.query.cursor === "string" && req.query.cursor ? req.query.cursor : null;
+    const options = { tier };
+    if (req.query.limit !== undefined) options.limit = limit;
+    if (cursor) options.cursor = cursor;
+    const result = await getApplicationsForJob(req.params.jobId, options);
+    const applications = Array.isArray(result) ? result : result.applications;
+    const nextCursor = Array.isArray(result) ? null : result.nextCursor;
+    res.json({ success: true, data: applications, applications, nextCursor });
   } catch (e) {
     next(e);
   }
@@ -160,14 +172,22 @@ router.get("/freelancer/:publicKey", generalApplicationRateLimiter, async (req, 
 router.post("/", applicationRateLimiter, validateJsonb({ screeningAnswers: screeningAnswersSchema }), async (req, res, next) => {
   try {
     const body = validate(createApplicationSchema, req.body);
+    const job = await getJob(body.jobId);
+    if (job && req.user) {
+      const clientId = job.client_id ?? job.clientAddress ?? job.clientId;
+      const userId = req.user.id ?? req.user.publicKey;
+      if (
+        (job.client_id && req.user.id && job.client_id === req.user.id) ||
+        (clientId && userId && clientId === userId)
+      ) {
+        return res.status(400).json({ error: "You cannot apply to your own job" });
+      }
+    }
     const app = await submitApplication(body);
     
     // Emit WebSocket event for real-time bid updates
     const broadcastRealtime = req.app.locals.broadcastRealtime;
     if (broadcastRealtime) {
-      // Get job details for the broadcast
-      const job = await getJob(app.jobId);
-      
       broadcastRealtime(`job:${app.jobId}:bids`, {
         type: 'new_bid',
         application: {
@@ -179,7 +199,7 @@ router.post("/", applicationRateLimiter, validateJsonb({ screeningAnswers: scree
           createdAt: app.createdAt,
           status: app.status
         },
-        jobTitle: job.title
+        jobTitle: job?.title
       });
     }
     

@@ -1,6 +1,7 @@
 # Authentication Flow — Stellar SEP-10
 
 **Table of Contents**
+
 - [Overview](#overview)
 - [SEP-10 Standard](#sep-10-standard)
 - [Primary Flow — Happy Path](#primary-flow--happy-path)
@@ -18,9 +19,10 @@
 
 ## Overview
 
-Stellar MarketPay uses **SEP-10** — the Stellar standard for **challenge-response authentication**. Instead of passwords, a user proves ownership of a Stellar account by signing a server-generated transaction (the *challenge*) with their wallet (e.g., **Freighter**). When the signature is verified, the server issues a short-lived **JWT** for subsequent API calls.
+Stellar MarketPay uses **SEP-10** — the Stellar standard for **challenge-response authentication**. Instead of passwords, a user proves ownership of a Stellar account by signing a server-generated transaction (the _challenge_) with their wallet (e.g., **Freighter**). When the signature is verified, the server issues a short-lived **JWT** for subsequent API calls.
 
 Key properties:
+
 - **Password-less** — users never create or share a secret with the app
 - **Stateless** — the server stores no session state; only the JWT claims matter
 - **Blockchain-native** — identity is a public Stellar address usable on-chain
@@ -242,39 +244,16 @@ sequenceDiagram
     end
 ```
 
-### How the server enforces 2FA
+### 2FA Implementation Notes & Security Parameters (RFC 6238)
 
-`requireAdmin2FA` (`backend/src/middleware/auth.js`) guards admin-only routes:
-
-1. Non-admin callers pass through — this middleware never affects regular users.
-2. Admins with no TOTP configured (`totp_enabled = false`) pass through.
-3. Otherwise **at least one** of the following must hold:
-   - the JWT carries `2fa_verified: true` (session step-up), **or**
-   - the request supplies a valid `X-2FA-Token: <6-digit-code>` header (stateless per-request verification).
-
-If neither holds the response is `403 { "error": "2FA required", "requires2FA": true }`
-and the client must complete the step-up. `POST /api/admin/2fa/verify` returns the
-upgraded token; `POST /api/admin/2fa/disable` turns 2FA off with a valid TOTP code
-or a single-use backup code.
-
-### Recovery
-
-Enabling 2FA returns ten single-use backup codes, shown exactly once. If the
-authenticator device is lost, the user disables 2FA with
-`POST /api/admin/2fa/disable { "backupCode": "..." }`. Failed TOTP attempts
-increment `totp_attempts` and lock verification after repeated failures.
-
-### TOTP vs WebAuthn
-
-| | TOTP (`speakeasy`) | WebAuthn passkey |
-|---|---|---|
-| Secret storage | Shared secret, encrypted server-side | Public key only; private key stays on the device |
-| Phishing resistance | Code can be relayed by a proxy | Origin-bound — not relayable |
-| Hardware | Any authenticator app | Platform authenticator or security key |
-| Recovery | 10 single-use backup codes | Other registered passkeys |
-| Scope today | Admin accounts | Any account |
-
-Either factor can satisfy the "second step" in the primary flow.
+- **Validation Window**: Configured with `window: 1` (allowing ±1 time step of 30 seconds drift).
+  - Valid interval range: `[current_time - 30s, current_time + 30s]`.
+  - Stale codes generated **61 seconds or more in the past** (or future) are strictly rejected.
+  - A wider tolerance such as `window: 2` (±90 seconds) is disallowed on admin endpoints to prevent replay attacks and reduce token exposure windows.
+- **Algorithm & Step**: Standard HMAC-SHA-1 with 30-second time steps and 6-digit numerical codes per RFC 6238.
+- **Secret Storage**: Base32 TOTP secret is encrypted at rest using AES-256-GCM.
+- **Brute-Force & Lockout Policy**: After 5 consecutive invalid attempts, the account is locked for 15 minutes.
+- **Backup Codes**: Single-use cryptographically hashed (SHA-256) codes provided during initial setup.
 
 ---
 
@@ -345,20 +324,20 @@ sequenceDiagram
 
 ```json
 {
-  "sub": "GABC...XYZ",   // Stellar public key — the authenticated identity
-  "iat": 1719273600,     // Issued-at (Unix seconds)
-  "exp": 1719277200,     // Expiry (iat + 3600)
-  "2fa_verified": true   // Admin claim: true once the TOTP step-up completed
+  "sub": "GABC...XYZ", // Stellar public key — the authenticated identity
+  "iat": 1719273600, // Issued-at (Unix seconds)
+  "exp": 1719277200, // Expiry (iat + 3600)
+  "mfa": true // Present only if 2FA was completed
 }
 ```
 
 ### Token Storage
 
-| Storage | Security | Recommended |
-|---|---|---|
-| `httpOnly` cookie | CSRF-resistant, XSS-safe | **Yes (production)** |
-| `localStorage` | Accessible to JS — XSS risk | No |
-| `sessionStorage` | Clears on tab close | Acceptable for dev |
+| Storage           | Security                    | Recommended          |
+| ----------------- | --------------------------- | -------------------- |
+| `httpOnly` cookie | CSRF-resistant, XSS-safe    | **Yes (production)** |
+| `localStorage`    | Accessible to JS — XSS risk | No                   |
+| `sessionStorage`  | Clears on tab close         | Acceptable for dev   |
 
 ### Refreshing a Token
 
@@ -384,11 +363,12 @@ Request a SEP-10 challenge transaction.
 
 **Query parameters:**
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `account` | `string` | Yes | Stellar public key (`G...`) |
+| Parameter | Type     | Required | Description                 |
+| --------- | -------- | -------- | --------------------------- |
+| `account` | `string` | Yes      | Stellar public key (`G...`) |
 
 **Response `200`:**
+
 ```json
 {
   "transaction": "<base64-encoded unsigned XDR>"
@@ -397,11 +377,11 @@ Request a SEP-10 challenge transaction.
 
 **Error responses:**
 
-| Status | Body | Cause |
-|---|---|---|
-| `400` | `{ "error": "account required" }` | Missing `?account=` |
-| `400` | `{ "error": "account not found on Stellar network" }` | Unfunded account |
-| `429` | `{ "error": "Too Many Requests" }` | Rate limit exceeded |
+| Status | Body                                                  | Cause               |
+| ------ | ----------------------------------------------------- | ------------------- |
+| `400`  | `{ "error": "account required" }`                     | Missing `?account=` |
+| `400`  | `{ "error": "account not found on Stellar network" }` | Unfunded account    |
+| `429`  | `{ "error": "Too Many Requests" }`                    | Rate limit exceeded |
 
 ---
 
@@ -410,6 +390,7 @@ Request a SEP-10 challenge transaction.
 Submit the signed challenge to obtain a JWT.
 
 **Request body:**
+
 ```json
 {
   "signedXdr": "<base64-encoded signed XDR>"
@@ -417,27 +398,30 @@ Submit the signed challenge to obtain a JWT.
 ```
 
 **Response `200`:**
+
 ```json
 {
   "token": "<jwt>"
 }
 ```
 
-For an **admin** account that has TOTP enabled, the JWT is still issued, but its
-`2fa_verified` claim is `false` until the step-up in
-`POST /api/admin/2fa/verify` succeeds. Admin routes guarded by
-`requireAdmin2FA` then answer `403 { "error": "2FA required", "requires2FA": true }`
-until the upgraded token is used (or the `X-2FA-Token` header is supplied).
-Accounts without 2FA receive a fully usable token immediately.
+If the account has 2FA enabled:
+
+```json
+{
+  "mfa_required": true,
+  "mfa_token": "<short-lived-mfa-token>"
+}
+```
 
 **Error responses:**
 
-| Status | Body | Cause |
-|---|---|---|
-| `400` | `{ "error": "signedXdr required" }` | Missing body field |
-| `401` | `{ "error": "invalid signature" }` | Bad signature or tampered XDR |
-| `401` | `{ "error": "challenge expired" }` | Challenge older than 5 minutes |
-| `401` | `{ "error": "invalid home domain" }` | Server/client domain mismatch |
+| Status | Body                                 | Cause                          |
+| ------ | ------------------------------------ | ------------------------------ |
+| `400`  | `{ "error": "signedXdr required" }`  | Missing body field             |
+| `401`  | `{ "error": "invalid signature" }`   | Bad signature or tampered XDR  |
+| `401`  | `{ "error": "challenge expired" }`   | Challenge older than 5 minutes |
+| `401`  | `{ "error": "invalid home domain" }` | Server/client domain mismatch  |
 
 ---
 
@@ -452,6 +436,7 @@ Verify a 6-digit TOTP code. On first enrollment (`setup: true`) it enables 2FA a
 returns the backup codes; on later calls it performs the login step-up.
 
 **Request body:**
+
 ```json
 {
   "token": "123456",
@@ -460,6 +445,7 @@ returns the backup codes; on later calls it performs the login step-up.
 ```
 
 **Response `200`:**
+
 ```json
 {
   "success": true,
@@ -583,6 +569,7 @@ export function logout(): void {
 ## Backend Implementation
 
 **Files:**
+
 - `backend/src/routes/auth.js` — challenge/response endpoints
 - `backend/src/middleware/auth.js` — JWT verification middleware
 - `backend/src/services/authTokens.js` — JWT generation and management
@@ -591,22 +578,32 @@ export function logout(): void {
 
 ```js
 // Simplified from backend/src/routes/auth.js
-import { TransactionBuilder, Keypair, Networks, Operation, Asset } from "@stellar/stellar-sdk";
+import {
+  TransactionBuilder,
+  Keypair,
+  Networks,
+  Operation,
+  Asset,
+} from "@stellar/stellar-sdk";
 
 function buildChallengeXdr(clientPublicKey, homeDomain, timeout = 300) {
   const serverKeypair = Keypair.fromSecret(process.env.STELLAR_SECRET_KEY);
   const now = Math.floor(Date.now() / 1000);
 
   const tx = new TransactionBuilder(
-    { id: serverKeypair.publicKey(), sequence: "-1", accountId: serverKeypair.publicKey() },
-    { fee: "100", networkPassphrase: Networks.TESTNET }
+    {
+      id: serverKeypair.publicKey(),
+      sequence: "-1",
+      accountId: serverKeypair.publicKey(),
+    },
+    { fee: "100", networkPassphrase: Networks.TESTNET },
   )
     .addOperation(
       Operation.manageData({
         name: `${homeDomain} auth`,
         value: crypto.randomBytes(48).toString("base64"), // nonce
         source: clientPublicKey,
-      })
+      }),
     )
     .setTimeBounds(now, now + timeout)
     .build();
@@ -636,11 +633,15 @@ async function verifyChallenge(signedXdr, server) {
 
   // 3. Load account from Horizon and verify the signature
   const account = await server.loadAccount(clientAddress);
-  const signerMap = Object.fromEntries(account.signers.map(s => [s.key, s.weight]));
+  const signerMap = Object.fromEntries(
+    account.signers.map((s) => [s.key, s.weight]),
+  );
   // ... signature verification against signerMap ...
 
   // 4. Issue JWT
-  return jwt.sign({ sub: clientAddress }, process.env.JWT_SECRET, { expiresIn: "1h" });
+  return jwt.sign({ sub: clientAddress }, process.env.JWT_SECRET, {
+    expiresIn: "1h",
+  });
 }
 ```
 
@@ -670,24 +671,24 @@ export function requireAuth(req, res, next) {
 
 ### Threat Mitigations
 
-| Threat | Mitigation |
-|---|---|
-| **Replay attack** — attacker re-submits a previously signed XDR | Time-bounded challenge (5-minute expiry). Once submitted, the nonce cannot be reused. |
-| **MITM / XDR tampering** | XDR is base64-encoded and signed; any modification invalidates the signature. |
-| **JWT theft via XSS** | Store JWT in an `httpOnly` cookie inaccessible to JavaScript. |
-| **CSRF against cookie-stored JWT** | Use `SameSite=Strict` or `SameSite=Lax` cookie attribute. |
-| **Brute-force challenge requests** | Rate limiting: max 20 challenge requests per IP per minute. |
-| **Compromised account** | Attacker with the private key can authenticate. Mitigation is the same as for any blockchain account — use a hardware wallet and protect the seed phrase. |
-| **Multi-sig accounts** | Supported — Stellar allows multiple signers; the server verifies cumulative signer weight meets the account's threshold. |
+| Threat                                                          | Mitigation                                                                                                                                                |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Replay attack** — attacker re-submits a previously signed XDR | Time-bounded challenge (5-minute expiry). Once submitted, the nonce cannot be reused.                                                                     |
+| **MITM / XDR tampering**                                        | XDR is base64-encoded and signed; any modification invalidates the signature.                                                                             |
+| **JWT theft via XSS**                                           | Store JWT in an `httpOnly` cookie inaccessible to JavaScript.                                                                                             |
+| **CSRF against cookie-stored JWT**                              | Use `SameSite=Strict` or `SameSite=Lax` cookie attribute.                                                                                                 |
+| **Brute-force challenge requests**                              | Rate limiting: max 20 challenge requests per IP per minute.                                                                                               |
+| **Compromised account**                                         | Attacker with the private key can authenticate. Mitigation is the same as for any blockchain account — use a hardware wallet and protect the seed phrase. |
+| **Multi-sig accounts**                                          | Supported — Stellar allows multiple signers; the server verifies cumulative signer weight meets the account's threshold.                                  |
 
 ### JWT Properties
 
-| Property | Value |
-|---|---|
-| Algorithm | `HS256` |
-| Secret | `JWT_SECRET` env var (≥ 32 random bytes) |
-| Expiry | 1 hour |
-| Claims | `sub` (Stellar address), `iat`, `exp`, optionally `mfa: true` |
+| Property  | Value                                                         |
+| --------- | ------------------------------------------------------------- |
+| Algorithm | `HS256`                                                       |
+| Secret    | `JWT_SECRET` env var (≥ 32 random bytes)                      |
+| Expiry    | 1 hour                                                        |
+| Claims    | `sub` (Stellar address), `iat`, `exp`, optionally `mfa: true` |
 
 ---
 
@@ -728,11 +729,6 @@ const signedXdr = tx.toEnvelope().toXDR("base64");
 
 ---
 
-**Implementation files**
-
-- SEP-10 challenge/response: `backend/src/routes/auth.js`
-- JWT verification and 2FA enforcement: `backend/src/middleware/auth.js`
-- Token issuance, refresh, and rotation: `backend/src/services/authTokens.js`
-- Admin TOTP 2FA: `backend/src/routes/admin2fa.js`, `backend/src/services/twoFactorService.js`
-- WebAuthn passkeys: `backend/src/routes/webauthn.js`, `backend/src/services/webauthnService.js`
-- Rate limiting: `backend/src/middleware/rateLimiter.js`
+_For WebAuthn credential management see `backend/src/routes/webauthn.js`._
+_For 2FA enrollment see `backend/src/routes/twoFactor.js`._
+_For rate limiting configuration see `backend/src/middleware/rateLimiter.js`._
