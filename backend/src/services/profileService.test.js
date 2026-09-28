@@ -224,6 +224,118 @@ describe("profileService", () => {
 
       expect(pool.query).not.toHaveBeenCalled();
     });
+
+    it("sanitizes bio and strips HTML before storing", async () => {
+      const malicious = '<script>alert(1)</script><b>Bold</b> &amp; <i>italics</i>';
+
+      pool.query.mockResolvedValueOnce({
+        rows: [
+          {
+            public_key: publicKey,
+            display_name: "Jane Doe",
+            bio: "Bold & italics",
+            skills: [],
+            portfolio_items: [],
+            availability: null,
+            role: "freelancer",
+            completed_jobs: 0,
+            total_earned_xlm: "0.0000000",
+            rating: null,
+            created_at: "2026-04-23T00:00:00.000Z",
+            updated_at: "2026-04-23T00:00:00.000Z",
+          },
+        ],
+      });
+
+      await upsertProfile({ publicKey, bio: malicious });
+
+      // The third parameter in the query parameters is the bio value passed to the DB
+      const passedBio = pool.query.mock.calls[0][1][2];
+      expect(passedBio).toBe("Bold & italics");
+    });
+
+    // Regression cover for the two CodeQL alerts raised on the first revision of
+    // this fix (js/incomplete-multi-character-sanitization and
+    // js/double-unescaping). The stored bio must never contain live markup, and
+    // entity decoding must happen exactly once.
+    describe("bio sanitization hardening", () => {
+      const mockStoredProfile = () =>
+        pool.query.mockResolvedValueOnce({
+          rows: [
+            {
+              public_key: publicKey,
+              display_name: "Jane Doe",
+              bio: "stored",
+              skills: [],
+              portfolio_items: [],
+              availability: null,
+              role: "freelancer",
+              completed_jobs: 0,
+              total_earned_xlm: "0.0000000",
+              rating: null,
+              created_at: "2026-04-23T00:00:00.000Z",
+              updated_at: "2026-04-23T00:00:00.000Z",
+            },
+          ],
+        });
+
+      it.each([
+        // Malformed markup a `<[^>]*>` strip would leave partially intact.
+        ["<img src=x onerror=alert(1)>", null],
+        ["<svg/onload=alert(1)>", null],
+        ["<b>unclosed", "unclosed"],
+        ["<<script>script>alert(1)<</script>/script>", "</script>"],
+        // Elements whose contents are code rather than prose must not persist.
+        ["<style>body{color:red}</style>styled", "styled"],
+        ["<iframe src=\"evil\"></iframe>after", "after"],
+        // Double-decoding would turn `&amp;lt;script&amp;gt;` back into a tag.
+        ["&amp;lt;script&amp;gt;alert(1)&amp;lt;/script&amp;gt;", "&lt;script&gt;alert(1)&lt;/script&gt;"],
+        ["&amp;amp;", "&amp;"],
+        // Single decode is still the user's own literal text.
+        ["&lt;script&gt;alert(1)&lt;/script&gt;", "<script>alert(1)</script>"],
+        ["&#60;script&#62;", "<script>"],
+        // Benign text passes through untouched.
+        ["Tom & Jerry", "Tom & Jerry"],
+        ["line1\nline2", "line1\nline2"],
+      ])("stores plain text for %j", async (input, expected) => {
+        mockStoredProfile();
+
+        await upsertProfile({ publicKey, bio: input });
+
+        expect(pool.query.mock.calls[0][1][2]).toBe(expected);
+      });
+
+      it("never leaves live event handlers or script URLs behind", async () => {
+        // The previous `<[^>]*>` strip could be defeated by malformed markup,
+        // leaving attributes such as `onerror=` intact. Attribute text is the
+        // thing that actually executes, so assert it never survives. A stored
+        // bio may legitimately contain the literal characters `<script>` as
+        // prose, because the value is rendered as a text node, not as markup.
+        const hostileInputs = [
+          "<script>alert(1)</script>",
+          "&amp;lt;script&amp;gt;alert(1)&amp;lt;/script&amp;gt;",
+          "<img src=x onerror=alert(1)>",
+          "<svg/onload=alert(1)>",
+          "<body onload=alert(1)>",
+          "<a href=\"javascript:alert(1)\">click</a>",
+          "<math><mtext><script>alert(1)</script></mtext></math>",
+          "<textarea><script>alert(1)</script></textarea>",
+          "<<script>script>alert(1)<</script>/script>",
+        ];
+
+        for (const input of hostileInputs) {
+          pool.query.mockClear();
+          mockStoredProfile();
+
+          await upsertProfile({ publicKey, bio: input });
+
+          const passedBio = pool.query.mock.calls[0][1][2];
+          if (passedBio == null) continue;
+          expect(passedBio).not.toMatch(/\bon\w+\s*=/i);
+          expect(passedBio.toLowerCase()).not.toContain("javascript:");
+        }
+      });
+    });
   });
 
   describe("getProfile", () => {

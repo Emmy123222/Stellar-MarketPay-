@@ -9,6 +9,47 @@ const pool = require("../db/pool");
 const { validatePortfolioFiles } = require("./ipfsService");
 const { mergeVerificationMetadata } = require("./linkVerificationService");
 const encryptionService = require("./encryptionService");
+const { JSDOM } = require("jsdom");
+const createDOMPurify = require("dompurify");
+
+const window = new JSDOM("").window;
+const purify = createDOMPurify(window);
+
+/**
+ * Elements whose *contents* are code or markup rather than prose. Even when
+ * DOMPurify drops the tags, the text between them must not be persisted.
+ */
+const BIO_DROPPED_ELEMENTS = "script, style, template, noscript, iframe, object, embed";
+
+/**
+ * Sanitizes a bio string with DOMPurify (server-side, using jsdom) before storing.
+ * Strips all HTML tags — stores plain text only.
+ *
+ * The result is read back through a real HTML parser (`textContent`) rather than
+ * a tag-stripping regex plus manual entity replacement. Regex stripping can be
+ * bypassed by malformed markup, and decoding `&amp;` by hand decodes twice, so
+ * `&amp;lt;script&amp;gt;` would re-introduce live markup. The parser decodes each
+ * entity exactly once, which keeps the stored value plain text by construction.
+ *
+ * @param {string|null|undefined} bio
+ * @returns {string|null}
+ */
+function sanitizeBio(bio) {
+  if (bio == null) return null;
+  if (typeof bio !== "string") return null;
+
+  // Drop every tag and attribute, leaving HTML-escaped plain text.
+  const cleaned = purify.sanitize(bio, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
+
+  // Decode the escaped text exactly once via the DOM, after dropping any
+  // element whose contents are not prose.
+  const doc = new JSDOM(cleaned).window.document;
+  for (const element of doc.body.querySelectorAll(BIO_DROPPED_ELEMENTS)) {
+    element.remove();
+  }
+
+  return doc.body.textContent.trim();
+}
 
 const VALID_PROFILE_ROLES = ["client", "freelancer", "both"];
 const VALID_PORTFOLIO_TYPES = ["github", "live", "stellar_tx", "file"];
@@ -368,6 +409,7 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
   // payloads never trigger any DB round-trips (preserves pre-existing
   // `expect(pool.query).not.toHaveBeenCalled()` semantics for the
   // rejects-* tests).
+  const safeBio = bio != null ? (sanitizeBio(bio) || null) : null;
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 15) : null;
   const validatedPortfolio = validatePortfolioItems(portfolioItems);
   const safePortfolioFiles = validatePortfolioFiles(portfolioFiles);
@@ -428,7 +470,7 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
     [
       publicKey,
       displayName?.trim() || null,
-      bio?.trim() || null,
+      safeBio,
       safeSkills,
       JSON.stringify(safePortfolioItems),
       JSON.stringify(safePortfolioFiles),
@@ -1086,5 +1128,6 @@ module.exports = {
   VALID_AVAILABILITY_STATUSES,
   MAX_PORTFOLIO_ITEMS,
   markProfileForDeletion,
-  permanentlyDeleteExpiredProfiles
+  permanentlyDeleteExpiredProfiles,
+  sanitizeBio,
 };
