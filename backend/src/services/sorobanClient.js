@@ -11,11 +11,16 @@ const SOROBAN_RPC_URL =
 
 // Keep one RPC client for the lifetime of the process. Creating a Server for
 // every contract read creates a new connection and defeats HTTP keep-alive.
-const sorobanServer = new SorobanRpc.Server(SOROBAN_RPC_URL, {
-  allowHttp: SOROBAN_RPC_URL.startsWith("http://"),
-});
+// Initialize lazily so importing services in tests does not require an RPC
+// constructor in every Stellar SDK mock.
+let sorobanServer;
 
 function getServer() {
+  if (!sorobanServer) {
+    sorobanServer = new SorobanRpc.Server(SOROBAN_RPC_URL, {
+      allowHttp: SOROBAN_RPC_URL.startsWith("http://"),
+    });
+  }
   return sorobanServer;
 }
 
