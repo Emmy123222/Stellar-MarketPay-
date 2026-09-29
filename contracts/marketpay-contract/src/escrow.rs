@@ -206,7 +206,7 @@ pub(crate) fn start_work(env: Env, job_id: String, freelancer: Address) {
     freelancer.require_auth();
 
     check_not_frozen(&env, &job_id);
-check_escrow_not_frozen(&env, &job_id);
+    check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -237,7 +237,7 @@ pub(crate) fn release_escrow(env: Env, job_id: String, client: Address) {
     client.require_auth();
 
     check_not_frozen(&env, &job_id);
-check_escrow_not_frozen(&env, &job_id);
+    check_escrow_not_frozen(&env, &job_id);
 
     let escrow: Escrow = env
         .storage()
@@ -438,7 +438,7 @@ pub(crate) fn release_with_conversion(
     client.require_auth();
 
     check_not_frozen(&env, &job_id);
-check_escrow_not_frozen(&env, &job_id);
+    check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -555,7 +555,7 @@ pub(crate) fn refund_escrow(env: Env, job_id: String, client: Address) {
     client.require_auth();
 
     check_not_frozen(&env, &job_id);
-check_escrow_not_frozen(&env, &job_id);
+    check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -600,7 +600,7 @@ pub(crate) fn timeout_refund(env: Env, job_id: String, client: Address) {
     client.require_auth();
 
     check_not_frozen(&env, &job_id);
-check_escrow_not_frozen(&env, &job_id);
+    check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -788,7 +788,7 @@ pub(crate) fn boost_job(
     client.require_auth();
 
     check_not_frozen(&env, &job_id);
-check_escrow_not_frozen(&env, &job_id);
+    check_escrow_not_frozen(&env, &job_id);
 
     if amount <= 0 {
         panic!("Boost amount must be positive");

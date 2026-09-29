@@ -11,7 +11,7 @@ use crate::types::*;
 pub(crate) fn release_milestone(env: Env, job_id: String, milestone_id: u32, client: Address) {
     client.require_auth();
     check_not_frozen(&env, &job_id);
-check_escrow_not_frozen(&env, &job_id);
+    check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -47,7 +47,10 @@ check_escrow_not_frozen(&env, &job_id);
     }
     for previous_milestone in escrow.milestones.iter() {
         if previous_milestone.id < milestone_id && !previous_milestone.released {
-            panic!("{}", ContractError::PreviousMilestoneNotApproved.panic_message());
+            panic!(
+                "{}",
+                ContractError::PreviousMilestoneNotApproved.panic_message()
+            );
         }
     }
 
@@ -144,7 +147,7 @@ check_escrow_not_frozen(&env, &job_id);
 pub(crate) fn reject_milestone(env: Env, job_id: String, milestone_index: u32, client: Address) {
     client.require_auth();
     check_not_frozen(&env, &job_id);
-check_escrow_not_frozen(&env, &job_id);
+    check_escrow_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()

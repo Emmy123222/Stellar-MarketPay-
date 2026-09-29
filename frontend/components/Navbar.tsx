@@ -102,7 +102,7 @@ export default function Navbar({
 
   useEffect(() => {
     const handleGlobalShortcut = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setSearchOpen(true);
         requestAnimationFrame(() => searchInputRef.current?.focus());
@@ -308,7 +308,7 @@ export default function Navbar({
               }}
               className="p-2 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors"
               aria-label="Open global search"
-              title="Search (Ctrl/Cmd+K)"
+              title="Search (Ctrl/Cmd+Shift+K)"
             >
               <SearchIcon className="w-4 h-4" />
             </button>
