@@ -1,4 +1,4 @@
-/**
+﻿/**
  * src/routes/jobs.js
  */
 "use strict";
@@ -318,8 +318,7 @@ router.get(
     } catch (e) {
       next(e);
     }
-  },
-);
+  });
 
 // GET /api/jobs/recommended/:publicKey — top 5 skill-matched open jobs for a freelancer
 router.get(
@@ -332,8 +331,7 @@ router.get(
     } catch (e) {
       next(e);
     }
-  },
-);
+  });
 
 // GET /api/jobs/:id/timeline — get job timeline events (Issue #876)
 router.get("/:id/timeline", generalJobRateLimiter, async (req, res, next) => {
@@ -616,8 +614,7 @@ router.patch(
     } catch (e) {
       next(e);
     }
-  },
-);
+  });
 
 // POST /api/jobs/:id/boost — boost a job listing for 7 days
 router.post("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
@@ -697,8 +694,7 @@ router.patch(
     } catch (e) {
       next(e);
     }
-  },
-);
+  });
 
 // POST /api/jobs/:id/referral — track a referral click
 router.post("/:id/referral", generalJobRateLimiter, async (req, res, next) => {
@@ -725,8 +721,7 @@ router.delete(
     } catch (e) {
       next(e);
     }
-  },
-);
+  });
 
 // POST /api/jobs/:id/report — report a job
 router.post("/:id/report", reportJobRateLimiter, (req, res, next) => {
@@ -785,8 +780,7 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
-);
+  });
 
 // POST /api/jobs/:id/resolve — resolve a dispute (Admin only)
 router.post(
@@ -807,8 +801,7 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
-);
+  });
 
 // GET /api/jobs/feed.rss — RSS 2.0 feed
 router.get("/feed.rss", generalJobRateLimiter, async (req, res, next) => {
@@ -1014,8 +1007,7 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
-);
+  });
 
 // POST /api/jobs/bulk-extend — extend expiry for multiple jobs at once
 router.post(
@@ -1043,8 +1035,7 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
-);
+  });
 
 // POST /api/jobs/bulk-boost — boost multiple jobs at once
 router.post(
@@ -1071,7 +1062,27 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
-);
+  });
+// GET /api/jobs/analytics/categories — stats per category
+router.get("/analytics/categories", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { getCategoryAnalytics } = require("../services/jobService");
+    const data = await getCategoryAnalytics();
+    res.json({ success: true, data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/jobs/analytics/overview — platform-wide totals
+router.get("/analytics/overview", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { getAnalyticsOverview } = require("../services/jobService");
+    const data = await getAnalyticsOverview();
+    res.json({ success: true, data });
+  } catch (e) {
+    next(e);
+  }
+});
 
 module.exports = router;

@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { JobInvitation } from "@/utils/types";
+import type { AvailabilityStatus, JobInvitation } from "@/utils/types";
 
 export interface TalentPoolEntry {
   id: string;
@@ -10,7 +10,7 @@ export interface TalentPoolEntry {
   skills: string[];
   rating: number | null;
   completed_jobs: number;
-  availability: { status: string } | null;
+  availability: { status: AvailabilityStatus } | null;
   tier: string | null;
 }
 

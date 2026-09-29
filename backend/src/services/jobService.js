@@ -1,9 +1,12 @@
+/* eslint-disable */
 /**
  * src/services/jobService.js
  */
 "use strict";
 
-const { getTimezoneOffset } = require("date-fns-tz");/**
+const { getTimezoneOffset } = require("date-fns-tz");
+
+/**
  * Check if a job's timezone is compatible with the user's timezone.
  * Compatible if the time difference is within +/-3 hours.
  *
@@ -15,316 +18,6 @@ function isTimezoneCompatible(jobTimezone, userTimezone) {
   if (!jobTimezone) return true;
   if (!userTimezone) return true;
 
-/**
- * Input shape accepted by {@link createJob}.
- *
- * @typedef {Object} CreateJobInput
- * @property {string}   title
- * @property {string}   description
- * @property {string|number} budget
- * @property {("XLM"|"USDC")} [currency="XLM"]
- * @property {string}   category
- * @property {string[]} [skills]
- * @property {string}   [deadline]            ISO timestamp.
- * @property {string}   [timezone]            IANA timezone name.
- * @property {string[]} [screeningQuestions]  Up to 5 questions; non-empty entries are kept.
- * @property {{description:string,amount:string|number}[]} [milestones] Up to 10 milestone payouts; amounts must total budget.
- * @property {string}   clientAddress         Stellar G-address of the posting client.
- */
-
-/**
- * Pagination wrapper returned by {@link listJobs}.
- *
- * @typedef {Object} JobListPage
- * @property {Job[]}      jobs
- * @property {string|null} nextCursor  Opaque base64 cursor for the next page, or null when exhausted.
- */
-
-const VALID_STATUSES = [
-  "open",
-  "in_progress",
-  "completed",
-  "cancelled",
-  "disputed",
-];
-
-// Single-pass skill aggregation via LEFT JOIN — eliminates the correlated
-// subquery that previously ran once per job row (N+1 pattern).
-const JOB_SELECT_CLAUSE = `
-  SELECT jobs.*,
-         COALESCE(agg.skills, '{}') AS skills,
-         cat.slug  AS category_slug,
-         cat.name  AS category_name,
-         cat.id    AS category_id_resolved
-  FROM   jobs
-  LEFT JOIN LATERAL (
-    SELECT array_agg(s.display_name ORDER BY s.display_name) AS skills
-    FROM   job_skills js
-    JOIN   skills s ON s.id = js.skill_id
-    WHERE  js.job_id = jobs.id
-  ) agg ON true
-  LEFT JOIN categories cat ON cat.id = jobs.category_id`;
-
-const VALID_CATEGORIES = [
-  "Smart Contracts",
-  "Frontend Development",
-  "Backend Development",
-  "UI/UX Design",
-  "Technical Writing",
-  "DevOps",
-  "Security Audit",
-  "Data Analysis",
-  "Mobile Development",
-  "Other",
-];
-
-/**
- * Throws a 400 Error when `key` is not a valid Stellar G-address.
- *
- * @param {string} key  Stellar account public key.
- * @returns {void}
- * @throws {Error}      `status === 400` if the key fails the G-address regex.
- */
-function normalizeMilestoneRows(milestones, budget) {
-  const fallbackAmount = parseFloat(budget || 0).toFixed(7);
-  if (!Array.isArray(milestones) || milestones.length === 0) {
-    return [
-      {
-        description: "Final delivery",
-        amount: fallbackAmount,
-        status: "pending",
-        releasedAt: null,
-        disputedAt: null,
-      },
-    ];
-  }
-
-  return milestones.map((milestone) => ({
-    description: String(milestone.description || "").trim(),
-    amount: parseFloat(milestone.amount || 0).toFixed(7),
-    status: milestone.status || "pending",
-    releasedAt: milestone.releasedAt || milestone.released_at || null,
-    disputedAt: milestone.disputedAt || milestone.disputed_at || null,
-  }));
-}
-
-function validateMilestones(milestones, budget) {
-  const numericBudget = parseFloat(budget);
-  if (!Array.isArray(milestones) || milestones.length === 0) {
-    return normalizeMilestoneRows([], numericBudget);
-  }
-
-  if (milestones.length > 10) {
-    const e = new Error("Jobs can have at most 10 milestones");
-    e.status = 400;
-    throw e;
-  }
-
-  const safeMilestones = milestones.map((milestone, index) => {
-    const description = String(milestone.description || "").trim();
-    const amount = parseFloat(milestone.amount);
-
-    if (!description) {
-      const e = new Error(`Milestone ${index + 1} needs a description`);
-      e.status = 400;
-      throw e;
-    }
-    if (Number.isNaN(amount) || amount <= 0) {
-      const e = new Error(`Milestone ${index + 1} needs a positive amount`);
-      e.status = 400;
-      throw e;
-    }
-
-    return {
-      description,
-      amount: amount.toFixed(7),
-      status: "pending",
-      releasedAt: null,
-      disputedAt: null,
-    };
-  });
-
-  const milestoneTotal = safeMilestones.reduce(
-    (sum, milestone) => sum + parseFloat(milestone.amount),
-    0,
-  );
-  if (Math.abs(milestoneTotal - numericBudget) > 0.0000001) {
-    const e = new Error("Milestone amounts must equal the job budget");
-    e.status = 400;
-    throw e;
-  }
-
-  return safeMilestones;
-}
-
-function validatePublicKey(key) {
-  if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
-    const e = new Error("Invalid Stellar public key");
-    e.status = 400;
-    throw e;
-  }
-}
-
-/**
- * Convert a snake_case `jobs` row into the camelCase API object.
- *
- * @param {Object} row  Raw row from the `jobs` table.
- * @returns {Job}       Camel-cased job record.
- */
-function rowToJob(row) {
-  return {
-    id: row.id,
-    title: row.title,
-    description: row.description,
-    budget: row.budget,
-    currency: row.currency || "XLM",
-    category: row.category_name || row.category,
-    categorySlug: row.category_slug || null,
-    categoryId: row.category_id_resolved || row.category_id || null,
-    skills: row.skills,
-    status: row.status,
-    visibility: row.visibility || "public",
-    clientAddress: row.client_address,
-    freelancerAddress: row.freelancer_address,
-    escrowContractId: row.escrow_contract_id,
-    applicantCount: row.applicant_count,
-    shareCount: row.share_count || 0,
-    boosted: row.boosted || false,
-    boostedUntil: row.boosted_until,
-    deadline: row.deadline,
-    timezone: row.timezone,
-    screeningQuestions: row.screening_questions || [],
-    milestones: normalizeMilestoneRows(row.milestones, row.budget),
-    disputeReason: row.dispute_reason,
-    disputeDescription: row.dispute_description,
-    disputedBy: row.disputed_by,
-    disputedAt: row.disputed_at,
-    expiresAt: row.expires_at,
-    extendedCount: row.extended_count,
-    extendedUntil: row.extended_until,
-    biddingClosedAt: row.bidding_closed_at,
-    viewCount: row.view_count,
-    deletedAt: row.deleted_at || null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    searchHeadline: row.headline_title || null,
-    descriptionHeadline: row.headline_description || null,
-  };
-}
-
-/**
- * @typedef {Object} CreateJobInput
- * @property {string} title - The title of the job (min 10 characters).
- * @property {string} description - The detailed description of the job (min 30 characters).
- * @property {string|number} budget - The positive budget amount for the job.
- * @property {string} [currency='XLM'] - The currency, either 'XLM' or 'USDC'.
- * @property {string} category - The category of the job (must be a valid category).
- * @property {string[]} [skills] - Array of relevant skills (max 8).
- * @property {Date|string} [deadline] - The deadline for the job.
- * @property {string} clientAddress - The Stellar public key of the client.
- */
-
-/**
- * Create a new job listing.
- * Note: client's profile row must already exist (FK constraint).
- *
- * @param {CreateJobInput} params - The parameters to create a job.
- * @returns {Promise<Object>} The created job object.
- * @throws {Error} If validation fails or client profile doesn't exist.
- *
- * @example
- * const newJob = await jobService.createJob({
- *   title: 'Build a Smart Contract',
- *   description: 'Need a developer to build a Soroban smart contract for an escrow service.',
- *   budget: 500,
- *   currency: 'USDC',
- *   category: 'Smart Contracts',
- *   skills: ['Soroban', 'Rust'],
- *   clientAddress: 'GBX...',
- * });
- */
-let createJob = async function ({
-  title,
-  description,
-  budget,
-  currency,
-  category,
-  categorySlug,
-  skills,
-  deadline,
-  timezone,
-  clientAddress,
-  screeningQuestions,
-  milestones,
-  visibility = "public",
-}) {
-  validatePublicKey(clientAddress);
-
-  if (!title || title.length < 10) {
-    const e = new Error("Title must be at least 10 characters");
-    e.status = 400;
-    throw e;
-  }
-  if (!description || description.length < 30) {
-    const e = new Error("Description must be at least 30 characters");
-    e.status = 400;
-    throw e;
-  }
-  const numericBudget = parseFloat(budget);
-  if (budget === undefined || budget === null || isNaN(numericBudget) || numericBudget <= 0) {
-    const e = new Error("Budget must be a positive number");
-    e.status = 400;
-    throw e;
-  }
-  if (!currency || !["XLM", "USDC"].includes(currency)) {
-    const e = new Error("Currency must be XLM or USDC");
-    e.status = 400;
-    throw e;
-  }
-  // Resolve category: accept either a slug (e.g. "frontend-development") or a legacy name.
-  // categorySlug takes precedence; falls back to category name lookup.
-  const categoryLookupVal = categorySlug || category;
-  let resolvedCategoryId = null;
-  let resolvedCategoryName = category;
-
-  if (categoryLookupVal) {
-    const { rows: catRows } = await pool.query(
-      "SELECT id, name FROM categories WHERE slug = $1 OR LOWER(name) = LOWER($2) LIMIT 1",
-      [categoryLookupVal, categoryLookupVal],
-    );
-    if (catRows.length) {
-      resolvedCategoryId = catRows[0].id;
-      resolvedCategoryName = catRows[0].name;
-    }
-  }
-
-  // Still validate against VALID_CATEGORIES for backward-compat when no DB match found
-  if (!resolvedCategoryId && !VALID_CATEGORIES.includes(category)) {
-    const e = new Error("Invalid category");
-    e.status = 400;
-    throw e;
-  }
-
-  const jobVisibility = visibility || "public";
-  if (!["public", "private", "invite_only"].includes(jobVisibility)) {
-    const e = new Error("Visibility must be public, private, or invite_only");
-    e.status = 400;
-    throw e;
-  }
-
-  const safeSkills = Array.isArray(skills)
-    ? skills
-        .slice(0, 8)
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
-  const safeScreeningQuestions = Array.isArray(screeningQuestions)
-    ? screeningQuestions.slice(0, 5).filter((q) => q && q.trim().length > 0)
-    : [];
-  const safeMilestones = validateMilestones(milestones, budget);
-
-  const client = await pool.connect();
-  let job;
   try {
     const now = new Date();
     const userOffset = getTimezoneOffset(userTimezone, now);
@@ -335,7 +28,6 @@ let createJob = async function ({
     return true;
   }
 }
-
 
 // Provide a lightweight in-memory implementation for tests to avoid requiring
 // a running Postgres instance. The test-suite imports `jobService` and
@@ -771,67 +463,6 @@ if (process.env.NODE_ENV === 'test') {
     }
   }
 
-  /**
-   * Page through jobs, with optional filtering and ordering.
-   *
-   * Boosted (Featured) listings sort first; ties break on `created_at DESC, id DESC`.
-   * Cursor pagination is keyset-based — pass {@link JobListPage.nextCursor} from the
-   * previous page to fetch the next slice.
-   *
-   * @param {Object}  [opts]
-   * @param {string}  [opts.category]               Restrict to a category from {@link VALID_CATEGORIES}.
-   * @param {("open"|"in_progress"|"completed"|"cancelled")} [opts.status="open"]
-   * @param {number}  [opts.limit=50]               Page size (clamped to 1..100).
-   * @param {string}  [opts.search]                 Substring search over title, description, and skills.
-   * @param {string}  [opts.cursor]                 Opaque cursor from the previous page.
-   * @param {string}  [opts.timezone]               IANA timezone of the viewer; only jobs whose
-   *                                                timezone is within ±3h are returned.
-   * @returns {Promise<JobListPage>}
-   * @throws {Error} 400 — when `cursor` is malformed.
-   */
-  async function listJobs({ category, status = "open", limit = 50, search, cursor, timezone, viewerAddress } = {}) {
-    const conditions = [];
-    const params = [];
-
-    if (status) {
-      params.push(status);
-      conditions.push(`status = $${params.length}`);
-    }
-
-    if (category) {
-      params.push(category);
-      conditions.push(`category = $${params.length}`);
-    }
-
-    if (search) {
-      params.push(`%${search.toLowerCase()}%`);
-      const idx = params.length;
-      conditions.push(
-        `(LOWER(title) LIKE $${idx} OR LOWER(description) LIKE $${idx} OR EXISTS (
-         SELECT 1 FROM unnest(skills) s WHERE LOWER(s) LIKE $${idx}
-       ))`
-      );
-    }
-
-/**
- * Decode a base64 pagination cursor produced by {@link encodeCursor}.
- *
- * @param {string} cursor  Base64-encoded JSON cursor.
- * @returns {{ createdAt: string, id: string }}
- * @throws {Error} 400 — when the cursor cannot be parsed.
- */
-function decodeCursor(cursor) {
-  try {
-    const decoded = JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
-    if (!decoded.createdAt || !decoded.id) throw new Error("Invalid cursor");
-    return decoded;
-  } catch (_) {
-    const e = new Error("Invalid cursor");
-    e.status = 400;
-    throw e;
-  }
-}
-
 /**
  * @typedef {Object} ListJobsOptions
  * @property {string} [category] - Filter by job category.
@@ -856,7 +487,6 @@ async function listJobs({
   search,
   q,
   cursor,
-  // eslint-disable-next-line no-unused-vars
   timezone,
   viewerAddress,
   includeExpired,
@@ -1403,6 +1033,7 @@ async function listJobs({
     getExpiringJobs,
     getJobAnalytics,
   };
+}
 
 const _pool = require("../db/pool");
 
@@ -1444,4 +1075,3 @@ async function getJobTimeline(jobId) {
 
 Object.assign(module.exports, { TIMELINE_EVENT_TYPES, recordTimelineEvent, getJobTimeline });
 
-}}}

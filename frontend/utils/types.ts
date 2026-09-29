@@ -122,7 +122,7 @@ export interface Application {
   proposal: string;
   bidAmount: string;
   currency: Currency;
-  status: "pending" | "accepted" | "rejected";
+  status: "pending" | "accepted" | "rejected" | "shortlisted";
   screeningAnswers?: Record<string, string>;
   estimatedDuration?: string;
   bidCommitment?: string | null;
