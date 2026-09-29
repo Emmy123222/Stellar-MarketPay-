@@ -732,6 +732,7 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
               jobId={job.id}
               initialApplications={applications}
               isClient={isClient}
+              clientAddress={publicKey || job.clientAddress}
               fetchApplications={fetchAppsForJob}
               onAcceptApplication={handleAcceptApplication}
             />

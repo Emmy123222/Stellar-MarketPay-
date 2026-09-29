@@ -35,29 +35,14 @@ function getRateLimitScale() {
  * @param {number} maxRequests - Unscaled maximum requests for the window.
  * @returns {number} Scaled maximum (always >= 1).
  */
-function scaleMaxRequests(maxRequests) {
-  return Math.max(1, Math.floor(maxRequests * getRateLimitScale()));
-}
-
-/**
- * Factory function to create reusable rate limiters with optional
- * endpoint-specific logging.
- *
- * @param {number} maxRequests - Maximum requests per window (unscaled).
- * @param {number} windowMinutes - Window duration in minutes.
- * @param {object} [options] - Optional configuration.
- * @param {string} [options.name] - Endpoint name for log context.
- * @param {import("pino").BaseLogger} [options.logger] - Logger instance (defaults to built-in rate-limit logger).
- * @returns {Function} Express middleware.
- */
 const createRateLimiter = (maxRequests, windowMinutes, options = {}) => {
-  const { name = "global", logger = rateLimitLogger } = options;
+  const scale = Number(process.env.RATE_LIMIT_SCALE) || 1;
   return rateLimit({
     windowMs: windowMinutes * 60 * 1000,
     max: scaleMaxRequests(maxRequests),
     standardHeaders: true,
     legacyHeaders: true,
-    keyGenerator: (req) => getClientIp(req),
+    keyGenerator: (req) => req.ip,
     handler: (req, res) => {
       const retryAfter = Math.ceil(windowMinutes * 60);
       res.set("Retry-After", String(retryAfter));
@@ -75,6 +60,7 @@ const createRateLimiter = (maxRequests, windowMinutes, options = {}) => {
         message: "Too many requests — please wait before trying again",
       });
     },
+    ...options,
   });
 };
 

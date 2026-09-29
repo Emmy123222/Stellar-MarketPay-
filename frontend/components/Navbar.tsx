@@ -13,8 +13,7 @@ import { usePriceContext } from "@/contexts/PriceContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import NotificationBell from "@/components/NotificationBell";
 import WalletAddressDisplay from "@/components/WalletAddressDisplay";
-import { fetchJobs, searchFreelancers } from "@/lib/api";
-import type { Job, UserProfile } from "@/utils/types";
+import { searchUnified } from "@/lib/api";
 import { shortenAddress } from "@/utils/format";
 
 interface NavbarProps {
@@ -37,7 +36,8 @@ const STELLAR_NETWORK = process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet";
 
 type SearchResult =
   | { type: "job"; id: string; title: string; description?: string }
-  | { type: "freelancer"; id: string; title: string; description?: string };
+  | { type: "freelancer"; id: string; title: string; description?: string }
+  | { type: "proposal"; id: string; title: string; description?: string };
 
 export default function Navbar({
   publicKey,
@@ -137,19 +137,16 @@ export default function Navbar({
     setSearchLoading(true);
     const timer = window.setTimeout(async () => {
       try {
-        const [jobsResponse, freelancers] = await Promise.all([
-          fetchJobs({ search: query, limit: 5 }),
-          searchFreelancers({ search: query, limit: 5 }),
-        ]);
+        const data = await searchUnified(query, 5);
         if (cancelled) return;
         setSearchResults([
-          ...jobsResponse.jobs.slice(0, 5).map((job: Job) => ({
+          ...data.jobs.slice(0, 5).map((job) => ({
             type: "job" as const,
             id: job.id,
             title: job.title,
-            description: `${job.category} · ${job.budget} ${job.currency}`,
+            description: `${job.category || "General"} · ${job.budget} ${job.currency}`,
           })),
-          ...freelancers.slice(0, 5).map((freelancer: UserProfile) => ({
+          ...data.freelancers.slice(0, 5).map((freelancer) => ({
             type: "freelancer" as const,
             id: freelancer.publicKey,
             title:
@@ -158,6 +155,12 @@ export default function Navbar({
               freelancer.skills?.slice(0, 3).join(", ") ||
               freelancer.bio ||
               "Freelancer profile",
+          })),
+          ...data.proposals.slice(0, 5).map((proposal) => ({
+            type: "proposal" as const,
+            id: proposal.id,
+            title: proposal.title,
+            description: `DAO Proposal (${proposal.type}) · ${proposal.status}`,
           })),
         ]);
         setActiveSearchIndex(0);
@@ -177,11 +180,13 @@ export default function Navbar({
   const navigateToSearchResult = (result: SearchResult) => {
     setSearchOpen(false);
     setSearchQuery("");
-    router.push(
-      result.type === "job"
-        ? `/jobs/${result.id}`
-        : `/freelancers/${result.id}`,
-    );
+    if (result.type === "job") {
+      router.push(`/jobs/${result.id}`);
+    } else if (result.type === "proposal") {
+      router.push(`/dao#proposal-${result.id}`);
+    } else {
+      router.push(`/freelancers/${result.id}`);
+    }
   };
 
   const handleSearchKeyDown = (
@@ -595,6 +600,7 @@ function GlobalSearchDropdown({
 }) {
   const jobs = results.filter((result) => result.type === "job");
   const freelancers = results.filter((result) => result.type === "freelancer");
+  const proposals = results.filter((result) => result.type === "proposal");
   let resultIndex = -1;
 
   return (
@@ -615,6 +621,7 @@ function GlobalSearchDropdown({
         [
           ["Jobs", jobs],
           ["Freelancers", freelancers],
+          ["DAO Proposals", proposals],
         ] as const
       ).map(
         ([label, items]) =>
