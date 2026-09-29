@@ -71,7 +71,7 @@
     "autoprefixer": "^10.5.4",
     "axe-core": "^4.12.1",
     "eslint": "^9",
-    "eslint-config-next": "16.3.3",
+    "eslint-config-next": "16.3.6",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-sri": "file:./eslint-plugin-sri",
     "fast-check": "^4.8.0",
