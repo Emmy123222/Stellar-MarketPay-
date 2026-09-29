@@ -73,6 +73,10 @@ router.post("/", verifyJWT, writeLimiter, async (req, res, next) => {
       return res.status(400).json({ success: false, error: "Invalid freelancerId" });
     }
 
+    if (note != null && typeof note !== "string") {
+      return res.status(400).json({ success: false, error: "Invalid note: must be a string" });
+    }
+
     // Prevent clients from adding themselves
     if (freelancerId === req.user.publicKey) {
       return res.status(400).json({ success: false, error: "Cannot add yourself to your talent pool" });
@@ -93,14 +97,14 @@ router.post("/", verifyJWT, writeLimiter, async (req, res, next) => {
       `INSERT INTO talent_pool (client_address, freelancer_address, note)
        VALUES ($1, $2, $3)
        ON CONFLICT (client_address, freelancer_address) DO NOTHING
-       RETURNING *`,
+       RETURNING id, client_address, freelancer_address, note, created_at`,
       [req.user.publicKey, freelancerId, cleanNote],
     );
 
     if (rows.length === 0) {
       // Already in the pool — return the existing entry
       const { rows: existing } = await pool.query(
-        "SELECT * FROM talent_pool WHERE client_address = $1 AND freelancer_address = $2",
+        "SELECT id, client_address, freelancer_address, note, created_at FROM talent_pool WHERE client_address = $1 AND freelancer_address = $2",
         [req.user.publicKey, freelancerId],
       );
       return res.json({ success: true, data: existing[0] });
@@ -161,7 +165,7 @@ router.post("/:id/invite", verifyJWT, writeLimiter, async (req, res, next) => {
 
     // Resolve talent pool entry → freelancer address
     const { rows: entryRows } = await pool.query(
-      "SELECT freelancer_address FROM talent_pool WHERE id = $1 AND client_address = $2",
+      "SELECT id, client_address, freelancer_address FROM talent_pool WHERE id = $1 AND client_address = $2",
       [req.params.id, req.user.publicKey],
     );
     if (entryRows.length === 0) {
