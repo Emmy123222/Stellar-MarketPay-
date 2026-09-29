@@ -1842,7 +1842,7 @@ exports[`static component snapshots Navbar logged in: Navbar logged in 1`] = `
       <button
         aria-label="Open global search"
         class="p-2 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors"
-        title="Search (Ctrl/Cmd+K)"
+        title="Search (Ctrl/Cmd+Shift+K)"
         type="button"
       >
         <svg
@@ -2185,7 +2185,7 @@ exports[`static component snapshots Navbar logged out: Navbar logged out 1`] = `
       <button
         aria-label="Open global search"
         class="p-2 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors"
-        title="Search (Ctrl/Cmd+K)"
+        title="Search (Ctrl/Cmd+Shift+K)"
         type="button"
       >
         <svg
@@ -2858,10 +2858,62 @@ exports[`static component snapshots RealtimeBidComparison with applications: Rea
     />
   </div>
   <div
+    class="flex flex-wrap items-center justify-between gap-3 p-3 bg-market-900/60 border border-market-500/20 rounded-xl backdrop-blur-sm"
+  >
+    <div
+      class="flex items-center gap-3"
+    >
+      <label
+        class="flex items-center gap-2 cursor-pointer text-xs font-medium text-amber-200 hover:text-amber-100 select-none"
+      >
+        <input
+          class="w-4 h-4 rounded border-market-500/40 bg-market-900 text-amber-500 focus:ring-amber-500 cursor-pointer"
+          id="select-all-applications"
+          type="checkbox"
+        />
+        <span>
+          Select All (
+          1
+          )
+        </span>
+      </label>
+    </div>
+    <div
+      class="flex items-center gap-2"
+    >
+      <button
+        class="text-xs font-medium px-3.5 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-1.5 shadow-sm shadow-amber-950/20"
+        disabled=""
+        id="btn-bulk-shortlist"
+        type="button"
+      >
+        <span>
+          ★
+        </span>
+        <span>
+          Shortlist Selected
+        </span>
+      </button>
+      <button
+        class="text-xs font-medium px-3.5 py-1.5 rounded-lg border border-red-500/40 bg-red-500/10 hover:bg-red-500/20 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-1.5 shadow-sm shadow-red-950/20"
+        disabled=""
+        id="btn-bulk-reject"
+        type="button"
+      >
+        <span>
+          ✕
+        </span>
+        <span>
+          Reject Selected
+        </span>
+      </button>
+    </div>
+  </div>
+  <div
     class="space-y-4"
   >
     <div
-      class="card transition-all duration-500 opacity-100 scale-100  "
+      class="card transition-all duration-300 opacity-100 scale-100    "
     >
       <div
         class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3"
@@ -2869,6 +2921,12 @@ exports[`static component snapshots RealtimeBidComparison with applications: Rea
         <div
           class="flex flex-wrap items-center gap-2"
         >
+          <input
+            aria-label="Select application from GBBBBB...BBBBBB"
+            class="w-4 h-4 rounded border-market-500/40 bg-market-900 text-amber-500 focus:ring-amber-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+            id="checkbox-app-app-1"
+            type="checkbox"
+          />
           <a
             class="address-tag hover:border-market-500/40 transition-colors"
             href="https://stellar.expert/explorer/testnet/account/GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"

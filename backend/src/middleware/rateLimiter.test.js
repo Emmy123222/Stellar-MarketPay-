@@ -49,4 +49,47 @@ describe('Rate Limiter Middleware', () => {
     expect(response.headers).toHaveProperty('x-ratelimit-remaining');
     expect(response.headers).toHaveProperty('x-ratelimit-reset');
   });
+
+  describe('Proxy Handling & IP Spoofing Prevention', () => {
+    let proxyApp;
+
+    beforeEach(() => {
+      proxyApp = express();
+      proxyApp.set('trust proxy', 1);
+      const limiter = createRateLimiter(2, 15);
+
+      proxyApp.use('/api/proxy-test', limiter);
+      proxyApp.get('/api/proxy-test', (req, res) => {
+        res.status(200).json({ clientIp: req.ip });
+      });
+    });
+
+    it('should correctly identify client IP behind a reverse proxy', async () => {
+      const res = await request(proxyApp)
+        .get('/api/proxy-test')
+        .set('X-Forwarded-For', '203.0.113.195');
+
+      expect(res.status).toBe(200);
+      expect(res.body.clientIp).toBe('203.0.113.195');
+    });
+
+    it('should prevent rate limiter bypass via spoofed X-Forwarded-For headers', async () => {
+      const res1 = await request(proxyApp)
+        .get('/api/proxy-test')
+        .set('X-Forwarded-For', '10.0.0.1, 203.0.113.195');
+      expect(res1.status).toBe(200);
+
+      const res2 = await request(proxyApp)
+        .get('/api/proxy-test')
+        .set('X-Forwarded-For', '10.0.0.2, 203.0.113.195');
+      expect(res2.status).toBe(200);
+
+      // 3rd request from the same client IP should be 429 even if prepended spoofed IP differs
+      const res3 = await request(proxyApp)
+        .get('/api/proxy-test')
+        .set('X-Forwarded-For', '10.0.0.3, 203.0.113.195');
+      expect(res3.status).toBe(429);
+      expect(res3.body.message).toBe('Too many requests — please wait before trying again');
+    });
+  });
 });

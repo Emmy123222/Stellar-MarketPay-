@@ -263,4 +263,27 @@ Respond ONLY with JSON in this format:
   }
 });
 
+
+
+const aiService = require("../services/aiService");
+
+/**
+ * @swagger
+ * /api/ai-scorer/score:
+ *   post:
+ *     summary: Score a single proposal (Issue #1394)
+ */
+router.post("/score", scoringRateLimiter, async (req, res) => {
+  try {
+    const result = await aiService.scoreProposal(req.body);
+    res.json(result);
+  } catch (error) {
+    console.error("AI Scorer Error:", error.message);
+    res.status(503).json({
+      score: null,
+      reason: "AI scorer temporarily unavailable"
+    });
+  }
+});
+
 module.exports = router;
