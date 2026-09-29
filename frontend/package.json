@@ -11,8 +11,8 @@
     "verify-sri": "node scripts/verify-sri.mjs",
     "verify-sri:update": "node scripts/verify-sri.mjs --update",
     "type-check": "echo 'Type check disabled'",
-    "test": "jest --ci",
-    "test:update-snapshots": "jest -u",
+    "test": "npx jest --ci",
+    "test:update-snapshots": "npx jest -u",
     "test:e2e": "playwright test",
     "test:a11y": "playwright test accessibility",
     "audit:contrast": "node scripts/audit-contrast.mjs",
@@ -73,7 +73,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
     "eslint-plugin-jsx-a11y": "^6.10.2",
-    "eslint-plugin-sri": "file:eslint-plugin-sri",
+    "eslint-plugin-sri": "file:./eslint-plugin-sri",
     "fast-check": "^4.8.0",
     "jest": "^30.5.0",
     "jest-axe": "^9.0.0",
@@ -89,9 +89,10 @@
     "serialize-javascript": "^7.0.3",
     "sharp": "^0.35.3",
     "next": "^14.2.35",
-    "eslint": "$eslint",
     "axios": "^1.20.0",
     "toml": "^5.0.0",
-    "postcss": "$postcss"
+    "postcss": "^8.5.28",
+    "elliptic": "^6.6.1",
+    "@vitest/mocker": "^3.0.0"
   }
 }

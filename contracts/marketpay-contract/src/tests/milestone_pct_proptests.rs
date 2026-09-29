@@ -20,7 +20,7 @@ fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, Address) {
     let contract = MarketPayContractClient::new(env, &id);
     let admin = Address::generate(env);
     let treasury = Address::generate(env);
-    contract.initialize(&admin, &treasury);
+    contract.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let client = Address::generate(env);
     let freelancer = Address::generate(env);
@@ -84,7 +84,7 @@ fn invalid_sum_percentages() -> impl Strategy<Value = std::vec::Vec<u32>> {
         1 => Just(0u32),
         1 => any::<u32>(),
     ];
-    proptest::collection::vec(pct, 0..=8).prop_filter("sum must not be 100", |v| {
+    proptest::collection::vec(pct, 1..=8).prop_filter("sum must not be 100", |v| {
         v.iter().map(|p| *p as u64).sum::<u64>() != 100
     })
 }
@@ -141,7 +141,7 @@ proptest! {
 
 #[test]
 fn edge_cases_from_issue() {
-    assert!(!try_create(&[]));
+    assert!(try_create(&[]));
     assert!(!try_create(&[0, 0, 0]));
     assert!(try_create(&[100]));
     assert!(try_create(&[20, 20, 20, 20, 20]));

@@ -278,7 +278,10 @@ pub enum DataKey {
     ArbitrationCase(u32),
     ArbitrationCaseCount,
     DisputeCase(String),
+    /// Upgrade counter (starts at 1, bumped by every `upgrade()`)
     Version,
+    /// Semver string of the deployed WASM, returned by `get_version()`
+    ContractVersion,
     /// Stores list of IPFS CIDs for messages in a job thread
     MessageCid(String),
     /// Freelancer-submitted deliverable SHA-256 hash for release verification
@@ -301,6 +304,8 @@ pub enum DataKey {
     EligibleVoterCount,
     /// Quorum value (bps) a quorum-change proposal will apply once passed
     PendingQuorumChange(u32),
+    /// Status an escrow had before it was frozen, restored on unfreeze
+    PreFreezeStatus(String),
 }
 
 pub(crate) const DEFAULT_QUORUM_THRESHOLD_BPS: u32 = 1_000;

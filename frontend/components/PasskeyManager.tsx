@@ -23,7 +23,12 @@ export default function PasskeyManager({ publicKey }: Props) {
   const [registering, setRegistering] = useState(false);
   const [newKeyName, setNewKeyName]   = useState("");
   const [deletingId, setDeletingId]   = useState<string | null>(null);
-  const { success, info } = useToast();
+  const [isSupported, setIsSupported] = useState(true);
+  const { success, error, info } = useToast();
+
+  useEffect(() => {
+    setIsSupported(typeof window !== "undefined" && !!window.PublicKeyCredential);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -41,8 +46,8 @@ export default function PasskeyManager({ publicKey }: Props) {
   }, [publicKey]);
 
   const handleRegister = async () => {
-    if (!window.PublicKeyCredential) {
-      info("Your browser does not support passkeys.");
+    if (!isSupported) {
+      error("Your browser does not support passkeys.");
       return;
     }
     setRegistering(true);
@@ -56,7 +61,7 @@ export default function PasskeyManager({ publicKey }: Props) {
       const updated = await fetchPasskeyCredentials();
       setPasskeys(updated);
     } catch (e: any) {
-      info(e?.message || "Passkey registration failed. Please try again.");
+      error(e?.message || "Passkey registration failed. Please try again.");
     } finally {
       setRegistering(false);
     }
@@ -85,25 +90,31 @@ export default function PasskeyManager({ publicKey }: Props) {
         </p>
       </div>
 
-      <div className="card space-y-3 max-w-lg">
-        <p className="text-sm font-medium text-amber-200">Add a new passkey</p>
-        <input
-          type="text"
-          value={newKeyName}
-          onChange={(e) => setNewKeyName(e.target.value)}
-          className="input-field"
-          placeholder="Name (e.g. iPhone, YubiKey)"
-          maxLength={64}
-          disabled={registering}
-        />
-        <button
-          className="btn-primary text-sm"
-          onClick={handleRegister}
-          disabled={registering}
-        >
-          {registering ? "Waiting for device…" : "Register passkey"}
-        </button>
-      </div>
+      {!isSupported ? (
+        <div className="card text-center py-8">
+          <p className="text-amber-800 text-sm">Passkeys not supported in this browser.</p>
+        </div>
+      ) : (
+        <div className="card space-y-3 max-w-lg">
+          <p className="text-sm font-medium text-amber-200">Add a new passkey</p>
+          <input
+            type="text"
+            value={newKeyName}
+            onChange={(e) => setNewKeyName(e.target.value)}
+            className="input-field"
+            placeholder="Name (e.g. iPhone, YubiKey)"
+            maxLength={64}
+            disabled={registering}
+          />
+          <button
+            className="btn-primary text-sm"
+            onClick={handleRegister}
+            disabled={registering}
+          >
+            {registering ? "Waiting for device…" : "Register passkey"}
+          </button>
+        </div>
+      )}
 
       <div className="space-y-2">
         <p className="text-xs uppercase tracking-wider text-amber-800/70">

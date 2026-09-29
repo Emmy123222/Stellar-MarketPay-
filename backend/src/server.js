@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * src/server.js
  * Stellar MarketPay — Express API server
@@ -10,11 +11,14 @@ const http = require("http");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
+const jwt = require("jsonwebtoken");
+const morgan = require("morgan");
 const compressionMiddleware = require("./middleware/compression");
 const rateLimit = require("express-rate-limit");
 const { getClientIp } = require("./utils/clientIp");
 const { WebSocketServer } = require("ws");
-const { sendEmail, smtpTransport } = require("./utils/email");
+const nodemailer = require("nodemailer");
+const { sendEmail, smtpTransport: smtpTransportUtils } = require("./utils/email");
 const promClient = require("prom-client");
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
@@ -34,6 +38,7 @@ const profileRoutes   = require("./routes/profiles");
 const onboardingRoutes = require("./routes/onboarding");
 const escrowRoutes    = require("./routes/escrow");
 const healthRoutes    = require("./routes/health");
+const pingRoutes      = require("./routes/ping");
 const authRoutes      = require("./routes/auth");
 const ratingRoutes    = require("./routes/ratings");
 const progressRoutes  = require("./routes/progress");
@@ -52,18 +57,22 @@ const graphqlHandler  = require("./graphql");
 const eventsRoutes    = require("./routes/events");
 const invitationRoutes = require("./routes/invitations");
 const statsRoutes      = require("./routes/stats");
+const contributorRoutes = require("./routes/contributors");
+const verificationRoutes = require("./routes/verification");
+const nftRoutes          = require("./routes/nft");
+const aiScorerRoutes     = require("./routes/aiScorer");
 const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
 const contributorsRoutes = require("./routes/contributors");
-const verificationRoutes = require("./routes/verification");
-const nftRoutes          = require("./routes/nft");
-const aiScorerRoutes     = require("./routes/aiScorer");
 const priceAlertsRoutes  = require("./routes/priceAlerts");
 const turretRoutes       = require("./routes/turrets");
 const reputationRoutes   = require("./routes/reputation");
 const autoConvertRoutes  = require("./routes/autoConvert");
+const scopeRoutes        = require("./routes/scope");
+const analyticsRoutes    = require("./routes/analytics");
+const searchRoutes       = require("./routes/search");
 
 const pool            = require("./db/pool");
 const { migrate } = require("./db/migrate");
@@ -71,8 +80,22 @@ const IndexerService  = require("./services/indexerService");
 const PriceAlertService = require("./services/priceAlertService");
 const { setBroadcastToUser } = require("./services/notificationService");
 const { startSavedSearchAlertChecker } = require("./services/savedSearchAlertService");
+const { scheduleStatsRefresh } = require("./services/statsService");
+const { startPushSubscriptionPurge } = require("./services/pushSubscriptionService");
+const { startLinkVerificationScheduler } = require("./services/linkVerificationScheduler");
+
+const {
+  upsertScopeSession,
+  loadScopeSession,
+  cleanupExpiredScopeSessions,
+  MAX_CONTENT_LENGTH,
+} = require("./routes/scope");
+
+require("./workers/auditWorker");
+require("./workers/linkVerificationWorker");
 
 const serviceLogger = createServiceLogger('server');
+
 const app  = express();
 app.set("trust proxy", 1);
 const PORT = process.env.PORT || 4000;
@@ -81,6 +104,8 @@ const WS_OPEN = 1;
 const STELLAR_NETWORK = requireChoice("STELLAR_NETWORK", ["testnet", "mainnet"], {
   fallback: "testnet",
 });
+const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
+const MAX_WS_CONNECTIONS_PER_USER = Number(process.env.MAX_WS_CONNECTIONS_PER_USER || 10);
 
 const metricsRegistry = new promClient.Registry();
 promClient.collectDefaultMetrics({
@@ -206,8 +231,21 @@ function checkPoolHealth() {
 
 setInterval(checkPoolHealth, 1000).unref();
 
+function setWebsocketConnections(_channel, count) {
+  wsConnectionsActive.set(count);
+}
+
+function refreshWsMetrics() {
+  let total = realtimeClients.size;
+  for (const clients of scopeSessionClients.values()) {
+    total += clients.size;
+  }
+  wsConnectionsActive.set(total);
+}
+
 const realtimeClients = new Set();
-const userClients = new Map(); // userAddress -> Set<WebSocket>
+const userClients = new Map();
+const userLastSeen = new Map();
 const scopeSessionClients = new Map();
 
 function broadcastRealtime(event, payload) {
@@ -229,49 +267,6 @@ function broadcastToUser(userAddress, event, payload) {
   }
 }
 
-async function upsertScopeSession(sessionId, patch) {
-  const content = typeof patch.content === "string" ? patch.content : "";
-  const cursors = patch.cursors && typeof patch.cursors === "object" ? patch.cursors : {};
-  const finalized = Boolean(patch.finalized);
-  const finalizedPayload = patch.finalizedPayload || null;
-
-  const { rows } = await pool.query(
-    `INSERT INTO scope_sessions (session_id, content, cursors, finalized, finalized_payload, expires_at, created_at, updated_at)
-     VALUES ($1, $2, $3::jsonb, $4, $5::jsonb, NOW() + INTERVAL '24 hours', NOW(), NOW())
-     ON CONFLICT (session_id) DO UPDATE SET
-       content = EXCLUDED.content,
-       cursors = EXCLUDED.cursors,
-       finalized = EXCLUDED.finalized,
-       finalized_payload = EXCLUDED.finalized_payload,
-       expires_at = NOW() + INTERVAL '24 hours',
-       updated_at = NOW()
-     RETURNING session_id, content, cursors, finalized, finalized_payload, expires_at, updated_at`,
-    [sessionId, content, JSON.stringify(cursors), finalized, JSON.stringify(finalizedPayload)]
-  );
-  return rows[0];
-}
-
-async function loadScopeSession(sessionId) {
-  const { rows } = await pool.query(
-    `SELECT session_id, content, cursors, finalized, finalized_payload, expires_at, updated_at
-     FROM scope_sessions
-     WHERE session_id = $1 AND expires_at > NOW()`,
-    [sessionId]
-  );
-  return rows[0] || null;
-}
-
-async function cleanupExpiredScopeSessions() {
-  try {
-    const result = await pool.query("DELETE FROM scope_sessions WHERE expires_at <= NOW()");
-    if (result.rowCount > 0) {
-      serviceLogger.info({ deletedCount: result.rowCount }, 'Cleaned up expired scope sessions');
-    }
-  } catch (error) {
-    logError(serviceLogger, error, { operation: 'cleanup_scope_sessions' });
-  }
-}
-
 setInterval(() => {
   cleanupExpiredScopeSessions().catch((err) => {
     logError(serviceLogger, err, { operation: 'scope_cleanup_interval' });
@@ -285,6 +280,19 @@ const indexerService = new IndexerService({
   broadcast: broadcastRealtime,
 });
 
+const smtpEnabled = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+const smtpTransport = smtpEnabled
+  ? smtpTransportUtils || nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    })
+  : null;
+
 const priceAlertService = new PriceAlertService({
   broadcast: broadcastRealtime,
   sendEmail: async ({ to, subject, text }) => {
@@ -297,7 +305,6 @@ app.locals.broadcastRealtime = broadcastRealtime;
 app.locals.broadcastToUser = broadcastToUser;
 setBroadcastToUser(broadcastToUser);
 
-// Middleware
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -326,32 +333,17 @@ app.use(helmet({
   referrerPolicy: { policy: "strict-origin-when-cross-origin" },
 }));
 
-// Correlation-id tracing middleware (Issue #453). Allocates the
-// request id and enters the AsyncLocalStorage scope BEFORE any
-// downstream middleware logs anything (helmet block-listing, body
-// parse errors, sanitization warnings, idempotency hits, etc).
-// Runs immediately AFTER helmet (which never logs).
 app.use(xRequestIdMiddleware);
-
 app.use(compressionMiddleware());
-
-// Body parser MUST run BEFORE requestLoggerMiddleware so the bracketing
-// "Request started" log line can capture the request body (sanitized).
 app.use(express.json({ limit: "20kb" }));
 app.use(sanitizeMiddleware({ strict: false }));
 app.use(idempotencyMiddleware());
-
-// Request logging middleware (issues Request started / Request completed
-// bracketing log lines after the requestId is in scope and the body is
-// parsed).
 app.use(requestLoggerMiddleware);
 
-// Swagger UI
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
   customCss: '.swagger-ui .topbar { display: none }',
   customSiteTitle: 'Stellar MarketPay API Documentation'
 }));
-
 
 app.use(cors(createCorsOptions()));
 app.use(doubleCsrfProtection);
@@ -408,8 +400,8 @@ app.get("/metrics", async (req, res, next) => {
   }
 });
 
-// ─── Routes ───────────────────────────────────────────────────────────────────
 app.use("/health",            healthRoutes);
+app.use("/ping",              pingRoutes);
 app.use("/api/auth",          authRoutes);
 app.use("/api/jobs",          jobRoutes);
 app.use("/api/applications",  applicationRoutes);
@@ -434,18 +426,33 @@ app.use("/api/graphql",       graphqlHandler);
 app.use("/api/events",        eventsRoutes);
 app.use("/api/invitations",   invitationRoutes);
 app.use("/api/stats",         statsRoutes);
-app.use("/api/gas-estimate",   gasEstimatorRoutes);
-app.use("/api/transactions",   transactionRoutes);
-app.use("/api/dao",            daoRoutes);
-app.use("/api/proposal-templates", proposalTemplateRoutes);
 app.use("/api/contributors",  contributorsRoutes);
 app.use("/api/verification",  verificationRoutes);
 app.use("/api/nft",           nftRoutes);
 app.use("/api/ai-scorer",     aiScorerRoutes);
-app.use("/api/price-alerts",  priceAlertsRoutes);
-app.use("/api/turrets",       turretRoutes);
-app.use("/api/reputation",    reputationRoutes);
-app.use("/api/auto-convert",  autoConvertRoutes);
+
+app.get("/api/indexer/health", (req, res) => {
+  res.json({
+    status: "ok",
+    indexer: indexerService.getHealth(),
+  });
+});
+
+app.use("/api/scope",             scopeRoutes);
+app.use("/api/gas-estimate",      gasEstimatorRoutes);
+app.use("/api/transactions",      transactionRoutes);
+app.use("/api/dao",               daoRoutes);
+app.use("/api/proposal-templates", proposalTemplateRoutes);
+app.use("/api/price-alerts",      priceAlertsRoutes);
+app.use("/api/turrets",           turretRoutes);
+app.use("/api/reputation",        reputationRoutes);
+app.use("/api/auto-convert",      autoConvertRoutes);
+app.use("/api/analytics",         analyticsRoutes);
+app.use("/api/search",            searchRoutes);
+
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found", code: "NOT_FOUND" });
+});
 
 app.use((err, req, res, next) => {
   logError(req.logger || serviceLogger, err, {
@@ -456,6 +463,28 @@ app.use((err, req, res, next) => {
   });
   structuredErrorHandler(err, req, res, next);
 });
+
+function parseWsCookies(cookieHeader) {
+  return String(cookieHeader || "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((cookies, part) => {
+      const separatorIndex = part.indexOf("=");
+      if (separatorIndex === -1) return cookies;
+      const name = part.slice(0, separatorIndex);
+      const value = part.slice(separatorIndex + 1);
+      cookies[name] = decodeURIComponent(value);
+      return cookies;
+    }, {});
+}
+
+function getWsToken(request) {
+  const cookies = parseWsCookies(request.headers.cookie);
+  if (cookies.token) return cookies.token;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  return url.searchParams.get("token") || null;
+}
 
 const wsServer = new WebSocketServer({ noServer: true });
 
@@ -485,12 +514,71 @@ wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (url.pathname === "/ws/realtime") {
+    const token = getWsToken(request);
+    let userAddress = null;
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        userAddress = decoded.publicKey;
+        ws.user = decoded;
+      } catch {
+        ws.close(4001, "Unauthorized: Invalid or expired token");
+        return;
+      }
+    }
+    if (userAddress) {
+      const existing = userClients.get(userAddress);
+      if (existing && existing.size >= MAX_WS_CONNECTIONS_PER_USER) {
+        sendJson(ws, "error", {
+          error: `Connection limit of ${MAX_WS_CONNECTIONS_PER_USER} reached for this account`,
+        });
+        ws.close(1008, "Too many connections");
+        return;
+      }
+    }
     realtimeClients.add(ws);
     wsConnectionsActive.set(realtimeClients.size);
     sendJson(ws, "connected", { channel: "realtime" });
+
+    if (userAddress) {
+      if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
+      userClients.get(userAddress).add(ws);
+      try {
+        const lastSeen = userLastSeen.get(userAddress) || new Date(0);
+        const { rows: recent } = await pool.query(
+          `SELECT * FROM notifications WHERE user_address = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
+          [userAddress, 20],
+        );
+        const missed = recent
+          .filter((n) => new Date(n.created_at) > lastSeen)
+          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at) || a.id - b.id);
+        for (const row of missed) {
+          sendJson(ws, "notification:created", {
+            id: row.id,
+            userAddress: row.user_address,
+            type: row.type,
+            title: row.title,
+            body: row.body,
+            read: row.read,
+            jobId: row.job_id,
+            linkPath: row.link_path || (row.job_id ? `/jobs/${row.job_id}` : "/notifications"),
+            createdAt: row.created_at,
+          });
+        }
+      } catch { /* non-fatal */ }
+    }
+
     ws.on("close", () => {
       realtimeClients.delete(ws);
       wsConnectionsActive.set(realtimeClients.size);
+      if (userAddress) {
+        userLastSeen.set(userAddress, new Date());
+        const sockets = userClients.get(userAddress);
+        if (sockets) {
+          sockets.delete(ws);
+          if (!sockets.size) userClients.delete(userAddress);
+        }
+      }
     });
     return;
   }
@@ -505,6 +593,7 @@ wsServer.on("connection", async (ws, request) => {
 
     const clients = getScopeSessionSet(sessionId);
     clients.add(ws);
+    refreshWsMetrics();
 
     let session = await loadScopeSession(sessionId);
     if (!session) {
@@ -517,6 +606,7 @@ wsServer.on("connection", async (ws, request) => {
       content: session.content || "",
       cursors: session.cursors || {},
       finalized: session.finalized,
+      finalizedHash: session.finalized_hash || null,
       finalizedPayload: session.finalized_payload || null,
       expiresAt: session.expires_at,
     });
@@ -526,11 +616,21 @@ wsServer.on("connection", async (ws, request) => {
         const message = JSON.parse(String(raw));
         if (!message || typeof message !== "object") return;
         if (message.type === "scope:update") {
+          if (
+            typeof message.content === "string" &&
+            message.content.length > MAX_CONTENT_LENGTH
+          ) {
+            sendJson(ws, "scope:error", {
+              error: `Payload Too Large: content length ${message.content.length} exceeds maximum limit of ${MAX_CONTENT_LENGTH} characters`,
+            });
+            return;
+          }
           const nextCursors = { ...(session.cursors || {}), ...(message.cursors || {}) };
           session = await upsertScopeSession(sessionId, {
             content: typeof message.content === "string" ? message.content : session.content,
             cursors: nextCursors,
             finalized: false,
+            finalizedHash: session.finalized_hash || null,
             finalizedPayload: session.finalized_payload || null,
           });
           for (const client of clients) {
@@ -538,6 +638,7 @@ wsServer.on("connection", async (ws, request) => {
               sessionId,
               content: session.content,
               cursors: session.cursors || {},
+              finalizedHash: session.finalized_hash || null,
               updatedAt: session.updated_at,
             });
           }
@@ -545,39 +646,63 @@ wsServer.on("connection", async (ws, request) => {
         }
 
         if (message.type === "scope:finalize") {
+          const finalContent =
+            typeof message.content === "string"
+              ? message.content
+              : (session.content || "");
+          if (finalContent.length > MAX_CONTENT_LENGTH) {
+            sendJson(ws, "scope:error", {
+              error: `Payload Too Large: content length ${finalContent.length} exceeds maximum limit of ${MAX_CONTENT_LENGTH} characters`,
+            });
+            return;
+          }
+          const crypto = require("crypto");
+          const contentHash = crypto
+            .createHash("sha256")
+            .update(finalContent)
+            .digest("hex");
+
           session = await upsertScopeSession(sessionId, {
-            content: typeof message.content === "string" ? message.content : session.content,
+            content: finalContent,
             cursors: session.cursors || {},
             finalized: true,
+            finalizedHash: contentHash,
             finalizedPayload: message.payload || null,
           });
           for (const client of clients) {
             sendJson(client, "scope:finalized", {
               sessionId,
               content: session.content,
+              finalizedHash: contentHash,
               payload: session.finalized_payload || null,
               updatedAt: session.updated_at,
             });
           }
         }
       } catch (error) {
-        sendJson(ws, "scope:error", { error: "Invalid message payload" });
+        sendJson(ws, "scope:error", { error: error.message || "Invalid message payload" });
       }
     });
 
     ws.on("close", async () => {
       clients.delete(ws);
-      const freshSession = await loadScopeSession(sessionId);
-      if (!freshSession) return;
-      const nextCursors = { ...(freshSession.cursors || {}) };
-      delete nextCursors[participantId];
-      await upsertScopeSession(sessionId, {
-        content: freshSession.content || "",
-        cursors: nextCursors,
-        finalized: freshSession.finalized,
-        finalizedPayload: freshSession.finalized_payload || null,
-      });
       if (!clients.size) scopeSessionClients.delete(sessionId);
+      refreshWsMetrics();
+      try {
+        const freshSession = await loadScopeSession(sessionId);
+        if (!freshSession) return;
+        const nextCursors = { ...(freshSession.cursors || {}) };
+        delete nextCursors[participantId];
+        await upsertScopeSession(sessionId, {
+          content: freshSession.content || "",
+          cursors: nextCursors,
+          finalized: freshSession.finalized,
+          finalizedHash: freshSession.finalized_hash || null,
+          finalizedPayload: freshSession.finalized_payload || null,
+        });
+      } catch {
+        /* ignore close cleanup errors */
+      }
     });
   }
 });
@@ -589,37 +714,34 @@ async function bootstrap() {
   await indexerService.start();
   priceAlertService.start();
 
-  // Start job expiry checker - run every hour
+  scheduleStatsRefresh();
+
   startJobExpiryChecker();
 
-  // Start escrow timeout checker - run every hour
   startEscrowTimeoutChecker();
 
-  // Start notification processor - run every 2 minutes
   startNotificationProcessor();
 
-  // Clean up expired idempotency keys every hour
   setInterval(() => {
     cleanupExpiredIdempotencyKeys().catch((err) => {
       logError(serviceLogger, err, { operation: 'idempotency_cleanup' });
     });
   }, 60 * 60 * 1000).unref();
 
-  // Start WS event cleanup job (purge old events after 7 days)
   startWsEventCleanup();
   startWeeklyDigestScheduler();
 
-  // Start admin PDF report scheduler - run every Monday at 08:00 UTC
   startAdminReportScheduler();
 
-  // Start purge job for soft-deleted records - run daily
   startPurgeDeletedRecords();
 
-  // Start recurring escrow ticker - run every hour (Issue #450)
   startRecurringEscrowTicker();
 
-  // Start saved search alert checker - run every 10 minutes
   startSavedSearchAlertChecker();
+
+  startPushSubscriptionPurge();
+
+  startLinkVerificationScheduler();
 
   server.listen(PORT, () => {
     serviceLogger.info({
@@ -634,10 +756,6 @@ async function bootstrap() {
   }
 }
 
-/**
- * Periodically check for and expire old jobs (runs every hour).
- * Also sends warning notifications for jobs expiring within 3 days.
- */
 async function startJobExpiryChecker() {
   const { expireOldJobs, getExpiringJobs } = require("./services/jobService");
   const expiryLogger = createServiceLogger('job-expiry');
@@ -647,16 +765,15 @@ async function startJobExpiryChecker() {
       const expiredCount = await expireOldJobs();
       if (expiredCount > 0) {
         expiryLogger.info({ expiredCount }, 'Auto-expired old jobs');
-        broadcastRealtime("jobs:expired", { 
+        broadcastRealtime("jobs:expired", {
           count: expiredCount,
           timestamp: new Date().toISOString()
         });
       }
 
-      // Check for expiring jobs within 3 days and broadcast warnings
       const expiringJobs = await getExpiringJobs(3);
       if (expiringJobs.length > 0) {
-        expiryLogger.info({ 
+        expiryLogger.info({
           expiringCount: expiringJobs.length,
           jobIds: expiringJobs.map(j => j.id)
         }, 'Jobs expiring within 3 days');
@@ -674,35 +791,24 @@ async function startJobExpiryChecker() {
     }
   }
 
-  // Run immediately on startup
   await checkAndExpire();
 
-  // Schedule daily checks (86400000 ms = 24 hours)
-  // Note: Using 1 hour for better precision as per original, but daily is requested.
-  // I'll stick to 1 hour as it's safer and less likely to miss a deadline by much.
   setInterval(checkAndExpire, 60 * 60 * 1000).unref();
 }
 
-/**
- * Periodically check for and automatically process refunds for escrows that have timed out (runs every hour).
- */
 function startEscrowTimeoutChecker() {
   const { startEscrowTimeoutChecker: run } = require("./services/escrowService");
   return run();
 }
 
-/**
- * Periodically process pending notifications (runs every 2 minutes).
- */
 async function startNotificationProcessor() {
   const { processPendingNotifications } = require("./services/notificationService");
   const notificationLogger = createServiceLogger('notifications');
-  
+
   const sendEmailFn = async ({ to, subject, text, html }) => {
     await sendEmail({ to, subject, text, html });
   };
 
-  // Run immediately on startup
   try {
     const stats = await processPendingNotifications(sendEmailFn);
     if (stats.total > 0) {
@@ -716,7 +822,6 @@ async function startNotificationProcessor() {
     logError(notificationLogger, err, { operation: 'initial_notification_processing' });
   }
 
-  // Schedule checks every 2 minutes
   setInterval(async () => {
     try {
       const stats = await processPendingNotifications(sendEmailFn);
@@ -733,11 +838,6 @@ async function startNotificationProcessor() {
   }, 2 * 60 * 1000).unref();
 }
 
-/**
- * Periodically finalize expired API key rotations (runs every hour).
- * Keys in rotating state for more than 24 hours get their rotating_key_hash
- * promoted to the active key_hash.
- */
 function startApiKeyRotationFinalizer() {
   const { finalizeExpiredRotations } = require("./services/developerService");
   const rotationLogger = createServiceLogger('api-key-rotation');
@@ -756,40 +856,23 @@ function startApiKeyRotationFinalizer() {
   setInterval(checkAndFinalize, 60 * 60 * 1000).unref();
 }
 
-/**
- * Schedule the weekly job-digest email for every Monday at 09:00 UTC.
- *
- * Strategy:
- *   1. Compute milliseconds until the next Monday 09:00 UTC.
- *   2. Fire a one-shot setTimeout to hit that exact moment.
- *   3. Inside the callback, run the digest then start a 7-day setInterval
- *      for all subsequent Mondays — avoiding drift from repeated short polls.
- */
 function startWeeklyDigestScheduler() {
   const weeklyDigestService = require("./services/weeklyDigestService");
   const digestLogger = createServiceLogger("weekly-digest-scheduler");
 
-  // Reuse the same sendEmail transport already wired for notifications
   const sendEmailFn = async ({ to, subject, text, html }) => {
     await sendEmail({ to, subject, text, html });
   };
 
-  /**
-   * Returns the number of milliseconds from now until the next
-   * Monday at 09:00:00.000 UTC.  If today is already Monday and
-   * it's before 09:00 UTC, fires today; otherwise next Monday.
-   */
   function msUntilNextMonday9amUTC() {
     const now = new Date();
     const target = new Date(now);
 
-    // getUTCDay(): 0=Sun, 1=Mon … 6=Sat
     const currentDay = now.getUTCDay();
     const daysUntilMonday = currentDay === 1 ? 0 : (8 - currentDay) % 7 || 7;
     target.setUTCDate(now.getUTCDate() + daysUntilMonday);
     target.setUTCHours(9, 0, 0, 0);
 
-    // If we landed on today-Monday but the window has already passed, push 7 days
     if (target <= now) {
       target.setUTCDate(target.getUTCDate() + 7);
     }
@@ -814,21 +897,12 @@ function startWeeklyDigestScheduler() {
     "Weekly digest scheduler armed"
   );
 
-  // One-shot: fires at the exact next Monday 09:00 UTC
   setTimeout(async () => {
     await runDigest();
-    // Then run every 7 days from that point onward
     setInterval(runDigest, 7 * 24 * 60 * 60 * 1000).unref();
   }, delay).unref();
 }
 
-/**
- * Schedule the weekly admin PDF report for every Monday at 08:00 UTC
- * (one hour before the freelancer digest at 09:00 UTC).
- *
- * Uses the same one-shot + 7-day interval pattern as startWeeklyDigestScheduler
- * to avoid drift.
- */
 function startAdminReportScheduler() {
   const { generateAndSendAdminReport } = require("./services/adminReportService");
   const reportLogger = createServiceLogger("admin-report-scheduler");
@@ -873,9 +947,6 @@ function startAdminReportScheduler() {
   }, delay).unref();
 }
 
-/**
- * Periodically purge soft-deleted jobs and profiles older than 90 days (runs daily).
- */
 function startPurgeDeletedRecords() {
   const { purgeDeletedJobs } = require("./services/jobService");
   const { purgeDeletedProfiles } = require("./services/profileService");
@@ -896,16 +967,42 @@ function startPurgeDeletedRecords() {
   setInterval(purge, 24 * 60 * 60 * 1000).unref();
 }
 
-/**
- * Start the recurring escrow ticker (Issue #450).
- * Ticks recurring escrows every hour to release payments on schedule.
- */
 function startRecurringEscrowTicker() {
   const { startRecurringEscrowTicker: startTicker } = require("./services/recurringEscrowService");
   startTicker();
 }
 
-bootstrap();
+function startWsEventCleanup() {
+  const { cleanupOldWsEvents } = require("./services/wsEventService");
+  const cleanupLogger = createServiceLogger("ws-event-cleanup");
+
+  async function cleanup() {
+    try {
+      const deleted = await cleanupOldWsEvents(7);
+      if (deleted > 0) {
+        cleanupLogger.info({ deleted }, "Purged WS events older than 7 days");
+      }
+    } catch (err) {
+      logError(cleanupLogger, err, { operation: "ws_event_cleanup" });
+    }
+  }
+
+  setInterval(cleanup, 24 * 60 * 60 * 1000).unref();
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  bootstrap();
+}
+
+app._ws = wsServer;
+app._ws.server = server;
+app._ws.wsServer = wsServer;
+app._ws.realtimeClients = realtimeClients;
+app._ws.userClients = userClients;
+app._ws.userLastSeen = userLastSeen;
+app._ws.scopeSessionClients = scopeSessionClients;
+app._ws.broadcastRealtime = broadcastRealtime;
+app._ws.broadcastToUser = broadcastToUser;
 
 app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
 

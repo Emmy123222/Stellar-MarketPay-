@@ -62,8 +62,10 @@ impl MarketPayContract {
     ///
     /// `treasury_address` receives a configurable platform fee on every escrow
     /// release. The initial platform fee defaults to 100 bps (1 %).
-    pub fn initialize(env: Env, admin: Address, treasury_address: Address) {
-        admin::initialize(env, admin, treasury_address)
+    /// `version` is the semver string of the deployed WASM (e.g. "1.2.0"),
+    /// returned by `get_version()`.
+    pub fn initialize(env: Env, admin: Address, treasury_address: Address, version: String) {
+        admin::initialize(env, admin, treasury_address, version)
     }
 
     // ─── Upgrade & versioning ─────────────────────────────────────────────────
@@ -72,15 +74,21 @@ impl MarketPayContract {
     ///
     /// `new_wasm_hash` is the 32-byte hash of the new WASM blob already
     /// uploaded to the network via `stellar contract install`.
+    /// `new_version` is the semver string of the new WASM.
     /// All existing storage (escrows, proposals, ratings, …) is preserved
     /// because Soroban upgrades only replace the executable, not the state.
-    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
-        admin::upgrade(env, new_wasm_hash)
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>, new_version: String) {
+        admin::upgrade(env, new_wasm_hash, new_version)
     }
 
-    /// Return the current contract version (starts at 1, increments on each upgrade).
-    pub fn get_version(env: Env) -> u32 {
+    /// Return the deployed contract's semver string (e.g. "1.2.0").
+    pub fn get_version(env: Env) -> String {
         admin::get_version(env)
+    }
+
+    /// Return the upgrade counter (starts at 1, increments on each upgrade).
+    pub fn get_upgrade_count(env: Env) -> u32 {
+        admin::get_upgrade_count(env)
     }
 
     // ─── Escrow lifecycle ─────────────────────────────────────────────────────
@@ -255,6 +263,18 @@ impl MarketPayContract {
     /// Unfreeze the contract — requires M-of-N admin signatures.
     pub fn unfreeze_contract(env: Env, admins: Vec<Address>) {
         admin::unfreeze_contract(env, admins)
+    }
+
+    /// Admin freezes a single escrow, blocking all state-changing
+    /// operations on that job until `unfreeze_escrow()` is called.
+    pub fn freeze_escrow(env: Env, job_id: String, admin: Address) {
+        admin::freeze_escrow(env, job_id, admin)
+    }
+
+    /// Admin unfreezes a previously frozen escrow, restoring the status
+    /// it had before freezing.
+    pub fn unfreeze_escrow(env: Env, job_id: String, admin: Address) {
+        admin::unfreeze_escrow(env, job_id, admin)
     }
 
     /// Add a new admin address to the multi-sig admin list.
@@ -531,6 +551,19 @@ impl MarketPayContract {
         hash: BytesN<32>,
     ) {
         deliverable::submit_deliverable_hash(env, job_id, freelancer, hash)
+    }
+
+    /// Freelancer updates a previously submitted deliverable hash. Permitted
+    /// only while the escrow is `InProgress`; rejected once the escrow has
+    /// settled (Released/Refunded) so the deliverable record cannot be
+    /// retroactively falsified after funds move.
+    pub fn update_deliverable_hash(
+        env: Env,
+        job_id: String,
+        freelancer: Address,
+        new_hash: BytesN<32>,
+    ) {
+        deliverable::update_deliverable_hash(env, job_id, freelancer, new_hash)
     }
 
     /// Get the freelancer-submitted deliverable hash, if any.
