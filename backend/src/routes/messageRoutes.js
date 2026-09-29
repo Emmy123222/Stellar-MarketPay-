@@ -76,7 +76,7 @@ const upload = multer({
  *       200:
  *         description: Message list (marks as read)
  */
-router.post("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next) => {
+router.post("/job/:jobId", verifyJWT, generalRateLimiter, express.json({ limit: '50kb' }), async (req, res, next) => {
   try {
     const { jobId } = req.params;
     const { content, contractTxHash } = req.body;
@@ -84,6 +84,16 @@ router.post("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next)
 
     if (!content || typeof content !== "string") {
       return res.status(400).json({ error: "Message content is required" });
+    }
+
+    // Issue #1392: Cap message content at 10,000 characters to prevent
+    // oversized payloads causing slow DB writes and potential OOM in
+    // notification email service
+    const MAX_MESSAGE_LENGTH = 10_000;
+    if (content.length > MAX_MESSAGE_LENGTH) {
+      return res.status(400).json({ 
+        error: `Message too long — max ${MAX_MESSAGE_LENGTH.toLocaleString()} characters` 
+      });
     }
 
     const message = await messageService.createMessage({
