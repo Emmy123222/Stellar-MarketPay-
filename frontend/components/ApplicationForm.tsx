@@ -2,7 +2,7 @@
  * components/ApplicationForm.tsx
  * Freelancer applies to a job with a proposal and bid amount.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { submitApplication, fetchProposalTemplates, scoreProposal } from "@/lib/api";
 import type { ProposalScore } from "@/lib/api";
 import type { Job } from "@/utils/types";
@@ -25,7 +25,8 @@ interface ApplicationFormProps {
   };
   onOptimisticSubmit?: () => void;
   onRevert?: () => void;
-  onSuccess: () => void;
+  onSuccess?: () => void;
+  submitButtonText?: string;
 }
 
 function randomNonceHex(bytes = 16): string {
@@ -46,18 +47,30 @@ async function sha256Hex(value: string): Promise<string> {
     .join("");
 }
 
-export default function ApplicationForm({ job, publicKey, biddingPhase = "commitment", prefillData, onOptimisticSubmit, onRevert, onSuccess }: ApplicationFormProps) {
+export default function ApplicationForm({ job, publicKey, biddingPhase = "commitment", prefillData, onOptimisticSubmit, onRevert, onSuccess, submitButtonText }: ApplicationFormProps) {
   const [proposal, setProposal] = useState(prefillData?.message || "");
   const toast = useToast();
   const [bidAmount, setBidAmount] = useState(prefillData?.bidAmount || job.budget);
   const [revealNonce, setRevealNonce] = useState(randomNonceHex());
   const [revealLater, setRevealLater] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState<"idle" | "submitting" | "success">("idle");
   const [error, setError] = useState<string | null>(null);
-  const [showConfirm, setShowConfirm] = useState(false);
+  const submittingRef = useRef(false);
+  const isMountedRef = useRef(true);
   const [screeningAnswers, setScreeningAnswers] = useState<Record<string, string>>({});
   const [templates, setTemplates] = useState<{ id: string; name: string; content: string }[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
+
+  const isSubmitting = submitStatus === "submitting";
+  const isSubmitted = submitStatus === "success";
+  const isPending = isSubmitting || isSubmitted;
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Issue #1548 — real-time Relevance / Clarity / Completeness scores.
   const [proposalScore, setProposalScore] = useState<ProposalScore | null>(null);
@@ -134,14 +147,11 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
 
   const isFormValid = isValid && allScreeningQuestionsAnswered;
 
-  const handleSubmit = () => {
-    if (!isFormValid) return;
-    setShowConfirm(true);
-  };
+  const handleSubmit = async () => {
+    if (!isFormValid || submittingRef.current || isPending) return;
 
-  const handleConfirmSubmit = async () => {
-    setShowConfirm(false);
-    setLoading(true);
+    submittingRef.current = true;
+    setSubmitStatus("submitting");
     setError(null);
 
     onOptimisticSubmit?.();
@@ -156,16 +166,26 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
         proposal: proposal.trim(),
         bidAmount: parseFloat(bidAmount).toFixed(7),
         currency: job.currency || "XLM",
+        bidCommitment,
+        bidNonce: revealNonce,
         screeningAnswers: job.screeningQuestions && job.screeningQuestions.length > 0 ? screeningAnswers : undefined,
         referredBy: referredBy || undefined,
       });
-      setRevealLater(true);
+
+      if (isMountedRef.current) {
+        setSubmitStatus("success");
+        setRevealLater(true);
+      }
       toast.success("Sealed bid commitment submitted.");
-      onSuccess();
+      onSuccess?.();
     } catch {
+      if (isMountedRef.current) {
+        setSubmitStatus("idle");
+      }
       onRevert?.();
       toast.error("Failed to submit application. Please try again.");
-      setLoading(false);
+    } finally {
+      submittingRef.current = false;
     }
   };
 
@@ -187,6 +207,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
             <label htmlFor="use-template" className="label">Use Template</label>
             <select id="use-template"
               value={selectedTemplateId}
+              disabled={isPending}
               onChange={(e) => {
                 const templateId = e.target.value;
                 setSelectedTemplateId(templateId);
@@ -210,6 +231,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
             <textarea
               id="cover-letter"
               value={proposal} onChange={(e) => setProposal(e.target.value)}
+              disabled={isPending}
               rows={6}
               placeholder="Describe your relevant experience, your approach to this project, and why you're the best fit..."
               className={clsx(
@@ -247,6 +269,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
             <label htmlFor="your-bid-xlm" className="label">Your Bid (XLM)</label>
             <input id="your-bid-xlm"
               type="number" value={bidAmount} onChange={(e) => setBidAmount(e.target.value)}
+              disabled={isPending}
               min="1" step="1" className="input-field"
               placeholder="Enter your bid amount"
             />
@@ -260,6 +283,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
             <input id="reveal-nonce-keep-safe"
               type="text"
               value={revealNonce}
+              disabled={isPending}
               onChange={(e) => setRevealNonce(e.target.value)}
               className="input-field font-mono text-xs"
               placeholder="Random nonce for reveal"
@@ -282,6 +306,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
                     </label>
                     <textarea
                       value={screeningAnswers[question] || ""}
+                      disabled={isPending}
                       onChange={(e) => setScreeningAnswers({ ...screeningAnswers, [question]: e.target.value })}
                       rows={3}
                       placeholder="Your answer..."
@@ -300,8 +325,15 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
             <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
           )}
 
-          <button onClick={handleSubmit} disabled={!isFormValid || loading} className="btn-primary w-full flex items-center justify-center gap-2">
-            {loading ? <><Spinner />Submitting...</> : "Submit Proposal"}
+          <button
+            onClick={handleSubmit}
+            disabled={!isFormValid || isPending}
+            className={clsx(
+              "btn-primary w-full flex items-center justify-center gap-2",
+              isPending && "opacity-90 cursor-not-allowed"
+            )}
+          >
+            {isPending ? "Application submitted!" : (submitButtonText || "Submit Proposal")}
           </button>
         </div>
       </div>
@@ -311,79 +343,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
           Save your reveal nonce securely: <span className="font-mono break-all">{revealNonce}</span>
         </div>
       )}
-
-      {showConfirm && (
-        <ConfirmModal
-          jobTitle={job.title}
-          bidAmount={bidAmount}
-          proposal={proposal}
-          onConfirm={handleConfirmSubmit}
-          onClose={() => setShowConfirm(false)}
-        />
-      )}
     </>
-  );
-}
-
-interface ConfirmModalProps {
-  jobTitle: string;
-  bidAmount: string;
-  proposal: string;
-  onConfirm: () => void;
-  onClose: () => void;
-}
-
-function ConfirmModal({ jobTitle, bidAmount, proposal, onConfirm, onClose }: ConfirmModalProps) {
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
-  }, [onClose]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0c0a06]/90 backdrop-blur-sm animate-fade-in">
-      <div className="card w-full max-w-lg gold-glow border-market-500/30 animate-scale-up" role="dialog" aria-modal="true">
-        <h3 className="font-display text-xl font-bold text-amber-100 mb-4">Confirm Your Application</h3>
-        
-        <div className="space-y-4 mb-6">
-          <div>
-            <span className="text-amber-800 text-xs uppercase tracking-wider font-semibold block mb-1">Job</span>
-            <p className="text-amber-100 font-medium">{jobTitle}</p>
-          </div>
-          
-          <div>
-            <span className="text-amber-800 text-xs uppercase tracking-wider font-semibold block mb-1">Your Bid</span>
-            <p className="text-market-400 font-mono font-bold text-lg">{formatXLM(bidAmount)}</p>
-          </div>
-          
-          <div>
-            <span className="text-amber-800 text-xs uppercase tracking-wider font-semibold block mb-1">Proposal Preview</span>
-            <p className="text-amber-100/70 text-sm line-clamp-3 italic">
-              {'\u201c'}
-              {proposal.slice(0, 100)}
-              {proposal.length > 100 ? "..." : ""}
-              {'\u201d'}
-            </p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
-            <p className="text-amber-500 text-xs font-semibold flex items-center gap-2">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              Warning: Applications cannot be withdrawn
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3">
-          <button onClick={onConfirm} className="btn-primary flex-1">Confirm & Submit</button>
-          <button onClick={onClose} className="btn-secondary flex-1">Go back</button>
-        </div>
-      </div>
-    </div>
   );
 }
 
