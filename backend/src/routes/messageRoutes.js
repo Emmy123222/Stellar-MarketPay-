@@ -19,6 +19,10 @@ const messageService = require("../services/messageService");
 const { uploadFile, MAX_FILE_SIZE, ALLOWED_MIME_TYPES } = require("../services/ipfsService");
 const generalRateLimiter = createRateLimiter(60, 1); // 60 req/min for message operations
 
+// Issue #1392: Set JSON body size limit to 50KB as a safeguard against
+// oversized payloads causing slow DB writes and potential OOM
+router.use(express.json({ limit: '50kb' }));
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_FILE_SIZE },
@@ -76,7 +80,7 @@ const upload = multer({
  *       200:
  *         description: Message list (marks as read)
  */
-router.post("/job/:jobId", verifyJWT, generalRateLimiter, express.json({ limit: '50kb' }), async (req, res, next) => {
+router.post("/job/:jobId", verifyJWT, generalRateLimiter, async (req, res, next) => {
   try {
     const { jobId } = req.params;
     const { content, contractTxHash } = req.body;
