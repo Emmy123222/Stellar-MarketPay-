@@ -1317,25 +1317,13 @@ exports[`async component snapshots PasskeyManager empty: PasskeyManager empty 1`
     </p>
   </div>
   <div
-    class="card space-y-3 max-w-lg"
+    class="card text-center py-8"
   >
     <p
-      class="text-sm font-medium text-amber-200"
+      class="text-amber-800 text-sm"
     >
-      Add a new passkey
+      Passkeys not supported in this browser.
     </p>
-    <input
-      class="input-field"
-      maxlength="64"
-      placeholder="Name (e.g. iPhone, YubiKey)"
-      type="text"
-      value=""
-    />
-    <button
-      class="btn-primary text-sm"
-    >
-      Register passkey
-    </button>
   </div>
   <div
     class="space-y-2"
@@ -1377,25 +1365,13 @@ exports[`async component snapshots PasskeyManager loading: PasskeyManager loadin
     </p>
   </div>
   <div
-    class="card space-y-3 max-w-lg"
+    class="card text-center py-8"
   >
     <p
-      class="text-sm font-medium text-amber-200"
+      class="text-amber-800 text-sm"
     >
-      Add a new passkey
+      Passkeys not supported in this browser.
     </p>
-    <input
-      class="input-field"
-      maxlength="64"
-      placeholder="Name (e.g. iPhone, YubiKey)"
-      type="text"
-      value=""
-    />
-    <button
-      class="btn-primary text-sm"
-    >
-      Register passkey
-    </button>
   </div>
   <div
     class="space-y-2"

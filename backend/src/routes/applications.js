@@ -15,6 +15,7 @@ const {
   withdrawApplication,
   closeBiddingForJob,
   revealApplicationBid,
+  bulkUpdateApplications,
 } = require("../services/applicationService");
 const { FREELANCER_TIERS } = require("../services/profileService");
 const { logContractInteraction } = require("../services/contractAuditService");
@@ -29,6 +30,7 @@ const {
   revealBidSchema,
   acceptApplicationSchema,
   withdrawApplicationSchema,
+  bulkUpdateApplicationsSchema,
 } = require("../validators/applicationValidator");
 
 /**
@@ -172,14 +174,22 @@ router.get("/freelancer/:publicKey", generalApplicationRateLimiter, async (req, 
 router.post("/", applicationRateLimiter, validateJsonb({ screeningAnswers: screeningAnswersSchema }), async (req, res, next) => {
   try {
     const body = validate(createApplicationSchema, req.body);
+    const job = await getJob(body.jobId);
+    if (job && req.user) {
+      const clientId = job.client_id ?? job.clientAddress ?? job.clientId;
+      const userId = req.user.id ?? req.user.publicKey;
+      if (
+        (job.client_id && req.user.id && job.client_id === req.user.id) ||
+        (clientId && userId && clientId === userId)
+      ) {
+        return res.status(400).json({ error: "You cannot apply to your own job" });
+      }
+    }
     const app = await submitApplication(body);
     
     // Emit WebSocket event for real-time bid updates
     const broadcastRealtime = req.app.locals.broadcastRealtime;
     if (broadcastRealtime) {
-      // Get job details for the broadcast
-      const job = await getJob(app.jobId);
-      
       broadcastRealtime(`job:${app.jobId}:bids`, {
         type: 'new_bid',
         application: {
@@ -191,7 +201,7 @@ router.post("/", applicationRateLimiter, validateJsonb({ screeningAnswers: scree
           createdAt: app.createdAt,
           status: app.status
         },
-        jobTitle: job.title
+        jobTitle: job?.title
       });
     }
     
@@ -277,6 +287,33 @@ router.delete("/:id", applicationRateLimiter, async (req, res, next) => {
 
     res.json({ success: true, data: app });
   } catch (e) { next(e); }
+});
+
+// POST /api/applications/bulk-update — client bulk rejects or shortlists applications
+router.post("/bulk-update", applicationRateLimiter, async (req, res, next) => {
+  try {
+    const { applicationIds, action, status, clientAddress } = validate(
+      bulkUpdateApplicationsSchema,
+      req.body,
+    );
+    const result = await bulkUpdateApplications({
+      applicationIds,
+      action: action || status,
+      clientAddress,
+    });
+
+    if (result.jobId) {
+      req.app.locals.broadcastRealtime?.(`job:${result.jobId}:bids`, {
+        type: "applications:bulk_update",
+        applicationIds,
+        status: result.status,
+      });
+    }
+
+    res.json({ success: true, data: result });
+  } catch (e) {
+    next(e);
+  }
 });
 
 module.exports = router;

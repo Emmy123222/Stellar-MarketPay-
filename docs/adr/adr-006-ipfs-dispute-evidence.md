@@ -149,6 +149,83 @@ function getIPFSUrl(cid: string): string {
 - **Pros**: No third-party dependency, full control
 - **Cons**: Operational overhead, must maintain nodes, complex
 
+## Rejected Alternatives
+
+This section records the alternatives considered alongside the decision above and
+why they were rejected. It expands on the shorter "Why Not Alternatives?" notes in
+[Rationale](#rationale).
+
+### Centralised storage (AWS S3, Azure Blob, database BLOBs, plain file hosting)
+
+- **Platform control breaks trustless disputes.** Evidence could be deleted,
+  edited, or access-revoked by an administrator. Dispute resolution is only
+  credible if neither party (nor the operator) can rewrite the record.
+- **No content addressing.** Retrieval is by mutable key/path, so there is no
+  cryptographic way for an arbitrator to prove the file is the one that was
+  originally submitted. IPFS's CID gives that guarantee for free.
+- **Vendor lock-in and egress cost.** Migrating tens of thousands of evidence
+  objects between providers is expensive and risks availability gaps; S3 egress
+  pricing also grows with dispute volume.
+- **Database BLOBs specifically** bloat backups and the connection pool, stream
+  poorly, and couple evidence lifetime to the application schema.
+
+Rejected: centralised storage cannot provide the immutability and verifiability
+that dispute evidence requires.
+
+### Automatic fallback to alternative public gateways
+
+Routing around a failed gateway by trying `ipfs.io`, `dweb.link`,
+`cloudflare-ipfs.com`, etc. was considered and **rejected for now**:
+
+- **No availability SLA.** Public gateways rate-limit aggressively and are not a
+  production-grade dependency; the "fallback" can be flakier than the primary.
+- **Privacy exposure.** Every gateway request reveals the CID — and, for
+  dispute evidence, the CID alone can be sensitive — plus the requester's IP, to
+  a third-party operator with no data-processing agreement.
+- **Maintenance churn.** The public gateway landscape changes (e.g. gateways
+  have been retired); keeping a hard-coded list current is ongoing work for a
+  marginal benefit.
+- **Limited efficacy.** Failover does not help when the failure is at the network
+  level or when content was never pinned, which is the common real-world case.
+- **Latency variance.** Trying gateways serially blows the streaming proxy's
+  timeout budget, turning a fast failure into a slow one.
+
+Rejected: a *deliberate, observable* failure with an operational runbook is
+preferable to silent, best-effort degradation. Revisit if Pinata's availability
+SLA becomes the dominant reliability risk.
+
+### Self-hosted IPFS node / private gateway
+
+Gives full control and removes the third-party dependency, but requires running
+and monitoring nodes, storage, and upgrades — operational overhead the team cannot
+staff today. Recorded as a future consideration rather than the present decision.
+
+## Gateway Failure Behaviour
+
+**Current fallback behaviour: none (by decision).** The system depends on a single
+gateway and fails loudly when it is unavailable.
+
+| Path | Behaviour when the gateway is down |
+|------|-----------------------------------|
+| Upload (`uploadFile`, `uploadMessage`) | Returns `503` with code `IPFS_UPLOAD_FAILED` (or `PINATA_NOT_CONFIGURED` when credentials are absent). |
+| Evidence retrieval URL (`getGatewayUrl`) | Still returns the Pinata URL, but the link will not resolve until the gateway recovers. |
+| Backend evidence proxy (`proxyIpfsFile` → `GET /api/disputes/:jobId/evidence/:id/proxy`) | The upstream request fails and the error surfaces to the client as a `5xx`; no alternative gateway is attempted. |
+
+Two properties keep this safe:
+
+1. **Evidence is never lost.** The CID is stored in `dispute_evidence.ipfs_cid`;
+   the file itself lives on the IPFS network. A gateway outage affects *reachability*,
+   not *existence*. The same CID can be served by any other gateway once the
+   primary recovers.
+2. **Failures are visible.** Because there is no silent retry against untrusted
+   gateways, an outage raises errors and alerts instead of degrading quietly and
+   corrupting the audit trail.
+
+Operators responding to an outage should follow the
+**[IPFS Gateway Failure runbook](../runbooks/ipfs-gateway-failure.md)** — it covers
+confirmation, impact assessment, temporary manual retrieval through an alternative
+gateway, restoration checks, and escalation.
+
 ## Consequences
 
 ### Positive
@@ -218,31 +295,13 @@ await pinata.metadata.update({
 
 ### Gateway Selection
 
-Multiple gateways provide redundancy:
-
-```typescript
-const GATEWAYS = [
-  'https://gateway.pinata.cloud/ipfs',
-  'https://ipfs.io/ipfs',
-  'https://cloudflare-ipfs.com/ipfs',
-  'https://dweb.link/ipfs',
-];
-
-// Try gateways in order until success
-async function fetchFromIPFS(cid: string): Promise<Blob> {
-  for (const gateway of GATEWAYS) {
-    try {
-      const response = await fetch(`${gateway}/${cid}`, {
-        timeout: 5000,
-      });
-      if (response.ok) return response.blob();
-    } catch (error) {
-      console.warn(`Gateway ${gateway} failed:`, error);
-    }
-  }
-  throw new Error('All IPFS gateways failed');
-}
-```
+A single, explicit gateway is used today. Both the URL builder and the backend
+streaming proxy resolve to the Pinata gateway
+(`https://gateway.pinata.cloud/ipfs/<cid>`) — see
+`backend/src/services/ipfsService.js` (`getGatewayUrl`, `proxyIpfsFile`). There is
+no environment override and **no automatic failover** to a second gateway; see
+[Gateway Failure Behaviour](#gateway-failure-behaviour) for the rationale and the
+runbook.
 
 ### Privacy Considerations
 
@@ -375,6 +434,10 @@ For critical disputes, mirror evidence to Arweave for permanent storage guarante
 
 - ADR-005: NaCl Message Encryption (similar client-side encryption)
 - ADR-003: Database Schema for Disputes
+
+## Related Runbooks
+
+- [IPFS Gateway Failure](../runbooks/ipfs-gateway-failure.md)
 
 ## References
 

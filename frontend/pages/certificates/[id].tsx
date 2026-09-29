@@ -63,6 +63,17 @@ export default function CertificatePage() {
               : "Skill certificate verification"
           }
         />
+        <meta property="og:title" content={title} />
+        <meta
+          property="og:description"
+          content={
+            state.status === "ok"
+              ? `Verified ${state.cert.skill} skill certificate issued by Stellar MarketPay`
+              : "Skill certificate verification"
+          }
+        />
+        <meta property="og:url" content={typeof window !== "undefined" ? window.location.href : ""} />
+        <meta property="og:type" content="website" />
       </Head>
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12 animate-fade-in">
@@ -203,11 +214,37 @@ export default function CertificatePage() {
                   </svg>
                   Print / Save PDF
                 </button>
+                <button
+                  onClick={async () => {
+                    const url = window.location.href;
+                    if (navigator.share && /Mobi|Android/i.test(navigator.userAgent)) {
+                      try {
+                        await navigator.share({
+                          title,
+                          text: `Check out my Verified ${state.cert.skill} Certificate!`,
+                          url,
+                        });
+                      } catch (e) {
+                        console.error("Error sharing:", e);
+                      }
+                    } else {
+                      await navigator.clipboard.writeText(url);
+                      const { toast } = await import("@/components/Toast");
+                      toast.success("Certificate link copied to clipboard!");
+                    }
+                  }}
+                  className="btn-secondary text-sm flex-1"
+                >
+                  <svg className="w-4 h-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                  </svg>
+                  Share
+                </button>
                 <Link
                   href={`/freelancers/${state.cert.publicKey}`}
                   className="btn-secondary text-sm flex-1 text-center"
                 >
-                  View Freelancer Profile
+                  View Profile
                 </Link>
               </div>
             </div>

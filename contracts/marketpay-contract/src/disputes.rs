@@ -210,7 +210,11 @@ pub(crate) fn resolve_dispute(
     // Pay out arbitrator fee and escrow principal (winner / loser)
     let escrow_token_client = token::Client::new(&env, &escrow.token);
     if arbitrator_fee > 0 {
-        escrow_token_client.transfer(&env.current_contract_address(), &arbitrator, &arbitrator_fee);
+        escrow_token_client.transfer(
+            &env.current_contract_address(),
+            &arbitrator,
+            &arbitrator_fee,
+        );
     }
     if winner_amount > 0 {
         escrow_token_client.transfer(&env.current_contract_address(), &winner, &winner_amount);

@@ -26,12 +26,14 @@ const { processReferralPayout } = require("../services/referralService");
 const { scheduleReputationRecalcForJob } = require("../services/reputationService");
 const { queueAutoConversion } = require("../services/autoConvertService");
 const {
+  submitDeliverableHash,
   timeoutRefund,
   releaseMilestone,
   rejectMilestone,
   disputeMilestone,
   requestEscrowExtension,
   approveEscrowExtension,
+  getEscrowField,
 
   verifyFreelancerAccount,
 } = require("../services/escrowService");
@@ -184,11 +186,7 @@ router.post(
       });
 
       // Notify users about escrow release
-      const { rows: escrowRows } = await pool.query(
-        `SELECT amount_xlm FROM escrows WHERE job_id = $1`,
-        [jobId],
-      );
-      const escrowAmount = escrowRows.length ? escrowRows[0].amount_xlm : job.budget;
+      const escrowAmount = await getEscrowField(jobId, 'amount_xlm') ?? job.budget;
 
       await notifyEscrowEvent({
         eventType: EVENT_TYPES.ESCROW_RELEASED,
@@ -366,11 +364,7 @@ router.post("/:jobId/refund", async (req, res, next) => {
     });
 
     // Notify users about refund
-    const { rows: escrowRows } = await pool.query(
-      `SELECT amount_xlm FROM escrows WHERE job_id = $1`,
-      [jobId],
-    );
-    const escrowAmount = escrowRows.length ? escrowRows[0].amount_xlm : job.budget;
+    const escrowAmount = await getEscrowField(jobId, 'amount_xlm') ?? job.budget;
 
     await notifyEscrowEvent({
       eventType: EVENT_TYPES.REFUND_ISSUED,
@@ -643,6 +637,35 @@ router.post("/:jobId/extend/approve", escrowActionRateLimiter, async (req, res, 
     }
 
     const result = await approveEscrowExtension(jobId, approvedBy, contractTxHash);
+
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/:jobId/deliverable-hash
+ * Submit a deliverable hash. Only the assigned freelancer may submit.
+ */
+router.post("/:jobId/deliverable-hash", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { freelancerAddress, hashHex } = req.body;
+
+    if (!freelancerAddress || !/^G[A-Z0-9]{55}$/.test(freelancerAddress)) {
+      const e = new Error("Invalid freelancer address");
+      e.status = 400;
+      throw e;
+    }
+
+    if (!hashHex || !/^[0-9a-fA-F]{64}$/.test(hashHex)) {
+      const e = new Error("hashHex must be a 64-character hex string (SHA-256)");
+      e.status = 400;
+      throw e;
+    }
+
+    const result = await submitDeliverableHash(jobId, freelancerAddress, hashHex);
 
     res.json(result);
   } catch (e) {
