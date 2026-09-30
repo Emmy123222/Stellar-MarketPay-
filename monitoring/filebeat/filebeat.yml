@@ -2,6 +2,9 @@ filebeat.inputs:
 - type: container
   paths:
     - '/var/lib/docker/containers/*/*.log'
+  # Docker json-file driver writes rotated logs alongside the active log file.
+  # The glob above captures both the active file and any rotated files
+  # (e.g. *-json.log.1, *-json.log.2) produced by the json-file driver.
   processors:
     - add_docker_metadata:
         host: "unix:///var/run/docker.sock"

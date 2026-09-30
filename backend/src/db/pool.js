@@ -10,6 +10,7 @@ const {
   pgPoolTotal,
   pgPoolIdle,
   pgPoolWaiting,
+  pgPoolWaitingConnections,
   observePoolQuery,
   sqlOperation,
 } = require("../metrics");
@@ -104,6 +105,9 @@ pgPoolIdle.collect = function collectPgPoolIdle() {
   this.set(pool.idleCount);
 };
 pgPoolWaiting.collect = function collectPgPoolWaiting() {
+  this.set(pool.waitingCount);
+};
+pgPoolWaitingConnections.collect = function collectPgPoolWaitingConnections() {
   this.set(pool.waitingCount);
 };
 

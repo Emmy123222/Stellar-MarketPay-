@@ -131,6 +131,11 @@ const pgPoolWaiting = createMetric(promClient.Gauge, {
   help: "Waiting PostgreSQL pool requests",
 });
 
+const pgPoolWaitingConnections = createMetric(promClient.Gauge, {
+  name: "pg_pool_waiting_connections",
+  help: "Waiting PostgreSQL pool requests",
+});
+
 const notificationQueuePending = createMetric(promClient.Gauge, {
   name: "notification_queue_pending",
   help: "Pending notifications in the queue",
@@ -157,6 +162,13 @@ const ipfsPinVerificationFailuresTotal = createMetric(promClient.Counter, {
   name: "ipfs_pin_verification_failures_total",
   help: "Total IPFS uploads whose pin could not be verified after retries",
   labelNames: ["reason"],
+});
+
+/** Total XLM price fetch failures, including fallback attempts. */
+const xlmPriceFetchErrorsTotal = createMetric(promClient.Counter, {
+  name: "xlm_price_fetch_errors_total",
+  help: "Total XLM/USD price fetch failures across all providers",
+});
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -287,6 +299,39 @@ function setWebsocketConnections(channel, count) {
   if (channel === "realtime") legacyWsConnectionsActive.set(count);
 }
 
+// Bounded failure-reason set for escrow releases. Raw error messages are never
+// used as label values (cardinality + PII safety).
+const ESCROW_RELEASE_REASONS = [
+  ["insufficient_balance", /insufficient|balance/],
+  ["network", /horizon|network|fetch|timeout|econn|socket/],
+  ["not_found", /not found|no escrow|already released|not in progress/],
+];
+
+/**
+ * Classify an escrow release failure into a bounded `reason` label.
+ *
+ * @param {Error|*} err error thrown while releasing escrow
+ * @returns {string} insufficient_balance | network | not_found | contract_error
+ */
+function escrowReleaseReason(err) {
+  const message = String((err && err.message) || "").toLowerCase();
+  for (const [reason, pattern] of ESCROW_RELEASE_REASONS) {
+    if (pattern.test(message)) return reason;
+  }
+  return "contract_error";
+}
+
+/**
+ * Record one escrow release attempt.
+ *
+ * @param {boolean} ok   whether the release succeeded
+ * @param {Error}  [err] the thrown error when `ok` is false
+ */
+function recordEscrowRelease(ok, err) {
+  escrowReleasesTotal.inc({ result: ok ? "success" : "error" });
+  if (!ok) escrowReleaseErrorsTotal.inc({ reason: escrowReleaseReason(err) });
+}
+
 /**
  * Render the registry in Prometheus text exposition format.
  *
@@ -306,14 +351,18 @@ module.exports = {
   activeWebsocketConnections,
   poolQueryDurationMs,
   poolQueriesTotal,
+  escrowReleasesTotal,
+  escrowReleaseErrorsTotal,
   // supporting metrics
   dbConnections,
   pgPoolTotal,
   pgPoolIdle,
   pgPoolWaiting,
+  pgPoolWaitingConnections,
   notificationQueuePending,
   xlmPriceUsd,
   ipfsPinVerificationFailuresTotal,
+  xlmPriceFetchErrorsTotal,
   // legacy aliases
   legacyHttpRequestsTotal,
   legacyHttpRequestDurationSeconds,
@@ -325,5 +374,7 @@ module.exports = {
   observeHttpRequest,
   observePoolQuery,
   setWebsocketConnections,
+  recordEscrowRelease,
+  escrowReleaseReason,
   renderMetrics,
 };

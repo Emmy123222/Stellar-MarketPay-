@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { EditProfileForm } from '../EditProfileForm';
+import { EditProfileForm } from '../Onboarding/EditProfileForm';
 
 describe('EditProfileForm Avatar Validation (#1406)', () => {
   it('shows an error when uploading an invalid file type', () => {

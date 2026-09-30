@@ -58,7 +58,7 @@ const MAX_SAVED_SEARCHES = 10;
 router.get("/", verifyJWT, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, user_address, query_params, notify_in_app, notify_email, last_notified_at, created_at, updated_at
+      `SELECT id, user_address, query_params, notify_in_app, notify_email, active, deleted_at, last_notified_at, created_at, updated_at
        FROM saved_searches
        WHERE user_address = $1
        ORDER BY created_at DESC`,
@@ -94,9 +94,9 @@ router.post("/", verifyJWT, async (req, res, next) => {
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO saved_searches (user_address, query_params, notify_in_app, notify_email)
-       VALUES ($1, $2::jsonb, $3, $4)
-       RETURNING id, user_address, query_params, notify_in_app, notify_email, last_notified_at, created_at, updated_at`,
+      `INSERT INTO saved_searches (user_address, query_params, notify_in_app, notify_email, active)
+       VALUES ($1, $2::jsonb, $3, $4, TRUE)
+       RETURNING id, user_address, query_params, notify_in_app, notify_email, active, deleted_at, last_notified_at, created_at, updated_at`,
       [
         req.user.publicKey,
         JSON.stringify(query_params),
@@ -147,16 +147,35 @@ router.post("/", verifyJWT, async (req, res, next) => {
 router.patch("/:id", verifyJWT, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { notify_in_app, notify_email } = req.body;
+    const { notify_in_app, notify_email, active } = req.body;
+
+    if (active !== undefined && typeof active !== "boolean") {
+      return res.status(400).json({ error: "active must be a boolean" });
+    }
+
+    const hasActiveUpdate = typeof active === "boolean";
+    const query = hasActiveUpdate
+      ? `UPDATE saved_searches
+         SET notify_in_app = COALESCE($1, notify_in_app),
+             notify_email = COALESCE($2, notify_email),
+             active = $3,
+             deleted_at = CASE WHEN $3 = FALSE THEN COALESCE(deleted_at, NOW()) ELSE NULL END,
+             updated_at = NOW()
+         WHERE id = $4 AND user_address = $5 AND deleted_at IS NULL
+         RETURNING id, user_address, query_params, notify_in_app, notify_email, active, deleted_at, last_notified_at, created_at, updated_at`
+      : `UPDATE saved_searches
+         SET notify_in_app = COALESCE($1, notify_in_app),
+             notify_email = COALESCE($2, notify_email),
+             updated_at = NOW()
+         WHERE id = $3 AND user_address = $4
+         RETURNING id, user_address, query_params, notify_in_app, notify_email, active, deleted_at, last_notified_at, created_at, updated_at`;
+    const params = hasActiveUpdate
+      ? [notify_in_app, notify_email, active, id, req.user.publicKey]
+      : [notify_in_app, notify_email, id, req.user.publicKey];
 
     const { rows } = await pool.query(
-      `UPDATE saved_searches
-       SET notify_in_app = COALESCE($1, notify_in_app),
-           notify_email = COALESCE($2, notify_email),
-           updated_at = NOW()
-       WHERE id = $3 AND user_address = $4
-       RETURNING id, user_address, query_params, notify_in_app, notify_email, last_notified_at, created_at, updated_at`,
-      [notify_in_app, notify_email, id, req.user.publicKey]
+      query,
+      params
     );
 
     if (rows.length === 0) {

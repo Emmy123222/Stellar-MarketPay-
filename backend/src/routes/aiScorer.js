@@ -259,7 +259,8 @@ Respond ONLY with JSON in this format:
 
     res.json({ success: true, data: normalizeProposalScore(analysis) });
   } catch (error) {
-    res.json({ success: true, data: null, warning: AI_UNAVAILABLE_WARNING });
+    console.error("AI proposal scoring failed:", error.message);
+    res.status(503).json({ score: null, reason: "AI scorer temporarily unavailable" });
   }
 });
 
