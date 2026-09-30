@@ -45,6 +45,10 @@ const USDC = new Asset("USDC", USDC_ISSUER);
 
 const MIN_SLIPPAGE_BPS = 10;
 const MAX_SLIPPAGE_BPS = 1000;
+const DEFAULT_SLIPPAGE_BPS = 100;
+
+// One classic Stellar operation at the base fee (100 stroops) = 0.00001 XLM.
+const NETWORK_FEE_XLM = "0.0000100";
 
 let horizon = null;
 function getHorizon() {
@@ -165,6 +169,76 @@ async function quoteXlmToUsdc(amountXlm) {
 
 function applySlippage(amount, slippageBps) {
   return toFixed7((parseFloat(amount) * (10_000 - slippageBps)) / 10_000);
+}
+
+/**
+ * Live XLM → USDC quote for the dashboard "Swap earnings" flow (Issue #1547).
+ *
+ * Prices `amountXlm` with Horizon `strictSendPaths` and returns the effective
+ * rate, the estimated USDC received, the minimum the wallet should accept
+ * after slippage and the network fee.
+ *
+ * @param {string|number} amountXlm
+ * @param {number} [slippageBps]
+ */
+async function getSwapQuote(amountXlm, slippageBps) {
+  const amount = parseFloat(amountXlm);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw httpError(400, "amountXlm must be a positive number");
+  }
+
+  const bps = slippageBps == null ? DEFAULT_SLIPPAGE_BPS : Number(slippageBps);
+  if (!Number.isInteger(bps) || bps < MIN_SLIPPAGE_BPS || bps > MAX_SLIPPAGE_BPS) {
+    throw httpError(400, `slippageBps must be an integer between ${MIN_SLIPPAGE_BPS} and ${MAX_SLIPPAGE_BPS}`);
+  }
+
+  const quote = await quoteXlmToUsdc(amount);
+  if (!quote) throw httpError(404, "No XLM → USDC path is available right now");
+
+  return {
+    sourceAmountXlm: toFixed7(amount),
+    destinationAmount: quote.destinationAmount,
+    destMinUsdc: applySlippage(quote.destinationAmount, bps),
+    rate: toFixed7(parseFloat(quote.destinationAmount) / amount),
+    feeXlm: NETWORK_FEE_XLM,
+    slippageBps: bps,
+    path: quote.path,
+    usdcIssuer: USDC_ISSUER,
+  };
+}
+
+/**
+ * Create a pending manual swap row (not tied to a job) so the freelancer's
+ * wallet can sign a `pathPaymentStrictSend` and the result is recorded in the
+ * payment history via completeAutoConversion().
+ *
+ * @param {string} publicKey
+ * @param {Object} params
+ * @param {string|number} params.amountXlm
+ * @param {number} [params.slippageBps]
+ */
+async function createManualSwap(publicKey, { amountXlm, slippageBps } = {}) {
+  validatePublicKey(publicKey);
+
+  const { rows: profileRows } = await pool.query(
+    `SELECT auto_convert_slippage_bps FROM profiles WHERE public_key = $1`,
+    [publicKey],
+  );
+  if (!profileRows.length) throw httpError(404, "Profile not found");
+
+  const bps =
+    slippageBps == null ? profileRows[0].auto_convert_slippage_bps : Number(slippageBps);
+  const quote = await getSwapQuote(amountXlm, bps);
+
+  const { rows } = await pool.query(
+    `INSERT INTO usdc_auto_conversions
+       (user_address, job_id, milestone_index, source_amount_xlm, quoted_usdc, dest_min_usdc)
+     VALUES ($1, NULL, NULL, $2, $3, $4)
+     RETURNING *`,
+    [publicKey, quote.sourceAmountXlm, quote.destinationAmount, quote.destMinUsdc],
+  );
+
+  return { conversion: rowToConversion(rows[0]), quote };
 }
 
 // ─── Release hook ────────────────────────────────────────────────────────────
@@ -461,7 +535,10 @@ module.exports = {
   completeAutoConversion,
   dismissAutoConversion,
   listConversionHistory,
+  getSwapQuote,
+  createManualSwap,
   quoteXlmToUsdc,
   applySlippage,
   USDC_ISSUER,
+  NETWORK_FEE_XLM,
 };

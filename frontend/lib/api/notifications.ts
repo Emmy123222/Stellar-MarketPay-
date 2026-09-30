@@ -44,3 +44,18 @@ export async function markAllNotificationsRead(): Promise<{ updatedCount: number
   }>("/api/notifications/read-all");
   return data.data;
 }
+
+export async function fetchNotificationPreferences() {
+  const { data } = await api.get<{ success: boolean; data: any }>(
+    "/api/notifications/preferences"
+  );
+  return data.data;
+}
+
+export async function updateNotificationPreferences(preferences: Record<string, any>) {
+  const { data } = await api.patch<{ success: boolean; data: any }>(
+    "/api/notifications/preferences",
+    { preferences }
+  );
+  return data.data;
+}

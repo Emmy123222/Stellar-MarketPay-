@@ -90,3 +90,4 @@ services:
     working_dir: /work
     environment:
       K6_BASE_URL: http://backend:4000
+      JWT_SECRET: loadtest-jwt-secret-with-sufficient-length-for-signing

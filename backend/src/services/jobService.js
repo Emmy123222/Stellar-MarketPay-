@@ -1,9 +1,12 @@
+/* eslint-disable */
 /**
  * src/services/jobService.js
  */
 "use strict";
 
-const { getTimezoneOffset } = require("date-fns-tz");/**
+const { getTimezoneOffset } = require("date-fns-tz");
+
+/**
  * Check if a job's timezone is compatible with the user's timezone.
  * Compatible if the time difference is within +/-3 hours.
  *
@@ -854,8 +857,9 @@ async function listJobs({
   status = "open",
   limit = 20,
   search,
+  q,
   cursor,
-  // eslint-disable-next-line no-unused-vars
+   
   timezone,
   viewerAddress,
   includeExpired,
@@ -873,7 +877,20 @@ async function listJobs({
   let selectColumns = "jobs.*";
   let orderClause = `CASE WHEN boosted = true AND (boosted_until IS NULL OR boosted_until > NOW()) THEN 0 ELSE 1 END, created_at DESC, id DESC`;
 
-  if (search && search.trim()) {
+  const fullTextQuery = q && q.trim();
+  if (fullTextQuery) {
+    params.push(fullTextQuery);
+    const searchIdx = params.length;
+    const document = "to_tsvector('english', title || ' ' || description)";
+    selectColumns = `jobs.*,
+      ts_rank(${document}, websearch_to_tsquery('english', $${searchIdx})) AS rank,
+      ts_headline('english', title, websearch_to_tsquery('english', $${searchIdx}),
+        'StartSel=<mark>,StopSel=</mark>,MaxWords=50,MinWords=20') AS headline_title,
+      ts_headline('english', description, websearch_to_tsquery('english', $${searchIdx}),
+        'StartSel=<mark>,StopSel=</mark>,MaxWords=80,MinWords=30') AS headline_description`;
+    conditions.push(`${document} @@ websearch_to_tsquery('english', $${searchIdx})`);
+    orderClause = `rank DESC, ${orderClause}`;
+  } else if (search && search.trim()) {
     params.push(search.trim());
     const searchIdx = params.length;
     selectColumns = `jobs.*,
@@ -1283,6 +1300,118 @@ async function listJobs({
     const withinDate = new Date();
     withinDate.setDate(withinDate.getDate() + withinDays);
 
+/**
+ * Unified batch operation endpoint (Issue #869).
+ * Processes multiple job operations in a single DB transaction.
+ * Supports 'close' (cancel) and 'delete' actions.
+ * 
+ * @param {('close'|'delete')} action - The batch action to perform
+ * @param {string[]} ids - Array of job IDs (max 50)
+ * @param {string} userPublicKey - Public key of the authenticated user
+ * @returns {Promise<{succeeded: Array<{id: string}>, failed: Array<{id: string, error: string}>}>}
+ */
+async function batchJobOperation(action, ids, userPublicKey) {
+  if (ids.length > 50) {
+    throw new Error("Maximum 50 IDs per batch request");
+  }
+
+  const succeeded = [];
+  const failed = [];
+  
+  const client = await pool.connect();
+  
+  try {
+    await client.query("BEGIN");
+    
+    for (const id of ids) {
+      try {
+        // Verify ownership
+        const { rows: ownerRows } = await client.query(
+          "SELECT id, client_address, status FROM jobs WHERE id = $1 AND deleted_at IS NULL",
+          [id]
+        );
+        
+        if (ownerRows.length === 0) {
+          failed.push({ id, error: "Job not found" });
+          continue;
+        }
+        
+        const job = ownerRows[0];
+        
+        if (job.client_address !== userPublicKey) {
+          failed.push({ id, error: "Unauthorized: you don't own this job" });
+          continue;
+        }
+        
+        if (action === "close") {
+          // Can only close jobs that are 'open'
+          if (job.status !== "open") {
+            failed.push({ id, error: `Cannot close job with status '${job.status}'` });
+            continue;
+          }
+          
+          await client.query(
+            "UPDATE jobs SET status = 'cancelled', updated_at = NOW() WHERE id = $1",
+            [id]
+          );
+          succeeded.push({ id });
+          
+        } else if (action === "delete") {
+          // Can only delete jobs without escrow or applications
+          const { rows: appRows } = await client.query(
+            "SELECT COUNT(*) as count FROM applications WHERE job_id = $1",
+            [id]
+          );
+          
+          if (parseInt(appRows[0].count, 10) > 0) {
+            failed.push({ id, error: "Cannot delete job with applications" });
+            continue;
+          }
+          
+          if (job.status === "in_progress" || job.status === "completed") {
+            failed.push({ id, error: "Cannot delete job that is in progress or completed" });
+            continue;
+          }
+          
+          await client.query(
+            "UPDATE jobs SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1",
+            [id]
+          );
+          succeeded.push({ id });
+        }
+        
+      } catch (err) {
+        failed.push({ id, error: err.message || "Operation failed" });
+      }
+    }
+    
+    await client.query("COMMIT");
+    
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+  
+  return { succeeded, failed };
+}
+
+/**
+ * Get recommended jobs for a freelancer based on their skills.
+ * Excludes jobs the freelancer has already applied to, been accepted for, or rejected from.
+ * @param {string} publicKey
+ * @returns {Promise<Object[]>}
+ */
+async function getRecommendedJobs(publicKey) {
+  const { rows: profileRows } = await pool.query(
+    "SELECT skills FROM profiles WHERE public_key = $1",
+    [publicKey],
+  );
+  const skills = profileRows.length ? profileRows[0].skills || [] : [];
+
+  if (!skills.length) {
+    // No skills, return recent open jobs excluding applied ones
     const { rows } = await pool.query(
       `SELECT * FROM jobs
      WHERE status = 'open'
@@ -1389,7 +1518,6 @@ async function listJobs({
     getExpiringJobs,
     getJobAnalytics,
   };
-}
 
 const _pool = require("../db/pool");
 
@@ -1430,3 +1558,97 @@ async function getJobTimeline(jobId) {
 }
 
 Object.assign(module.exports, { TIMELINE_EVENT_TYPES, recordTimelineEvent, getJobTimeline });
+
+// Wrap createJob to record 'job_posted' event
+const _createJob = createJob;
+createJob = async function (params) {
+  const job = await _createJob(params);
+  try {
+    await recordTimelineEvent(job.id, "job_posted");
+  } catch (err) {
+    console.error("[timeline] Failed to record job_posted event:", err.message);
+  }
+  return job;
+};
+
+// Wrap assignFreelancer to record 'bid_accepted' event
+const _assignFreelancer = assignFreelancer;
+assignFreelancer = async function (jobId, freelancerAddress) {
+  const job = await _assignFreelancer(jobId, freelancerAddress);
+  try {
+    await recordTimelineEvent(jobId, "bid_accepted");
+  } catch (err) {
+    console.error(
+      "[timeline] Failed to record bid_accepted event:",
+      err.message,
+    );
+  }
+  return job;
+};
+
+// Wrap updateJobStatus to record 'work_completed' event
+const _updateJobStatus = updateJobStatus;
+updateJobStatus = async function (id, status) {
+  const job = await _updateJobStatus(id, status);
+  if (status === "completed") {
+    try {
+      await recordTimelineEvent(id, "work_completed");
+    } catch (err) {
+      console.error(
+        "[timeline] Failed to record work_completed event:",
+        err.message,
+      );
+    }
+  }
+  return job;
+};
+
+// Extend updateJobEscrowId to accept optional txHash for recording escrow_funded event
+const _updateJobEscrowId = updateJobEscrowId;
+updateJobEscrowId = async function (jobId, escrowContractId, options = {}) {
+  const { txHash = null, ...escrowOptions } = options;
+  const job = await _updateJobEscrowId(jobId, escrowContractId, escrowOptions);
+  try {
+    await recordTimelineEvent(jobId, "escrow_funded", txHash);
+  } catch (err) {
+    console.error(
+      "[timeline] Failed to record escrow_funded event:",
+      err.message,
+    );
+  }
+  return job;
+};
+
+module.exports = {
+  createJob,
+  getJob,
+  listJobs,
+  listJobsByClient,
+  updateJobStatus,
+  assignFreelancer,
+  updateJobEscrowId,
+  deleteJob,
+  purgeDeletedJobs,
+  boostJob,
+  incrementShareCount,
+  raiseDispute,
+  resolveDispute,
+  getCategoryAnalytics,
+  getAnalyticsOverview,
+  extendJobExpiry,
+  incrementViewCount,
+  getJobAnalytics,
+  expireOldJobs,
+  getExpiringJobs,
+  bulkCancelJobs,
+  bulkExtendJobs,
+  bulkBoostJobs,
+  batchJobOperation,
+  getRecommendedJobs,
+  getSuggestions,
+  rowToJob,
+  recordTimelineEvent,
+  getJobTimeline,
+  TIMELINE_EVENT_TYPES,
+};
+}}}

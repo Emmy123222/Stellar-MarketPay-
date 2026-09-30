@@ -6,7 +6,7 @@ fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, Address) {
     let id = env.register(MarketPayContract, ());
     let contract = MarketPayContractClient::new(env, &id);
     let admin = Address::generate(env);
-    contract.initialize(&admin, &admin);
+    contract.initialize(&admin, &admin, &String::from_str(&env, "1.0.0"));
     contract.set_platform_fee_bps(&admin, &0);
 
     let client = Address::generate(env);
@@ -249,4 +249,71 @@ fn test_non_freelancer_cannot_submit_hash() {
     );
 
     contract.submit_deliverable_hash(&job_id, &client, &h);
+}
+
+// ── update_deliverable_hash: record is immutable once escrow settles (#1469) ──
+
+#[test]
+fn test_update_deliverable_hash_succeeds_while_in_progress() {
+    let env = Env::default();
+    let (contract, client, freelancer, token_id) = setup(&env);
+    let job_id = String::from_str(&env, "dh-update-ok");
+    let initial = BytesN::from_array(&env, &[0x11u8; 32]);
+    let updated = BytesN::from_array(&env, &[0x22u8; 32]);
+
+    contract.create_escrow_with_deliverable(
+        &job_id,
+        &client,
+        &CreateEscrowParams {
+            freelancer: freelancer.clone(),
+            token: token_id.clone(),
+            amount: 1_000,
+            milestones: None,
+            timeout_ledgers: None,
+            referrer: None,
+        },
+        &initial,
+    );
+    contract.start_work(&job_id, &freelancer);
+    contract.submit_deliverable_hash(&job_id, &freelancer, &initial);
+
+    // InProgress → update is allowed and takes effect.
+    contract.update_deliverable_hash(&job_id, &freelancer, &updated);
+    assert_eq!(
+        contract.get_freelancer_deliverable_hash(&job_id),
+        Some(updated)
+    );
+}
+
+#[test]
+#[should_panic(expected = "Escrow already settled")]
+fn test_update_deliverable_hash_fails_after_release() {
+    let env = Env::default();
+    let (contract, client, freelancer, token_id) = setup(&env);
+    let job_id = String::from_str(&env, "dh-update-settled");
+    let expected = BytesN::from_array(&env, &[0xabu8; 32]);
+    let malicious = BytesN::from_array(&env, &[0xffu8; 32]);
+
+    contract.create_escrow_with_deliverable(
+        &job_id,
+        &client,
+        &CreateEscrowParams {
+            freelancer: freelancer.clone(),
+            token: token_id.clone(),
+            amount: 1_000,
+            milestones: None,
+            timeout_ledgers: None,
+            referrer: None,
+        },
+        &expected,
+    );
+    contract.start_work(&job_id, &freelancer);
+    contract.submit_deliverable_hash(&job_id, &freelancer, &expected);
+    contract.release_escrow(&job_id, &client);
+
+    let escrow = contract.get_escrow(&job_id);
+    assert_eq!(escrow.status, EscrowStatus::Released);
+
+    // Released → any update must be rejected (no retroactive falsification).
+    contract.update_deliverable_hash(&job_id, &freelancer, &malicious);
 }

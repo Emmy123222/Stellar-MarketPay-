@@ -5,8 +5,6 @@
 
 const express = require("express");
 const router = express.Router();
-const pool = require("../db/pool");
-
 const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT } = require("../middleware/auth");
 const jobService = require("../services/jobService");
@@ -172,6 +170,11 @@ async function enrichJobsWithClientReputation(jobs) {
  *           type: string
  *         description: Search term for job titles and descriptions
  *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *         description: Full-text search query for job titles and descriptions
+ *       - in: query
  *         name: cursor
  *         schema:
  *           type: string
@@ -214,6 +217,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit,
       search,
+      q,
       cursor,
       after,
       timezone,
@@ -244,6 +248,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit: String(safeLimit),
       search,
+      q,
       cursor: effectiveCursor,
       timezone,
       viewerAddress,
@@ -259,7 +264,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
     const cached = await cache.get(cacheKey);
     if (cached) {
       res.set("X-Cache", "HIT");
-      return res.json({ success: true, ...cached, has_more: Boolean(cached.nextCursor), ...(page !== undefined && !effectiveCursor && { _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `after`." }) });
+      return res.json({ success: true, ...cached, total: cached.total ?? null, has_more: Boolean(cached.nextCursor), ...(page !== undefined && !effectiveCursor && { _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `after`." }) });
     }
 
     const result = await listJobs({
@@ -267,6 +272,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit: safeLimit,
       search,
+      q,
       cursor: effectiveCursor,
       timezone,
       viewerAddress,
@@ -282,12 +288,13 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
     });
 
     const jobsWithRep = await enrichJobsWithClientReputation(result.jobs);
-    await cache.set(cacheKey, { data: jobsWithRep, nextCursor: result.nextCursor }, cache.TTL.JOBS_LIST);
+    await cache.set(cacheKey, { data: jobsWithRep, nextCursor: result.nextCursor, total: result.total }, cache.TTL.JOBS_LIST);
     res.set("X-Cache", "MISS");
     res.json({
       success: true,
       data: jobsWithRep,
       nextCursor: result.nextCursor,
+      total: result.total,
       has_more: Boolean(result.nextCursor),
       ...(page !== undefined && !effectiveCursor && {
         _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `after`.",
@@ -312,7 +319,7 @@ router.get(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // GET /api/jobs/recommended/:publicKey — top 5 skill-matched open jobs for a freelancer
@@ -326,7 +333,7 @@ router.get(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // GET /api/jobs/:id/timeline — get job timeline events (Issue #876)
@@ -599,7 +606,7 @@ router.patch(
         ? { amount: acceptedApplications[0].bid_amount }
         : {};
       const job = await updateJobEscrowId(req.params.id, escrowContractId, options);
-      await logContractInteraction({
+      logContractInteraction({
         functionName: "create_escrow",
         callerAddress: req.user.publicKey,
         jobId: req.params.id,
@@ -610,7 +617,7 @@ router.patch(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // POST /api/jobs/:id/boost — boost a job listing for 7 days
@@ -691,7 +698,7 @@ router.patch(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // POST /api/jobs/:id/referral — track a referral click
@@ -719,7 +726,7 @@ router.delete(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // POST /api/jobs/:id/report — report a job
@@ -779,7 +786,7 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // POST /api/jobs/:id/resolve — resolve a dispute (Admin only)
@@ -801,7 +808,7 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // GET /api/jobs/feed.rss — RSS 2.0 feed
@@ -986,6 +993,81 @@ router.get("/suggest", suggestRateLimiter, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/analytics/categories — stats per category
+router.get(
+  "/analytics/categories",
+  generalJobRateLimiter,
+  async (req, res, next) => {
+    try {
+      const { getCategoryAnalytics } = require("../services/jobService");
+      const data = await getCategoryAnalytics();
+      res.json({ success: true, data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// GET /api/analytics/overview — platform-wide totals
+router.get(
+  "/analytics/overview",
+  generalJobRateLimiter,
+  async (req, res, next) => {
+    try {
+      const { getAnalyticsOverview } = require("../services/jobService");
+      const data = await getAnalyticsOverview();
+      res.json({ success: true, data });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// POST /api/jobs/batch — unified batch endpoint for bulk operations (#869)
+router.post(
+  "/batch",
+  verifyJWT,
+  jobCreationRateLimiter,
+  async (req, res, next) => {
+    try {
+      const { action, ids } = req.body;
+      
+      // Validate input
+      if (!action || !["close", "delete"].includes(action)) {
+        return res.status(400).json({ 
+          success: false,
+          error: "action must be 'close' or 'delete'" 
+        });
+      }
+      
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ 
+          success: false,
+          error: "ids must be a non-empty array" 
+        });
+      }
+      
+      if (ids.length > 50) {
+        return res.status(400).json({ 
+          success: false,
+          error: "Maximum 50 IDs per batch request" 
+        });
+      }
+
+      const { batchJobOperation } = require("../services/jobService");
+      const result = await batchJobOperation(action, ids, req.user.publicKey);
+      
+      res.json({
+        success: true,
+        succeeded: result.succeeded,
+        failed: result.failed,
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 // POST /api/jobs/bulk-cancel — cancel multiple open jobs at once
 router.post(
   "/bulk-cancel",
@@ -1008,7 +1090,7 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // POST /api/jobs/bulk-extend — extend expiry for multiple jobs at once
@@ -1037,7 +1119,7 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // POST /api/jobs/bulk-boost — boost multiple jobs at once
@@ -1065,7 +1147,27 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
-);
+  });
+// GET /api/jobs/analytics/categories — stats per category
+router.get("/analytics/categories", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { getCategoryAnalytics } = require("../services/jobService");
+    const data = await getCategoryAnalytics();
+    res.json({ success: true, data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/jobs/analytics/overview — platform-wide totals
+router.get("/analytics/overview", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { getAnalyticsOverview } = require("../services/jobService");
+    const data = await getAnalyticsOverview();
+    res.json({ success: true, data });
+  } catch (e) {
+    next(e);
+  }
+});
 
 module.exports = router;

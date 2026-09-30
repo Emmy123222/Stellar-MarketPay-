@@ -24,6 +24,11 @@ export interface PortfolioItem {
   title: string;
   url: string;
   type: PortfolioItemType;
+  // ─── Fill-in metadata written by the link-verification worker ────────
+  verified?: boolean | null;
+  verificationError?: string | null;
+  verifiedAt?: string | null;
+  lastCheckedAt?: string | null;
 }
 
 export interface Availability {
@@ -39,6 +44,9 @@ export interface JobMilestone {
   releasedAt?: string | null;
   disputedAt?: string | null;
   rejectedAt?: string | null;
+  proofCid?: string | null;
+  proofGatewayUrl?: string | null;
+  proofAnchorTxHash?: string | null;
 }
 
 export interface NotificationItem {
@@ -117,7 +125,7 @@ export interface Application {
   proposal: string;
   bidAmount: string;
   currency: Currency;
-  status: "pending" | "accepted" | "rejected";
+  status: "pending" | "accepted" | "rejected" | "shortlisted";
   screeningAnswers?: Record<string, string>;
   estimatedDuration?: string;
   bidCommitment?: string | null;
@@ -518,6 +526,24 @@ export interface AutoConvertHistory {
     total: number;
     totalPages: number;
   };
+}
+
+// ─── Manual XLM → USDC Swap (Issue #1547) ────────────────────────────────────
+
+export interface SwapQuote {
+  sourceAmountXlm: string;
+  destinationAmount: string;
+  destMinUsdc: string;
+  rate: string;
+  feeXlm: string;
+  slippageBps: number;
+  path?: Array<{ type: string; code?: string; issuer?: string }>;
+  usdcIssuer: string;
+}
+
+export interface ManualSwapStart {
+  conversion: AutoConversion;
+  quote: SwapQuote;
 }
 
 // ─── On-Chain Reputation (Issue #1561) ───────────────────────────────────────

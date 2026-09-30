@@ -181,6 +181,11 @@ exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connec
       <button
         class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
       >
+        Swap earnings
+      </button>
+      <button
+        class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
+      >
         Spending
       </button>
       <button
@@ -256,6 +261,11 @@ exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connec
           value="earnings"
         >
           Earnings
+        </option>
+        <option
+          value="swap"
+        >
+          Swap earnings
         </option>
         <option
           value="spending"

@@ -100,6 +100,8 @@
     "amount": "Valor",
     "created": "Criado",
     "ends": "Termina",
-    "loading": "Carregando dados de governança..."
+    "loading": "Carregando dados de governança...",
+    "loadMore": "Carregar mais propostas",
+    "loadingMore": "Carregando mais propostas..."
   }
 }
