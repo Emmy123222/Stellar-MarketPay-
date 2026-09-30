@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import NotificationBell from "../NotificationBell";
+import { OnboardingNotificationBell } from "../Onboarding/NotificationBell";
 import { fetchNotifications, markAllNotificationsRead } from "@/lib/api";
 import { mutate } from "swr";
 
@@ -81,7 +82,7 @@ describe("NotificationBell", () => {
 
 describe('NotificationBell Badge Capping (#1409)', () => {
   it('displays 99+ when unreadCount is 142 and sets aria-label with the full count', () => {
-    render(<NotificationBell unreadCount={142} />);
+    render(<OnboardingNotificationBell unreadCount={142} />);
 
     // Screen reader accessible label check
     const button = screen.getByRole('button', { name: /142 unread notifications/i });
@@ -93,7 +94,7 @@ describe('NotificationBell Badge Capping (#1409)', () => {
   });
 
   it('displays exact count when unreadCount is 99 or less', () => {
-    render(<NotificationBell unreadCount={45} />);
+    render(<OnboardingNotificationBell unreadCount={45} />);
 
     const button = screen.getByRole('button', { name: /45 unread notifications/i });
     expect(button).toBeInTheDocument();
