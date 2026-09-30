@@ -11,9 +11,17 @@ import {
 } from "chart.js";
 import { fetchXlmPriceHistory, Timeframe } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
+import { usePriceContext } from "@/contexts/PriceContext";
 import PriceAlertModal from "./PriceAlertModal";
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler);
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Filler,
+);
 
 const COLLAPSE_KEY = "marketpay_dashboard_xlm_widget_collapsed";
 
@@ -36,8 +44,12 @@ function formatUsd(value: number) {
 }
 
 export default function XlmPriceWidget() {
+  // Current price + 24h change come from PriceContext (one shared fetch per
+  // minute for the whole app). This widget's own SWR call below is only for
+  // the chart's historical points and is deduped by SWR's cache key.
+  const { xlmPriceUsd, change24hPercent } = usePriceContext();
   const [collapsed, setCollapsed] = useState(false);
-  const [activeTimeframe, setActiveTimeframe] = useState<Timeframe>('7D');
+  const [activeTimeframe, setActiveTimeframe] = useState<Timeframe>("7D");
   const [alertModalOpen, setAlertModalOpen] = useState(false);
 
   useEffect(() => {
@@ -49,6 +61,7 @@ export default function XlmPriceWidget() {
     }
   }, []);
 
+  // Chart history only — deduped by SWR across every mounted widget.
   const { data, error, isLoading, isValidating } = useApi(
     `xlm-price-history-${activeTimeframe}`,
     () => fetchXlmPriceHistory(activeTimeframe),
@@ -56,8 +69,7 @@ export default function XlmPriceWidget() {
   );
 
   const points = useMemo(() => data?.points ?? [], [data?.points]);
-  const currentPriceUsd  = data?.currentPriceUsd ?? null;
-  const change24hPercent = data?.change24hPercent ?? null;
+  const currentPriceUsd = xlmPriceUsd;
 
   const chartData = useMemo(
     () => ({
@@ -89,13 +101,13 @@ export default function XlmPriceWidget() {
             title: (items: any[]) => {
               const ts = points[items[0].dataIndex]?.timestamp;
               return ts !== undefined
-                ? new Date(ts).toLocaleString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
+                ? new Date(ts).toLocaleString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
                   })
-                : '';
+                : "";
             },
             label: (ctx: any) => ` ${formatUsd(ctx.parsed.y)}`,
           },
@@ -121,101 +133,117 @@ export default function XlmPriceWidget() {
     });
   };
 
-  const TIMEFRAMES: Timeframe[] = ['1D', '7D', '30D'];
+  const TIMEFRAMES: Timeframe[] = ["1D", "7D", "30D"];
 
   return (
     <>
-    <div className="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h3 className="font-display text-lg font-semibold text-amber-100">XLM / USD</h3>
-          {isValidating && !isLoading && (
-            <span className="text-xs text-amber-600 animate-pulse">Refreshing…</span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setAlertModalOpen(true)}
-            className="text-xs font-medium px-2.5 py-1 rounded-lg bg-market-500/15 hover:bg-market-500/25 text-market-300 hover:text-market-200 border border-market-500/25 hover:border-market-400/40 transition-all"
-            title="Set price alert"
-          >
-            ⚡ Alert
-          </button>
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            className="btn-secondary text-xs py-1 px-2"
-          >
-            {collapsed ? "Expand" : "Collapse"}
-          </button>
-        </div>
-      </div>
-
-      {!collapsed && (
-        <div className="mt-3 space-y-3">
-          {/* Timeframe toggle buttons or skeleton pills */}
-          <div className="flex items-center gap-1">
-            {isLoading
-              ? TIMEFRAMES.map((tf) => (
-                  <div
-                    key={tf}
-                    className="h-5 w-8 rounded bg-market-500/10 animate-pulse"
-                  />
-                ))
-              : TIMEFRAMES.map((tf) => {
-                  const isActive = tf === activeTimeframe;
-                  return (
-                    <button
-                      key={tf}
-                      type="button"
-                      aria-pressed={isActive ? "true" : "false"}
-                      onClick={() => setActiveTimeframe(tf)}
-                      className={`text-xs font-medium px-2 py-0.5 rounded transition-colors ${
-                        isActive
-                          ? "bg-amber-600/30 text-amber-200"
-                          : "text-amber-700 hover:text-amber-500"
-                      }`}
-                    >
-                      {tf}
-                    </button>
-                  );
-                })}
+      <div className="card bg-gradient-to-br from-ink-800 to-ink-900 border-market-500/18">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h3 className="font-display text-lg font-semibold text-amber-100">
+              XLM / USD
+            </h3>
+            {isValidating && !isLoading && (
+              <span className="text-xs text-amber-600 animate-pulse">
+                Refreshing…
+              </span>
+            )}
           </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAlertModalOpen(true)}
+              className="text-xs font-medium px-2.5 py-1 rounded-lg bg-market-500/15 hover:bg-market-500/25 text-market-300 hover:text-market-200 border border-market-500/25 hover:border-market-400/40 transition-all"
+              title="Set price alert"
+            >
+              ⚡ Alert
+            </button>
+            <button
+              type="button"
+              onClick={toggleCollapsed}
+              className="btn-secondary text-xs py-1 px-2"
+            >
+              {collapsed ? "Expand" : "Collapse"}
+            </button>
+          </div>
+        </div>
 
-          {isLoading ? (
-            <div className="h-28 rounded-lg bg-market-500/10 animate-pulse" />
-          ) : error ? (
-            <p className="text-sm text-red-400">Failed to load XLM price chart.</p>
-          ) : (
-            <>
-              <div className="flex items-end justify-between">
-                <div>
-                  <p className="text-xs text-amber-800">Current price</p>
-                  <p className="text-2xl font-bold text-amber-100">
-                    {currentPriceUsd !== null ? formatUsd(currentPriceUsd) : "--"}
-                  </p>
+        {!collapsed && (
+          <div className="mt-3 space-y-3">
+            {/* Timeframe toggle buttons or skeleton pills */}
+            <div className="flex items-center gap-1">
+              {isLoading
+                ? TIMEFRAMES.map((tf) => (
+                    <div
+                      key={tf}
+                      className="h-5 w-8 rounded bg-market-500/10 animate-pulse"
+                    />
+                  ))
+                : TIMEFRAMES.map((tf) => {
+                    const isActive = tf === activeTimeframe;
+                    return (
+                      <button
+                        key={tf}
+                        type="button"
+                        aria-pressed={isActive ? "true" : "false"}
+                        onClick={() => setActiveTimeframe(tf)}
+                        className={`text-xs font-medium px-2 py-0.5 rounded transition-colors ${
+                          isActive
+                            ? "bg-amber-600/30 text-amber-200"
+                            : "text-amber-700 hover:text-amber-500"
+                        }`}
+                      >
+                        {tf}
+                      </button>
+                    );
+                  })}
+            </div>
+
+            {isLoading ? (
+              <div className="h-28 rounded-lg bg-market-500/10 animate-pulse" />
+            ) : error ? (
+              <p className="text-sm text-red-400">
+                Failed to load XLM price chart.
+              </p>
+            ) : (
+              <>
+                <div className="flex items-end justify-between">
+                  <div>
+                    <p className="text-xs text-amber-800">Current price</p>
+                    <p className="text-2xl font-bold text-amber-100">
+                      {currentPriceUsd !== null
+                        ? formatUsd(currentPriceUsd)
+                        : "--"}
+                    </p>
+                  </div>
+                  <div
+                    className={`text-sm font-semibold ${
+                      (change24hPercent || 0) >= 0
+                        ? "text-emerald-400"
+                        : "text-red-400"
+                    }`}
+                  >
+                    {change24hPercent !== null
+                      ? `${change24hPercent.toFixed(2)}% (24h)`
+                      : "--"}
+                  </div>
                 </div>
                 <div
-                  className={`text-sm font-semibold ${
-                    (change24hPercent || 0) >= 0 ? "text-emerald-400" : "text-red-400"
-                  }`}
+                  role="img"
+                  aria-label={`XLM/USD price chart – ${activeTimeframe}`}
+                  className="h-28"
                 >
-                  {change24hPercent !== null ? `${change24hPercent.toFixed(2)}% (24h)` : "--"}
+                  <Line
+                    data={chartData}
+                    options={chartOptions as any}
+                    plugins={[gradientPlugin]}
+                  />
                 </div>
-              </div>
-              <div
-                role="img"
-                aria-label={`XLM/USD price chart – ${activeTimeframe}`}
-                className="h-28"
-              >
-                <Line data={chartData} options={chartOptions as any} plugins={[gradientPlugin]} />
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       <PriceAlertModal
         open={alertModalOpen}

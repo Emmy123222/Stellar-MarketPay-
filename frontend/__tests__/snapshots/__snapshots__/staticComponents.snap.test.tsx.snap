@@ -561,6 +561,27 @@ exports[`static component snapshots FreelancerCard default: FreelancerCard 1`] =
           >
             Top Rated
           </span>
+          <span
+            class="inline-flex items-center gap-1 rounded-full border border-market-500/25 bg-market-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-market-300"
+            title="Current XLM/USD price (shared, refreshes every minute)"
+          >
+            <span
+              aria-hidden="true"
+            >
+              ✦
+            </span>
+            <span>
+              XLM $
+              0.1200
+            </span>
+            <span
+              class="text-emerald-400"
+            >
+              ▲
+              1.20
+              %
+            </span>
+          </span>
         </div>
       </div>
       <p
