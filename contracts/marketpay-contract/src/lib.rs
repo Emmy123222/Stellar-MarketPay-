@@ -62,8 +62,10 @@ impl MarketPayContract {
     ///
     /// `treasury_address` receives a configurable platform fee on every escrow
     /// release. The initial platform fee defaults to 100 bps (1 %).
-    pub fn initialize(env: Env, admin: Address, treasury_address: Address) {
-        admin::initialize(env, admin, treasury_address)
+    /// `version` is the semver string of the deployed WASM (e.g. "1.2.0"),
+    /// returned by `get_version()`.
+    pub fn initialize(env: Env, admin: Address, treasury_address: Address, version: String) {
+        admin::initialize(env, admin, treasury_address, version)
     }
 
     // ─── Upgrade & versioning ─────────────────────────────────────────────────
@@ -72,15 +74,21 @@ impl MarketPayContract {
     ///
     /// `new_wasm_hash` is the 32-byte hash of the new WASM blob already
     /// uploaded to the network via `stellar contract install`.
+    /// `new_version` is the semver string of the new WASM.
     /// All existing storage (escrows, proposals, ratings, …) is preserved
     /// because Soroban upgrades only replace the executable, not the state.
-    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
-        admin::upgrade(env, new_wasm_hash)
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>, new_version: String) {
+        admin::upgrade(env, new_wasm_hash, new_version)
     }
 
-    /// Return the current contract version (starts at 1, increments on each upgrade).
-    pub fn get_version(env: Env) -> u32 {
+    /// Return the deployed contract's semver string (e.g. "1.2.0").
+    pub fn get_version(env: Env) -> String {
         admin::get_version(env)
+    }
+
+    /// Return the upgrade counter (starts at 1, increments on each upgrade).
+    pub fn get_upgrade_count(env: Env) -> u32 {
+        admin::get_upgrade_count(env)
     }
 
     // ─── Escrow lifecycle ─────────────────────────────────────────────────────
@@ -257,6 +265,18 @@ impl MarketPayContract {
         admin::unfreeze_contract(env, admins)
     }
 
+    /// Admin freezes a single escrow, blocking all state-changing
+    /// operations on that job until `unfreeze_escrow()` is called.
+    pub fn freeze_escrow(env: Env, job_id: String, admin: Address) {
+        admin::freeze_escrow(env, job_id, admin)
+    }
+
+    /// Admin unfreezes a previously frozen escrow, restoring the status
+    /// it had before freezing.
+    pub fn unfreeze_escrow(env: Env, job_id: String, admin: Address) {
+        admin::unfreeze_escrow(env, job_id, admin)
+    }
+
     /// Add a new admin address to the multi-sig admin list.
     pub fn add_admin(env: Env, admin: Address, new_admin: Address) {
         admin::add_admin(env, admin, new_admin)
@@ -332,12 +352,56 @@ impl MarketPayContract {
         governance::resolve_proposal(env, proposal_id)
     }
 
+    /// Execute a passed proposal after its timelock has elapsed.
+    pub fn execute_proposal(env: Env, proposal_id: u32) {
+        governance::execute_proposal(env, proposal_id)
+    }
+
+    /// Set the governance execution delay in seconds.
+    pub fn set_execution_delay(env: Env, admin: Address, seconds: u64) {
+        governance::set_execution_delay(env, admin, seconds)
+    }
+
+    pub fn get_execution_delay(env: Env) -> u64 {
+        governance::get_execution_delay(env)
+    }
+
     pub fn get_proposal(env: Env, id: u32) -> types::Proposal {
         governance::get_proposal(env, id)
     }
 
     pub fn list_active_proposals(env: Env) -> Vec<types::Proposal> {
         governance::list_active_proposals(env)
+    }
+
+    /// Open a proposal to change the quorum threshold (meta-governance).
+    pub fn propose_quorum_change(
+        env: Env,
+        proposer: Address,
+        new_threshold_bps: u32,
+        description: String,
+        duration_ledgers: u32,
+    ) -> u32 {
+        governance::propose_quorum_change(
+            env,
+            proposer,
+            new_threshold_bps,
+            description,
+            duration_ledgers,
+        )
+    }
+
+    /// Apply a quorum change approved by a passed `propose_quorum_change` proposal.
+    pub fn set_quorum(env: Env, admin: Address, proposal_id: u32, new_threshold_bps: u32) {
+        governance::set_quorum(env, admin, proposal_id, new_threshold_bps)
+    }
+
+    pub fn get_quorum_threshold_bps(env: Env) -> u32 {
+        governance::get_quorum_threshold_bps(env)
+    }
+
+    pub fn get_eligible_voter_count(env: Env) -> u32 {
+        governance::get_eligible_voter_count(env)
     }
 
     // ─── Disputes ──────────────────────────────────────────────────────────
@@ -347,15 +411,23 @@ impl MarketPayContract {
         disputes::raise_dispute(env, job_id, caller)
     }
 
-    /// Resolve a disputed escrow with a split-percentage payout.
+    /// Resolve a disputed escrow with an arbitrator fee deduction and split-percentage payout.
     pub fn resolve_dispute(
         env: Env,
         job_id: String,
         arbitrator: Address,
         winner: Address,
         split_percentage: u32,
+        arbitrator_fee_bps: u32,
     ) {
-        disputes::resolve_dispute(env, job_id, arbitrator, winner, split_percentage)
+        disputes::resolve_dispute(
+            env,
+            job_id,
+            arbitrator,
+            winner,
+            split_percentage,
+            arbitrator_fee_bps,
+        )
     }
 
     /// Admin sets the global dispute bond configuration.
@@ -458,6 +530,17 @@ impl MarketPayContract {
         auction::get_revealed_bids(env, job_id)
     }
 
+    /// Place a token-backed bid. A higher bid automatically refunds the
+    /// previous winner, so losing funds never remain locked in the contract.
+    pub fn place_bid(env: Env, job_id: String, bidder: Address, amount: i128) {
+        auction::place_bid(env, job_id, bidder, amount)
+    }
+
+    /// Refund a bidder who is no longer the current winner.
+    pub fn refund_bid(env: Env, job_id: String, bidder: Address) {
+        auction::refund_bid(env, job_id, bidder)
+    }
+
     // ─── Deliverable Hash Oracle ───────────────────────────────────────────
 
     /// Client submits deliverable hash.
@@ -493,6 +576,19 @@ impl MarketPayContract {
         hash: BytesN<32>,
     ) {
         deliverable::submit_deliverable_hash(env, job_id, freelancer, hash)
+    }
+
+    /// Freelancer updates a previously submitted deliverable hash. Permitted
+    /// only while the escrow is `InProgress`; rejected once the escrow has
+    /// settled (Released/Refunded) so the deliverable record cannot be
+    /// retroactively falsified after funds move.
+    pub fn update_deliverable_hash(
+        env: Env,
+        job_id: String,
+        freelancer: Address,
+        new_hash: BytesN<32>,
+    ) {
+        deliverable::update_deliverable_hash(env, job_id, freelancer, new_hash)
     }
 
     /// Get the freelancer-submitted deliverable hash, if any.

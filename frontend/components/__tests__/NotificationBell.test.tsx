@@ -78,3 +78,27 @@ describe("NotificationBell", () => {
     expect(markAllNotificationsRead).toHaveBeenCalled();
   });
 });
+
+describe('NotificationBell Badge Capping (#1409)', () => {
+  it('displays 99+ when unreadCount is 142 and sets aria-label with the full count', () => {
+    render(<NotificationBell unreadCount={142} />);
+
+    // Screen reader accessible label check
+    const button = screen.getByRole('button', { name: /142 unread notifications/i });
+    expect(button).toBeInTheDocument();
+
+    // Visual badge text check
+    const badge = screen.getByText('99+');
+    expect(badge).toBeInTheDocument();
+  });
+
+  it('displays exact count when unreadCount is 99 or less', () => {
+    render(<NotificationBell unreadCount={45} />);
+
+    const button = screen.getByRole('button', { name: /45 unread notifications/i });
+    expect(button).toBeInTheDocument();
+
+    const badge = screen.getByText('45');
+    expect(badge).toBeInTheDocument();
+  });
+});

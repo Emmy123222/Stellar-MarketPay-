@@ -92,3 +92,14 @@ groups:
         annotations:
           summary: "Unusually high number of open WebSocket connections"
           description: "active_websocket_connections has been above 5000 for 15 minutes — check for reconnect storms or leaked sockets."
+
+      # Issue #1439: an evidence CID was handed back to a caller while the
+      # IPFS pin could not be confirmed, so the file may be garbage-collected.
+      - alert: IpfsPinVerificationFailures
+        expr: increase(ipfs_pin_verification_failures_total{job="marketpay-backend"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "IPFS evidence pin could not be verified"
+          description: "ipfs_pin_verification_failures_total increased in the last 15 minutes. Evidence may be unpinned and at risk of garbage collection — reconcile dispute_evidence rows with pinned = false."

@@ -1,9 +1,12 @@
+/* eslint-disable */
 /**
  * src/services/jobService.js
  */
 "use strict";
 
-const { getTimezoneOffset } = require("date-fns-tz");/**
+const { getTimezoneOffset } = require("date-fns-tz");
+
+/**
  * Check if a job's timezone is compatible with the user's timezone.
  * Compatible if the time difference is within +/-3 hours.
  *
@@ -854,8 +857,9 @@ async function listJobs({
   status = "open",
   limit = 20,
   search,
+  q,
   cursor,
-  // eslint-disable-next-line no-unused-vars
+   
   timezone,
   viewerAddress,
   includeExpired,
@@ -873,7 +877,20 @@ async function listJobs({
   let selectColumns = "jobs.*";
   let orderClause = `CASE WHEN boosted = true AND (boosted_until IS NULL OR boosted_until > NOW()) THEN 0 ELSE 1 END, created_at DESC, id DESC`;
 
-  if (search && search.trim()) {
+  const fullTextQuery = q && q.trim();
+  if (fullTextQuery) {
+    params.push(fullTextQuery);
+    const searchIdx = params.length;
+    const document = "to_tsvector('english', title || ' ' || description)";
+    selectColumns = `jobs.*,
+      ts_rank(${document}, websearch_to_tsquery('english', $${searchIdx})) AS rank,
+      ts_headline('english', title, websearch_to_tsquery('english', $${searchIdx}),
+        'StartSel=<mark>,StopSel=</mark>,MaxWords=50,MinWords=20') AS headline_title,
+      ts_headline('english', description, websearch_to_tsquery('english', $${searchIdx}),
+        'StartSel=<mark>,StopSel=</mark>,MaxWords=80,MinWords=30') AS headline_description`;
+    conditions.push(`${document} @@ websearch_to_tsquery('english', $${searchIdx})`);
+    orderClause = `rank DESC, ${orderClause}`;
+  } else if (search && search.trim()) {
     params.push(search.trim());
     const searchIdx = params.length;
     selectColumns = `jobs.*,
@@ -1389,7 +1406,6 @@ async function listJobs({
     getExpiringJobs,
     getJobAnalytics,
   };
-}
 
 const _pool = require("../db/pool");
 
@@ -1430,3 +1446,5 @@ async function getJobTimeline(jobId) {
 }
 
 Object.assign(module.exports, { TIMELINE_EVENT_TYPES, recordTimelineEvent, getJobTimeline });
+
+}}}

@@ -25,7 +25,11 @@ export async function verifyAdmin2FA(token: string, setup = false) {
     token?: string;
     data: { backupCodes?: string[]; message?: string };
   }>("/api/admin/2fa/verify", { token, setup });
-  return { token: data.token, backupCodes: data.data?.backupCodes, message: data.data?.message };
+  return {
+    token: data.token,
+    backupCodes: data.data?.backupCodes,
+    message: data.data?.message,
+  };
 }
 
 // ─── Admin Functions ──────────────────────────────────────────────────────────
@@ -104,20 +108,27 @@ export async function fetchAdminLogs() {
   return data.data;
 }
 
-export async function fetchAuditLogs(params?: {
-  action?: string;
-  resource_type?: string;
-  from?: string;
-  to?: string;
-  limit?: number;
-  after?: string;
-}) {
+export async function fetchAuditLogs(
+  params?: {
+    action?: string;
+    resource_type?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+    after?: string;
+  },
+  options?: { signal?: AbortSignal },
+) {
   const { data } = await api.get<{
     success: boolean;
     data: AuditLogEntry[];
     nextCursor: string | null;
   }>("/api/audit", {
     params,
+    // Issue #1510 — callers pass an AbortSignal so an in-flight audit-log
+    // request is cancelled as soon as a new search keystroke cycle begins.
+    // axios forwards the signal to the underlying HTTP adapter.
+    signal: options?.signal,
   });
   return { logs: data.data, nextCursor: data.nextCursor };
 }
@@ -181,10 +192,10 @@ export async function fetchTimeSeriesMetrics(params: {
   to?: string;
   granularity?: string;
 }): Promise<TimeSeriesMetric[]> {
-  const { data } = await api.get<{ success: boolean; data: TimeSeriesMetric[] }>(
-    "/api/admin/metrics/time-series",
-    { params },
-  );
+  const { data } = await api.get<{
+    success: boolean;
+    data: TimeSeriesMetric[];
+  }>("/api/admin/metrics/time-series", { params });
   return data.data;
 }
 

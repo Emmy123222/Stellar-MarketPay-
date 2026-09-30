@@ -143,6 +143,22 @@ const xlmPriceUsd = createMetric(promClient.Gauge, {
   help: "Current XLM price in USD (updated on every successful CoinGecko fetch)",
 });
 
+// ─── IPFS pin verification ────────────────────────────────────────────────────
+/**
+ * Counts uploads whose IPFS pin could not be confirmed after the configured
+ * number of retries (Issue #1439). A non-zero rate means a CID was returned to
+ * a caller while the content is not actually pinned, so it may be
+ * garbage-collected by the provider.
+ *
+ * `reason` is bounded to "not_pinned" | "api_error" | "invalid_cid" so the
+ * series cannot explode in cardinality (we never label by CID).
+ */
+const ipfsPinVerificationFailuresTotal = createMetric(promClient.Counter, {
+  name: "ipfs_pin_verification_failures_total",
+  help: "Total IPFS uploads whose pin could not be verified after retries",
+  labelNames: ["reason"],
+});
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const SQL_VERB = /^[\s(]*(select|insert|update|delete|with|begin|commit|rollback|create|alter|drop|truncate|copy|explain|set|listen|notify)\b/i;
@@ -297,6 +313,7 @@ module.exports = {
   pgPoolWaiting,
   notificationQueuePending,
   xlmPriceUsd,
+  ipfsPinVerificationFailuresTotal,
   // legacy aliases
   legacyHttpRequestsTotal,
   legacyHttpRequestDurationSeconds,

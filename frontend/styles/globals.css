@@ -354,6 +354,13 @@
 
 /* ─── Windows High Contrast Mode Support ─────────────────────────────────── */
 @media (forced-colors: active) {
+  .mobile-tab-active {
+    border: 2px solid Highlight !important;
+    border-bottom-width: 3px !important;
+    color: Highlight !important;
+    forced-color-adjust: none;
+  }
+
   /* Ensure borders and focus indicators remain visible */
   .card,
   .input-field,

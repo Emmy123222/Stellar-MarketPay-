@@ -12,8 +12,8 @@ Stellar MarketPay is an open-source decentralised freelance marketplace where cl
 
 ---
 
-
 ## ✨ Features (v1)
+
 ## ✨ Features
 
 ### Core Marketplace (v1.0)
@@ -229,6 +229,7 @@ Deploy or upgrade the Soroban escrow contract using [docs/contract-deployment.md
 - **[Production Deployment](docs/deployment-production.md)** — Deploy to AWS, GCP, or DigitalOcean
 - **[API Documentation](docs/api-documentation.md)** — Complete API reference
 - **[Contract Deployment](docs/contract-deployment.md)** — Deploy Soroban smart contracts
+- **[Prometheus Metrics](backend/docs/METRICS.md)** — Metrics reference, PromQL queries, cardinality bounds, and observability setup
 
 ## 🤝 Contributing
 

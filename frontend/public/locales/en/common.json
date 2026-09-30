@@ -100,6 +100,8 @@
     "amount": "Amount",
     "created": "Created",
     "ends": "Ends",
-    "loading": "Loading governance data..."
+    "loading": "Loading governance data...",
+    "loadMore": "Load more proposals",
+    "loadingMore": "Loading more proposals..."
   }
 }
