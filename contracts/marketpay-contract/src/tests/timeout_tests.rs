@@ -15,7 +15,7 @@ fn setup_contract(
     let client = MarketPayContractClient::new(env, &id);
     let admin = Address::generate(env);
     let treasury = Address::generate(env);
-    client.initialize(&admin, &treasury);
+    client.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let contract_client_addr = Address::generate(env);
     let freelancer = Address::generate(env);

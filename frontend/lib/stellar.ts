@@ -11,7 +11,7 @@ import {
   BASE_FEE,
   Memo,
 } from "@stellar/stellar-sdk";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
 import { fetchGasEstimateSafe, tierToTransactionFee } from "./sorobanFees";
 import { parseContractError } from "./contractErrors";
 import { getUsdcContractId } from "./config/tokens";

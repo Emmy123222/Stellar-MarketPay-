@@ -14,7 +14,7 @@ async function createRating({ jobId, raterAddress, ratedAddress, stars, review }
     const { rows } = await client.query(
       `INSERT INTO ratings (job_id, rater_address, rated_address, stars, review)
        VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (job_id, rater_address) DO NOTHING
+       ON CONFLICT (job_id, rater_address, rated_address) DO NOTHING
        RETURNING *`,
       [jobId, raterAddress, ratedAddress, stars, review || null]
     );

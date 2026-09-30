@@ -7,7 +7,7 @@ fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, Address) {
     let contract = MarketPayContractClient::new(env, &id);
     let admin = Address::generate(env);
     let treasury = Address::generate(env);
-    contract.initialize(&admin, &treasury);
+    contract.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let client = Address::generate(env);
     let freelancer = Address::generate(env);
@@ -161,4 +161,68 @@ fn test_release_all_milestones_marks_released() {
 
     let escrow = contract.get_escrow(&job_id);
     assert_eq!(escrow.status, EscrowStatus::Released);
+}
+
+#[test]
+#[should_panic(expected = "Milestone percentages must sum to 100")]
+fn test_milestones_summing_to_80_rejected() {
+    let env = Env::default();
+    let (contract, client, freelancer, token_id) = setup(&env);
+    let job_id = String::from_str(&env, "ms-job-5");
+
+    let mut ms = Vec::new(&env);
+    ms.push_back(MilestoneInput {
+        description: String::from_str(&env, "Phase 1"),
+        percentage: 30,
+    });
+    ms.push_back(MilestoneInput {
+        description: String::from_str(&env, "Phase 2"),
+        percentage: 50,
+    });
+
+    contract.create_escrow_with_milestones(
+        &job_id,
+        &client,
+        &CreateEscrowParams {
+            freelancer: freelancer.clone(),
+            token: token_id.clone(),
+            amount: 1_000,
+            milestones: Some(ms),
+            timeout_ledgers: None,
+            referrer: None,
+        },
+    );
+}
+
+#[test]
+fn test_empty_milestones_vec_is_allowed_as_single_payment() {
+    let env = Env::default();
+    let (contract, client, freelancer, token_id) = setup(&env);
+    let job_id = String::from_str(&env, "ms-job-6");
+
+    contract.create_escrow_with_milestones(
+        &job_id,
+        &client,
+        &CreateEscrowParams {
+            freelancer: freelancer.clone(),
+            token: token_id.clone(),
+            amount: 1_000,
+            milestones: Some(Vec::new(&env)),
+            timeout_ledgers: None,
+            referrer: None,
+        },
+    );
+
+    // An empty milestone list is a single-payment escrow, not a
+    // validation error.
+    let escrow = contract.get_escrow(&job_id);
+    assert_eq!(escrow.milestones.len(), 0);
+    assert_eq!(escrow.status, EscrowStatus::Locked);
+
+    // And it releases the full amount as a single payment.
+    contract.start_work(&job_id, &freelancer);
+    contract.release_escrow(&job_id, &client);
+    let token_client = token::Client::new(&env, &token_id);
+    // 1000 - 1% fee (10) = 990 to the freelancer.
+    assert_eq!(token_client.balance(&freelancer), 990);
 }

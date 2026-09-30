@@ -13,16 +13,6 @@ function getClient() {
 }
 
 /**
- * Build the profile cache key for a given public key.
- *
- * @param {string} publicKey
- * @returns {string}
- */
-function profileKey(publicKey) {
-  return `profile:${publicKey}`;
-}
-
-/**
  * Increment a per-minute counter and return the new value together with the
  * remaining TTL of the bucket. Used by the API key sliding-window rate
  * limiter (issue #452).
@@ -73,7 +63,10 @@ module.exports = {
   delPattern: cacheUtil.delPattern,
   jobListKey: cacheUtil.jobListKey,
   invalidateJobListCache: cacheUtil.invalidateJobListCache,
-  profileKey,
+  entityKey: cacheUtil.entityKey,
+  jobKey: cacheUtil.jobKey,
+  profileKey: cacheUtil.profileKey,
+  escrowKey: cacheUtil.escrowKey,
   incrWithExpiry,
   rateLimitKey,
   TTL: cacheUtil.TTL,

@@ -21,7 +21,7 @@
 
 const pool = require("../db/pool");
 
-const REFERRAL_BONUS_BPS = 200; // 2% = 200 basis points
+const REFERRAL_BONUS_BPS = Number(process.env.REFERRAL_BONUS_BPS) || 100; // 1% = 100 basis points
 
 /**
  * Validate a Stellar G-address.
@@ -56,13 +56,16 @@ async function registerReferral(referrerAddress, refereeAddress) {
   try {
     const { rows } = await pool.query(
       `INSERT INTO referrals (referrer_address, referee_address, status)
-       VALUES ($1, $2, 'pending')
+       SELECT $1, $2, 'pending'
+       WHERE NOT EXISTS (
+         SELECT 1 FROM referrals WHERE referee_address = $2
+       )
        ON CONFLICT (referrer_address, referee_address) DO NOTHING
        RETURNING *`,
       [referrerAddress, refereeAddress],
     );
 
-    if (rows.length === 0) return null; // already existed
+    if (rows.length === 0) return null; // already existed or referee already referred
 
     // Increment referral_count on the referrer's profile
     await pool.query(
