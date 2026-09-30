@@ -40,14 +40,14 @@ jobs:
         working-directory: contracts/marketpay-contract/fuzz
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy, rustfmt
 
       # ── Cargo / build cache ────────────────────────────────────────────────
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -59,7 +59,7 @@ jobs:
 
       # ── Fuzz corpus cache (shared between runs for seed reuse) ─────────────
       - name: Restore fuzz corpus
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: contracts/marketpay-contract/fuzz/corpus/${{ matrix.target }}
           key: fuzz-corpus-${{ matrix.target }}-${{ github.sha }}
@@ -79,7 +79,7 @@ jobs:
       # ── Upload crash artifacts on failure ─────────────────────────────────
       - name: Upload crash inputs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-crashes-${{ matrix.target }}-${{ github.run_id }}
           path: contracts/marketpay-contract/crashes/${{ matrix.target }}/
