@@ -42,6 +42,7 @@ jest.mock("../services/applicationService", () => ({
   withdrawApplication: jest.fn(),
   closeBiddingForJob: jest.fn(),
   revealApplicationBid: jest.fn(),
+  bulkUpdateApplications: jest.fn(),
 }));
 
 jest.mock("../services/jobService", () => ({
@@ -68,6 +69,7 @@ const {
   withdrawApplication,
   closeBiddingForJob,
   revealApplicationBid,
+  bulkUpdateApplications,
 } = require("../services/applicationService");
 const { getJob } = require("../services/jobService");
 const { logContractInteraction } = require("../services/contractAuditService");
@@ -464,6 +466,114 @@ describe("Applications Routes Suite (/api/applications)", () => {
 
       expect(res.status).toBe(403);
       expect(res.body.error).toMatch(/Only the freelancer who submitted/);
+    });
+  });
+
+  // ─── POST /api/applications/bulk-update ──────────────────────────────────
+
+  describe("POST /api/applications/bulk-update", () => {
+    it("200 — bulk rejects applications successfully and broadcasts event", async () => {
+      const mockResult = {
+        updatedCount: 2,
+        status: "rejected",
+        jobId: JOB_ID,
+        applications: [
+          fakeApplication({ id: "app-1", status: "rejected" }),
+          fakeApplication({ id: "app-2", status: "rejected" }),
+        ],
+      };
+      bulkUpdateApplications.mockResolvedValue(mockResult);
+
+      const res = await request(app)
+        .post("/api/applications/bulk-update")
+        .send({
+          applicationIds: ["app-1", "app-2"],
+          action: "reject",
+          clientAddress: CLIENT,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.updatedCount).toBe(2);
+      expect(res.body.data.status).toBe("rejected");
+      expect(bulkUpdateApplications).toHaveBeenCalledWith({
+        applicationIds: ["app-1", "app-2"],
+        action: "reject",
+        clientAddress: CLIENT,
+      });
+      expect(app.locals.broadcastRealtime).toHaveBeenCalledWith(
+        `job:${JOB_ID}:bids`,
+        {
+          type: "applications:bulk_update",
+          applicationIds: ["app-1", "app-2"],
+          status: "rejected",
+        },
+      );
+    });
+
+    it("200 — bulk shortlists applications successfully", async () => {
+      const mockResult = {
+        updatedCount: 2,
+        status: "shortlisted",
+        jobId: JOB_ID,
+        applications: [
+          fakeApplication({ id: "app-1", status: "shortlisted" }),
+          fakeApplication({ id: "app-2", status: "shortlisted" }),
+        ],
+      };
+      bulkUpdateApplications.mockResolvedValue(mockResult);
+
+      const res = await request(app)
+        .post("/api/applications/bulk-update")
+        .send({
+          applicationIds: ["app-1", "app-2"],
+          action: "shortlist",
+          clientAddress: CLIENT,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.status).toBe("shortlisted");
+    });
+
+    it("400 — rejects empty applicationIds array", async () => {
+      const res = await request(app)
+        .post("/api/applications/bulk-update")
+        .send({
+          applicationIds: [],
+          action: "reject",
+          clientAddress: CLIENT,
+        });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("400 — rejects missing action and status", async () => {
+      const res = await request(app)
+        .post("/api/applications/bulk-update")
+        .send({
+          applicationIds: ["app-1"],
+          clientAddress: CLIENT,
+        });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("403 — surfaces non-owner error from service", async () => {
+      const err = new Error("Only the job client can update applications");
+      err.status = 403;
+      bulkUpdateApplications.mockRejectedValue(err);
+
+      const res = await request(app)
+        .post("/api/applications/bulk-update")
+        .send({
+          applicationIds: ["app-1"],
+          action: "shortlist",
+          clientAddress: CLIENT,
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("Only the job client can update applications");
     });
   });
 });

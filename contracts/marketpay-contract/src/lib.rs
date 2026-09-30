@@ -265,6 +265,18 @@ impl MarketPayContract {
         admin::unfreeze_contract(env, admins)
     }
 
+    /// Admin freezes a single escrow, blocking all state-changing
+    /// operations on that job until `unfreeze_escrow()` is called.
+    pub fn freeze_escrow(env: Env, job_id: String, admin: Address) {
+        admin::freeze_escrow(env, job_id, admin)
+    }
+
+    /// Admin unfreezes a previously frozen escrow, restoring the status
+    /// it had before freezing.
+    pub fn unfreeze_escrow(env: Env, job_id: String, admin: Address) {
+        admin::unfreeze_escrow(env, job_id, admin)
+    }
+
     /// Add a new admin address to the multi-sig admin list.
     pub fn add_admin(env: Env, admin: Address, new_admin: Address) {
         admin::add_admin(env, admin, new_admin)
@@ -338,6 +350,20 @@ impl MarketPayContract {
 
     pub fn resolve_proposal(env: Env, proposal_id: u32) {
         governance::resolve_proposal(env, proposal_id)
+    }
+
+    /// Execute a passed proposal after its timelock has elapsed.
+    pub fn execute_proposal(env: Env, proposal_id: u32) {
+        governance::execute_proposal(env, proposal_id)
+    }
+
+    /// Set the governance execution delay in seconds.
+    pub fn set_execution_delay(env: Env, admin: Address, seconds: u64) {
+        governance::set_execution_delay(env, admin, seconds)
+    }
+
+    pub fn get_execution_delay(env: Env) -> u64 {
+        governance::get_execution_delay(env)
     }
 
     pub fn get_proposal(env: Env, id: u32) -> types::Proposal {
@@ -502,6 +528,17 @@ impl MarketPayContract {
     /// Read all bids that were revealed during reveal phase.
     pub fn get_revealed_bids(env: Env, job_id: String) -> Vec<types::RevealedBid> {
         auction::get_revealed_bids(env, job_id)
+    }
+
+    /// Place a token-backed bid. A higher bid automatically refunds the
+    /// previous winner, so losing funds never remain locked in the contract.
+    pub fn place_bid(env: Env, job_id: String, bidder: Address, amount: i128) {
+        auction::place_bid(env, job_id, bidder, amount)
+    }
+
+    /// Refund a bidder who is no longer the current winner.
+    pub fn refund_bid(env: Env, job_id: String, bidder: Address) {
+        auction::refund_bid(env, job_id, bidder)
     }
 
     // ─── Deliverable Hash Oracle ───────────────────────────────────────────

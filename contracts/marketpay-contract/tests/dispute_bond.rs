@@ -357,6 +357,35 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Only participants can raise a dispute")]
+    fn test_raise_dispute_unauthorized_third_party() {
+        let env = Env::default();
+        let (contract, admin, client, freelancer, arbitrator, token_id) = setup(&env, 1_000_000);
+        contract.set_arbitrator(&admin, &arbitrator);
+
+        let job_id = String::from_str(&env, "unauthorized-dispute");
+        create_started_escrow(&contract, &env, &job_id, &client, &freelancer, &token_id);
+
+        // A third-party (neither client nor freelancer) attempts to raise a dispute
+        let unauthorized_third_party = Address::generate(&env);
+        contract.raise_dispute(&job_id, &unauthorized_third_party);
+    }
+
+    #[test]
+    fn test_raise_dispute_authorized_client_succeeds() {
+        let env = Env::default();
+        let (contract, admin, client, freelancer, arbitrator, token_id) = setup(&env, 1_000_000);
+        contract.set_arbitrator(&admin, &arbitrator);
+
+        let job_id = String::from_str(&env, "authorized-client-dispute");
+        create_started_escrow(&contract, &env, &job_id, &client, &freelancer, &token_id);
+
+        // Client (authorized participant) raises a dispute - should succeed
+        contract.raise_dispute(&job_id, &client);
+        assert_eq!(contract.get_escrow(&job_id).status, EscrowStatus::Disputed);
+    }
+
+    #[test]
     #[should_panic(expected = "Arbitrator fee cannot exceed 100% (10000 bps)")]
     fn test_resolve_dispute_rejects_fee_exceeding_100_percent() {
         let env = Env::default();

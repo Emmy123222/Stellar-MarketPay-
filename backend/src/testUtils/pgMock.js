@@ -694,6 +694,18 @@ function createPgMock() {
       return { rows: [{ bidding_closed_at: row.bidding_closed_at }] };
     }
 
+    if (
+      text.includes("UPDATE jobs") &&
+      text.includes("bidding_closed_at = $1")
+    ) {
+      const row = jobs.get(params[1]);
+      if (!row) return { rows: [] };
+      row.bidding_closed_at = params[0];
+      row.updated_at = new Date().toISOString();
+      jobs.set(row.id, row);
+      return { rows: [{ bidding_closed_at: row.bidding_closed_at }] };
+    }
+
     // UPDATE jobs SET status = 'expired' (expireOldJobs)
     if (text.startsWith("UPDATE") && text.includes("status = 'expired'")) {
       return { rowCount: 0 };
@@ -712,6 +724,40 @@ function createPgMock() {
     }
 
     // ─── Applications Queries ────────────────────────────────────────────
+
+    // SELECT applications joined with jobs for bulk update
+    if (text.includes("FROM applications a") && text.includes("JOIN jobs j")) {
+      const ids = Array.isArray(params[0]) ? params[0] : [params[0]];
+      const matched = [];
+      for (const id of ids) {
+        const app = applications.get(id);
+        if (app) {
+          const job = jobs.get(app.job_id);
+          matched.push({
+            ...app,
+            client_address: job?.client_address || job?.clientAddress,
+            job_title: job?.title,
+          });
+        }
+      }
+      return { rows: matched };
+    }
+
+    // UPDATE applications bulk
+    if (text.includes("UPDATE applications") && text.includes("WHERE id = ANY(")) {
+      const targetStatus = params[0];
+      const ids = Array.isArray(params[1]) ? params[1] : [params[1]];
+      const updated = [];
+      for (const id of ids) {
+        const row = applications.get(id);
+        if (row) {
+          row.status = targetStatus;
+          applications.set(id, row);
+          updated.push(row);
+        }
+      }
+      return { rows: updated };
+    }
 
     // UPDATE applications SET accepted
     if (

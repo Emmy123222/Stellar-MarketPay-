@@ -56,7 +56,6 @@ const {
   migrateProfile,
 } = require("../services/profileMigrationService");
 const { validateProfileMigration } = require("../validators/profileMigrationValidator");
-const { getPriceAlertPreference, upsertPriceAlertPreference } = require("../services/priceAlertService");
 
 /**
  * @swagger
@@ -342,7 +341,6 @@ const updateProfileHandler = async (req, res, next) => {
     const key = cache.profileKey(publicKey);
     await cache.del(key);
     profileLogger.debug({ publicKey, cacheKey: key }, "Cache invalidated after profile update");
-    dispatchLinkVerification(publicKey, data && data.portfolioItems);
     res.json({ success: true, data });
   }
   catch (e) { next(e); }

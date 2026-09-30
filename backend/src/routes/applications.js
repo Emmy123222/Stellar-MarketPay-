@@ -15,6 +15,7 @@ const {
   withdrawApplication,
   closeBiddingForJob,
   revealApplicationBid,
+  bulkUpdateApplications,
 } = require("../services/applicationService");
 const { FREELANCER_TIERS } = require("../services/profileService");
 const { logContractInteraction } = require("../services/contractAuditService");
@@ -29,6 +30,7 @@ const {
   revealBidSchema,
   acceptApplicationSchema,
   withdrawApplicationSchema,
+  bulkUpdateApplicationsSchema,
 } = require("../validators/applicationValidator");
 
 /**
@@ -285,6 +287,33 @@ router.delete("/:id", applicationRateLimiter, async (req, res, next) => {
 
     res.json({ success: true, data: app });
   } catch (e) { next(e); }
+});
+
+// POST /api/applications/bulk-update — client bulk rejects or shortlists applications
+router.post("/bulk-update", applicationRateLimiter, async (req, res, next) => {
+  try {
+    const { applicationIds, action, status, clientAddress } = validate(
+      bulkUpdateApplicationsSchema,
+      req.body,
+    );
+    const result = await bulkUpdateApplications({
+      applicationIds,
+      action: action || status,
+      clientAddress,
+    });
+
+    if (result.jobId) {
+      req.app.locals.broadcastRealtime?.(`job:${result.jobId}:bids`, {
+        type: "applications:bulk_update",
+        applicationIds,
+        status: result.status,
+      });
+    }
+
+    res.json({ success: true, data: result });
+  } catch (e) {
+    next(e);
+  }
 });
 
 module.exports = router;

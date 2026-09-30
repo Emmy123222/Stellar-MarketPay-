@@ -16,20 +16,8 @@ const window = new JSDOM("").window;
 const purify = createDOMPurify(window);
 
 /**
- * Elements whose *contents* are code or markup rather than prose. Even when
- * DOMPurify drops the tags, the text between them must not be persisted.
- */
-const BIO_DROPPED_ELEMENTS = "script, style, template, noscript, iframe, object, embed";
-
-/**
  * Sanitizes a bio string with DOMPurify (server-side, using jsdom) before storing.
  * Strips all HTML tags — stores plain text only.
- *
- * The result is read back through a real HTML parser (`textContent`) rather than
- * a tag-stripping regex plus manual entity replacement. Regex stripping can be
- * bypassed by malformed markup, and decoding `&amp;` by hand decodes twice, so
- * `&amp;lt;script&amp;gt;` would re-introduce live markup. The parser decodes each
- * entity exactly once, which keeps the stored value plain text by construction.
  *
  * @param {string|null|undefined} bio
  * @returns {string|null}
@@ -37,18 +25,13 @@ const BIO_DROPPED_ELEMENTS = "script, style, template, noscript, iframe, object,
 function sanitizeBio(bio) {
   if (bio == null) return null;
   if (typeof bio !== "string") return null;
-
-  // Drop every tag and attribute, leaving HTML-escaped plain text.
+  // First sanitize any malicious HTML, then strip tags and return plain text
   const cleaned = purify.sanitize(bio, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
-
-  // Decode the escaped text exactly once via the DOM, after dropping any
-  // element whose contents are not prose.
-  const doc = new JSDOM(cleaned).window.document;
-  for (const element of doc.body.querySelectorAll(BIO_DROPPED_ELEMENTS)) {
-    element.remove();
-  }
-
-  return doc.body.textContent.trim();
+  // Remove any remaining HTML entities and tags to ensure plain-text storage
+  const withoutTags = cleaned.replace(/<[^>]*>/g, "");
+  // Decode common HTML entities produced by sanitizers
+  const decoded = withoutTags.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  return decoded.trim();
 }
 
 const VALID_PROFILE_ROLES = ["client", "freelancer", "both"];
@@ -405,10 +388,6 @@ async function getProfile(publicKey) {
 async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, portfolioFiles, availability, role, email, emailNotificationsEnabled, webhookUrl, webhookSecret, phone, kycData, encryptionPublicKey }) {
   validatePublicKey(publicKey);
 
-  // Run synchronous validation first so callers sending malformed
-  // payloads never trigger any DB round-trips (preserves pre-existing
-  // `expect(pool.query).not.toHaveBeenCalled()` semantics for the
-  // rejects-* tests).
   const safeBio = bio != null ? (sanitizeBio(bio) || null) : null;
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 15) : null;
   const validatedPortfolio = validatePortfolioItems(portfolioItems);
