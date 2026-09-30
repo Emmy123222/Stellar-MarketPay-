@@ -51,6 +51,7 @@ const {
   unblockFreelancer,
   markProfileForDeletion,
 } = require("../services/profileService");
+const { enqueuePortfolioVerification } = require("../services/linkVerificationService");
 const {
   migrateProfile,
 } = require("../services/profileMigrationService");
@@ -295,6 +296,24 @@ router.get("/:publicKey/response-time", generalProfileRateLimiter, async (req, r
   catch (e) { next(e); }
 });
 
+/**
+ * Fire-and-forget dispatch of portfolio link verification after an
+ * upsert. Errors are swallowed so the HTTP response is not delayed or
+ * failed when Redis is unavailable; the link verification status
+ * remains the previous value until the next successful queue drain.
+ */
+function dispatchLinkVerification(publicKey, portfolioItems) {
+  if (!publicKey || !Array.isArray(portfolioItems) || portfolioItems.length === 0) {
+    return;
+  }
+  enqueuePortfolioVerification({ publicKey, portfolioItems }).catch((err) => {
+    profileLogger.warn(
+      { publicKey, err: err && err.message },
+      "Failed to enqueue link verification after profile upsert"
+    );
+  });
+}
+
 router.post("/", profileUpdateRateLimiter, validateJsonb({ portfolio_items: portfolioItemsSchema }), async (req, res, next) => {
   try {
     const body = validate(upsertProfileSchema, req.body);
@@ -303,6 +322,7 @@ router.post("/", profileUpdateRateLimiter, validateJsonb({ portfolio_items: port
       const key = cache.profileKey(body.publicKey);
       await cache.del(key);
       profileLogger.debug({ publicKey: body.publicKey, cacheKey: key }, "Cache invalidated after POST profile");
+      dispatchLinkVerification(body.publicKey, data && data.portfolioItems);
     }
     res.json({ success: true, data });
   }

@@ -64,6 +64,7 @@ async function getActiveFreelancers() {
             digest_unsubscribe_token
      FROM profiles
      WHERE role IN ('freelancer', 'both')
+       AND email_verified = true
        AND (email IS NOT NULL AND email <> '' OR encrypted_email IS NOT NULL)
        AND last_login_at IS NOT NULL
        AND last_login_at >= NOW() - INTERVAL '30 days'`,
