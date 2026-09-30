@@ -41,7 +41,7 @@ mod tests {
         let id = env.register(MarketPayContract, ());
         let contract = MarketPayContractClient::new(env, &id);
         let admin = Address::generate(env);
-        contract.initialize(&admin, &admin);
+        contract.initialize(&admin, &admin, &String::from_str(&env, "1.0.0"));
 
         let client = Address::generate(env);
         let freelancer = Address::generate(env);
@@ -348,9 +348,41 @@ mod tests {
         contract.resolve_dispute(&job_id, &arbitrator, &client, &60, &500);
         assert_eq!(contract.get_escrow(&job_id).status, EscrowStatus::Released);
         assert_eq!(token_client.balance(&arbitrator), 50);
-        assert_eq!(token_client.balance(&client), (1_000_000 - ESCROW_AMOUNT) + 570);
+        assert_eq!(
+            token_client.balance(&client),
+            (1_000_000 - ESCROW_AMOUNT) + 570
+        );
         assert_eq!(token_client.balance(&freelancer), 380);
         assert_eq!(token_client.balance(&contract.address), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only participants can raise a dispute")]
+    fn test_raise_dispute_unauthorized_third_party() {
+        let env = Env::default();
+        let (contract, admin, client, freelancer, arbitrator, token_id) = setup(&env, 1_000_000);
+        contract.set_arbitrator(&admin, &arbitrator);
+
+        let job_id = String::from_str(&env, "unauthorized-dispute");
+        create_started_escrow(&contract, &env, &job_id, &client, &freelancer, &token_id);
+
+        // A third-party (neither client nor freelancer) attempts to raise a dispute
+        let unauthorized_third_party = Address::generate(&env);
+        contract.raise_dispute(&job_id, &unauthorized_third_party);
+    }
+
+    #[test]
+    fn test_raise_dispute_authorized_client_succeeds() {
+        let env = Env::default();
+        let (contract, admin, client, freelancer, arbitrator, token_id) = setup(&env, 1_000_000);
+        contract.set_arbitrator(&admin, &arbitrator);
+
+        let job_id = String::from_str(&env, "authorized-client-dispute");
+        create_started_escrow(&contract, &env, &job_id, &client, &freelancer, &token_id);
+
+        // Client (authorized participant) raises a dispute - should succeed
+        contract.raise_dispute(&job_id, &client);
+        assert_eq!(contract.get_escrow(&job_id).status, EscrowStatus::Disputed);
     }
 
     #[test]

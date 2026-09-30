@@ -3,8 +3,16 @@ import { useState, useEffect, useCallback } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import Navbar from "@/components/Navbar";
-import { connectWallet, getConnectedPublicKey, signTransactionWithWallet } from "@/lib/wallet";
-import { fetchAuthChallenge, verifyAuthChallenge, setJwtToken } from "@/lib/api";
+import {
+  connectWallet,
+  getConnectedPublicKey,
+  signTransactionWithWallet,
+} from "@/lib/wallet";
+import {
+  fetchAuthChallenge,
+  verifyAuthChallenge,
+  setJwtToken,
+} from "@/lib/api";
 import "@/styles/globals.css";
 import { ToastProvider, toast } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
@@ -14,7 +22,7 @@ import CommandPalette from "@/components/CommandPalette";
 import OfflineBanner from "@/components/OfflineBanner";
 import RateLimitWatcher from "@/components/RateLimitWatcher";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
-import { useTranslation } from "../lib/i18n";
+import { useTranslation } from "@/lib/i18n";
 
 const LOCALE_STORAGE_KEY = "stellar-marketpay:locale";
 const SUPPORTED_LOCALES = new Set(["en", "es", "fr", "pt"]);
@@ -24,9 +32,11 @@ function getInitialLocale(): string {
 
   const savedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
   const browserLocale = window.navigator.language?.split("-")[0];
-  return [savedLocale, browserLocale, "en"].find(
-    (locale): locale is string => Boolean(locale && SUPPORTED_LOCALES.has(locale)),
-  ) || "en";
+  return (
+    [savedLocale, browserLocale, "en"].find((locale): locale is string =>
+      Boolean(locale && SUPPORTED_LOCALES.has(locale)),
+    ) || "en"
+  );
 }
 
 function App({ Component, pageProps }: AppProps) {

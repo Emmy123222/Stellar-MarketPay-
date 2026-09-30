@@ -20,7 +20,7 @@ fn setup(env: &Env) -> (MarketPayContractClient, Address, Address, Address) {
     let contract = MarketPayContractClient::new(env, &id);
     let admin = Address::generate(env);
     let treasury = Address::generate(env);
-    contract.initialize(&admin, &treasury);
+    contract.initialize(&admin, &treasury, &String::from_str(&env, "1.0.0"));
 
     let client = Address::generate(env);
     let freelancer = Address::generate(env);
@@ -77,14 +77,15 @@ fn try_create(percentages: &[u32]) -> bool {
 
 /// Any percentages whose (u64) sum is not 100. Mixes small values (near the
 /// 100 boundary), zeros, and arbitrary u32s (overflow territory), and allows
-/// empty vectors and lengths above the 5-milestone cap.
+/// non-empty vectors and lengths above the 5-milestone cap. Empty milestone
+/// lists are valid for single-payment escrows.
 fn invalid_sum_percentages() -> impl Strategy<Value = std::vec::Vec<u32>> {
     let pct = prop_oneof![
         4 => 0u32..=100,
         1 => Just(0u32),
         1 => any::<u32>(),
     ];
-    proptest::collection::vec(pct, 0..=8).prop_filter("sum must not be 100", |v| {
+    proptest::collection::vec(pct, 1..=8).prop_filter("sum must not be 100", |v| {
         v.iter().map(|p| *p as u64).sum::<u64>() != 100
     })
 }
@@ -141,7 +142,7 @@ proptest! {
 
 #[test]
 fn edge_cases_from_issue() {
-    assert!(!try_create(&[]));
+    assert!(try_create(&[]));
     assert!(!try_create(&[0, 0, 0]));
     assert!(try_create(&[100]));
     assert!(try_create(&[20, 20, 20, 20, 20]));
