@@ -20,11 +20,14 @@ const { createRateLimiter } = require("../middleware/rateLimiter");
 const {
   getInvitationsForFreelancer,
   declineInvitation,
+  revokeInvitation,
 } = require("../services/jobInvitationService");
 const { submitApplication } = require("../services/applicationService");
 
 const readLimiter  = createRateLimiter(60, 1);
 const writeLimiter = createRateLimiter(20, 1);
+
+router.use(writeLimiter);
 
 /**
  * @swagger
@@ -65,7 +68,7 @@ router.get("/", verifyJWT, readLimiter, async (req, res, next) => {
  *       200:
  *         description: Invitation declined
  */
-router.patch("/:id/decline", verifyJWT, writeLimiter, async (req, res, next) => {
+router.patch("/:id/decline", verifyJWT, async (req, res, next) => {
   try {
     const invitation = await declineInvitation(req.params.id, req.user.publicKey);
     res.json({ success: true, data: invitation });
@@ -75,6 +78,25 @@ router.patch("/:id/decline", verifyJWT, writeLimiter, async (req, res, next) => 
 });
 
 /**
+ * DELETE /api/invitations/:token/revoke
+ * Client revokes (deletes) an invitation by its id.
+ * This permanently removes the invitation row.
+ *
+ * Rate-limited via writeLimiter (20 req/min) and app-level rateLimit in server.js.
+ */
+router.delete("/:token/revoke", verifyJWT, async (req, res, next) => {
+  try {
+    await revokeInvitation(req.params.token, req.user.publicKey);
+    res.json({ success: true, message: "Invitation revoked" });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/invitations/:id/accept
+ * Freelancer accepts an invitation — auto-creates a pending application.
+ * Body: { proposal, bidAmount }
  * @swagger
  * /api/invitations/{id}/accept:
  *   post:
@@ -110,7 +132,7 @@ router.patch("/:id/decline", verifyJWT, writeLimiter, async (req, res, next) => 
  *       403:
  *         description: Not the invited freelancer
  */
-router.post("/:id/accept", verifyJWT, writeLimiter, async (req, res, next) => {
+router.post("/:id/accept", verifyJWT, async (req, res, next) => {
   try {
     const pool = require("../db/pool");
     const { rows } = await pool.query(
@@ -126,6 +148,11 @@ router.post("/:id/accept", verifyJWT, writeLimiter, async (req, res, next) => {
     if (inv.freelancer_address !== req.user.publicKey) {
       const e = new Error("Only the invited freelancer can accept");
       e.status = 403;
+      throw e;
+    }
+    if (inv.expires_at && new Date(inv.expires_at) < new Date()) {
+      const e = new Error("This invitation has expired");
+      e.status = 410;
       throw e;
     }
 

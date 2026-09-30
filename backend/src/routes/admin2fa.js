@@ -26,6 +26,7 @@ const QRCode = require("qrcode");
 const speakeasy = require("speakeasy");
 const pool = require("../db/pool");
 const { verifyJWT, requireAdminRole } = require("../middleware/auth");
+const { createRateLimiter } = require("../middleware/rateLimiter");
 const { signAccessToken } = require("../services/authTokens");
 const { encrypt } = require("../utils/encryption");
 const {
@@ -49,6 +50,12 @@ const router = express.Router();
  */
 const TOTP_WINDOW = SERVICE_TOTP_WINDOW || 1;
 
+// TOTP setup/verify/disable are authentication operations: an unbounded
+// request rate lets an attacker brute-force the 6-digit code or flood the
+// profile table, so cap them per IP. Reads get a looser ceiling.
+const twoFactorAuthRateLimiter = createRateLimiter(10, 1); // 10 req/min per IP
+const twoFactorStatusRateLimiter = createRateLimiter(30, 1); // 30 req/min per IP
+
 function issueAdminToken(publicKey, twoFaVerified) {
   return signAccessToken({
     publicKey,
@@ -71,7 +78,7 @@ function issueAdminToken(publicKey, twoFaVerified) {
  *       400:
  *         description: 2FA already enabled
  */
-router.post("/setup", verifyJWT, requireAdminRole, async (req, res, next) => {
+router.post("/setup", twoFactorAuthRateLimiter, verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const { publicKey } = req.user;
     await ensureAdminProfile(publicKey);
@@ -128,7 +135,7 @@ router.post("/setup", verifyJWT, requireAdminRole, async (req, res, next) => {
  *       400:
  *         description: Invalid code
  */
-router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
+router.post("/verify", twoFactorAuthRateLimiter, verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const { publicKey } = req.user;
     const { token, setup } = req.body;
@@ -190,7 +197,7 @@ router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
 });
 
 // POST /api/admin/2fa/disable
-router.post("/disable", verifyJWT, requireAdminRole, async (req, res, next) => {
+router.post("/disable", twoFactorAuthRateLimiter, verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const { publicKey } = req.user;
     const { token, backupCode } = req.body;
@@ -231,7 +238,7 @@ router.post("/disable", verifyJWT, requireAdminRole, async (req, res, next) => {
  *       200:
  *         description: 2FA status including verification state
  */
-router.get("/status", verifyJWT, requireAdminRole, async (req, res, next) => {
+router.get("/status", twoFactorStatusRateLimiter, verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const status = await get2FAStatus(req.user.publicKey);
     res.json({

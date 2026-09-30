@@ -164,7 +164,7 @@ describe("Webhooks Route Suite (/api/webhooks)", () => {
         .send({ ...VALID_BODY, url: "  https://example.com/webhook  " });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("A valid webhook URL is required");
+      expect(res.body.error).toMatch(/webhook URL/i);
       expect(registerWebhook).not.toHaveBeenCalled();
     });
   });
@@ -213,7 +213,15 @@ describe("Webhooks Route Suite (/api/webhooks)", () => {
       const res = await authedPost({ events: ["escrow_created"], secret: "super-secret-123" });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("A valid webhook URL is required");
+      expect(res.body.error).toMatch(/webhook URL/i);
+      expect(registerWebhook).not.toHaveBeenCalled();
+    });
+
+    it("400 — rejects a non-HTTPS webhook URL (http not allowed)", async () => {
+      const res = await authedPost({ ...VALID_BODY, url: "http://example.com/hook" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/https scheme/i);
       expect(registerWebhook).not.toHaveBeenCalled();
     });
 
@@ -221,7 +229,7 @@ describe("Webhooks Route Suite (/api/webhooks)", () => {
       const res = await authedPost({ ...VALID_BODY, url: "ftp://example.com/hook" });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe("A valid webhook URL is required");
+      expect(res.body.error).toMatch(/https scheme/i);
       expect(registerWebhook).not.toHaveBeenCalled();
     });
 
@@ -263,6 +271,112 @@ describe("Webhooks Route Suite (/api/webhooks)", () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("Webhook secret must be at least 8 characters");
       expect(registerWebhook).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // POST /api/webhooks — SSRF prevention (Issue #1456)
+  // =========================================================================
+  describe("POST /api/webhooks — SSRF prevention", () => {
+    function authedPost(body) {
+      return request(app)
+        .post("/api/webhooks")
+        .set("Authorization", `Bearer ${makeToken()}`)
+        .set("X-CSRF-Token", "dummy-token")
+        .send(body);
+    }
+
+    // ── Scheme enforcement ──────────────────────────────────────────────
+    it("400 — rejects an http:// URL (only https is allowed)", async () => {
+      const res = await authedPost({ ...VALID_BODY, url: "http://example.com/webhook" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/https scheme/i);
+      expect(registerWebhook).not.toHaveBeenCalled();
+    });
+
+    // ── Loopback addresses ───────────────────────────────────────────────
+    it("400 — rejects https://127.0.0.1 (loopback)", async () => {
+      const res = await authedPost({ ...VALID_BODY, url: "https://127.0.0.1/hook" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/private or loopback/i);
+      expect(registerWebhook).not.toHaveBeenCalled();
+    });
+
+    it("400 — rejects https://localhost (loopback hostname)", async () => {
+      const res = await authedPost({ ...VALID_BODY, url: "https://localhost/hook" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/private or loopback/i);
+      expect(registerWebhook).not.toHaveBeenCalled();
+    });
+
+    it("400 — rejects https://[::1] (IPv6 loopback)", async () => {
+      const res = await authedPost({ ...VALID_BODY, url: "https://[::1]/hook" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/private or loopback/i);
+      expect(registerWebhook).not.toHaveBeenCalled();
+    });
+
+    // ── RFC-1918 private ranges ──────────────────────────────────────────
+    it("400 — rejects https://10.0.0.1 (RFC-1918 10/8)", async () => {
+      const res = await authedPost({ ...VALID_BODY, url: "https://10.0.0.1/hook" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/private or loopback/i);
+      expect(registerWebhook).not.toHaveBeenCalled();
+    });
+
+    it("400 — rejects https://172.16.0.1 (RFC-1918 172.16/12)", async () => {
+      const res = await authedPost({ ...VALID_BODY, url: "https://172.16.0.1/hook" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/private or loopback/i);
+      expect(registerWebhook).not.toHaveBeenCalled();
+    });
+
+    it("400 — rejects https://192.168.1.1 (RFC-1918 192.168/16)", async () => {
+      const res = await authedPost({ ...VALID_BODY, url: "https://192.168.1.1/hook" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/private or loopback/i);
+      expect(registerWebhook).not.toHaveBeenCalled();
+    });
+
+    // ── AWS metadata endpoint (link-local) ───────────────────────────────
+    it("400 — rejects https://169.254.169.254 (AWS metadata link-local)", async () => {
+      const res = await authedPost({
+        ...VALID_BODY,
+        url: "https://169.254.169.254/latest/meta-data/",
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/private or loopback/i);
+      expect(registerWebhook).not.toHaveBeenCalled();
+    });
+
+    // ── Valid public HTTPS URL must pass ─────────────────────────────────
+    it("201 — accepts a valid public https:// URL", async () => {
+      registerWebhook.mockResolvedValue({
+        id: "webhook-ssrf-ok",
+        user_address: USER_ADDRESS,
+        url: "https://example.com/webhook",
+        events: ["escrow_created"],
+        created_at: "2026-08-01T00:00:00.000Z",
+      });
+
+      const res = await authedPost({
+        ...VALID_BODY,
+        url: "https://example.com/webhook",
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(registerWebhook).toHaveBeenCalledWith(
+        expect.objectContaining({ url: "https://example.com/webhook" }),
+      );
     });
   });
 

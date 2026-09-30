@@ -49,10 +49,10 @@ async function createRecurringEscrow({
 
   if (isMonthly) {
     const now = new Date();
-    anchorDay = now.getDate();
-    const next = new Date(now.getFullYear(), now.getMonth() + 1, anchorDay);
-    if (next.getMonth() !== (now.getMonth() + 1) % 12) {
-      next.setDate(0);
+    anchorDay = now.getUTCDate();
+    const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, anchorDay, now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds(), now.getUTCMilliseconds()));
+    if (next.getUTCMonth() !== (now.getUTCMonth() + 1) % 12) {
+      next.setUTCDate(0);
     }
     nextReleaseDate = next.toISOString();
   }
@@ -114,10 +114,10 @@ async function tickRecurringEscrow(jobId) {
   let nextReleaseDate = null;
   if (escrow.anchor_day && escrow.next_release_date) {
     const currentNext = new Date(escrow.next_release_date);
-    const expectedMonth = currentNext.getMonth() + 1;
-    const next = new Date(currentNext.getFullYear(), expectedMonth, escrow.anchor_day);
-    if (next.getMonth() !== expectedMonth % 12) {
-      next.setDate(0);
+    const expectedMonth = currentNext.getUTCMonth() + 1;
+    const next = new Date(Date.UTC(currentNext.getUTCFullYear(), expectedMonth, escrow.anchor_day, currentNext.getUTCHours(), currentNext.getUTCMinutes(), currentNext.getUTCSeconds(), currentNext.getUTCMilliseconds()));
+    if (next.getUTCMonth() !== expectedMonth % 12) {
+      next.setUTCDate(0);
     }
     nextReleaseDate = next.toISOString();
   }
