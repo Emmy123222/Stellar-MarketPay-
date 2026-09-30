@@ -48,7 +48,7 @@ export default function ProposalComparison({ myJobs, jobApplications, publicKey 
         setSelectedProposalIds(new Set(ids));
       }
     }
-  }, []);
+  }, [myJobs, router.query.compare, router.query.job]);
 
   useEffect(() => {
     if (!selectedJobId) return;
@@ -58,7 +58,7 @@ export default function ProposalComparison({ myJobs, jobApplications, publicKey 
     if (pruned.size !== selectedProposalIds.size) {
       setSelectedProposalIds(pruned);
     }
-  }, [selectedJobId, jobApplications]);
+  }, [selectedJobId, jobApplications, selectedProposalIds]);
 
   const syncUrl = (jobId: string, ids: Set<string>) => {
     const query: Record<string, string | undefined> = Object.fromEntries(
@@ -112,7 +112,7 @@ export default function ProposalComparison({ myJobs, jobApplications, publicKey 
         }
       });
     });
-  }, [selectedProposalIds]);
+  }, [selectedProposalIds, profiles, selectedApplications]);
 
   if (myJobs.length === 0) {
     return (

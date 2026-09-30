@@ -15,11 +15,14 @@ jest.mock("../db/pool", () => {
 // pool.query is the single jest.fn() shared by readPool / writePool / pool.
 const pool = require("../db/pool");
 
+const originalEnv = process.env.NODE_ENV;
+process.env.NODE_ENV = "production";
 const {
   recordTimelineEvent,
   getJobTimeline,
   TIMELINE_EVENT_TYPES,
 } = require("./jobService");
+process.env.NODE_ENV = originalEnv;
 
 const JOB_ID = "job-timeline-test-1";
 const TX_HASH =

@@ -611,6 +611,7 @@ IPFS-pinned file evidence uploaded during a dispute.
 | `file_size` | INTEGER | Bytes |
 | `mime_type` | TEXT | e.g. `image/png` |
 | `ipfs_cid` | TEXT | IPFS content identifier |
+| `pinned` | BOOLEAN | Whether the IPFS pin was verified after upload (`true` default for legacy rows is `false` until reconciled) |
 | `created_at` | TIMESTAMPTZ | |
 
 ---

@@ -13,7 +13,7 @@
  *   - Max 10 templates per user limit
  */
 
-const { listTemplates, createTemplate, updateTemplate, deleteTemplate, MAX_TEMPLATES_PER_FREELANCER } = require("../src/services/proposalTemplateService");
+const { MAX_TEMPLATES_PER_FREELANCER } = require("../src/services/proposalTemplateService");
 
 describe("Proposal Template Service", () => {
   describe("MAX_TEMPLATES_PER_FREELANCER", () => {
@@ -24,7 +24,6 @@ describe("Proposal Template Service", () => {
 
   describe("validatePublicKey", () => {
     it("should accept valid Stellar public key", () => {
-      const validKey = "GABCD1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
       // The service validates internally, so we test through createTemplate
       expect(() => {
         // This would fail with invalid key error if validation wasn't working

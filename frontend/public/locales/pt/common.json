@@ -66,7 +66,10 @@
   },
   "wallet": {
     "balance": "Saldo",
-    "loading": "Carregando..."
+    "loading": "Carregando...",
+    "copyAddress": "Copiar endereço da carteira",
+    "copied": "Copiado!",
+    "copyFailed": "Falha"
   },
   "language": {
     "switch": "Mudar idioma",
@@ -97,6 +100,8 @@
     "amount": "Valor",
     "created": "Criado",
     "ends": "Termina",
-    "loading": "Carregando dados de governança..."
+    "loading": "Carregando dados de governança...",
+    "loadMore": "Carregar mais propostas",
+    "loadingMore": "Carregando mais propostas..."
   }
 }

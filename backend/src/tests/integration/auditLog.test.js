@@ -50,18 +50,18 @@ afterAll(async () => {
   if (hasPostgres && pool) await pool.end();
 });
 
+const actorAddress = "GAUDITTEST123456789012345678901234567890123456789012345678901234";
+
+// NOTE: The service queries go through the shared pool, so a BEGIN/ROLLBACK
+// pattern that releases its client between hooks cannot isolate tests —
+// inserts land on arbitrary pooled connections (some outside the open
+// transaction) and leak across tests non-deterministically. Other suites
+// hitting the real API also persist audit rows in this shared database
+// (e.g. job creation), so clear the whole table before each test; list
+// filters are not actor-scoped and count exact matches.
 beforeEach(async () => {
   if (!hasPostgres) return;
-  const client = await pool.connect();
-  await client.query("BEGIN");
-  client.release();
-});
-
-afterEach(async () => {
-  if (!hasPostgres) return;
-  const client = await pool.connect();
-  await client.query("ROLLBACK");
-  client.release();
+  await pool.query("DELETE FROM audit_log");
 });
 
 describe("Audit Log Integration Tests", () => {
@@ -70,10 +70,10 @@ describe("Audit Log Integration Tests", () => {
       console.log("Skipping audit log integration tests — no Postgres instance.");
     }
   });
-  const actorAddress = "GAUDITTEST123456789012345678901234567890123456789012345678901234";
   const entityId = "00000000-0000-0000-0000-000000000001";
 
   test("insertAuditLog creates a row with correct fields", async () => {
+    if (!hasPostgres) return;
     const entry = await insertAuditLog({
       actorAddress,
       action: "test_action",
@@ -102,6 +102,7 @@ describe("Audit Log Integration Tests", () => {
   });
 
   test("insertAuditLog accepts null old_value and new_value", async () => {
+    if (!hasPostgres) return;
     const entry = await insertAuditLog({
       actorAddress,
       action: "system_event",
@@ -115,6 +116,7 @@ describe("Audit Log Integration Tests", () => {
   });
 
   test("listAuditLogs returns entries ordered by created_at DESC", async () => {
+    if (!hasPostgres) return;
     await insertAuditLog({
       actorAddress,
       action: "first",
@@ -137,6 +139,7 @@ describe("Audit Log Integration Tests", () => {
   });
 
   test("listAuditLogs filters by entity_type, entity_id, and action", async () => {
+    if (!hasPostgres) return;
     await insertAuditLog({
       actorAddress,
       action: "job_status_change",
@@ -163,8 +166,10 @@ describe("Audit Log Integration Tests", () => {
   });
 
   test("listAuditLogs paginates with cursor", async () => {
+    if (!hasPostgres) return;
     // Insert 3 entries
     for (let i = 0; i < 3; i++) {
+      await new Promise(r => setTimeout(r, 10));
       await insertAuditLog({
         actorAddress,
         action: `page_test_${i}`,

@@ -21,7 +21,8 @@ const ALLOWED_ESCROW_PREFIX = process.env.ALLOWED_ESCROW_PREFIX || "GC";
  */
 function isAuthorizedEscrow(escrowId) {
   if (!escrowId || typeof escrowId !== "string") return false;
-  return escrowId.startsWith(ALLOWED_ESCROW_PREFIX);
+  const prefix = process.env.ALLOWED_ESCROW_PREFIX || ALLOWED_ESCROW_PREFIX;
+  return escrowId.startsWith(prefix);
 }
 
 /**
@@ -45,14 +46,15 @@ async function signTransaction(transactionXDR, escrowId) {
     throw e;
   }
 
-  if (!ESCROW_SECRET_KEY) {
+  const secretKey = process.env.ESCROW_SECRET_KEY || process.env.TURRET_SIGNING_KEY || ESCROW_SECRET_KEY;
+  if (!secretKey) {
     const e = new Error("Turret signing key not configured");
     e.status = 500;
     throw e;
   }
 
   try {
-    const sourceKeypair = crypto.createSecretKey(Buffer.from(ESCROW_SECRET_KEY, "hex"));
+    const sourceKeypair = crypto.createSecretKey(Buffer.from(secretKey, "hex"));
     const { Transaction } = require("@stellar/stellar-sdk");
 
     let transaction;

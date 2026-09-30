@@ -12,17 +12,15 @@
 
 // ─── Module isolation ──────────────────────────────────────────────────────
 // Isolate each describe block's require so the p-limit singleton is fresh.
-let callWithLimit;
 let executeWithRetry;
 let _setRetryBaseDelay;
 let horizonLatency;
-let limit;
 let pLimit;
 
 beforeAll(() => {
   // Use real p-limit but a fresh module load.
   jest.resetModules();
-  ({ callWithLimit, executeWithRetry, _setRetryBaseDelay, horizonLatency, limit } =
+  ({ executeWithRetry, _setRetryBaseDelay, horizonLatency } =
     require("../src/utils/horizonClient"));
   pLimit = require("p-limit");
 

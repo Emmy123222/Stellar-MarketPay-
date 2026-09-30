@@ -301,6 +301,7 @@ CREATE TABLE IF NOT EXISTS escrows (
   status              TEXT        NOT NULL DEFAULT 'funded',   -- funded | released | refunded | timeout_refunded
   released_at         TIMESTAMPTZ,                 -- When the escrow was released
   timeout_at          TIMESTAMPTZ,                 -- Issue #175: Ledger timeout mapped to wall-clock (approx)
+  next_billing_date   TIMESTAMPTZ,                 -- Issue #1453: DST-aware recurring billing date
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -427,7 +428,7 @@ CREATE INDEX IF NOT EXISTS referral_payouts_referee_idx  ON referral_payouts(ref
 -- ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS scope_sessions (
   session_id        TEXT PRIMARY KEY,
-  content           TEXT          NOT NULL DEFAULT '',
+  content           TEXT          NOT NULL DEFAULT '' CHECK (octet_length(content) <= 524288),
   cursors           JSONB         NOT NULL DEFAULT '{}'::jsonb,
   finalized         BOOLEAN       NOT NULL DEFAULT false,
   finalized_hash    TEXT,
@@ -466,10 +467,16 @@ CREATE TABLE IF NOT EXISTS dispute_evidence (
   file_size        INTEGER NOT NULL,
   mime_type        TEXT  NOT NULL,
   ipfs_cid         TEXT  NOT NULL,
+  pinned           BOOLEAN NOT NULL DEFAULT FALSE,  -- Issue #1439: pin confirmed after upload
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS dispute_evidence_job_id_idx ON dispute_evidence(job_id);
+
+-- Issue #1439: surface not-yet-confirmed pins first for reconciliation jobs.
+CREATE INDEX IF NOT EXISTS dispute_evidence_unpinned_idx
+  ON dispute_evidence(created_at DESC)
+  WHERE pinned = FALSE;
 
 -- ─────────────────────────────────────────
 -- time_entries  (Issue #346 — time tracking)
@@ -604,3 +611,145 @@ CREATE INDEX IF NOT EXISTS audit_log_entity_idx     ON audit_log(entity_type, en
 CREATE INDEX IF NOT EXISTS audit_log_actor_idx      ON audit_log(actor_address);
 CREATE INDEX IF NOT EXISTS audit_log_action_idx     ON audit_log(action);
 CREATE INDEX IF NOT EXISTS audit_log_created_idx    ON audit_log(created_at DESC);
+
+-- ─────────────────────────────────────────
+-- reputation_scores  (V55 — Issue #1561)
+-- ─────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS reputation_scores (
+  user_id             TEXT          PRIMARY KEY REFERENCES profiles(public_key) ON DELETE CASCADE,
+  score               NUMERIC(5,2)  NOT NULL DEFAULT 0 CHECK (score BETWEEN 0 AND 100),
+  completed_jobs      INTEGER       NOT NULL DEFAULT 0,
+  dispute_rate        NUMERIC(5,4)  NOT NULL DEFAULT 0 CHECK (dispute_rate BETWEEN 0 AND 1),
+  avg_response_hours  NUMERIC(10,2),                -- NULL until the user has replied to at least one message/application
+  avg_rating          NUMERIC(3,2),                 -- NULL until first rating
+  rating_count        INTEGER       NOT NULL DEFAULT 0,
+  referral_quality    NUMERIC(5,4)  NOT NULL DEFAULT 0 CHECK (referral_quality BETWEEN 0 AND 1),
+  updated_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS reputation_scores_score_idx ON reputation_scores (score DESC);
+
+-- ─────────────────────────────────────────
+-- USDC auto-convert  (V56 — Issue #1560)
+-- ─────────────────────────────────────────
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS auto_convert_usdc BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Maximum slippage the freelancer accepts on the swap, in basis points (100 = 1%).
+  ADD COLUMN IF NOT EXISTS auto_convert_slippage_bps INTEGER NOT NULL DEFAULT 100
+    CHECK (auto_convert_slippage_bps BETWEEN 10 AND 1000);
+
+-- Payment history for auto-conversions. A row is created in 'pending' state when
+-- an escrow is released to a freelancer who has opted in; the freelancer's
+-- wallet then signs a pathPaymentStrictSend (XLM -> USDC, to self) and the
+-- result (tx hash, amounts, effective rate) is recorded here.
+CREATE TABLE IF NOT EXISTS usdc_auto_conversions (
+  id                  UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_address        TEXT          NOT NULL REFERENCES profiles(public_key) ON DELETE CASCADE,
+  job_id              UUID          REFERENCES jobs(id) ON DELETE SET NULL,
+  milestone_index     INTEGER,                    -- NULL for a full escrow release
+  source_amount_xlm   NUMERIC(20,7) NOT NULL CHECK (source_amount_xlm > 0),
+  quoted_usdc         NUMERIC(20,7),              -- best path quote at release time
+  dest_min_usdc       NUMERIC(20,7),              -- min USDC after slippage
+  received_usdc       NUMERIC(20,7),              -- actual USDC received on-chain
+  exchange_rate       NUMERIC(20,7),              -- USDC per XLM actually obtained
+  tx_hash             TEXT,
+  status              TEXT          NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'completed', 'failed', 'skipped')),
+  error               TEXT,
+  created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  completed_at        TIMESTAMPTZ
+);
+
+-- One conversion per release: full release (milestone_index NULL) or per milestone.
+CREATE UNIQUE INDEX IF NOT EXISTS usdc_auto_conversions_release_uniq
+  ON usdc_auto_conversions (user_address, job_id, (COALESCE(milestone_index, -1)));
+
+CREATE INDEX IF NOT EXISTS usdc_auto_conversions_user_created_idx
+  ON usdc_auto_conversions (user_address, created_at DESC);
+CREATE INDEX IF NOT EXISTS usdc_auto_conversions_pending_idx
+  ON usdc_auto_conversions (user_address) WHERE status = 'pending';
+CREATE UNIQUE INDEX IF NOT EXISTS usdc_auto_conversions_tx_hash_idx
+  ON usdc_auto_conversions (tx_hash) WHERE tx_hash IS NOT NULL;
+
+-- ─────────────────────────────────────────
+-- Issue #232: stats endpoint query optimization (V57)
+-- B-tree indexes for COUNT(*) status filters and a materialized view that
+-- pre-computes platform stats so reads never touch base tables.
+-- ─────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_jobs_status
+  ON jobs (status)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status_completed
+  ON jobs (status)
+  WHERE status = 'completed' AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status_cancelled
+  ON jobs (status)
+  WHERE status = 'cancelled' AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_applications_status
+  ON applications (status);
+
+CREATE INDEX IF NOT EXISTS idx_escrows_status
+  ON escrows (status);
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS platform_stats_mv AS
+  SELECT
+    COUNT(*)                                                    AS total_jobs,
+    COUNT(DISTINCT client_address)                              AS total_clients,
+    COUNT(DISTINCT freelancer_address)
+      FILTER (WHERE freelancer_address IS NOT NULL)             AS total_freelancers,
+    (
+      SELECT COUNT(DISTINCT public_key)
+      FROM   profiles
+      WHERE  completed_jobs > 0 OR role = 'client'
+    )                                                           AS active_users,
+    COALESCE(
+      (SELECT SUM(amount_xlm) FROM escrows WHERE status = 'funded'),
+      0
+    )                                                           AS total_escrow_xlm,
+    COALESCE(
+      AVG(budget) FILTER (WHERE status IN ('assigned', 'in_progress', 'completed')),
+      0
+    )                                                           AS avg_job_budget,
+    COALESCE(
+      COUNT(*) FILTER (WHERE status = 'completed') * 100.0 /
+      NULLIF(
+        COUNT(*) FILTER (WHERE status IN ('completed', 'cancelled')),
+        0
+      ),
+      0
+    )                                                           AS completion_rate,
+    NOW()                                                       AS refreshed_at
+  FROM jobs
+  WHERE deleted_at IS NULL
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS platform_stats_mv_singleton_idx
+  ON platform_stats_mv ((1));
+
+-- refresh_tokens  (V58 — Issue #1398)
+-- Hashed refresh tokens; rotated on every use, used_at marks consumed tokens
+-- so replays can be detected. family_id groups all tokens from one login.
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id          BIGSERIAL PRIMARY KEY,
+  token_hash  TEXT        NOT NULL UNIQUE,
+  family_id   UUID        NOT NULL,
+  public_key  TEXT        NOT NULL,
+  payload     JSONB       NOT NULL,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used_at     TIMESTAMPTZ,
+  revoked_at  TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family_id
+  ON refresh_tokens (family_id);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_public_key
+  ON refresh_tokens (public_key);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at
+  ON refresh_tokens (expires_at);

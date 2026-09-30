@@ -7,7 +7,7 @@
 -- an hour ago is still queryable for analytics).
 
 CREATE TABLE IF NOT EXISTS api_key_usage_minute (
-    api_key_id      INTEGER     NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+    api_key_id      UUID        NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
     endpoint        TEXT        NOT NULL,
     minute_bucket   TIMESTAMPTZ NOT NULL,
     request_count   INTEGER     NOT NULL DEFAULT 0 CHECK (request_count >= 0),

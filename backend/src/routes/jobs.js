@@ -5,8 +5,7 @@
 
 const express = require("express");
 const router = express.Router();
-
-const { createRateLimiter, createDisputeRateLimiter } = require("../middleware/rateLimiter");
+const { createRateLimiter } = require("../middleware/rateLimiter");
 const { verifyJWT } = require("../middleware/auth");
 const jobService = require("../services/jobService");
 const {
@@ -28,6 +27,7 @@ const {
 
 const { logContractInteraction } = require("../services/contractAuditService");
 const { getClientReputation } = require("../services/profileService");
+const { scheduleReputationRecalcForJob } = require("../services/reputationService");
 const cache = require("../utils/cache");
 const jobDraftService = require("../services/jobDraftService");
 const recommendationService = require("../services/recommendationService");
@@ -48,6 +48,7 @@ const jobCreationRateLimiter = createRateLimiter(10, 1); // 10 job creations per
 const generalJobRateLimiter = createRateLimiter(100, 1); // 100 requests per minute
 const reportJobRateLimiter = createRateLimiter(20, 1);
 const suggestRateLimiter = createRateLimiter(20, 1);
+const createDisputeRateLimiter = createRateLimiter(10, 1);
 
 const jobReports = new Map();
 
@@ -169,6 +170,11 @@ async function enrichJobsWithClientReputation(jobs) {
  *           type: string
  *         description: Search term for job titles and descriptions
  *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *         description: Full-text search query for job titles and descriptions
+ *       - in: query
  *         name: cursor
  *         schema:
  *           type: string
@@ -211,6 +217,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit,
       search,
+      q,
       cursor,
       after,
       timezone,
@@ -241,6 +248,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit: String(safeLimit),
       search,
+      q,
       cursor: effectiveCursor,
       timezone,
       viewerAddress,
@@ -264,6 +272,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
       status,
       limit: safeLimit,
       search,
+      q,
       cursor: effectiveCursor,
       timezone,
       viewerAddress,
@@ -284,7 +293,7 @@ router.get("/", generalJobRateLimiter, async (req, res, next) => {
     res.json({
       success: true,
       data: jobsWithRep,
-      next_cursor: result.nextCursor,
+      nextCursor: result.nextCursor,
       has_more: Boolean(result.nextCursor),
       ...(page !== undefined && !effectiveCursor && {
         _deprecation: "The `page` parameter is deprecated. Use cursor-based pagination via `after`.",
@@ -309,7 +318,7 @@ router.get(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // GET /api/jobs/recommended/:publicKey — top 5 skill-matched open jobs for a freelancer
@@ -323,7 +332,7 @@ router.get(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // GET /api/jobs/:id/timeline — get job timeline events (Issue #876)
@@ -447,20 +456,48 @@ router.get("/:id/invoice", verifyJWT, generalJobRateLimiter, async (req, res, ne
 // POST /api/jobs — create a new job
 router.post("/", jobCreationRateLimiter, verifyJWT, validateJsonb({ milestones: milestonesSchema }), async (req, res, next) => {
   try {
-    const validatedBody = validate(createJobSchema, req.body);
+    // 1) Check authentication/signed address first
     const signedAddress = req.user?.publicKey;
-    const payloadClientAddress = typeof validatedBody.clientAddress === "string" ? validatedBody.clientAddress.trim() : "";
-
-    if (!signedAddress || !payloadClientAddress) {
-      return res.status(401).json({ error: "Unauthorized: clientAddress is required and must match the signed wallet address" });
+    const payloadClientAddressRaw = typeof req.body.clientAddress === "string" ? req.body.clientAddress.trim() : "";
+    if (!signedAddress || !payloadClientAddressRaw) {
+      return res
+        .status(401)
+        .json({ error: "Unauthorized: clientAddress is required and must match the signed wallet address" });
+    }
+    if (payloadClientAddressRaw !== signedAddress) {
+      return res
+        .status(401)
+        .json({ error: "Unauthorized: clientAddress does not match signed wallet address" });
     }
 
-    if (payloadClientAddress !== signedAddress) {
-      return res.status(401).json({ error: "Unauthorized: clientAddress does not match signed wallet address" });
+    // 2) Parse budget safely
+    const rawBudget = req.body.budget;
+    let budgetForValidation;
+    if (rawBudget === "" || rawBudget === null || rawBudget === undefined) {
+      budgetForValidation = undefined;
+    } else {
+      const parsed = Number(String(rawBudget).trim());
+      if (!Number.isFinite(parsed)) {
+        return res.status(400).json({ error: "Budget must be a valid number" });
+      }
+      budgetForValidation = parsed;
     }
 
-    const job = await createJob({ ...req.body, clientAddress: signedAddress });
-    await cache.delPattern("jobs:list:*");
+    // 3) Validate input after auth and safe coercion
+    const bodyToValidate = {
+      ...req.body,
+      ...(budgetForValidation !== undefined ? { budget: budgetForValidation } : {}),
+    };
+    const validatedBody = validate(createJobSchema, bodyToValidate);
+
+    // 4) Create job with the verified signedAddress
+    const job = await createJob({ ...validatedBody, clientAddress: signedAddress });
+    if (typeof cache.invalidateJobListCache === "function") {
+      await cache.invalidateJobListCache();
+    }
+    if (typeof cache.delPattern === "function") {
+      await cache.delPattern("jobs:list:*");
+    }
     res.status(201).json({ success: true, data: job });
   } catch (e) {
     next(e);
@@ -559,8 +596,16 @@ router.patch(
   async (req, res, next) => {
     try {
       const { escrowContractId } = validate(updateEscrowSchema, req.body);
-      const job = await updateJobEscrowId(req.params.id, escrowContractId);
-      await logContractInteraction({
+      const pool = require("../db/pool");
+      const { rows: acceptedApplications } = await pool.query(
+        "SELECT bid_amount FROM applications WHERE job_id = $1 AND status = 'accepted' LIMIT 1",
+        [req.params.id],
+      );
+      const options = acceptedApplications.length
+        ? { amount: acceptedApplications[0].bid_amount }
+        : {};
+      const job = await updateJobEscrowId(req.params.id, escrowContractId, options);
+      logContractInteraction({
         functionName: "create_escrow",
         callerAddress: req.user.publicKey,
         jobId: req.params.id,
@@ -571,7 +616,7 @@ router.patch(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // POST /api/jobs/:id/boost — boost a job listing for 7 days
@@ -652,7 +697,7 @@ router.patch(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // POST /api/jobs/:id/referral — track a referral click
@@ -680,7 +725,7 @@ router.delete(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // POST /api/jobs/:id/report — report a job
@@ -740,7 +785,7 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // POST /api/jobs/:id/resolve — resolve a dispute (Admin only)
@@ -757,11 +802,12 @@ router.post(
       }
 
       const job = await resolveDispute(req.params.id);
+      scheduleReputationRecalcForJob(req.params.id);
       res.json({ success: true, data: job });
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // GET /api/jobs/feed.rss — RSS 2.0 feed
@@ -1043,7 +1089,7 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // POST /api/jobs/bulk-extend — extend expiry for multiple jobs at once
@@ -1072,7 +1118,7 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
+  });
 );
 
 // POST /api/jobs/bulk-boost — boost multiple jobs at once
@@ -1100,7 +1146,27 @@ router.post(
     } catch (e) {
       next(e);
     }
-  },
-);
+  });
+// GET /api/jobs/analytics/categories — stats per category
+router.get("/analytics/categories", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { getCategoryAnalytics } = require("../services/jobService");
+    const data = await getCategoryAnalytics();
+    res.json({ success: true, data });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/jobs/analytics/overview — platform-wide totals
+router.get("/analytics/overview", generalJobRateLimiter, async (req, res, next) => {
+  try {
+    const { getAnalyticsOverview } = require("../services/jobService");
+    const data = await getAnalyticsOverview();
+    res.json({ success: true, data });
+  } catch (e) {
+    next(e);
+  }
+});
 
 module.exports = router;

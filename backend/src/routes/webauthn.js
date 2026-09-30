@@ -308,8 +308,8 @@ async function handleLoginFinish(req, res, next) {
       [verification.authenticationInfo.newCounter, credentialId]
     );
 
-    const { accessToken, refreshToken } = issueTokenPair({ publicKey });
-    setAuthCookies(res, accessToken, refreshToken);
+    const { accessToken, refreshToken } = await issueTokenPair({ publicKey });
+    setAuthCookies(req, res, accessToken, refreshToken);
 
     res.json({ success: true, token: accessToken });
   } catch (e) { next(e); }

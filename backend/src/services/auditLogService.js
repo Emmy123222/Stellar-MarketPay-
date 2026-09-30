@@ -72,17 +72,24 @@ async function listAuditLogs({ limit = 50, after, entityType, entityId, action }
     params.push(action);
   }
 
-  // Cursor pagination: `after` is base64-encoded `created_at|id`
+  // Cursor pagination: `after` is base64-encoded `created_at|id`. We only
+  // decode it to recover the opaque boundary id; the timestamp part is no
+  // longer compared directly. Comparing against a reconstructed string would
+  // truncate the microsecond component (Date#toISOString -> ms), so rows
+  // sharing the boundary's millisecond would silently drop out of the next
+  // page. Instead the boundary row is re-fetched by its primary key and the
+  // exact (created_at, id) pair is compared as a PostgreSQL row value, which
+  // preserves full timestamp precision and stays a total order across pages.
   if (after) {
     try {
       const decoded = Buffer.from(after, "base64").toString("utf8");
-      const [cursorCreatedAt, cursorId] = decoded.split("|");
-      if (cursorCreatedAt && cursorId) {
+      const [, cursorId] = decoded.split("|");
+      if (cursorId) {
+        const boundaryParam = `$${paramIdx++}`;
         conditions.push(
-          `(created_at < $${paramIdx} OR (created_at = $${paramIdx} AND id < $${paramIdx + 1}))`,
+          `(created_at, id) < (SELECT created_at, id FROM audit_log WHERE id = ${boundaryParam})`,
         );
-        params.push(cursorCreatedAt, cursorId);
-        paramIdx += 2;
+        params.push(cursorId);
       }
     } catch {
       throw Object.assign(new Error("Invalid cursor"), { status: 400 });

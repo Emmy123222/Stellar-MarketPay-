@@ -3,14 +3,13 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("../middleware/auth");
-const { CSRF_COOKIE_NAME } = require("../middleware/csrf");
+const { generateCsrfToken } = require("../middleware/csrf");
+const pool = require("../db/pool");
 
 const ACCESS_TOKEN_EXPIRES_IN = "15m";
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const REFRESH_COOKIE_NAME = "refreshToken";
 const JWT_RESERVED_CLAIMS = new Set(["iat", "exp", "nbf", "jti"]);
-
-const refreshSessions = new Map();
 
 function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -28,52 +27,99 @@ function signAccessToken(payload) {
   });
 }
 
-function createRefreshToken(payload) {
+/**
+ * Create and persist a refresh token. Only its SHA-256 hash is stored.
+ * Tokens issued from the same login share a family_id so a replay can revoke
+ * the whole chain.
+ */
+async function createRefreshToken(payload, familyId = crypto.randomUUID()) {
   const token = crypto.randomBytes(48).toString("base64url");
-  refreshSessions.set(hashToken(token), {
-    payload: normalizePayload(payload),
-    expiresAt: Date.now() + REFRESH_TOKEN_TTL_MS,
-  });
+  const claims = normalizePayload(payload);
+
+  await pool.query(
+    `INSERT INTO refresh_tokens (token_hash, family_id, public_key, payload, expires_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [
+      hashToken(token),
+      familyId,
+      claims.publicKey || "",
+      JSON.stringify(claims),
+      new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+    ],
+  );
   return token;
 }
 
-/**
- * Generate a fresh CSRF token. The cookie-bound counterpart is set by the
- * `csrf-csrf` middleware via the `/api/auth/csrf-token` endpoint; this raw
- * token is returned so it can be issued alongside auth cookies during login
- * and refresh so first-page-render mutations work without an extra round trip.
- */
-function createCsrfToken() {
-  return crypto.randomBytes(32).toString("hex");
-}
-
-function issueTokenPair(payload) {
+async function issueTokenPair(payload, familyId) {
   const accessToken = signAccessToken(payload);
-  const refreshToken = createRefreshToken(payload);
-  const csrfToken = createCsrfToken();
-  return { accessToken, refreshToken, csrfToken };
+  const refreshToken = await createRefreshToken(payload, familyId);
+  return { accessToken, refreshToken };
 }
 
-function rotateRefreshToken(token) {
+/**
+ * Exchange a refresh token for a new access/refresh pair.
+ *
+ * The token is consumed with a single atomic UPDATE (used_at IS NULL), so two
+ * concurrent requests can never both succeed. Returns null when the token is
+ * unknown, expired, revoked or already used. Presenting an already-used token
+ * is treated as a replay and revokes every token in that login's family.
+ */
+async function rotateRefreshToken(token) {
   if (!token) return null;
 
   const tokenHash = hashToken(token);
-  const session = refreshSessions.get(tokenHash);
-  refreshSessions.delete(tokenHash);
 
-  if (!session || session.expiresAt <= Date.now()) {
+  const { rows } = await pool.query(
+    `UPDATE refresh_tokens
+        SET used_at = NOW()
+      WHERE token_hash = $1
+        AND used_at IS NULL
+        AND revoked_at IS NULL
+        AND expires_at > NOW()
+  RETURNING family_id, payload`,
+    [tokenHash],
+  );
+
+  if (rows.length === 0) {
+    await handleRejectedToken(tokenHash);
     return null;
   }
 
-  // Rotate the CSRF token along with the access/refresh pair so a stale
+  const { family_id: familyId, payload } = rows[0];
+  const claims = typeof payload === "string" ? JSON.parse(payload) : payload;
+
+  // Rotate the access/refresh pair along with the CSRF token so a stale
   // pre-refresh token cannot be replayed.
-  return { ...issueTokenPair(session.payload) };
+  return issueTokenPair(claims, familyId);
 }
 
-function revokeRefreshToken(token) {
-  if (token) {
-    refreshSessions.delete(hashToken(token));
-  }
+async function handleRejectedToken(tokenHash) {
+  const { rows } = await pool.query(
+    `SELECT family_id, used_at FROM refresh_tokens WHERE token_hash = $1`,
+    [tokenHash],
+  );
+  const known = rows[0];
+  if (!known || !known.used_at) return;
+
+  // An already-used token came back: possible theft. Kill the whole family.
+  await pool.query(
+    `UPDATE refresh_tokens
+        SET revoked_at = NOW()
+      WHERE family_id = $1 AND revoked_at IS NULL`,
+    [known.family_id],
+  );
+  console.warn("[auth] Refresh token replay detected; token family revoked");
+}
+
+async function revokeRefreshToken(token) {
+  if (!token) return;
+  await pool.query(
+    `UPDATE refresh_tokens
+        SET revoked_at = NOW()
+      WHERE revoked_at IS NULL
+        AND family_id = (SELECT family_id FROM refresh_tokens WHERE token_hash = $1)`,
+    [hashToken(token)],
+  );
 }
 
 function parseCookieHeader(header) {
@@ -113,29 +159,52 @@ function getCsrfCookieOptions(maxAge) {
   };
 }
 
-function setAuthCookies(res, accessToken, refreshToken, csrfToken) {
+/**
+ * Set the authentication cookie pair and a freshly minted CSRF token.
+ *
+ * The CSRF token is produced by the SAME csrf-csrf machinery that validates it
+ * in middleware/csrf.js, so the value we write to the `csrf-token` cookie is
+ * immediately acceptable to `doubleCsrfProtection` — no separate raw
+ * `createCsrfToken()` implementation that the middleware would reject
+ * (issue #1129).
+ *
+ * Because the token's HMAC is bound to the session identifier (the refresh
+ * token, see getSessionIdentifier), we stamp the NEW refresh token into
+ * `req.cookies` before minting. That ensures the issued token is keyed to the
+ * session created by this login/refresh, not the anonymous or pre-rotation
+ * session. `overwrite: true` guarantees a genuinely fresh token even when a
+ * valid (but now stale) pre-login cookie exists.
+ *
+ * Returns the minted CSRF token so callers can echo it in the JSON body.
+ */
+function setAuthCookies(req, res, accessToken, refreshToken) {
   res.cookie("token", accessToken, getCookieOptions(15 * 60 * 1000));
   res.cookie(REFRESH_COOKIE_NAME, refreshToken, getCookieOptions(REFRESH_TOKEN_TTL_MS));
-  if (csrfToken) {
-    res.cookie(CSRF_COOKIE_NAME, csrfToken, getCsrfCookieOptions(REFRESH_TOKEN_TTL_MS));
-  }
+
+  // Bind the CSRF token to the refresh token we're about to set, even though
+  // the request's own cookies still carry the old (or absent) one.
+  req.cookies = { ...(req.cookies || {}), [REFRESH_COOKIE_NAME]: refreshToken };
+
+  const csrfToken = generateCsrfToken(req, res, {
+    overwrite: true,
+    cookieOptions: getCsrfCookieOptions(REFRESH_TOKEN_TTL_MS),
+  });
+
+  return csrfToken;
 }
 
 function clearAuthCookies(res) {
   res.clearCookie("token", getCookieOptions(0));
   res.clearCookie(REFRESH_COOKIE_NAME, getCookieOptions(0));
-  res.clearCookie(CSRF_COOKIE_NAME, getCsrfCookieOptions(0));
+  res.clearCookie("csrf-token", getCsrfCookieOptions(0));
 }
 
 module.exports = {
   ACCESS_TOKEN_EXPIRES_IN,
   REFRESH_COOKIE_NAME,
-  CSRF_COOKIE_NAME,
   clearAuthCookies,
-  createCsrfToken,
   getRefreshTokenFromRequest,
   issueTokenPair,
-  refreshSessions,
   revokeRefreshToken,
   rotateRefreshToken,
   setAuthCookies,

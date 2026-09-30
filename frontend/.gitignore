@@ -1,0 +1,10 @@
+# Build artifacts
+tsconfig.tsbuildinfo
+public/sw.js
+public/workbox-*.js
+
+# Next.js build output
+.next/
+
+# Dependencies
+node_modules/

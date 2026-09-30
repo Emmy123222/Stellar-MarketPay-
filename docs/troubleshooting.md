@@ -19,6 +19,7 @@ This guide covers common issues you may encounter when developing, deploying, or
   - [IPFS Upload Failure](#ipfs-upload-failure)
   - [CSRF 403 Errors When Calling the API From a Script](#csrf-403-errors-when-calling-the-api-from-a-script)
 - [CI/CD Issues](#cicd-issues)
+  - [npm ci Peer Dependency Conflict](#npm-ci-peer-dependency-conflict)
   - [Workflow Failures (Missing Secrets)](#workflow-failures-missing-secrets)
 - [Network Issues](#network-issues)
   - [Wrong Stellar Network](#wrong-stellar-network)
@@ -955,6 +956,53 @@ The CSRF token is bound to the session via `getSessionIdentifier()` (keyed off t
 ---
 
 ## CI/CD Issues
+
+### npm ci Peer Dependency Conflict
+
+**Symptom**:
+```
+npm ERR! ERESOLVE unable to resolve dependency tree
+npm ERR! peer react@"^19.0.0" from react-dom@19
+npm ERR! peer storybook@"^10.0.0" from @storybook/react-vite@10
+```
+
+**Cause**:
+The lockfile or package manifests contain incompatible major versions. Common examples are `react-dom@19` with `react@18`, or `@storybook/react-vite@10` while the rest of Storybook remains on `8.6.x`.
+
+**Fix**:
+
+#### 1. Check the Installed Major Versions
+
+```bash
+cd frontend
+npm ls react react-dom storybook @storybook/react-vite
+```
+
+#### 2. Keep Related Packages on the Same Major
+
+For the current React 18 / Storybook 8 stack:
+
+```bash
+npm install react@^18.3.1 react-dom@^18.3.1
+npm install -D storybook@^8.6.18 @storybook/react@^8.6.18 @storybook/react-vite@^8.6.18
+```
+
+#### 3. Regenerate the Lockfile
+
+```bash
+rm -rf node_modules package-lock.json
+npm install
+npm ci
+```
+
+Avoid committing `--legacy-peer-deps` as a permanent fix. It hides the conflict and lets incompatible majors drift further apart.
+
+**Related Files**:
+- `frontend/package.json`
+- `frontend/package-lock.json`
+- `.github/dependabot.yml`
+
+---
 
 ### Workflow Failures (Missing Secrets)
 

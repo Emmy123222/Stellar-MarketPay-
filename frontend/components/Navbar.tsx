@@ -12,8 +12,8 @@ import FaucetButton from "@/components/FaucetButton";
 import { usePriceContext } from "@/contexts/PriceContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import NotificationBell from "@/components/NotificationBell";
-import { fetchJobs, searchFreelancers } from "@/lib/api";
-import type { Job, UserProfile } from "@/utils/types";
+import WalletAddressDisplay from "@/components/WalletAddressDisplay";
+import { searchUnified } from "@/lib/api";
 import { shortenAddress } from "@/utils/format";
 
 interface NavbarProps {
@@ -36,7 +36,8 @@ const STELLAR_NETWORK = process.env.NEXT_PUBLIC_STELLAR_NETWORK || "testnet";
 
 type SearchResult =
   | { type: "job"; id: string; title: string; description?: string }
-  | { type: "freelancer"; id: string; title: string; description?: string };
+  | { type: "freelancer"; id: string; title: string; description?: string }
+  | { type: "proposal"; id: string; title: string; description?: string };
 
 export default function Navbar({
   publicKey,
@@ -52,9 +53,6 @@ export default function Navbar({
   const [hasJobAlertBadge, setHasJobAlertBadge] = useState(false);
   const { currencyMode, setCurrencyMode, priceLoading } = usePriceContext();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [balance, setBalance] = useState<string | null>(null);
-  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
-  const [balanceLoading, setBalanceLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -62,27 +60,6 @@ export default function Navbar({
   const [activeSearchIndex, setActiveSearchIndex] = useState(0);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (publicKey) {
-      setBalanceLoading(true);
-      Promise.all([
-        import("@/lib/stellar").then(m => m.getXLMBalance(publicKey)),
-        import("@/lib/stellar").then(m => m.getUSDCBalance(publicKey))
-      ]).then(([xlm, usdc]) => {
-        setBalance(Number(xlm).toFixed(2));
-        setUsdcBalance(Number(usdc).toFixed(2));
-      }).catch(() => {
-        setBalance("0.00");
-        setUsdcBalance("0.00");
-      }).finally(() => {
-        setBalanceLoading(false);
-      });
-    } else {
-      setBalance(null);
-      setUsdcBalance(null);
-    }
-  }, [publicKey]);
 
   // Hydration-safe mount tracking for theme toggle
   useEffect(() => { setMounted(true); }, []);
@@ -125,7 +102,7 @@ export default function Navbar({
 
   useEffect(() => {
     const handleGlobalShortcut = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setSearchOpen(true);
         requestAnimationFrame(() => searchInputRef.current?.focus());
@@ -160,19 +137,16 @@ export default function Navbar({
     setSearchLoading(true);
     const timer = window.setTimeout(async () => {
       try {
-        const [jobsResponse, freelancers] = await Promise.all([
-          fetchJobs({ search: query, limit: 5 }),
-          searchFreelancers({ search: query, limit: 5 }),
-        ]);
+        const data = await searchUnified(query, 5);
         if (cancelled) return;
         setSearchResults([
-          ...jobsResponse.jobs.slice(0, 5).map((job: Job) => ({
+          ...data.jobs.slice(0, 5).map((job) => ({
             type: "job" as const,
             id: job.id,
             title: job.title,
-            description: `${job.category} · ${job.budget} ${job.currency}`,
+            description: `${job.category || "General"} · ${job.budget} ${job.currency}`,
           })),
-          ...freelancers.slice(0, 5).map((freelancer: UserProfile) => ({
+          ...data.freelancers.slice(0, 5).map((freelancer) => ({
             type: "freelancer" as const,
             id: freelancer.publicKey,
             title:
@@ -181,6 +155,12 @@ export default function Navbar({
               freelancer.skills?.slice(0, 3).join(", ") ||
               freelancer.bio ||
               "Freelancer profile",
+          })),
+          ...data.proposals.slice(0, 5).map((proposal) => ({
+            type: "proposal" as const,
+            id: proposal.id,
+            title: proposal.title,
+            description: `DAO Proposal (${proposal.type}) · ${proposal.status}`,
           })),
         ]);
         setActiveSearchIndex(0);
@@ -200,11 +180,13 @@ export default function Navbar({
   const navigateToSearchResult = (result: SearchResult) => {
     setSearchOpen(false);
     setSearchQuery("");
-    router.push(
-      result.type === "job"
-        ? `/jobs/${result.id}`
-        : `/freelancers/${result.id}`,
-    );
+    if (result.type === "job") {
+      router.push(`/jobs/${result.id}`);
+    } else if (result.type === "proposal") {
+      router.push(`/dao#proposal-${result.id}`);
+    } else {
+      router.push(`/freelancers/${result.id}`);
+    }
   };
 
   const handleSearchKeyDown = (
@@ -326,7 +308,7 @@ export default function Navbar({
               }}
               className="p-2 rounded-lg text-amber-700 hover:text-amber-300 hover:bg-market-500/8 transition-colors"
               aria-label="Open global search"
-              title="Search (Ctrl/Cmd+K)"
+              title="Search (Ctrl/Cmd+Shift+K)"
             >
               <SearchIcon className="w-4 h-4" />
             </button>
@@ -425,20 +407,23 @@ export default function Navbar({
           {publicKey ? (
             <>
               <NotificationBell publicKey={publicKey} />
-              <button
-                onClick={() => router.push("/dashboard/transactions")}
-                className="flex items-center gap-1 sm:gap-1.5 address-tag cursor-pointer hover:opacity-80 transition-opacity text-xs sm:text-sm px-2 py-2 sm:px-3 sm:py-2 min-h-[44px]"
-                title={t("wallet.balance") as string}
+              <Link
+                href="/settings"
+                className="p-2 rounded-lg text-amber-300/80 hover:text-amber-100 hover:bg-market-500/10 transition-colors flex items-center justify-center"
+                title="Settings"
+                aria-label="Settings"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="hidden sm:inline">{shortenAddress(publicKey)}</span>
-                <span className="sm:hidden text-[10px]">{shortenAddress(publicKey, 6)}</span>
-                {balanceLoading ? (
-                  <span className="text-xs text-amber-800">{t("wallet.loading")}</span>
-                ) : balance && usdcBalance ? (
-                  <span className="text-xs font-medium text-market-400 hidden sm:inline">{balance} XLM / {usdcBalance} USDC</span>
-                ) : null}
-              </button>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.75}
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </Link>
+              <WalletAddressDisplay address={publicKey} truncatedChars={6} />
               <button
                 onClick={onDisconnect}
                 className="hidden sm:inline text-xs text-amber-800 hover:text-amber-500 transition-colors px-2 py-1"
@@ -527,6 +512,26 @@ export default function Navbar({
               </button>
             )}
 
+            {/* Mobile Referrals and Settings Links */}
+            {publicKey && (
+              <>
+                <Link
+                  href="/referrals"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="w-full text-left text-xs text-amber-200 hover:text-market-400 transition-colors px-3 py-2.5 rounded-lg hover:bg-market-500/8 flex items-center gap-2"
+                >
+                  Referrals &amp; Pipeline
+                </Link>
+                <Link
+                  href="/settings"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="w-full text-left text-xs text-amber-200 hover:text-market-400 transition-colors px-3 py-2.5 rounded-lg hover:bg-market-500/8 flex items-center gap-2"
+                >
+                  Settings &amp; Auto-Convert
+                </Link>
+              </>
+            )}
+
             {/* Mobile Disconnect Button */}
             {publicKey && (
               <button
@@ -595,6 +600,7 @@ function GlobalSearchDropdown({
 }) {
   const jobs = results.filter((result) => result.type === "job");
   const freelancers = results.filter((result) => result.type === "freelancer");
+  const proposals = results.filter((result) => result.type === "proposal");
   let resultIndex = -1;
 
   return (
@@ -615,6 +621,7 @@ function GlobalSearchDropdown({
         [
           ["Jobs", jobs],
           ["Freelancers", freelancers],
+          ["DAO Proposals", proposals],
         ] as const
       ).map(
         ([label, items]) =>

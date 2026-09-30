@@ -6,8 +6,8 @@
 #![no_main]
 
 use libfuzzer_sys::{arbitrary, fuzz_target};
-use soroban_sdk::{testutils::Address as _, Address, Env, String as SorobanString};
 use marketpay_contract::{CreateEscrowParams, MarketPayContract, MarketPayContractClient};
+use soroban_sdk::{testutils::Address as _, Address, Env, String as SorobanString};
 
 #[derive(Debug, arbitrary::Arbitrary)]
 struct FuzzInput {
@@ -21,11 +21,13 @@ fuzz_target!(|data: FuzzInput| {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_addr = env.register_contract(None, MarketPayContract);
+    let contract_addr = env.register(MarketPayContract, ());
     let client = MarketPayContractClient::new(&env, &contract_addr);
 
     let token_admin = Address::generate(&env);
-    let token_addr = env.register_stellar_asset_contract_v2(token_admin).address();
+    let token_addr = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
     let sac = soroban_sdk::token::StellarAssetClient::new(&env, &token_addr);
 
     let real_client = Address::generate(&env);
@@ -44,11 +46,13 @@ fuzz_target!(|data: FuzzInput| {
         referrer: None,
     };
 
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.create_escrow(&job_id, &real_client, &params);
-        client.start_work(&job_id, &freelancer);
+    client.create_escrow(&job_id, &real_client, &params);
+    client.start_work(&job_id, &freelancer);
 
-        let caller = if data.use_real_client { real_client.clone() } else { random_caller };
-        client.release_escrow(&job_id, &caller);
-    }));
+    let caller = if data.use_real_client {
+        real_client.clone()
+    } else {
+        random_caller
+    };
+    let _ = client.try_release_escrow(&job_id, &caller);
 });

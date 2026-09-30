@@ -1,0 +1,83 @@
+name: Formal Verification
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'contracts/marketpay-contract/src/**'
+      - 'contracts/certora/**'
+      - '.github/workflows/certora.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'contracts/marketpay-contract/src/**'
+      - 'contracts/certora/**'
+      - '.github/workflows/certora.yml'
+  schedule:
+    - cron: '0 3 * * *'   # nightly at 03:00 UTC — catches regressions from upstream Soroban changes
+  workflow_dispatch:
+
+concurrency:
+  group: certora-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  certora:
+    name: Certora Prover
+    runs-on: ubuntu-latest
+    # Only run when the CERTORAKEY secret is configured.  Without it the
+    # Prover cannot authenticate with the Certora cloud and every rule
+    # would report UNKNOWN.  Skip silently so PRs from forks don't fail.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    env:
+      HAS_CERTORAKEY: ${{ secrets.CERTORAKEY != '' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+          components: clippy, rustfmt
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/marketpay-contract/target
+          key: ${{ runner.os }}-cargo-certora-${{ hashFiles('contracts/**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-certora-
+
+      - name: Build contract (dependency resolution for Certora)
+        working-directory: contracts/marketpay-contract
+        run: cargo build --target wasm32v1-none --release
+
+      - name: Install Certora CLI
+        run: |
+          # Certora distributes as a Python package.
+          # See: https://docs.certora.com/en/latest/docs/user-guide/getting-started/install.html
+          pip install certora-cli
+
+      - name: Run Certora Prover
+        if: ${{ env.HAS_CERTORAKEY == 'true' }}
+        env:
+          CERTORAKEY: ${{ secrets.CERTORAKEY }}
+        run: certoraRun contracts/certora/config.conf
+
+      - name: Skip (no CERTORAKEY)
+        if: ${{ env.HAS_CERTORAKEY != 'true' }}
+        run: echo '::notice::CERTORAKEY secret not set — skipping Prover run. Add the secret in Settings → Secrets to enable formal verification.'
+
+      - name: Summarize results
+        if: always()
+        run: |
+          echo "### Certora Formal Verification Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Contract: \`marketpay-contract\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Spec: \`contracts/certora/escrow.spec\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "If the Prover reported any VIOLATED rules, see the full trace in" >> "$GITHUB_STEP_SUMMARY"
+          echo "the step output above and in the Certora dashboard linked from the run." >> "$GITHUB_STEP_SUMMARY"

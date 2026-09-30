@@ -143,17 +143,6 @@ async function deletePriceAlert(alertId, userAddress) {
   return true;
 }
 
-/**
- * Delete all triggered one-time alerts for a user (cleanup).
- * @param {string} userAddress - Stellar public key
- */
-async function cleanupTriggeredAlerts(userAddress) {
-  await pool.query(
-    "DELETE FROM price_alerts WHERE user_address = $1 AND triggered = TRUE AND one_time = TRUE",
-    [userAddress]
-  );
-}
-
 function throwBadRequest(message) {
   const e = new Error(message);
   e.status = 400;

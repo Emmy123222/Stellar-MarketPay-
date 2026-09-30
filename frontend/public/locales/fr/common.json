@@ -66,7 +66,10 @@
   },
   "wallet": {
     "balance": "Solde",
-    "loading": "Chargement..."
+    "loading": "Chargement...",
+    "copyAddress": "Copier l'adresse du portefeuille",
+    "copied": "Copié !",
+    "copyFailed": "Échec"
   },
   "language": {
     "switch": "Changer de langue",
@@ -147,6 +150,8 @@
     "amount": "Montant",
     "created": "Créé",
     "ends": "Fin",
-    "loading": "Chargement des données de gouvernance..."
+    "loading": "Chargement des données de gouvernance...",
+    "loadMore": "Charger plus de propositions",
+    "loadingMore": "Chargement de propositions supplémentaires..."
   }
 }

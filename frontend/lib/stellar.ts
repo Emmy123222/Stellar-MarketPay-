@@ -11,7 +11,7 @@ import {
   BASE_FEE,
   Memo,
 } from "@stellar/stellar-sdk";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
 import { fetchGasEstimateSafe, tierToTransactionFee } from "./sorobanFees";
 import { parseContractError } from "./contractErrors";
 import { getUsdcContractId } from "./config/tokens";
@@ -874,6 +874,62 @@ export async function buildPaymentTransaction(params: BuildPaymentParams) {
     tx.addMemo(Memo.text(memo));
   }
   return tx.setTimeout(300).build();
+}
+
+export interface BuildPathPaymentStrictSendParams {
+  fromPublicKey: string;
+  sourceAmountXlm: string;
+  destMinUsdc: string;
+  path?: Array<{ type: string; code?: string; issuer?: string }>;
+  destination?: string;
+}
+
+export async function buildAutoConvertPathPayment(
+  params: BuildPathPaymentStrictSendParams,
+) {
+  const {
+    fromPublicKey,
+    sourceAmountXlm,
+    destMinUsdc,
+    path = [],
+    destination = fromPublicKey,
+  } = params;
+  const account = await sorobanServer.getAccount(fromPublicKey);
+
+  const stellarPath = path.map((p) =>
+    p.type === "native"
+      ? Asset.native()
+      : new Asset(p.code || "USDC", p.issuer || USDC_ISSUER),
+  );
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  }).addOperation(
+    Operation.pathPaymentStrictSend({
+      sendAsset: Asset.native(),
+      sendAmount: Number(sourceAmountXlm).toFixed(7),
+      destination,
+      destAsset: USDC,
+      destMin: Number(destMinUsdc).toFixed(7),
+      path: stellarPath,
+    }),
+  );
+
+  return tx.setTimeout(300).build();
+}
+
+export async function executeAutoConvertSwap(
+  params: BuildPathPaymentStrictSendParams,
+): Promise<{ hash: string }> {
+  const tx = await buildAutoConvertPathPayment(params);
+  const xdr = tx.toXDR();
+  const { signedXDR, error } = await signTransactionWithWallet(xdr);
+  if (error || !signedXDR) {
+    throw new Error(error || "Wallet signature was rejected or failed");
+  }
+  const result = await submitTransaction(signedXDR);
+  return { hash: result.hash };
 }
 
 export interface SubmitPaymentResult {

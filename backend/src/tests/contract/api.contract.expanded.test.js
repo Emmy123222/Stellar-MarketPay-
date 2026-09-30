@@ -213,7 +213,7 @@ const VALID_TOKEN = jwt.sign(
   { expiresIn: "1h" },
 );
 
-const FREELANCER_TOKEN = jwt.sign(
+const _FREELANCER_TOKEN = jwt.sign(
   { publicKey: FAKE_FREELANCER_KEY },
   process.env.JWT_SECRET,
   { expiresIn: "1h" },

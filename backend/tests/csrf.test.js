@@ -18,6 +18,8 @@
  *     `/api/public/*`, `/api/developer/*`) bypass CSRF.
  */
 
+jest.unmock("../src/middleware/csrf");
+
 const request = require("supertest");
 const app = require("../src/server");
 

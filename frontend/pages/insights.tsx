@@ -1,134 +1,61 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import Head from "next/head";
 import {
-  fetchInsightCategories,
-  fetchInsightCompetitive,
-  fetchInsightPayTrends,
-  fetchInsightSkills,
-  type InsightCategory,
-  type InsightClientMix,
-  type InsightCompetitiveJob,
-  type InsightPayTrend,
-  type InsightSkill,
+  fetchCategoryAnalytics,
+  fetchAnalyticsOverview,
+  type CategoryAnalytics,
+  type AnalyticsOverview,
 } from "@/lib/api";
-import CategoryTable from "@/components/insights/CategoryTable";
-import PayTrendsChart from "@/components/insights/PayTrendsChart";
-import SkillsList from "@/components/insights/SkillsList";
-import CompetitiveJobs from "@/components/insights/CompetitiveJobs";
+import { useApi } from "@/hooks/useApi";
+import InsightsChart from "@/components/InsightsChart";
 
-type SortKey = "totalJobs" | "avgBudget" | "avgApplicationsPerJob" | "acceptanceRate" | "lowCompetitionJobs";
-type SortDirection = "asc" | "desc";
-
-function MetricCard({
-  label,
-  value,
-  note,
-}: {
-  label: string;
-  value: string;
-  note?: string;
-}) {
-  return (
-    <div className="card relative overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-market-500/10 via-transparent to-transparent" />
-      <div className="relative">
-        <p className="text-xs uppercase tracking-[0.3em] text-amber-800/70">{label}</p>
-        <p className="mt-3 text-3xl font-bold text-amber-100">{value}</p>
-        {note && <p className="mt-2 text-xs text-amber-800/80">{note}</p>}
-      </div>
-    </div>
-  );
-}
+type SortKey = "jobCount" | "avgBudgetXLM" | "filledCount" | "avgDaysToFill";
+type SortDir = "asc" | "desc";
 
 export default function InsightsPage() {
-  const [categories, setCategories] = useState<InsightCategory[]>([]);
-  const [clientMix, setClientMix] = useState<InsightClientMix | null>(null);
-  const [skills, setSkills] = useState<InsightSkill[]>([]);
-  const [competitiveJobs, setCompetitiveJobs] = useState<InsightCompetitiveJob[]>([]);
-  const [payTrends, setPayTrends] = useState<InsightPayTrend[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("totalJobs");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [sortKey, setSortKey] = useState<SortKey>("jobCount");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  useEffect(() => {
-    let active = true;
+  const { data, error, isLoading } = useApi<{
+    categories: CategoryAnalytics[];
+    overview: AnalyticsOverview | null;
+  }>(
+    "market-insights",
+    async () => {
+      const [cats, ov] = await Promise.all([fetchCategoryAnalytics(), fetchAnalyticsOverview()]);
+      return { categories: cats, overview: ov };
+    }
+  );
 
-    Promise.all([
-      fetchInsightCategories(),
-      fetchInsightSkills(),
-      fetchInsightCompetitive(),
-      fetchInsightPayTrends(),
-    ])
-      .then(([categoryData, skillData, competitiveData, trendData]) => {
-        if (!active) return;
-        setCategories(categoryData.categories);
-        setClientMix(categoryData.clientMix);
-        setSkills(skillData);
-        setCompetitiveJobs(competitiveData);
-        setPayTrends(trendData);
-      })
-      .catch(() => {
-        if (active) {
-          setError("Failed to load market insights.");
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-        }
-      });
+  const categories = useMemo(() => data?.categories ?? [], [data?.categories]);
+  const overview = data?.overview ?? null;
 
-    return () => {
-      active = false;
-    };
-  }, []);
+  const sorted = useMemo(() => {
+    return [...categories].sort((a, b) => {
+      const av = a[sortKey] ?? 0;
+      const bv = b[sortKey] ?? 0;
+      return (av - bv) * (sortDir === "asc" ? 1 : -1);
+    });
+  }, [categories, sortKey, sortDir]);
 
-  const handleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
+  const maxJobCount = sorted.length > 0 ? Math.max(...sorted.map((c) => c.jobCount)) : 1;
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    else {
       setSortKey(key);
-      setSortDirection("desc");
+      setSortDir("desc");
     }
   };
 
-  const sortedCategories = [...categories].sort((a, b) => {
-    const left = a[sortKey];
-    const right = b[sortKey];
-    const multiplier = sortDirection === "asc" ? 1 : -1;
-    return (left - right) * multiplier;
-  });
-
-  const overview = categories.length > 0 ? {
-    totalJobs: categories.reduce((sum, c) => sum + c.totalJobs, 0),
-    openJobs: categories.reduce((sum, c) => sum + c.totalJobs, 0),
-    avgBudgetXLM: (categories.reduce((sum, c) => sum + (c.avgBudget * c.totalJobs), 0) / categories.reduce((sum, c) => sum + c.totalJobs, 0)).toFixed(1),
-    avgDaysToFill: 3.2
-  } : null;
-
-  const topTrendCategories = categories.slice(0, 5).map((entry) => entry.category);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-ink-900 bg-noise px-4 py-16">
-        <div className="mx-auto max-w-6xl animate-pulse space-y-6">
-          <div className="h-10 w-72 rounded-xl bg-ink-700" />
-          <div className="grid gap-4 md:grid-cols-4">
-            {[...Array(4)].map((_, index) => (
-              <div key={index} className="h-32 rounded-2xl bg-ink-800" />
-            ))}
-          </div>
-          <div className="h-96 rounded-2xl bg-ink-800" />
-        </div>
-      </div>
-    );
-  }
+  const totalFilled = categories.reduce((s, c) => s + c.filledCount, 0);
+  const totalJobs = categories.reduce((s, c) => s + c.jobCount, 0);
+  const fillRatePct = totalJobs ? Math.round((totalFilled / totalJobs) * 100) : 0;
 
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-ink-900">
-        <p className="text-red-500">{error}</p>
+        <p className="text-red-500">{typeof error === "string" ? error : (error as Error).message || "Failed to load market insights."}</p>
       </div>
     );
   }
@@ -137,71 +64,157 @@ export default function InsightsPage() {
     <>
       <Head>
         <title>Market Insights - Stellar MarketPay</title>
-        <meta
-          name="description"
-          content="Category performance, skill demand, competitive jobs, and pay trends across Stellar MarketPay."
-        />
+        <meta name="description" content="Data-driven marketplace statistics per category." />
       </Head>
 
       <div className="min-h-screen bg-gray-50 dark:bg-ink-900 py-12 px-4">
         <div className="max-w-6xl mx-auto">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-amber-100 mb-1">Market Insights</h1>
-          <p className="text-gray-500 dark:text-amber-700 mb-8">Live analytics across all job categories on Stellar MarketPay</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-amber-100 mb-1">
+            Market Insights
+          </h1>
+          <p className="text-gray-500 dark:text-amber-700 mb-8">
+            Live marketplace statistics across every job category.
+          </p>
 
           {/* Overview cards */}
-          {overview && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
-              {[
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+            {isLoading || !overview ? (
+              [0, 1, 2, 3].map((i) => (
+                <div key={i} className="bg-white dark:bg-ink-800 rounded-lg shadow p-5 animate-pulse">
+                  <div className="h-3 w-16 bg-gray-200 dark:bg-ink-700 rounded mb-2" />
+                  <div className="h-7 w-24 bg-gray-200 dark:bg-ink-700 rounded" />
+                </div>
+              ))
+            ) : (
+              [
                 { label: "Total Jobs", value: overview.totalJobs.toLocaleString() },
                 { label: "Open Now", value: overview.openJobs.toLocaleString() },
-                { label: "Avg Budget", value: `${overview.avgBudgetXLM} XLM` },
-                { label: "Avg Days to Fill", value: overview.avgDaysToFill != null ? `${overview.avgDaysToFill}d` : "—" },
-              ].map((card) => (
-                <div key={card.label} className="bg-white dark:bg-ink-800 rounded-lg shadow p-5">
-                  <p className="text-xs text-gray-500 dark:text-amber-700 mb-1">{card.label}</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-amber-100">{card.value}</p>
+                {
+                  label: "Avg Budget",
+                  value: `${overview.avgBudgetXLM.toLocaleString()} XLM`,
+                },
+                {
+                  label: "Avg Days to Fill",
+                  value: overview.avgDaysToFill != null ? `${overview.avgDaysToFill}d` : "—",
+                },
+              ].map((c) => (
+                <div
+                  key={c.label}
+                  className="bg-white dark:bg-ink-800 rounded-lg shadow p-5"
+                >
+                  <p className="text-xs text-gray-500 dark:text-amber-700 mb-1">{c.label}</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-amber-100">{c.value}</p>
                 </div>
-              ))}
+              ))
+            )}
+            <div className="bg-white dark:bg-ink-800 rounded-lg shadow p-5 col-span-2 md:col-span-2">
+              <p className="text-xs text-gray-500 dark:text-amber-700 mb-2">
+                Platform Fill Rate ({fillRatePct}%)
+              </p>
+              <div className="w-full h-2 bg-gray-200 dark:bg-ink-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-market-500 to-market-400 transition-all"
+                  style={{ width: `${fillRatePct}%` }}
+                />
+              </div>
+              <p className="mt-2 text-xs text-gray-500 dark:text-amber-700">
+                {totalFilled.toLocaleString()} filled of {totalJobs.toLocaleString()} total jobs
+              </p>
             </div>
-          )}
-
-          {/* Category table */}
-          {categories.length === 0 ? (
-            <div className="bg-white dark:bg-ink-800 rounded-lg shadow p-8 text-center text-gray-500 dark:text-amber-700">
-              No category data available yet.
-            </div>
-          ) : (
-            <CategoryTable
-              categories={sortedCategories}
-              onSort={handleSort}
-              sortKey={sortKey}
-              sortDirection={sortDirection}
-            />
-          )}
-
-          <SkillsList skills={skills} />
-
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1.3fr_0.9fr]">
-            <section className="card">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <h2 className="section-title">Pay trends</h2>
-                    <p className="mt-2 text-sm text-amber-800">
-                      Average budget over time for the top five categories.
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-market-500/20 bg-market-500/10 px-3 py-1 text-xs font-semibold text-market-300">
-                    30-day window
-                  </span>
-                </div>
-
-                <PayTrendsChart payTrends={payTrends} categories={topTrendCategories} />
-              </section>
-
-              <CompetitiveJobs competitiveJobs={competitiveJobs} />
-            </div>
+            <InsightsChart loading={isLoading} categories={sorted} />
           </div>
+
+          {/* Category analytics table */}
+          <section className="bg-white dark:bg-ink-800 rounded-lg shadow overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-200 dark:border-ink-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-amber-100">
+                Category Statistics
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-amber-700 mt-1">
+                Performance metrics aggregated per job category.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 dark:bg-ink-900/50">
+                  <tr>
+                    {([
+                      ["category", "Category"],
+                      ["jobCount", "Jobs"],
+                      ["avgBudgetXLM", "Avg Budget (XLM)"],
+                      ["filledCount", "Filled"],
+                      ["avgDaysToFill", "Avg Days to Fill"],
+                    ] as const).map(([key, label]) => (
+                      <th
+                        key={key}
+                        onClick={() => toggleSort(key as SortKey)}
+                        className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-amber-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-ink-700/50"
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          {label}
+                          {sortKey === key && (
+                            <span className="text-market-400">{sortDir === "asc" ? "↑" : "↓"}</span>
+                          )}
+                        </span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-ink-700">
+                  {sorted.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className="px-5 py-12 text-center text-gray-500 dark:text-amber-700"
+                      >
+                        No category data available yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    sorted.map((c) => (
+                      <tr
+                        key={c.category}
+                        className="hover:bg-gray-50 dark:hover:bg-ink-700/30"
+                      >
+                        <td className="px-5 py-3 font-medium text-gray-900 dark:text-amber-100 whitespace-nowrap">
+                          <div className="flex items-center gap-3">
+                            <div className="w-20 h-2 bg-gray-200 dark:bg-ink-700 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-market-500"
+                                style={{
+                                  width: `${(c.jobCount / maxJobCount) * 100}%`,
+                                }}
+                              />
+                            </div>
+                            {c.category}
+                          </div>
+                        </td>
+                        <td className="px-5 py-3 text-gray-700 dark:text-amber-200 tabular-nums">
+                          {c.jobCount.toLocaleString()}
+                        </td>
+                        <td className="px-5 py-3 text-gray-700 dark:text-amber-200 tabular-nums">
+                          {c.avgBudgetXLM.toLocaleString()}
+                        </td>
+                        <td className="px-5 py-3 text-gray-700 dark:text-amber-200 tabular-nums">
+                          {c.filledCount.toLocaleString()}
+                          {c.jobCount > 0 && (
+                            <span className="ml-1 text-xs text-gray-500 dark:text-amber-700">
+                              ({Math.round((c.filledCount / c.jobCount) * 100)}%)
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-gray-700 dark:text-amber-200 tabular-nums">
+                          {c.avgDaysToFill != null ? `${c.avgDaysToFill}d` : "—"}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </div>
+      </div>
     </>
   );
 }

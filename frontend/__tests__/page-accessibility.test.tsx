@@ -11,8 +11,22 @@ jest.mock("next/router", () => ({
   }),
 }));
 
-jest.mock("@/components/WalletConnect", () => () => <button type="button">Connect Wallet</button>);
-jest.mock("@/components/PostJobForm", () => () => <form aria-label="Post job form"><input aria-label="Job title" /></form>);
+jest.mock("@/components/WalletConnect", () => {
+  const MockWalletConnect = () => (
+    <button type="button">Connect Wallet</button>
+  );
+  MockWalletConnect.displayName = "MockWalletConnect";
+  return MockWalletConnect;
+});
+jest.mock("@/components/PostJobForm", () => {
+  const MockPostJobForm = () => (
+    <form aria-label="Post job form">
+      <input aria-label="Job title" />
+    </form>
+  );
+  MockPostJobForm.displayName = "MockPostJobForm";
+  return MockPostJobForm;
+});
 jest.mock("@/lib/offlineJobs", () => ({
   getLastViewedJobs: () => [],
 }));

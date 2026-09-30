@@ -53,6 +53,8 @@ jest.mock("../services/escrowService", () => ({
   rejectMilestone: jest.fn(),
   disputeMilestone: jest.fn(),
   verifyFreelancerAccount: jest.fn(),
+  requestEscrowExtension: jest.fn(),
+  approveEscrowExtension: jest.fn(),
 }));
 
 jest.mock("../services/recurringEscrowService", () => ({
@@ -72,6 +74,8 @@ const {
   rejectMilestone,
   disputeMilestone,
   verifyFreelancerAccount,
+  requestEscrowExtension,
+  approveEscrowExtension,
 } = require("../services/escrowService");
 const {
   createRecurringEscrow,
@@ -685,6 +689,112 @@ describe("Escrow Route Suite (/api/escrow)", () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("freelancerAddress is required");
+    });
+  });
+
+  // =========================================================================
+  // 13. POST /api/escrow/:jobId/extend
+  // =========================================================================
+  describe("POST /api/escrow/:jobId/extend", () => {
+    it("201 — requests escrow extension successfully", async () => {
+      requestEscrowExtension.mockResolvedValue({
+        success: true,
+        extension: {
+          id: 1,
+          job_id: JOB_ID,
+          requested_by: CLIENT_ADDRESS,
+          new_timeout_ledger: 2000,
+          status: "pending",
+        },
+      });
+
+      const res = await request(app)
+        .post(`/api/escrow/${JOB_ID}/extend`)
+        .send({
+          requestedBy: CLIENT_ADDRESS,
+          newTimeoutLedger: 2000,
+          contractTxHash: "tx-extend-1",
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.extension.new_timeout_ledger).toBe(2000);
+      expect(requestEscrowExtension).toHaveBeenCalledWith(
+        JOB_ID,
+        CLIENT_ADDRESS,
+        2000,
+        "tx-extend-1",
+      );
+    });
+
+    it("400 — rejects when requestedBy is invalid format", async () => {
+      const res = await request(app)
+        .post(`/api/escrow/${JOB_ID}/extend`)
+        .send({
+          requestedBy: "INVALID_WALLET",
+          newTimeoutLedger: 2000,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Invalid wallet address");
+    });
+
+    it("400 — rejects when newTimeoutLedger is missing or non-positive", async () => {
+      const res = await request(app)
+        .post(`/api/escrow/${JOB_ID}/extend`)
+        .send({
+          requestedBy: CLIENT_ADDRESS,
+          newTimeoutLedger: 0,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("newTimeoutLedger must be a positive integer");
+    });
+  });
+
+  // =========================================================================
+  // 14. POST /api/escrow/:jobId/extend/approve
+  // =========================================================================
+  describe("POST /api/escrow/:jobId/extend/approve", () => {
+    it("200 — approves escrow extension successfully", async () => {
+      approveEscrowExtension.mockResolvedValue({
+        success: true,
+        extension: {
+          id: 1,
+          job_id: JOB_ID,
+          requested_by: CLIENT_ADDRESS,
+          approved_by: FREELANCER_ADDRESS,
+          new_timeout_ledger: 2000,
+          status: "approved",
+        },
+      });
+
+      const res = await request(app)
+        .post(`/api/escrow/${JOB_ID}/extend/approve`)
+        .send({
+          approvedBy: FREELANCER_ADDRESS,
+          contractTxHash: "tx-approve-1",
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.extension.status).toBe("approved");
+      expect(approveEscrowExtension).toHaveBeenCalledWith(
+        JOB_ID,
+        FREELANCER_ADDRESS,
+        "tx-approve-1",
+      );
+    });
+
+    it("400 — rejects when approvedBy is invalid format", async () => {
+      const res = await request(app)
+        .post(`/api/escrow/${JOB_ID}/extend/approve`)
+        .send({
+          approvedBy: "NOT_AN_ADDRESS",
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Invalid wallet address");
     });
   });
 });

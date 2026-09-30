@@ -1,0 +1,192 @@
+# EXAMPLE: Deploy Production Workflow
+#
+# This is an example workflow showing how to:
+# 1. Validate all required secrets with clear error messages for each category
+# 2. Require manual approval via GitHub environment protection rules
+# 3. Deploy to production with SSH and blue-green strategy
+# 4. Send notifications on success/failure
+#
+# To use this workflow:
+# 1. Copy this file to deploy-prod.yml
+# 2. Configure GitHub environment "production" with protection rules (require 1 reviewer)
+# 3. Add all required secrets (see docs/ci-secrets.md)
+# 4. Test on staging first
+#
+# See docs/ci-secrets.md for detailed setup instructions.
+
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Docker image tag to deploy (from staging run, format: sha-12chars)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Validate Deployment Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check SSH secrets
+        run: |
+          echo "🔍 Checking SSH secrets..."
+          
+          MISSING=()
+          [ -z "${{ secrets.SSH_HOST }}" ] && MISSING+=("SSH_HOST")
+          [ -z "${{ secrets.SSH_USER }}" ] && MISSING+=("SSH_USER")
+          [ -z "${{ secrets.SSH_KEY }}" ] && MISSING+=("SSH_KEY")
+          [ -z "${{ secrets.APP_DIR }}" ] && MISSING+=("APP_DIR")
+          
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "❌ Missing SSH secrets: ${MISSING[*]}"
+            exit 1
+          fi
+          echo "✅ SSH secrets configured"
+
+      - name: Check AWS secrets
+        run: |
+          echo "🔍 Checking AWS secrets..."
+          
+          MISSING=()
+          [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] && MISSING+=("AWS_ACCESS_KEY_ID")
+          [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ] && MISSING+=("AWS_SECRET_ACCESS_KEY")
+          [ -z "${{ secrets.AWS_REGION }}" ] && MISSING+=("AWS_REGION")
+          [ -z "${{ secrets.S3_BUCKET }}" ] && MISSING+=("S3_BUCKET")
+          
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "❌ Missing AWS secrets: ${MISSING[*]}"
+            exit 1
+          fi
+          echo "✅ AWS secrets configured"
+
+      - name: Check Database secrets
+        run: |
+          echo "🔍 Checking database secrets..."
+          
+          MISSING=()
+          [ -z "${{ secrets.PGHOST }}" ] && MISSING+=("PGHOST")
+          [ -z "${{ secrets.PGPORT }}" ] && MISSING+=("PGPORT")
+          [ -z "${{ secrets.PGDATABASE }}" ] && MISSING+=("PGDATABASE")
+          [ -z "${{ secrets.PGUSER }}" ] && MISSING+=("PGUSER")
+          [ -z "${{ secrets.PGPASSWORD }}" ] && MISSING+=("PGPASSWORD")
+          
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "❌ Missing database secrets: ${MISSING[*]}"
+            exit 1
+          fi
+          echo "✅ Database secrets configured"
+
+      - name: Summary
+        run: |
+          echo ""
+          echo "✅ All required secrets validated:"
+          echo "  ✓ SSH (SSH_HOST, SSH_USER, SSH_KEY, APP_DIR)"
+          echo "  ✓ AWS (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, S3_BUCKET)"
+          echo "  ✓ Database (PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD)"
+          echo ""
+          echo "📖 For setup help: https://github.com/${{ github.repository }}/blob/main/docs/ci-secrets.md"
+
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: preflight
+    environment: production
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      PGHOST: ${{ secrets.PGHOST }}
+      PGPORT: ${{ secrets.PGPORT }}
+      PGDATABASE: ${{ secrets.PGDATABASE }}
+      PGUSER: ${{ secrets.PGUSER }}
+      PGPASSWORD: ${{ secrets.PGPASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy via SSH
+        run: |
+          SSH_CMD="ssh -i ~/.ssh/deploy_key ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
+          
+          echo "🚀 Starting production deployment..."
+          echo "Image tag: ${{ inputs.image_tag }}"
+          
+          $SSH_CMD "cd ${{ secrets.APP_DIR }} && bash deploy/deploy.sh --tag=${{ inputs.image_tag }}"
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Deployment successful"
+          else
+            echo "❌ Deployment failed"
+            exit 1
+          fi
+
+      - name: Health check
+        run: |
+          SSH_CMD="ssh -i ~/.ssh/deploy_key ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
+          
+          echo "🏥 Running health checks..."
+          $SSH_CMD "bash ${{ secrets.APP_DIR }}/deploy/health-check.sh" || exit 1
+
+      - name: Notify Discord (success)
+        if: success() && secrets.DISCORD_WEBHOOK_URL != ''
+        run: |
+          PAYLOAD=$(cat <<EOF
+          {
+            "username": "Deployment Bot",
+            "avatar_url": "https://github.com/github.png",
+            "embeds": [{
+              "color": 3066993,
+              "title": "✅ Production Deployment Successful",
+              "fields": [
+                {"name": "Environment", "value": "Production", "inline": true},
+                {"name": "Image Tag", "value": "${{ inputs.image_tag }}", "inline": true},
+                {"name": "Triggered by", "value": "${{ github.actor }}", "inline": true},
+                {"name": "Commit", "value": "\`${{ github.sha }}\`", "inline": false}
+              ],
+              "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            }]
+          }
+          EOF
+          )
+          curl -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+
+      - name: Notify Discord (failure)
+        if: failure() && secrets.DISCORD_WEBHOOK_URL != ''
+        run: |
+          PAYLOAD=$(cat <<EOF
+          {
+            "username": "Deployment Bot",
+            "avatar_url": "https://github.com/github.png",
+            "embeds": [{
+              "color": 15158332,
+              "title": "❌ Production Deployment Failed",
+              "fields": [
+                {"name": "Environment", "value": "Production", "inline": true},
+                {"name": "Image Tag", "value": "${{ inputs.image_tag }}", "inline": true},
+                {"name": "Triggered by", "value": "${{ github.actor }}", "inline": true}
+              ],
+              "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            }]
+          }
+          EOF
+          )
+          curl -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" || true

@@ -46,9 +46,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (hasPostgres) {
-    await pool.end();
-  }
+  await pool.end();
 });
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -96,6 +94,12 @@ describe("assertUniqueVersions()", () => {
     const v6 = migrations.filter((m) => m.version === 6);
     expect(v6).toHaveLength(1);
     expect(v6[0].name).toBe("V6__private_message_nonce_unique");
+  });
+  it("V10 migration prefix is used by exactly one migration (issue #1068)", () => {
+    const migrations = loadMigrationPairs();
+    const v10 = migrations.filter((m) => m.version === 10);
+    expect(v10).toHaveLength(1);
+    expect(v10[0].name).toBe("V10__saved_searches");
   });
 });
 
@@ -195,6 +199,34 @@ describe("validateMigrationVersion()", () => {
 });
 
 describe("Health endpoint – migrationVersion field", () => {
+  let fetchSpy;
+  let poolSpy;
+  const cacheService = require("../services/cacheService");
+  const originalCachePing = cacheService.ping;
+
+  beforeAll(() => {
+    fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: { records: [{ sequence: 12345678 }] },
+      }),
+    });
+    poolSpy = jest.spyOn(pool, "query").mockResolvedValue({
+      rows: [{ "?column?": 1 }],
+    });
+    cacheService.ping = jest.fn().mockResolvedValue("up");
+  });
+
+  afterAll(() => {
+    fetchSpy?.mockRestore();
+    poolSpy?.mockRestore();
+    if (originalCachePing) {
+      cacheService.ping = originalCachePing;
+    } else {
+      delete cacheService.ping;
+    }
+  });
+
   it("returns migrationVersion in the health response", async () => {
     const express = require("express");
     const supertest = require("supertest");

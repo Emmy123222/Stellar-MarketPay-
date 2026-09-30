@@ -48,3 +48,14 @@ frontend/playwright-report/
 # Python
 __pycache__/
 *.pyc
+
+# Generated artifacts
+migrations_list.txt
+
+# Build artifacts
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
+
+# Stryker output
+.stryker-tmp/
+reports/

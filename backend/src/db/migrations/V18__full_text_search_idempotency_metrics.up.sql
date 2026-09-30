@@ -82,5 +82,4 @@ CREATE INDEX IF NOT EXISTS platform_metrics_lookup_idx
   ON platform_metrics (metric_name, granularity, bucket DESC);
 
 CREATE INDEX IF NOT EXISTS platform_metrics_cleanup_idx
-  ON platform_metrics (bucket)
-  WHERE bucket < NOW() - INTERVAL '1 year';
+  ON platform_metrics (bucket);

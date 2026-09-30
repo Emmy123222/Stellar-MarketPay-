@@ -55,7 +55,7 @@ export default function XlmPriceWidget() {
     { refreshInterval: 60_000 },
   );
 
-  const points           = data?.points ?? [];
+  const points = useMemo(() => data?.points ?? [], [data?.points]);
   const currentPriceUsd  = data?.currentPriceUsd ?? null;
   const change24hPercent = data?.change24hPercent ?? null;
 

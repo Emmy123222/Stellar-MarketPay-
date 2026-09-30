@@ -17,7 +17,7 @@ const {
 const pool = require("../db/pool");
 const jobService = require("../services/jobService");
 const { submitApplication } = require("../services/applicationService");
-const { createLoaders } = require("./loaders");
+
 
 const {
   getJob: _getJob,

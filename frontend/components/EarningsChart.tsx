@@ -114,11 +114,21 @@ export default function EarningsChart({ publicKey }: Props) {
   const [viewMode, setViewMode] = useState<"per-period" | "cumulative">("per-period");
 
   useEffect(() => {
+    let isMounted = true;
     setLoading(true);
     fetchFreelancerEarnings(publicKey)
-      .then(setData)
-      .catch(() => setError("Failed to load earnings data."))
-      .finally(() => setLoading(false));
+      .then((res) => {
+        if (isMounted) setData(res);
+      })
+      .catch(() => {
+        if (isMounted) setError("Failed to load earnings data.");
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+    return () => {
+      isMounted = false;
+    };
   }, [publicKey]);
 
   if (loading) {

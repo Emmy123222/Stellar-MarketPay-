@@ -12,8 +12,7 @@
  *
  * The DB pool is replaced with the shared pgMock. All service calls
  * (messageService, ipfsService) are mocked at the module level so tests
- * stay fast and deterministic. CSRF is a passthrough in jest.setup.js,
- * so a dummy "X-CSRF-Token" header is sufficient for mutating requests.
+ * stay fast and deterministic.
  */
 
 jest.mock("../db/pool", () => {
@@ -36,9 +35,10 @@ jest.mock("../services/ipfsService", () => ({
 }));
 
 const pool = require("../db/pool");
-const jwt = require("jsonwebtoken");
 const express = require("express");
 const request = require("supertest");
+const jwt = require("jsonwebtoken");
+const { authedAgent } = require("../testUtils/authedRequest");
 const { JWT_SECRET } = require("../middleware/auth");
 const messageRoutes = require("./messageRoutes");
 
@@ -111,10 +111,9 @@ describe("Message Routes Suite (/api/messages)", () => {
     it("201 — happy path: creates a message and returns it", async () => {
       createMessage.mockResolvedValue(fakeMessage({ content: validBody.content }));
 
-      const res = await request(app)
+      const agent = await authedAgent(app, { publicKey: USER_ADDRESS });
+      const res = await agent
         .post(`/api/messages/job/${JOB_ID}`)
-        .set("Authorization", `Bearer ${makeToken()}`)
-        .set("X-CSRF-Token", "dummy-token")
         .send(validBody);
 
       expect(res.status).toBe(201);
@@ -188,6 +187,35 @@ describe("Message Routes Suite (/api/messages)", () => {
 
       expect(res.status).toBe(400);
       expect(createMessage).not.toHaveBeenCalled();
+    });
+
+    it("400 — rejects when content exceeds 10,000 characters (Issue #1392)", async () => {
+      const oversizedContent = "a".repeat(10_001);
+      
+      const res = await request(app)
+        .post(`/api/messages/job/${JOB_ID}`)
+        .set("Authorization", `Bearer ${makeToken()}`)
+        .set("X-CSRF-Token", "dummy-token")
+        .send({ content: oversizedContent });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/too long/i);
+      expect(res.body.error).toMatch(/10,000/);
+      expect(createMessage).not.toHaveBeenCalled();
+    });
+
+    it("201 — accepts content at exactly 10,000 characters (boundary test)", async () => {
+      const maxContent = "a".repeat(10_000);
+      createMessage.mockResolvedValue(fakeMessage({ content: maxContent }));
+
+      const res = await request(app)
+        .post(`/api/messages/job/${JOB_ID}`)
+        .set("Authorization", `Bearer ${makeToken()}`)
+        .set("X-CSRF-Token", "dummy-token")
+        .send({ content: maxContent });
+
+      expect(res.status).toBe(201);
+      expect(createMessage).toHaveBeenCalled();
     });
 
     it("403 — surfaces 403 from service when user is not a job participant", async () => {

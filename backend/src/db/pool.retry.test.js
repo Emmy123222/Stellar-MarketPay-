@@ -29,6 +29,7 @@ jest.mock("pg", () => {
   return {
     Pool: jest.fn().mockImplementation(() => ({
       connect: mockConnect,
+      query: jest.fn(),
       on: jest.fn(),
       // Pool stats properties
       totalCount: 0,

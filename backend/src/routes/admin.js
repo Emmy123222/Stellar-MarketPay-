@@ -1,6 +1,6 @@
-/**
+﻿/**
  * src/routes/admin.js
- * Admin-only moderation routes — protected by JWT role=admin check.
+ * Admin-only moderation routes â€” protected by JWT role=admin check.
  *
  * @swagger
  * tags:
@@ -15,44 +15,56 @@ const router = express.Router();
 const pool = require("../db/pool");
 const { verifyJWT, requireAdminRole, requireAdmin2FA } = require("../middleware/auth");
 const { updateJobStatus, listJobs } = require("../services/jobService");
+const { recordDisputeEvent } = require("../services/disputeService");
+const { scheduleReputationRecalcForJob } = require("../services/reputationService");
 const { logContractInteraction } = require("../services/contractAuditService");
 const { getApiKeyUsageStats } = require("../services/developerService");
 const { listAuditLogs } = require("../services/auditLogService");
+const { auditQueue } = require("../utils/queue");
+const { createRateLimiter } = require("../middleware/rateLimiter");
 
-// Helper: log admin action to both audit_logs and admin_audit_log
-async function logAdminAction({ action, adminAddress, targetId, targetType, details }) {
-  try {
-    await pool.query(
-      `INSERT INTO audit_logs (actor_address, action, target, reason, metadata, created_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [
+// Every route in this router is admin-only and hits the database, so apply a
+// single per-IP limiter to the whole router. Without it, a leaked admin token
+// (or repeated 401/403 attempts) can be used to hammer these endpoints.
+const adminRateLimiter = createRateLimiter(120, 1); // 120 requests/min per IP
+
+router.use(adminRateLimiter);
+
+// Helper: enqueue admin audit entries â€” never blocks the response.
+// Writes to both audit_logs (general) and admin_audit_log (admin-specific).
+function logAdminAction({ action, adminAddress, targetId, targetType, details }) {
+  auditQueue
+    .add({
+      type: "audit_log",
+      payload: {
+        actorAddress: adminAddress,
+        action,
+        target: targetId || null,
+        reason: details?.reason || null,
+        metadata: { targetType, ...details },
+      },
+    })
+    .catch(() => {});
+
+  auditQueue
+    .add({
+      type: "admin_audit_log",
+      payload: {
         adminAddress,
         action,
-        targetId || null,
-        details?.reason || null,
-        JSON.stringify({ targetType, ...details }),
-      ]
-    );
-  } catch {
-    // Table may not exist yet — fail silently, action is still performed
-  }
-
-  try {
-    await pool.query(
-      `INSERT INTO admin_audit_log (admin_address, action, target_type, target_id, details, created_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [adminAddress, action, targetType, targetId, JSON.stringify(details || {})]
-    );
-  } catch {
-    // admin_audit_log may not exist yet — fail silently
-  }
+        targetType,
+        targetId: targetId || null,
+        details: details || {},
+      },
+    })
+    .catch(() => {});
 }
 
-// ┌───────────────────────────────────────────────────────────────────────────┐
-// │                    USER MANAGEMENT ENDPOINTS                             │
-// └───────────────────────────────────────────────────────────────────────────┘
+// â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+// â”‚                    USER MANAGEMENT ENDPOINTS                             â”‚
+// â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 
-// ── GET /api/admin/users — list users with filters ─────────────────────────
+// â”€â”€ GET /api/admin/users â€” list users with filters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/users", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const {
@@ -154,7 +166,7 @@ router.get("/users", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, r
   }
 });
 
-// ── POST /api/admin/users/:address/ban — soft-ban a user ────────────────────
+// â”€â”€ POST /api/admin/users/:address/ban â€” soft-ban a user â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.post("/users/:address/ban", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { address } = req.params;
@@ -176,7 +188,7 @@ router.post("/users/:address/ban", verifyJWT, requireAdminRole, requireAdmin2FA,
       return res.status(404).json({ error: "User not found" });
     }
 
-    await logAdminAction({
+    logAdminAction({
       action: "ban_user",
       adminAddress: req.user.publicKey,
       targetId: address,
@@ -190,7 +202,7 @@ router.post("/users/:address/ban", verifyJWT, requireAdminRole, requireAdmin2FA,
   }
 });
 
-// ── POST /api/admin/users/:address/unban — unban a user ─────────────────────
+// â”€â”€ POST /api/admin/users/:address/unban â€” unban a user â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.post("/users/:address/unban", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { address } = req.params;
@@ -211,7 +223,7 @@ router.post("/users/:address/unban", verifyJWT, requireAdminRole, requireAdmin2F
       return res.status(404).json({ error: "User not found" });
     }
 
-    await logAdminAction({
+    logAdminAction({
       action: "unban_user",
       adminAddress: req.user.publicKey,
       targetId: address,
@@ -225,7 +237,7 @@ router.post("/users/:address/unban", verifyJWT, requireAdminRole, requireAdmin2F
   }
 });
 
-// ── POST /api/admin/jobs/:id/remove — admin soft-delete a job ──────────────
+// â”€â”€ POST /api/admin/jobs/:id/remove â€” admin soft-delete a job â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.post("/jobs/:id/remove", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -244,7 +256,7 @@ router.post("/jobs/:id/remove", verifyJWT, requireAdminRole, requireAdmin2FA, as
       return res.status(404).json({ error: "Job not found or already removed" });
     }
 
-    await logAdminAction({
+    logAdminAction({
       action: "remove_job",
       adminAddress: req.user.publicKey,
       targetId: id,
@@ -258,11 +270,11 @@ router.post("/jobs/:id/remove", verifyJWT, requireAdminRole, requireAdmin2FA, as
   }
 });
 
-// ┌───────────────────────────────────────────────────────────────────────────┐
-// │                    EXISTING ENDPOINTS (unchanged)                        │
-// └───────────────────────────────────────────────────────────────────────────┘
+// â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+// â”‚                    EXISTING ENDPOINTS (unchanged)                        â”‚
+// â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 
-// ── GET /api/admin/metrics — platform analytics dashboard ─────────────────────
+// â”€â”€ GET /api/admin/metrics â€” platform analytics dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/metrics", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { period = "30d" } = req.query;
@@ -402,7 +414,7 @@ router.get("/metrics", verifyJWT, requireAdminRole, requireAdmin2FA, async (req,
   }
 });
 
-// ── GET /api/admin/reports/jobs — list all flagged/reported jobs ───────────────
+// â”€â”€ GET /api/admin/reports/jobs â€” list all flagged/reported jobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/reports/jobs", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
@@ -420,7 +432,7 @@ router.get("/reports/jobs", verifyJWT, requireAdminRole, requireAdmin2FA, async 
   }
 });
 
-// ── GET /api/admin/disputes — list all open disputes ─────────────────────────
+// â”€â”€ GET /api/admin/disputes â€” list all open disputes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/disputes", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
@@ -439,7 +451,7 @@ router.get("/disputes", verifyJWT, requireAdminRole, requireAdmin2FA, async (req
   }
 });
 
-// ── GET /api/admin/reported-wallets — list reported user addresses ─────────────
+// â”€â”€ GET /api/admin/reported-wallets â€” list reported user addresses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/reported-wallets", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
@@ -457,7 +469,7 @@ router.get("/reported-wallets", verifyJWT, requireAdminRole, requireAdmin2FA, as
   }
 });
 
-// ── GET /api/admin/logs — admin action audit log ───────────────────────────────
+// â”€â”€ GET /api/admin/logs â€” admin action audit log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/logs", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -472,7 +484,7 @@ router.get("/logs", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, re
   }
 });
 
-// ── GET /api/admin/audit-log — dedicated admin audit log (new table) ─────────
+// â”€â”€ GET /api/admin/audit-log â€” dedicated admin audit log (new table) â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/audit-log", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res) => {
   try {
     const { limit = 100, offset = 0 } = req.query;
@@ -503,7 +515,7 @@ router.get("/audit-log", verifyJWT, requireAdminRole, requireAdmin2FA, async (re
   }
 });
 
-// ── PATCH /api/admin/disputes/:jobId/resolve — mark dispute resolved ───────────
+// â”€â”€ PATCH /api/admin/disputes/:jobId/resolve â€” mark dispute resolved â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.patch("/disputes/:jobId/resolve", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { jobId } = req.params;
@@ -522,8 +534,14 @@ router.patch("/disputes/:jobId/resolve", verifyJWT, requireAdminRole, requireAdm
     // Update job status
     const newJobStatus = releaseTo === "client" ? "cancelled" : "completed";
     await updateJobStatus(jobId, newJobStatus);
+    scheduleReputationRecalcForJob(jobId);
 
-    await logAdminAction({
+    // Issue #1429 — timeline entry: the acting admin/arbitrator's ruling.
+    await recordDisputeEvent(jobId, "resolved", req.user.publicKey, {
+      payload: { resolution, releaseTo, newJobStatus },
+    });
+
+    logAdminAction({
       action: "resolve_dispute",
       adminAddress: req.user.publicKey,
       targetId: jobId,
@@ -531,7 +549,7 @@ router.patch("/disputes/:jobId/resolve", verifyJWT, requireAdminRole, requireAdm
       details: { reason: resolution, resolution, releaseTo, newJobStatus },
     });
 
-    await logContractInteraction({
+    logContractInteraction({
       functionName: "admin_resolve_dispute",
       callerAddress: req.user.publicKey,
       jobId,
@@ -547,7 +565,7 @@ router.patch("/disputes/:jobId/resolve", verifyJWT, requireAdminRole, requireAdm
   }
 });
 
-// ── PATCH /api/admin/jobs/:jobId/cancel — cancel a flagged job ─────────────────
+// â”€â”€ PATCH /api/admin/jobs/:jobId/cancel â€” cancel a flagged job â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.patch("/jobs/:jobId/cancel", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { jobId } = req.params;
@@ -555,7 +573,7 @@ router.patch("/jobs/:jobId/cancel", verifyJWT, requireAdminRole, requireAdmin2FA
 
     await updateJobStatus(jobId, "cancelled");
 
-    await logAdminAction({
+    logAdminAction({
       action: "cancel_job",
       adminAddress: req.user.publicKey,
       targetId: jobId,
@@ -569,7 +587,7 @@ router.patch("/jobs/:jobId/cancel", verifyJWT, requireAdminRole, requireAdmin2FA
   }
 });
 
-// ── POST /api/admin/wallets/:address/freeze — freeze a wallet ─────────────────
+// â”€â”€ POST /api/admin/wallets/:address/freeze â€” freeze a wallet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.post("/wallets/:address/freeze", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { address } = req.params;
@@ -586,7 +604,7 @@ router.post("/wallets/:address/freeze", verifyJWT, requireAdminRole, requireAdmi
       [address, reason || "Admin action", req.user.publicKey]
     );
 
-    await logAdminAction({
+    logAdminAction({
       action: "freeze_wallet",
       adminAddress: req.user.publicKey,
       targetId: address,
@@ -600,13 +618,13 @@ router.post("/wallets/:address/freeze", verifyJWT, requireAdminRole, requireAdmi
   }
 });
 
-// ── DELETE /api/admin/wallets/:address/freeze — unfreeze a wallet ─────────────
+// â”€â”€ DELETE /api/admin/wallets/:address/freeze â€” unfreeze a wallet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.delete("/wallets/:address/freeze", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { address } = req.params;
     await pool.query("DELETE FROM frozen_wallets WHERE address = $1", [address]);
 
-    await logAdminAction({
+    logAdminAction({
       action: "unfreeze_wallet",
       adminAddress: req.user.publicKey,
       targetId: address,
@@ -620,7 +638,7 @@ router.delete("/wallets/:address/freeze", verifyJWT, requireAdminRole, requireAd
   }
 });
 
-// ── GET /api/admin/wallets/frozen — list frozen wallets ───────────────────────
+// â”€â”€ GET /api/admin/wallets/frozen â€” list frozen wallets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/wallets/frozen", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -632,7 +650,7 @@ router.get("/wallets/frozen", verifyJWT, requireAdminRole, requireAdmin2FA, asyn
   }
 });
 
-// ── GET /api/admin/jobs — list all jobs (optionally include soft-deleted) ─────
+// â”€â”€ GET /api/admin/jobs â€” list all jobs (optionally include soft-deleted) â”€â”€â”€â”€â”€
 router.get("/jobs", verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const includeDeleted = req.query.include_deleted === "true";
@@ -647,7 +665,7 @@ router.get("/jobs", verifyJWT, requireAdminRole, async (req, res, next) => {
   }
 });
 
-// ── GET /api/admin/jobs/expired — list expired jobs ───────────────────────────
+// â”€â”€ GET /api/admin/jobs/expired â€” list expired jobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/jobs/expired", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
@@ -663,7 +681,7 @@ router.get("/jobs/expired", verifyJWT, requireAdminRole, requireAdmin2FA, async 
   }
 });
 
-// ── POST /api/admin/jobs/:jobId/reactivate — reactivate expired job ───────────
+// â”€â”€ POST /api/admin/jobs/:jobId/reactivate â€” reactivate expired job â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.post("/jobs/:jobId/reactivate", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { jobId } = req.params;
@@ -683,7 +701,7 @@ router.post("/jobs/:jobId/reactivate", verifyJWT, requireAdminRole, requireAdmin
       throw e;
     }
 
-    await logAdminAction({
+    logAdminAction({
       action: "job_reactivated",
       adminAddress: req.user.publicKey,
       targetId: jobId,
@@ -697,7 +715,7 @@ router.post("/jobs/:jobId/reactivate", verifyJWT, requireAdminRole, requireAdmin
   }
 });
 
-// ── GET /api/admin/audit-log — structured state-change audit log (V22) ───────
+// â”€â”€ GET /api/admin/audit-log â€” structured state-change audit log (V22) â”€â”€â”€â”€â”€â”€â”€
 router.get("/audit-log", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { limit, after, entity_type, entity_id, action } = req.query;
@@ -717,7 +735,7 @@ router.get("/audit-log", verifyJWT, requireAdminRole, requireAdmin2FA, async (re
   }
 });
 
-// ── GET /api/admin/cost-report — infrastructure cost tracking & optimization ──
+// â”€â”€ GET /api/admin/cost-report â€” infrastructure cost tracking & optimization â”€â”€
 router.get("/cost-report", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
 
@@ -727,19 +745,19 @@ router.get("/cost-report", verifyJWT, requireAdminRole, requireAdmin2FA, async (
         resource: "PostgreSQL (RDS)",
         monthlyEstimateUsd: 49.56,
         percentage: 38,
-        recommendation: "Switch to reserved instance — save ~40% ($19.82/mo)",
+        recommendation: "Switch to reserved instance â€” save ~40% ($19.82/mo)",
       },
       {
         resource: "Compute (ECS/EKS)",
         monthlyEstimateUsd: 35.20,
         percentage: 27,
-        recommendation: "Right-size: current CPU util ~22%. Use t3.medium instead of t3.large — save ~50% ($17.60/mo)",
+        recommendation: "Right-size: current CPU util ~22%. Use t3.medium instead of t3.large â€” save ~50% ($17.60/mo)",
       },
       {
         resource: "Redis (ElastiCache)",
         monthlyEstimateUsd: 18.72,
         percentage: 14,
-        recommendation: "Enable data tiering for cold keys or downsize to t4g.small — save ~35% ($6.55/mo)",
+        recommendation: "Enable data tiering for cold keys or downsize to t4g.small â€” save ~35% ($6.55/mo)",
       },
     ];
 
@@ -764,8 +782,8 @@ router.get("/cost-report", verifyJWT, requireAdminRole, requireAdmin2FA, async (
         rightSizingRecommendations: [
           {
             resource: "backend ECS tasks",
-            current: "t3.large (2 vCPU, 8 GB) × 2",
-            recommended: "t3.medium (2 vCPU, 4 GB) × 2",
+            current: "t3.large (2 vCPU, 8 GB) Ã— 2",
+            recommended: "t3.medium (2 vCPU, 4 GB) Ã— 2",
             estimatedSavings: "$17.60/mo",
             rationale: "Avg CPU < 25%, memory < 40% over last 7 days",
           },
@@ -804,24 +822,24 @@ router.get("/cost-report", verifyJWT, requireAdminRole, requireAdmin2FA, async (
   }
 });
 
-// ── GET /api/admin/cost-report/generate — trigger a fresh report email ──────
+// â”€â”€ GET /api/admin/cost-report/generate â€” trigger a fresh report email â”€â”€â”€â”€â”€â”€
 router.post("/cost-report/generate", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res) => {
-  try {
-    await pool.query(`
-      INSERT INTO audit_logs (actor_address, action, target, reason, metadata, created_at)
-      VALUES ($1, 'generate_cost_report', 'infrastructure', 'Manual cost report generation', $2, NOW())
-      RETURNING id
-    `, [
-      req.user.publicKey,
-      JSON.stringify({ reportType: "infrastructure_cost", generatedAt: new Date().toISOString() }),
-    ]);
-    res.json({ success: true, message: "Cost report generation triggered. Report will be emailed to admin." });
-  } catch (e) {
-    res.json({ success: true, message: "Cost report generation triggered." });
-  }
+  auditQueue
+    .add({
+      type: "audit_log",
+      payload: {
+        actorAddress: req.user.publicKey,
+        action: "generate_cost_report",
+        target: "infrastructure",
+        reason: "Manual cost report generation",
+        metadata: { reportType: "infrastructure_cost", generatedAt: new Date().toISOString() },
+      },
+    })
+    .catch(() => {});
+  res.json({ success: true, message: "Cost report generation triggered. Report will be emailed to admin." });
 });
 
-// ── GET /api/admin/metrics/time-series — platform_metrics for charting ────
+// â”€â”€ GET /api/admin/metrics/time-series â€” platform_metrics for charting â”€â”€â”€â”€
 router.get("/metrics/time-series", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { metric = "total_jobs", from, to, granularity = "day" } = req.query;
@@ -857,7 +875,24 @@ router.get("/metrics/time-series", verifyJWT, requireAdminRole, requireAdmin2FA,
   }
 });
 
-// ── GET /api/admin/reports/latest — download the most recent weekly PDF ───────
+// â”€â”€ GET /api/admin/api-keys/usage â€” API key usage stats (Issue #452) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+router.get(
+  "/api-keys/usage",
+  verifyJWT,
+  requireAdminRole,
+  requireAdmin2FA,
+  async (req, res, next) => {
+    try {
+      const lookbackDays = Number(req.query.days) || 7;
+      const stats = await getApiKeyUsageStats(lookbackDays);
+      res.json({ success: true, data: stats });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// â”€â”€ GET /api/admin/reports/latest â€” download the most recent weekly PDF â”€â”€â”€â”€â”€â”€â”€
 router.get("/reports/latest", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { downloadLatestFromS3 } = require("../services/adminReportService");
@@ -877,7 +912,7 @@ router.get("/reports/latest", verifyJWT, requireAdminRole, requireAdmin2FA, asyn
   }
 });
 
-// ── POST /api/admin/reports/generate — manually trigger report generation ─────
+// â”€â”€ POST /api/admin/reports/generate â€” manually trigger report generation â”€â”€â”€â”€â”€
 router.post("/reports/generate", verifyJWT, requireAdminRole, requireAdmin2FA, async (req, res, next) => {
   try {
     const { generateAndSendAdminReport } = require("../services/adminReportService");
@@ -893,3 +928,4 @@ router.post("/reports/generate", verifyJWT, requireAdminRole, requireAdmin2FA, a
 });
 
 module.exports = router;
+

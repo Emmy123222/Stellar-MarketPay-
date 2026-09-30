@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import clsx from "clsx";
@@ -46,8 +46,36 @@ export default function NotificationsPage({ publicKey, onConnect }: Notification
     }
   }
 
+  const isMountedRef = useRef(true);
+
+  async function loadNotificationsGuarded(cursor?: string | null) {
+    if (!publicKey) return;
+    if (cursor) setLoadingMore(true);
+    else setLoading(true);
+
+    try {
+      const result = await fetchNotifications({ limit: 20, cursor });
+      if (isMountedRef.current) {
+        setNotifications((current) =>
+          cursor ? [...current, ...result.notifications] : result.notifications,
+        );
+        setUnreadCount(result.unreadCount);
+        setNextCursor(result.nextCursor);
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
+  }
+
   useEffect(() => {
-    loadNotifications();
+    isMountedRef.current = true;
+    loadNotificationsGuarded();
+    return () => {
+      isMountedRef.current = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicKey]);
 

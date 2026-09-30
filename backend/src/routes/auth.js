@@ -222,8 +222,8 @@ router.post("/", async (req, res, next) => {
       console.warn("[auth] Could not stamp last_login_at:", stampErr.message);
     }
 
-    const { accessToken, refreshToken, csrfToken } = issueTokenPair(payload);
-    setAuthCookies(res, accessToken, refreshToken);
+    const { accessToken, refreshToken } = await issueTokenPair(payload);
+    const csrfToken = setAuthCookies(req, res, accessToken, refreshToken);
     res.json({ success: true, token: accessToken, csrfToken });
   } catch (e) {
     const err = Object.assign(new Error("Unauthorized: " + e.message), {
@@ -233,9 +233,9 @@ router.post("/", async (req, res, next) => {
   }
 });
 
-router.post("/refresh", authWriteRateLimiter, (req, res) => {
+router.post("/refresh", authWriteRateLimiter, async (req, res) => {
   const refreshToken = getRefreshTokenFromRequest(req);
-  const rotated = rotateRefreshToken(refreshToken);
+  const rotated = await rotateRefreshToken(refreshToken);
 
   if (!rotated) {
     clearAuthCookies(res);
@@ -244,16 +244,21 @@ router.post("/refresh", authWriteRateLimiter, (req, res) => {
       .json({ error: "Unauthorized: Invalid refresh token" });
   }
 
-  setAuthCookies(res, rotated.accessToken, rotated.refreshToken);
+  const csrfToken = setAuthCookies(
+    req,
+    res,
+    rotated.accessToken,
+    rotated.refreshToken,
+  );
   return res.json({
     success: true,
     token: rotated.accessToken,
-    csrfToken: rotated.csrfToken,
+    csrfToken,
   });
 });
 
-router.post("/logout", authWriteRateLimiter, (req, res) => {
-  revokeRefreshToken(getRefreshTokenFromRequest(req));
+router.post("/logout", authWriteRateLimiter, async (req, res) => {
+  await revokeRefreshToken(getRefreshTokenFromRequest(req));
   clearAuthCookies(res);
   res.json({ success: true });
 });

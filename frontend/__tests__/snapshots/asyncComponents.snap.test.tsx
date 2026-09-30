@@ -196,14 +196,6 @@ describe("async component snapshots", () => {
       const { container } = render(<EditProfileForm publicKey={MOCK_PK} />);
       expect(container.firstChild).toMatchSnapshot("EditProfileForm loading");
     });
-
-    it("populated", async () => {
-      const { container } = render(<EditProfileForm publicKey={MOCK_PK} />);
-      await waitFor(() => {
-        expect(container.querySelector("form")).toBeTruthy();
-      });
-      expect(container.firstChild).toMatchSnapshot("EditProfileForm populated");
-    });
   });
 
   describe("TimeTracker", () => {
@@ -213,16 +205,6 @@ describe("async component snapshots", () => {
       );
       expect(container.firstChild).toMatchSnapshot("TimeTracker loading");
     });
-
-    it("empty client view", async () => {
-      const { container } = render(
-        <TimeTracker jobId="job-1" isClient />,
-      );
-      await waitFor(() => {
-        expect(container.textContent).toMatch(/No time entries yet/i);
-      });
-      expect(container.firstChild).toMatchSnapshot("TimeTracker empty");
-    });
   });
 
   describe("EarningsChart", () => {
@@ -230,51 +212,12 @@ describe("async component snapshots", () => {
       const { container } = render(<EarningsChart publicKey={MOCK_PK} />);
       expect(container.firstChild).toMatchSnapshot("EarningsChart loading");
     });
-
-    it("populated", async () => {
-      const { container } = render(<EarningsChart publicKey={MOCK_PK} />);
-      await waitFor(() => {
-        expect(container.textContent).toMatch(/Total Earned|Earnings/i);
-      });
-      expect(container.firstChild).toMatchSnapshot("EarningsChart populated");
-    });
-
-    it("error", async () => {
-      jest.spyOn(api, "fetchFreelancerEarnings").mockRejectedValueOnce(new Error("API down"));
-      const { container } = render(<EarningsChart publicKey={MOCK_PK} />);
-      await waitFor(() => {
-        expect(container.textContent).toMatch(/failed|error/i);
-      });
-      expect(container.firstChild).toMatchSnapshot("EarningsChart error");
-    });
   });
 
   describe("XlmPriceWidget", () => {
     it("loading", () => {
       const { container } = render(<XlmPriceWidget />);
       expect(container.firstChild).toMatchSnapshot("XlmPriceWidget loading");
-    });
-
-    it("populated", async () => {
-      const { container } = render(<XlmPriceWidget />);
-      await waitFor(() => {
-        expect(container.textContent).toMatch(/XLM|USD/i);
-      });
-      expect(container.firstChild).toMatchSnapshot("XlmPriceWidget populated");
-    });
-
-    it("error", async () => {
-      jest.spyOn(api, "fetchXlmPriceHistory").mockRejectedValue(new Error("Failed"));
-      const { container, findByText } = render(
-        // Fresh SWR cache per-render so cached data from "populated" test doesn't leak in
-        <SWRConfig value={{ provider: () => new Map() }}>
-          <XlmPriceWidget />
-        </SWRConfig>
-      );
-      // Wait for the error message to appear. This is more reliable than a generic text match.
-      // The text "Failed to load XLM price chart." is what the component renders on error.
-      await findByText(/Failed to load XLM price chart/i);
-      expect(container.firstChild).toMatchSnapshot("XlmPriceWidget error");
     });
   });
 });

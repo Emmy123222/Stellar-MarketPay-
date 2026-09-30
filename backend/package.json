@@ -10,8 +10,8 @@
         "lint:fix": "eslint src tests __tests__ --fix",
         "test": "jest --coverage",
         "test:unit": "jest",
-        "test:integration": "jest --testPathPattern=src/tests/integration --runInBand",
-        "test:property": "jest --testPathPatterns='\\.property\\.test\\.js$'",
+        "test:integration": "jest --selectProjects integration --runInBand --testTimeout=30000 --forceExit",
+        "test:property": "jest --testPathPatterns='\\.property\\.test\\.js$' --forceExit",
         "generate-openapi": "node scripts/generate-openapi.js",
         "build": "npm run generate-openapi && npm run lint",
         "migrate": "node src/db/migrate.js",
@@ -19,33 +19,34 @@
         "db:seed": "node ../scripts/seed-db.js"
     },
     "dependencies": {
-        "@aws-sdk/client-s3": "^3.1098.0",
-        "@bull-board/api": "^8.4.0",
-        "@bull-board/express": "^8.4.0",
-        "@simplewebauthn/server": "^9.0.3",
-        "@stellar/stellar-sdk": "^12.0.0",
+        "@aws-sdk/client-s3": "^3.1116.0",
+        "@bull-board/api": "^9.5.0",
+        "@bull-board/express": "^9.4.0",
+        "@simplewebauthn/server": "^14.0.2",
+        "@stellar/stellar-sdk": "^17.1.0",
         "ajv-formats": "^3.0.1",
-        "axios": "^1.7.2",
+        "axios": "^1.20.0",
         "bull": "^4.16.5",
         "compression": "^1.8.1",
         "cookie-parser": "^1.4.7",
         "cors": "^2.8.5",
         "csrf-csrf": "^4.0.3",
         "dataloader": "^2.2.3",
+        "date-fns": "^4.4.0",
         "date-fns-tz": "^3.2.0",
         "dompurify": "^3.4.13",
         "dotenv": "^16.4.5",
         "express": "^5.2.1",
-        "express-rate-limit": "^7.3.1",
+        "express-rate-limit": "^7.5.1",
         "form-data": "^4.0.6",
         "graphql": "^17.0.2",
         "helmet": "^8.3.0",
         "ioredis": "^5.11.1",
         "jsdom": "^24.1.0",
         "jsonwebtoken": "^9.0.3",
-        "morgan": "^1.11.0",
-        "multer": "^2.2.0",
-        "nodemailer": "^9.0.3",
+        "morgan": "^1.12.0",
+        "multer": "^2.3.0",
+        "nodemailer": "^10.0.12",
         "p-limit": "^3.1.0",
         "pdfkit": "^0.19.1",
         "pg": "^8.22.0",
@@ -54,14 +55,14 @@
         "prom-client": "^15.1.3",
         "qrcode": "^1.5.4",
         "rss": "^1.2.2",
-        "sanitize-html": "^2.17.0",
+        "sanitize-html": "^2.17.7",
         "speakeasy": "^2.0.0",
         "swagger-jsdoc": "^6.2.8",
         "swagger-ui-express": "^5.0.0",
         "uuid": "^14.0.1",
         "web-push": "^3.6.7",
-        "ws": "^8.21.1",
-        "zod": "^4.4.3"
+        "ws": "^8.21.3",
+        "zod": "^4.5.1"
     },
     "overrides": {
         "qs": "^6.14.0",
@@ -71,14 +72,16 @@
         "nanoid": "^3.3.18"
     },
     "devDependencies": {
+        "@babel/preset-env": "^7.29.7",
         "@eslint/js": "^10.0.1",
         "@stryker-mutator/core": "^9.6.1",
         "@stryker-mutator/jest-runner": "^9.6.1",
-        "eslint": "^10.8.0",
+        "ajv": "^8.20.0",
+        "eslint": "^10.9.0",
         "fast-check": "^4.9.0",
         "globals": "^17.11.0",
-        "jest": "^30.3.0",
-        "nodemailer-mock": "^2.0.13",
+        "jest": "^30.5.0",
+        "nodemailer-mock": "^2.0.14",
         "nodemon": "^3.1.2",
         "supertest": "^7.2.2",
         "validator": "^13.15.35",
@@ -122,7 +125,7 @@
             }
         },
         "transformIgnorePatterns": [
-            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+            "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|sanitize-html|htmlparser2|domhandler|domutils|entities|dom-serializer|domelementtype)/)"
         ],
         "moduleNameMapper": {
             "^(\\.{1,2}/.*)\\.js$": "$1"
@@ -139,11 +142,14 @@
                     "src/tests/integration"
                 ],
                 "transformIgnorePatterns": [
-                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid|sanitize-html|htmlparser2|domhandler|domutils|entities|dom-serializer|domelementtype)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
-                }
+                },
+                "setupFilesAfterEnv": [
+                    "<rootDir>/jest.mocks.js"
+                ]
             },
             {
                 "displayName": "integration",
@@ -155,14 +161,19 @@
                     "<rootDir>/jest.setup.js"
                 ],
                 "testTimeout": 30000,
-                "runInBand": true,
                 "transformIgnorePatterns": [
-                    "node_modules/(?!(isomorphic-dompurify|dompurify|@exodus|uuid)/)"
+                    "/node_modules/(?!(sanitize-html|htmlparser2|domhandler|domutils|entities|domelementtype|dom-serializer)/)"
                 ],
                 "moduleNameMapper": {
                     "^(\\.{1,2}/.*)\\.js$": "$1"
-                }
+                },
+                "setupFilesAfterEnv": [
+                    "<rootDir>/jest.mocks.js"
+                ]
             }
+        ],
+        "setupFilesAfterEnv": [
+            "<rootDir>/jest.mocks.js"
         ]
     }
 }

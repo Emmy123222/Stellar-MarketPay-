@@ -14,6 +14,7 @@ codebase is listed, along with its type, default, required status, and example.
 |---|---|---|---|---|---|
 | `DATABASE_URL` | `string` | — | PostgreSQL connection string used by the API and migrations. | Must be a valid PostgreSQL URL. Startup crashes if unset (`requireEnv`). | `postgresql://user:pass@localhost:5432/marketpay` |
 | `JWT_SECRET` | `string` | — | Signing key for auth tokens. | Must be a non-empty string. Startup crashes if unset (`process.exit(1)` in `auth.js`). | `4c9d0f7d6f4f4c0f8d1b3b...` |
+| `CSRF_SECRET` | `string` | `JWT_SECRET` (dev) / — (prod) | HMAC secret for signing `csrf-token` double-submit cookies. | **Required in production** — startup crashes if unset (`process.exit(1)` in `csrf.js`). Falls back to `JWT_SECRET` in dev/CI only. | `random-hmac-secret` |
 
 ### Network & Stellar
 

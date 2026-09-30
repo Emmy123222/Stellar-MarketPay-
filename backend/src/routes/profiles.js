@@ -51,10 +51,12 @@ const {
   unblockFreelancer,
   markProfileForDeletion,
 } = require("../services/profileService");
+const { enqueuePortfolioVerification } = require("../services/linkVerificationService");
 const {
-  upsertPriceAlertPreference,
-  getPriceAlertPreference,
-} = require("../services/priceAlertService");
+  migrateProfile,
+} = require("../services/profileMigrationService");
+const { validateProfileMigration } = require("../validators/profileMigrationValidator");
+const { getPriceAlertPreference, upsertPriceAlertPreference } = require("../services/priceAlertService");
 
 /**
  * @swagger
@@ -217,7 +219,24 @@ router.get("/:publicKey", generalProfileRateLimiter, async (req, res, next) => {
     res.set("X-Cache", "MISS");
     res.json({ success: true, data });
   }
-  catch (e) { next(e); }
+  catch (e) {
+    // A migrated address has no active profile row match (deletion_status or
+    // migrated marker); report the redirect target so both addresses stay
+    // searchable and the old one points to the new profile (Issue #885).
+    if (e.status === 404) {
+      try {
+        const { getRedirectTarget } = require("../services/profileMigrationService");
+        const target = await getRedirectTarget(req.params.publicKey);
+        if (target) {
+          return res.status(200).json({
+            success: true,
+            data: { publicKey: req.params.publicKey, migrated_to: target, redirect: true },
+          });
+        }
+      } catch (_) { /* fall through to 404 */ }
+    }
+    next(e);
+  }
 });
 
 /**
@@ -262,6 +281,24 @@ router.get("/:publicKey/response-time", generalProfileRateLimiter, async (req, r
   catch (e) { next(e); }
 });
 
+/**
+ * Fire-and-forget dispatch of portfolio link verification after an
+ * upsert. Errors are swallowed so the HTTP response is not delayed or
+ * failed when Redis is unavailable; the link verification status
+ * remains the previous value until the next successful queue drain.
+ */
+function dispatchLinkVerification(publicKey, portfolioItems) {
+  if (!publicKey || !Array.isArray(portfolioItems) || portfolioItems.length === 0) {
+    return;
+  }
+  enqueuePortfolioVerification({ publicKey, portfolioItems }).catch((err) => {
+    profileLogger.warn(
+      { publicKey, err: err && err.message },
+      "Failed to enqueue link verification after profile upsert"
+    );
+  });
+}
+
 router.post("/", profileUpdateRateLimiter, validateJsonb({ portfolio_items: portfolioItemsSchema }), async (req, res, next) => {
   try {
     const body = validate(upsertProfileSchema, req.body);
@@ -270,6 +307,7 @@ router.post("/", profileUpdateRateLimiter, validateJsonb({ portfolio_items: port
       const key = cache.profileKey(body.publicKey);
       await cache.del(key);
       profileLogger.debug({ publicKey: body.publicKey, cacheKey: key }, "Cache invalidated after POST profile");
+      dispatchLinkVerification(body.publicKey, data && data.portfolioItems);
     }
     res.json({ success: true, data });
   }
@@ -288,6 +326,7 @@ router.put("/:publicKey", profileUpdateRateLimiter, verifyJWT, async (req, res, 
     const key = cache.profileKey(publicKey);
     await cache.del(key);
     profileLogger.debug({ publicKey, cacheKey: key }, "Cache invalidated after PUT profile");
+    dispatchLinkVerification(publicKey, data && data.portfolioItems);
     res.json({ success: true, data });
   }
   catch (e) { next(e); }
@@ -935,6 +974,68 @@ router.put("/:publicKey/encryption-key", verifyJWT, profileUpdateRateLimiter, as
  *       403:
  *         description: Can only delete own profile
  */
+/**
+ * @swagger
+ * /api/profiles/migrate:
+ *   post:
+ *     summary: Merge an old Stellar account into a new one (identity migration)
+ *     description: |
+ *       Proves ownership of BOTH accounts via ed25519 signatures over the
+ *       canonical challenge string `MARKETPAY-ACCOUNT-MERGE\\n<old>\\n<new>\\n<issuedAt>`
+ *       (one signature per key, hex or base64). On success, in one transaction:
+ *       profile identity/reputation is carried to the new address, all history
+ *       tables (jobs, applications, ratings, referrals, payouts, messages,
+ *       progress updates, dispute evidence, archives, certificates, push
+ *       subscriptions, API keys) are re-pointed old -> new, and the old
+ *       address is marked `migrated_to = new` (kept searchable; lookups of the
+ *       old address report the redirect target).
+ *     tags: [Profiles]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [oldPublicKey, newPublicKey, oldSignature, newSignature, issuedAt]
+ *             properties:
+ *               oldPublicKey:
+ *                 type: string
+ *               newPublicKey:
+ *                 type: string
+ *               oldSignature:
+ *                 type: string
+ *                 description: ed25519 signature of the challenge by the OLD secret key (hex/base64)
+ *               newSignature:
+ *                 type: string
+ *                 description: ed25519 signature of the challenge by the NEW secret key (hex/base64)
+ *               issuedAt:
+ *                 type: string
+ *                 format: date-time
+ *                 description: ISO timestamp embedded in the challenge (10-minute validity)
+ *               network:
+ *                 type: string
+ *                 enum: [testnet, mainnet]
+ *     responses:
+ *       200:
+ *         description: Migration complete; returns per-table transferred-row counts
+ *       400:
+ *         description: Validation error (bad address/signature format, expired challenge)
+ *       401:
+ *         description: A signature does not prove ownership of its address
+ *       404:
+ *         description: Old profile not found
+ *       409:
+ *         description: Old address already migrated, or new address is itself migrated
+ */
+router.post("/migrate", profileUpdateRateLimiter, async (req, res, next) => {
+  try {
+    const body = validateProfileMigration(req.body);
+    const summary = await migrateProfile(body);
+    res.json({ success: true, data: summary });
+  }
+  catch (e) { next(e); }
+});
+
 // DELETE /api/profiles/:publicKey/data — GDPR deletion request
 router.delete("/:publicKey/data", verifyJWT, profileUpdateRateLimiter, async (req, res, next) => {
   try {

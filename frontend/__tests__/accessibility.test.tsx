@@ -3,7 +3,8 @@
  * Component-level accessibility tests using jest-axe
  */
 import { render } from "@testing-library/react";
-import { axe, toHaveNoViolations } from "jest-axe";
+import { axe, toHaveNoViolations, configureAxe } from "jest-axe";
+import type { JestAxeConfigureOptions } from "jest-axe";
 import React from "react";
 
 // Extend Jest matchers
@@ -225,4 +226,19 @@ describe("Accessibility - Components", () => {
       expect(results).toHaveNoViolations();
     });
   });
+
+  describe("Custom Axe Configuration", () => {
+    it("custom configured axe should validate element with no violations", async () => {
+      const options: JestAxeConfigureOptions = {
+        rules: {
+          region: { enabled: false },
+        },
+      };
+      const customAxe = configureAxe(options);
+      const { container } = render(<button className="btn-primary">Configured Axe Button</button>);
+      const results = await customAxe(container);
+      expect(results).toHaveNoViolations();
+    });
+  });
 });
+

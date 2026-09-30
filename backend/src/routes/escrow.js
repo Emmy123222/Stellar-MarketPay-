@@ -23,11 +23,17 @@ const {
   EVENT_TYPES,
 } = require("../services/notificationService");
 const { processReferralPayout } = require("../services/referralService");
+const { scheduleReputationRecalcForJob } = require("../services/reputationService");
+const { queueAutoConversion } = require("../services/autoConvertService");
 const {
+  submitDeliverableHash,
   timeoutRefund,
   releaseMilestone,
   rejectMilestone,
   disputeMilestone,
+  requestEscrowExtension,
+  approveEscrowExtension,
+  getEscrowField,
 
   verifyFreelancerAccount,
 } = require("../services/escrowService");
@@ -98,6 +104,13 @@ router.post("/:jobId/release", async (req, res, next) => {
     );
     await updateJobStatus(jobId, "completed");
 
+    // Issue #1561: refresh reputation for both parties (and the referrer whose
+    // referral quality may have changed) in the background.
+    scheduleReputationRecalcForJob(jobId, referralResult?.referrer);
+
+    // Issue #1560: queue an XLM→USDC swap if the freelancer opted in.
+    const autoConversion = await queueAutoConversion({ jobId, amountXlm });
+
     // Audit log the escrow release event
     try {
       await insertAuditLog({
@@ -119,6 +132,13 @@ router.post("/:jobId/release", async (req, res, next) => {
         referralBonus: {
           referrer: referralResult.referrer,
           bonusXlm: referralResult.bonusXlm,
+        },
+      }),
+      ...(autoConversion && {
+        autoConversion: {
+          id: autoConversion.id,
+          status: autoConversion.status,
+          sourceAmountXlm: autoConversion.sourceAmountXlm,
         },
       }),
     });
@@ -155,7 +175,7 @@ router.post(
       const txInfo = await verifyOnChainTransaction(contractTxHash);
       const txHashInner = contractTxHash || `offchain-${Date.now()}`;
 
-      await logContractInteraction({
+      logContractInteraction({
         functionName: "partial_release",
         callerAddress: clientAddress,
         jobId,
@@ -166,11 +186,7 @@ router.post(
       });
 
       // Notify users about escrow release
-      const { rows: escrowRows } = await pool.query(
-        `SELECT amount_xlm FROM escrows WHERE job_id = $1`,
-        [jobId],
-      );
-      const escrowAmount = escrowRows.length ? escrowRows[0].amount_xlm : job.budget;
+      const escrowAmount = await getEscrowField(jobId, 'amount_xlm') ?? job.budget;
 
       await notifyEscrowEvent({
         eventType: EVENT_TYPES.ESCROW_RELEASED,
@@ -184,6 +200,8 @@ router.post(
           currency: job.currency,
         },
       });
+
+      scheduleReputationRecalcForJob(jobId);
 
       res.json({ success: true, message: "Escrow released and job completed" });
     } catch (e) {
@@ -215,7 +233,25 @@ router.post(
         clientAddress,
         contractTxHash,
       );
-      res.json({ success: true, data: result });
+
+      scheduleReputationRecalcForJob(jobId);
+      const autoConversion = await queueAutoConversion({
+        jobId,
+        amountXlm: result.milestone?.amount,
+        milestoneIndex: Number(milestoneIndex),
+      });
+
+      res.json({
+        success: true,
+        data: result,
+        ...(autoConversion && {
+          autoConversion: {
+            id: autoConversion.id,
+            status: autoConversion.status,
+            sourceAmountXlm: autoConversion.sourceAmountXlm,
+          },
+        }),
+      });
     } catch (e) {
       next(e);
     }
@@ -247,7 +283,25 @@ router.post(
         clientAddress,
         contractTxHash,
       );
-      res.json({ success: true, data: result });
+
+      scheduleReputationRecalcForJob(jobId);
+      const autoConversion = await queueAutoConversion({
+        jobId,
+        amountXlm: result.milestone?.amount,
+        milestoneIndex: Number(milestoneIndex),
+      });
+
+      res.json({
+        success: true,
+        data: result,
+        ...(autoConversion && {
+          autoConversion: {
+            id: autoConversion.id,
+            status: autoConversion.status,
+            sourceAmountXlm: autoConversion.sourceAmountXlm,
+          },
+        }),
+      });
     } catch (e) {
       next(e);
     }
@@ -299,7 +353,7 @@ router.post("/:jobId/refund", async (req, res, next) => {
     const txInfo = await verifyOnChainTransaction(contractTxHash);
     const txHashInner = contractTxHash || `offchain-${Date.now()}`;
 
-    await logContractInteraction({
+    logContractInteraction({
       functionName: "refund_escrow",
       callerAddress: clientAddress,
       jobId,
@@ -310,11 +364,7 @@ router.post("/:jobId/refund", async (req, res, next) => {
     });
 
     // Notify users about refund
-    const { rows: escrowRows } = await pool.query(
-      `SELECT amount_xlm FROM escrows WHERE job_id = $1`,
-      [jobId],
-    );
-    const escrowAmount = escrowRows.length ? escrowRows[0].amount_xlm : job.budget;
+    const escrowAmount = await getEscrowField(jobId, 'amount_xlm') ?? job.budget;
 
     await notifyEscrowEvent({
       eventType: EVENT_TYPES.REFUND_ISSUED,
@@ -329,7 +379,7 @@ router.post("/:jobId/refund", async (req, res, next) => {
       },
     });
 
-    res.json({ success: true, message: "Escrow refunded" });
+      res.json({ success: true, message: "Escrow refunded" });
   } catch (e) {
     next(e);
   }
@@ -525,6 +575,99 @@ router.post("/verify-freelancer", escrowActionRateLimiter, async (req, res, next
     await verifyFreelancerAccount(freelancerAddress);
 
     res.json({ success: true, data: { freelancerAddress, exists: true } });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/:jobId/extend
+ * Request an on-chain escrow timeout extension by mutual consent.
+ * The caller must be the client or freelancer.
+ */
+router.post("/:jobId/extend", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { requestedBy, newTimeoutLedger, contractTxHash } = req.body;
+
+    if (!requestedBy || !/^G[A-Z0-9]{55}$/.test(requestedBy)) {
+      const e = new Error("Invalid wallet address");
+      e.status = 400;
+      throw e;
+    }
+
+    if (
+      newTimeoutLedger === undefined ||
+      newTimeoutLedger === null ||
+      !Number.isInteger(Number(newTimeoutLedger)) ||
+      Number(newTimeoutLedger) <= 0
+    ) {
+      const e = new Error("newTimeoutLedger must be a positive integer");
+      e.status = 400;
+      throw e;
+    }
+
+    const result = await requestEscrowExtension(
+      jobId,
+      requestedBy,
+      Number(newTimeoutLedger),
+      contractTxHash,
+    );
+
+    res.status(201).json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/:jobId/extend/approve
+ * Approve a pending escrow timeout extension request.
+ * The caller must be the party that did NOT request the extension.
+ */
+router.post("/:jobId/extend/approve", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { approvedBy, contractTxHash } = req.body;
+
+    if (!approvedBy || !/^G[A-Z0-9]{55}$/.test(approvedBy)) {
+      const e = new Error("Invalid wallet address");
+      e.status = 400;
+      throw e;
+    }
+
+    const result = await approveEscrowExtension(jobId, approvedBy, contractTxHash);
+
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/escrow/:jobId/deliverable-hash
+ * Submit a deliverable hash. Only the assigned freelancer may submit.
+ */
+router.post("/:jobId/deliverable-hash", escrowActionRateLimiter, async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { freelancerAddress, hashHex } = req.body;
+
+    if (!freelancerAddress || !/^G[A-Z0-9]{55}$/.test(freelancerAddress)) {
+      const e = new Error("Invalid freelancer address");
+      e.status = 400;
+      throw e;
+    }
+
+    if (!hashHex || !/^[0-9a-fA-F]{64}$/.test(hashHex)) {
+      const e = new Error("hashHex must be a 64-character hex string (SHA-256)");
+      e.status = 400;
+      throw e;
+    }
+
+    const result = await submitDeliverableHash(jobId, freelancerAddress, hashHex);
+
+    res.json(result);
   } catch (e) {
     next(e);
   }

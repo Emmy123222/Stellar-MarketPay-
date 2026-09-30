@@ -69,29 +69,27 @@ If the health check fails or a post-switch verification fails:
 3. Keep the old active environment running.
 4. Send a Discord notification with the rollback status.
 
-## Staging Flow
+## GitHub Actions Workflow (`deploy.yml`)
 
-1. Build frontend Docker image.
-2. Push image to GHCR (`ghcr.io/<owner>/<repo>:<sha>`).
-3. SSH to staging VPS and run `deploy/deploy.sh` (blue-green).
-4. Send Discord notification for success/failure.
+The repository uses a single, unified deployment workflow (`deploy.yml`) for all environments, triggered manually via `workflow_dispatch`.
 
-## Production Flow
+### Workflow Inputs
 
-1. Trigger `Deploy Production` workflow manually.
-2. Provide image tag from staging run.
-3. GitHub environment `production` gate enforces required reviewer approval.
-4. SSH deploy to production VPS using `deploy/deploy.sh` (blue-green).
-5. Health check the green environment before switching the load balancer.
-6. Automated rollback if health check fails.
-7. Send Discord notification for success/failure.
+When triggering the deployment, you must provide the following inputs:
 
-## Rollback Flow
+- `environment`: The target environment (e.g., `staging`, `production`).
+- `image_tag`: The specific Docker image tag to deploy.
+- `rollback`: (Boolean) If true, redeploys the specified `image_tag` as a rollback.
 
-1. Trigger `Rollback Deploy` workflow manually.
-2. Provide known-good `image_tag` and target env.
-3. Workflow redeploys that tag over SSH using the opposite color.
-4. Sends Discord status notification.
+### Deployment Execution
+
+1. **Trigger**: Manually start the workflow and provide the required inputs.
+2. **Approval Gate**: If targeting `production`, GitHub environment protection rules enforce required reviewer approval before proceeding.
+3. **Deploy**: The workflow connects to the target environment via SSH and executes the `deploy/deploy.sh` script.
+4. **Blue-Green Health Gate**: The deploy script brings up the standby environment and polls its `/api/health` endpoint. 
+   - **Success**: If the health check passes, traffic is switched to the new environment.
+   - **Failure**: If the health check fails, an automated rollback occurs, leaving the active environment untouched.
+5. **Notification**: A deployment status notification (success or rollback) is sent to Discord.
 
 ## Required GitHub Secrets
 

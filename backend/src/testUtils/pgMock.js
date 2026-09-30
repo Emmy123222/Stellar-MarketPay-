@@ -69,13 +69,16 @@ function defaultDaoProposalRow(overrides = {}) {
   return {
     id: overrides.id || `prop-${Date.now()}`,
     title: overrides.title || "Default Governance Proposal",
-    description: overrides.description || "Proposal description for governance testing.",
+    description:
+      overrides.description || "Proposal description for governance testing.",
     type: overrides.type || "treasury",
     proposer: overrides.proposer || "G" + "A".repeat(55),
     amount: overrides.amount != null ? String(overrides.amount) : "100.0000000",
     recipient: overrides.recipient || "G" + "B".repeat(55),
     status: overrides.status || "active",
-    voting_ends_at: overrides.voting_ends_at || new Date(Date.now() + 7 * 86400000).toISOString(),
+    voting_ends_at:
+      overrides.voting_ends_at ||
+      new Date(Date.now() + 7 * 86400000).toISOString(),
     created_at: overrides.created_at || new Date().toISOString(),
     executed_at: overrides.executed_at || null,
   };
@@ -116,8 +119,25 @@ function defaultEscrowRow(overrides = {}) {
     job_id: overrides.job_id || "job-1",
     client_address: overrides.client_address || "G" + "A".repeat(55),
     freelancer_address: overrides.freelancer_address || "G" + "B".repeat(55),
-    amount_xlm: overrides.amount_xlm != null ? String(overrides.amount_xlm) : "100.0000000",
+    amount_xlm:
+      overrides.amount_xlm != null
+        ? String(overrides.amount_xlm)
+        : "100.0000000",
     status: overrides.status || "funded",
+    created_at: overrides.created_at || new Date().toISOString(),
+    updated_at: overrides.updated_at || new Date().toISOString(),
+  };
+}
+
+function defaultEscrowExtensionRow(overrides = {}) {
+  return {
+    id: overrides.id || 1,
+    job_id: overrides.job_id || "job-1",
+    requested_by: overrides.requested_by || "G" + "A".repeat(55),
+    new_timeout_ledger: overrides.new_timeout_ledger || 1000,
+    status: overrides.status || "pending",
+    approved_by: overrides.approved_by || null,
+    approved_at: overrides.approved_at || null,
     created_at: overrides.created_at || new Date().toISOString(),
     updated_at: overrides.updated_at || new Date().toISOString(),
   };
@@ -134,9 +154,23 @@ function defaultOnboardingRow(overrides = {}) {
   };
 }
 
+function defaultPriceAlertRow(overrides = {}) {
+  return {
+    id: overrides.id || `alert-${Date.now()}`,
+    user_address: overrides.user_address || "G" + "A".repeat(55),
+    condition: overrides.condition || "above",
+    threshold:
+      overrides.threshold != null ? String(overrides.threshold) : "0.1500000",
+    one_time: overrides.one_time ?? true,
+    triggered: overrides.triggered ?? false,
+    triggered_at: overrides.triggered_at || null,
+    created_at: overrides.created_at || new Date().toISOString(),
+  };
+}
+
 // Helper: find the last occurrence of a numeric param placeholder like $1, $2, etc.
 // and extract the first non-null param index to use as the id for lookups.
-function findJobIdFromUpdate(text, params) {
+function _findJobIdFromUpdate(text, params) {
   // Look for WHERE id = $N pattern and get the corresponding param
   const match = text.match(/WHERE\s+id\s*=\s*\$\d+/i);
   if (match) {
@@ -164,6 +198,7 @@ const DEFAULT_CATEGORIES = [
 
 function createPgMock() {
   const jobs = new Map();
+  const ratings = new Map();
   const applications = new Map();
   const invitations = new Set();
   const skillsMap = new Map();
@@ -174,7 +209,9 @@ function createPgMock() {
   const daoArbitrators = new Map();
   const apiKeys = new Map();
   const escrows = new Map();
+  const escrowExtensions = new Map();
   const onboardingProgress = new Map();
+  const priceAlerts = new Map();
   const timelineEvents = [];
 
   function formatJobRow(row) {
@@ -361,9 +398,8 @@ function createPgMock() {
         deadline: params[7],
         timezone: params[8],
         screening_questions: params[9],
-        milestones:
-          typeof params[10] === "string" ? JSON.parse(params[10]) : params[10],
         visibility: params[11] || "public",
+        milestones: params[10] ? (typeof params[10] === "string" ? JSON.parse(params[10]) : params[10]) : [],
       });
       jobs.set(row.id, row);
       return { rows: [formatJobRow(row)] };
@@ -395,6 +431,22 @@ function createPgMock() {
       return { rows: rows.map(formatJobRow) };
     }
 
+    // ─── Ratings Queries ────────────────────────────────────────────────
+    if (
+      text.includes("FROM ratings") &&
+      text.includes("job_id = $1") &&
+      text.includes("rater_address = $2") &&
+      text.includes("rated_address = $3")
+    ) {
+      const found = [...ratings.values()].find(
+        (rating) =>
+          rating.job_id === params[0] &&
+          rating.rater_address === params[1] &&
+          rating.rated_address === params[2],
+      );
+      return { rows: found ? [{ "?column?": 1 }] : [] };
+    }
+
     // ─── INSERT INTO escrows / UPDATE escrows ─────────────────────────────
     if (text.startsWith("INSERT INTO escrows")) {
       const row = defaultEscrowRow({
@@ -417,6 +469,45 @@ function createPgMock() {
         [...escrows.values()].find((e) => e.job_id === params[0]) ||
         escrows.get(params[0]);
       return { rows: escrow ? [escrow] : [] };
+    }
+
+    // ─── Escrow Extensions Queries ─────────────────────────────────────────
+    if (text.startsWith("INSERT INTO escrow_extensions")) {
+      const id = escrowExtensions.size + 1;
+      const row = defaultEscrowExtensionRow({
+        id,
+        job_id: params[0],
+        requested_by: params[1],
+        new_timeout_ledger: params[2],
+        status: "pending",
+      });
+      escrowExtensions.set(id, row);
+      return { rows: [row], rowCount: 1 };
+    }
+
+    if (text.includes("FROM escrow_extensions")) {
+      let list = [...escrowExtensions.values()];
+      if (text.includes("job_id = $1")) {
+        list = list.filter((e) => e.job_id === params[0]);
+      }
+      if (text.includes("status = 'pending'")) {
+        list = list.filter((e) => e.status === "pending");
+      }
+      return { rows: list };
+    }
+
+    if (text.startsWith("UPDATE escrow_extensions")) {
+      const ext =
+        escrowExtensions.get(params[0]) ||
+        [...escrowExtensions.values()].find((e) => e.id === params[0]);
+      if (ext) {
+        ext.status = "approved";
+        ext.approved_by = params[1];
+        ext.approved_at = new Date().toISOString();
+        ext.updated_at = new Date().toISOString();
+        return { rows: [ext], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
     }
 
     // ─── Specific UPDATE jobs ────────────────────────────────────────────
@@ -603,6 +694,18 @@ function createPgMock() {
       return { rows: [{ bidding_closed_at: row.bidding_closed_at }] };
     }
 
+    if (
+      text.includes("UPDATE jobs") &&
+      text.includes("bidding_closed_at = $1")
+    ) {
+      const row = jobs.get(params[1]);
+      if (!row) return { rows: [] };
+      row.bidding_closed_at = params[0];
+      row.updated_at = new Date().toISOString();
+      jobs.set(row.id, row);
+      return { rows: [{ bidding_closed_at: row.bidding_closed_at }] };
+    }
+
     // UPDATE jobs SET status = 'expired' (expireOldJobs)
     if (text.startsWith("UPDATE") && text.includes("status = 'expired'")) {
       return { rowCount: 0 };
@@ -621,6 +724,40 @@ function createPgMock() {
     }
 
     // ─── Applications Queries ────────────────────────────────────────────
+
+    // SELECT applications joined with jobs for bulk update
+    if (text.includes("FROM applications a") && text.includes("JOIN jobs j")) {
+      const ids = Array.isArray(params[0]) ? params[0] : [params[0]];
+      const matched = [];
+      for (const id of ids) {
+        const app = applications.get(id);
+        if (app) {
+          const job = jobs.get(app.job_id);
+          matched.push({
+            ...app,
+            client_address: job?.client_address || job?.clientAddress,
+            job_title: job?.title,
+          });
+        }
+      }
+      return { rows: matched };
+    }
+
+    // UPDATE applications bulk
+    if (text.includes("UPDATE applications") && text.includes("WHERE id = ANY(")) {
+      const targetStatus = params[0];
+      const ids = Array.isArray(params[1]) ? params[1] : [params[1]];
+      const updated = [];
+      for (const id of ids) {
+        const row = applications.get(id);
+        if (row) {
+          row.status = targetStatus;
+          applications.set(id, row);
+          updated.push(row);
+        }
+      }
+      return { rows: updated };
+    }
 
     // UPDATE applications SET accepted
     if (
@@ -744,6 +881,19 @@ function createPgMock() {
       return { rows: [row] };
     }
 
+    // UPDATE ... SET freelancer_address for assignFreelancer
+    if (
+      text.includes("SET freelancer_address = $1, status = 'in_progress'") &&
+      text.includes("UPDATE jobs")
+    ) {
+      const row = jobs.get(params[1]);
+      if (!row) return { rows: [] };
+      row.freelancer_address = params[0];
+      row.status = "in_progress";
+      jobs.set(row.id, row);
+      return { rows: [row] };
+    }
+
     // ─── listJobs-style query: FROM jobs ... ORDER BY ... (paginated) ────
     if (
       !text.includes("FROM applications") &&
@@ -758,12 +908,43 @@ function createPgMock() {
       let rows = [...jobs.values()].filter(
         (job) => job.visibility === "public",
       );
+      rows.sort((a, b) => {
+        if (b.created_at !== a.created_at) return String(b.created_at).localeCompare(String(a.created_at));
+        return String(b.id).localeCompare(String(a.id));
+      });
+      // Apply cursor-based filtering if present in the SQL
+      if (text.includes("created_at < $")) {
+        // Cursor params are the two params before limit:
+        // params[params.length-3] = decoded.createdAt
+        // params[params.length-2] = decoded.id
+        // params[params.length-1] = limit
+        const cursorCreatedAt = params[params.length - 3];
+        const cursorId = params[params.length - 2];
+        if (cursorCreatedAt && cursorId) {
+          rows = rows.filter((job) => {
+            if (job.created_at < cursorCreatedAt) return true;
+            if (job.created_at === cursorCreatedAt && job.id < cursorId)
+              return true;
+            return false;
+          });
+        }
+      }
       if (text.includes("deleted_at IS NULL")) {
         rows = rows.filter((job) => !job.deleted_at);
       }
       if (text.includes("status = $1")) {
         rows = rows.filter((job) => job.status === params[0]);
       }
+
+      // Apply status filter (dynamic param index due to variable conditions)
+      const statusMatch = text.match(/status = \$(\d+)/);
+      if (statusMatch) {
+        const statusIdx = parseInt(statusMatch[1], 10) - 1;
+        if (params[statusIdx] !== undefined) {
+          rows = rows.filter((job) => job.status === params[statusIdx]);
+        }
+      }
+
       if (
         text.includes("category = $") ||
         text.includes("c.slug = $") ||
@@ -796,10 +977,10 @@ function createPgMock() {
           );
         }
       }
-      const limit = params[params.length - 1] ?? 50;
+      const limitVal = params[params.length - 1] ?? 50;
       return {
         rows: rows
-          .slice(0, typeof limit === "number" ? limit : 50)
+          .slice(0, typeof limitVal === "number" ? limitVal : 50)
           .map(formatJobRow),
       };
     }
@@ -1079,13 +1260,35 @@ function createPgMock() {
       let list = [...daoProposals.values()];
       if (text.includes("WHERE p.id = $1") || text.includes("WHERE id = $1")) {
         list = list.filter((p) => p.id === params[0]);
-      } else if (text.includes("p.status = $1") || text.includes("status = $1")) {
+      } else if (
+        text.includes("p.status = $1") ||
+        text.includes("status = $1")
+      ) {
         list = list.filter((p) => p.status === params[0]);
       }
+      // Keyset-paginated listing (limit/cursor); unpaginated calls keep insertion order.
+      if (text.includes("ORDER BY p.created_at DESC, p.id DESC") && /LIMIT \$\d+/.test(text)) {
+        const key = (p) => [new Date(p.created_at).getTime(), String(p.id)];
+        const cmp = (a, b) => (a[0] - b[0]) || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0);
+        list.sort((a, b) => cmp(key(b), key(a)));
+        const cursorMatch = text.match(/\(p\.created_at, p\.id\) < \(\$(\d+), \$(\d+)\)/);
+        if (cursorMatch) {
+          const bound = [new Date(params[cursorMatch[1] - 1]).getTime(), String(params[cursorMatch[2] - 1])];
+          list = list.filter((p) => cmp(key(p), bound) < 0);
+        }
+        const limitMatch = text.match(/LIMIT \$(\d+)/);
+        if (limitMatch) list = list.slice(0, Number(params[limitMatch[1] - 1]));
+      }
       const rows = list.map((p) => {
-        const votes = [...daoVotes.values()].filter((v) => v.proposal_id === p.id);
-        const votesFor = votes.filter((v) => v.support).reduce((acc, v) => acc + Number(v.weight), 0);
-        const votesAgainst = votes.filter((v) => !v.support).reduce((acc, v) => acc + Number(v.weight), 0);
+        const votes = [...daoVotes.values()].filter(
+          (v) => v.proposal_id === p.id,
+        );
+        const votesFor = votes
+          .filter((v) => v.support)
+          .reduce((acc, v) => acc + Number(v.weight), 0);
+        const votesAgainst = votes
+          .filter((v) => !v.support)
+          .reduce((acc, v) => acc + Number(v.weight), 0);
         const totalWeight = votesFor + votesAgainst;
         return {
           ...p,
@@ -1097,8 +1300,13 @@ function createPgMock() {
       return { rows };
     }
 
-    if (text.startsWith("INSERT INTO dao_votes")) {
+    if (text.trim().startsWith("INSERT INTO dao_votes")) {
       const voteKey = `${params[0]}:${params[1]}`;
+      if (daoVotes.has(voteKey)) {
+        const err = new Error("duplicate key value violates unique constraint");
+        err.code = "23505";
+        throw err;
+      }
       const row = {
         proposal_id: params[0],
         voter: params[1],
@@ -1110,13 +1318,25 @@ function createPgMock() {
       return { rows: [row] };
     }
 
-    if (text.startsWith("UPDATE dao_proposals") && text.includes("status = CASE")) {
+    if (
+      text.startsWith("UPDATE dao_proposals") &&
+      text.includes("status = CASE")
+    ) {
       const updated = [];
       for (const [id, prop] of daoProposals.entries()) {
-        if (prop.status === "active" && new Date(prop.voting_ends_at) < new Date()) {
-          const votes = [...daoVotes.values()].filter((v) => v.proposal_id === id);
-          const votesFor = votes.filter((v) => v.support).reduce((acc, v) => acc + Number(v.weight), 0);
-          const votesAgainst = votes.filter((v) => !v.support).reduce((acc, v) => acc + Number(v.weight), 0);
+        if (
+          prop.status === "active" &&
+          new Date(prop.voting_ends_at) < new Date()
+        ) {
+          const votes = [...daoVotes.values()].filter(
+            (v) => v.proposal_id === id,
+          );
+          const votesFor = votes
+            .filter((v) => v.support)
+            .reduce((acc, v) => acc + Number(v.weight), 0);
+          const votesAgainst = votes
+            .filter((v) => !v.support)
+            .reduce((acc, v) => acc + Number(v.weight), 0);
           prop.status = votesFor > votesAgainst ? "passed" : "rejected";
           daoProposals.set(id, prop);
           updated.push({ id: prop.id, status: prop.status, type: prop.type });
@@ -1137,21 +1357,31 @@ function createPgMock() {
     }
 
     if (text.includes("FROM dao_proposals") && text.includes("SUM(amount)")) {
-      const activeProposals = [...daoProposals.values()].filter((p) => p.status === "active").length;
+      const activeProposals = [...daoProposals.values()].filter(
+        (p) => p.status === "active",
+      ).length;
       const allocated = [...daoProposals.values()]
-        .filter((p) => ["passed", "executed"].includes(p.status) && p.type === "treasury")
+        .filter(
+          (p) =>
+            ["passed", "executed"].includes(p.status) && p.type === "treasury",
+        )
         .reduce((acc, p) => acc + parseFloat(p.amount || 0), 0);
       return {
-        rows: [{
-          allocated: String(allocated),
-          active_proposals: activeProposals,
-        }],
+        rows: [
+          {
+            allocated: String(allocated),
+            active_proposals: activeProposals,
+          },
+        ],
       };
     }
 
     if (text.startsWith("INSERT INTO dao_arbitrators")) {
-      const existing = daoArbitrators.get(params[0]) || defaultDaoArbitratorRow({ public_key: params[0] });
-      existing.display_name = params[1] !== undefined ? params[1] : existing.display_name;
+      const existing =
+        daoArbitrators.get(params[0]) ||
+        defaultDaoArbitratorRow({ public_key: params[0] });
+      existing.display_name =
+        params[1] !== undefined ? params[1] : existing.display_name;
       existing.bio = params[2] !== undefined ? params[2] : existing.bio;
       daoArbitrators.set(params[0], existing);
       return { rows: [existing] };
@@ -1160,7 +1390,8 @@ function createPgMock() {
     if (text.startsWith("UPDATE dao_arbitrators SET votes_received")) {
       const key = params[0];
       const weight = Number(params[1]) || 1;
-      const arb = daoArbitrators.get(key) || defaultDaoArbitratorRow({ public_key: key });
+      const arb =
+        daoArbitrators.get(key) || defaultDaoArbitratorRow({ public_key: key });
       arb.votes_received = (arb.votes_received || 0) + weight;
       daoArbitrators.set(key, arb);
       return { rows: [arb], rowCount: 1 };
@@ -1178,6 +1409,53 @@ function createPgMock() {
       return { rows };
     }
 
+    // Price alert queries
+    if (text.startsWith("INSERT INTO price_alerts")) {
+      const row = defaultPriceAlertRow({
+        id: `alert-${priceAlerts.size + 1}`,
+        user_address: params[0],
+        condition: params[1],
+        threshold: String(params[2]),
+        one_time: Boolean(params[3]),
+      });
+      priceAlerts.set(row.id, row);
+      return { rows: [row] };
+    }
+
+    if (text.includes("FROM price_alerts") && text.includes("COUNT(*)")) {
+      const userAddress = params[0];
+      const count = [...priceAlerts.values()].filter(
+        (alert) => alert.user_address === userAddress && !alert.triggered,
+      ).length;
+      return { rows: [{ cnt: count }] };
+    }
+
+    if (
+      text.includes("FROM price_alerts") &&
+      text.includes("WHERE user_address = $1")
+    ) {
+      const userAddress = params[0];
+      const rows = [...priceAlerts.values()]
+        .filter((alert) => alert.user_address === userAddress)
+        .sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        );
+      return { rows };
+    }
+
+    if (
+      text.startsWith("DELETE FROM price_alerts") &&
+      text.includes("WHERE id = $1")
+    ) {
+      const alert = priceAlerts.get(params[0]);
+      if (!alert || alert.user_address !== params[1]) {
+        return { rows: [], rowCount: 0 };
+      }
+      priceAlerts.delete(params[0]);
+      return { rows: [], rowCount: 1 };
+    }
+
     return { rows: [] };
   });
 
@@ -1193,6 +1471,7 @@ function createPgMock() {
 
   function reset() {
     jobs.clear();
+    ratings.clear();
     applications.clear();
     invitations.clear();
     skillsMap.clear();
@@ -1203,7 +1482,9 @@ function createPgMock() {
     daoArbitrators.clear();
     apiKeys.clear();
     escrows.clear();
+    escrowExtensions.clear();
     onboardingProgress.clear();
+    priceAlerts.clear();
     timelineEvents.length = 0;
     query.mockClear();
     connect.mockClear();
@@ -1213,6 +1494,7 @@ function createPgMock() {
     query,
     connect,
     jobs,
+    ratings,
     applications,
     invitations,
     daoProposals,
@@ -1220,7 +1502,9 @@ function createPgMock() {
     daoArbitrators,
     apiKeys,
     escrows,
+    escrowExtensions,
     onboardingProgress,
+    priceAlerts,
     reset,
     end: jest.fn(),
   };
@@ -1228,6 +1512,7 @@ function createPgMock() {
   mock.readPool = { query };
   mock.writePool = mock;
   return mock;
+
 }
 
 module.exports = {
@@ -1238,5 +1523,8 @@ module.exports = {
   defaultDaoArbitratorRow,
   defaultApiKeyRow,
   defaultEscrowRow,
+  defaultEscrowExtensionRow,
   defaultOnboardingRow,
+  defaultPriceAlertRow,
 };
+

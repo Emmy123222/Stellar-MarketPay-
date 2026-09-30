@@ -13,6 +13,14 @@
  */
 
 import "../setup/snapshotMocks";
+jest.mock("@/components/XlmPriceWidget", () => ({
+  __esModule: true,
+  default: () => <div data-testid="xlm-price-widget-stub" />,
+}));
+jest.mock("@/components/EditProfileForm", () => ({
+  __esModule: true,
+  default: () => <div data-testid="edit-profile-form-stub" />,
+}));
 
 import { render } from "@testing-library/react";
 

@@ -22,21 +22,33 @@ We use Certora's **CVL (Certora Verification Language)** to mathematically prove
 
 ## Prerequisites
 
-1. **Install the Certora CLI** — the Certora Prover is distributed as a Java-based CLI tool. Follow the [official Certora installation guide](https://docs.certora.com/en/latest/docs/user-guide/getting-started/install.html) to download and set up the `certoraRun` command.
+1. **Install the Certora CLI** — the Certora Prover is distributed as a Python package. Follow the [official Certora installation guide](https://docs.certora.com/en/latest/docs/user-guide/getting-started/install.html) to download and set up the `certoraRun` command.
 
-   > **Note:** Certora is **not** installed via `pip` or `npm`. Use the official installation script from your Certora account dashboard.
+   ```bash
+   pip install certora-cli
+   ```
 
-2. **Set your Certora API key** (obtain from [certora.com](https://www.certora.com)):
+   > **Note:** You need **Python 3.8+** and **Java JDK 11+** installed on your machine.
+
+2. **Obtain your Certora API key** (required for both local runs and CI):
+
+   1. Go to [https://www.certora.com](https://www.certora.com) and sign up for an account (free tier available for open-source projects).
+   2. After logging in, navigate to **Dashboard → API Keys** (or visit [https://prover.certora.com/settings](https://prover.certora.com/settings) directly).
+   3. Click **Create API Key**. Give it a descriptive name (e.g., `stellar-marketpay-local` or `ci-actions`).
+   4. Copy the generated key immediately — it is shown only once.
+   5. Export it in your shell:
 
    ```bash
    export CERTORAKEY="your-api-key-here"
    ```
 
+   > **For CI:** Add the key as a repository secret named `CERTORAKEY` in **Settings → Secrets and variables → Actions**. The GitHub Actions workflow (`.github/workflows/certora.yml`) reads it automatically.
+
 3. **Build the Soroban contract** (Certora verifies the Rust source, but a build is needed for dependency resolution):
 
    ```bash
    cd contracts/marketpay-contract
-   cargo build --target wasm32-unknown-unknown --release
+   cargo build --target wasm32v1-none --release
    cd ../..
    ```
 
@@ -156,45 +168,13 @@ Ghost variables are not part of the actual contract state — they exist only in
 
 ## CI/CD Integration
 
-Add this to your GitHub Actions workflow (`.github/workflows/formal-verification.yml`):
+Formal verification runs automatically via [`.github/workflows/certora.yml`](../.github/workflows/certora.yml):
 
-```yaml
-name: Formal Verification
+- **On push/PR** — triggered when files change under `contracts/marketpay-contract/src/**` or `contracts/certora/**`.
+- **Nightly** — scheduled at 03:00 UTC to catch regressions from upstream Soroban SDK changes.
+- **Manual** — use **Run workflow** in the Actions tab for ad-hoc verification.
 
-on:
-  push:
-    branches: [main]
-    paths:
-      - 'contracts/marketpay-contract/src/**'
-      - 'contracts/certora/**'
-  pull_request:
-    paths:
-      - 'contracts/marketpay-contract/src/**'
-      - 'contracts/certora/**'
-
-jobs:
-  certora:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          target: wasm32-unknown-unknown
-      - name: Build contract
-        working-directory: contracts/marketpay-contract
-        run: cargo build --target wasm32-unknown-unknown --release
-      - name: Install Certora CLI
-        run: |
-          # Download the Certora CLI from the official source
-          # See: https://docs.certora.com/en/latest/docs/user-guide/getting-started/install.html
-          wget -q https://repo.certora.com/install.sh -O /tmp/certora-install.sh
-          bash /tmp/certora-install.sh
-      - name: Run Certora Prover
-        env:
-          CERTORAKEY: ${{ secrets.CERTORAKEY }}
-        run: certoraRun contracts/certora/config.conf
-```
+The job requires the `CERTORAKEY` repository secret. See [Obtain your Certora API key](#prerequisites) above for setup instructions.
 
 ## References
 

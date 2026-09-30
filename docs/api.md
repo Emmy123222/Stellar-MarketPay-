@@ -198,7 +198,7 @@ Message bodies are end-to-end encrypted; see [messaging-encryption.md](messaging
 
 ## Notifications
 
-Push notifications use VAPID web push; see [WEB_PUSH_SETUP.md](WEB_PUSH_SETUP.md).
+Push notifications use VAPID web push; see [web-push-setup.md](web-push-setup.md).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -233,11 +233,12 @@ Push notifications use VAPID web push; see [WEB_PUSH_SETUP.md](WEB_PUSH_SETUP.md
 
 ## Disputes
 
-Evidence files are stored on IPFS; see [ADR-006](adr/ADR-006-ipfs-dispute-evidence.md) if present or [dispute_resolution_logic.md](dispute_resolution_logic.md).
+Evidence files are stored on IPFS; see ADR-006 if present or [dispute_resolution_logic.md](dispute_resolution_logic.md).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/disputes/:jobId` | Dispute details and evidence list |
+| GET | `/api/disputes/:jobId/evidence` | List dispute evidence (client, freelancer, or arbitrator) |
 | POST | `/api/disputes/:jobId/evidence` | Upload dispute evidence file |
 | GET | `/api/disputes/:jobId/evidence/:id/url` | Generate signed URL for evidence access |
 | GET | `/api/disputes/:jobId/onchain-cids` | Chain-attested evidence CID list |

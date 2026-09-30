@@ -16,8 +16,8 @@ describe("stroopsToXlm", () => {
     expect(stroopsToXlm(BigInt(0))).toBe("0");
   });
 
-  it("converts 100 stroops to 0.0000100", () => {
-    expect(stroopsToXlm(BigInt(100))).toBe("0.0000100");
+  it("converts 100 stroops to 0.00001", () => {
+    expect(stroopsToXlm(BigInt(100))).toBe("0.00001");
   });
 
   it("converts 10_000_000 stroops (1 XLM) to '1'", () => {
@@ -97,8 +97,9 @@ describe("tierToTransactionFee", () => {
   };
 
   it("applies the default 10% buffer", () => {
-    // 200 * 1.1 = 220, max(220, 100) = 220
-    expect(tierToTransactionFee(baseTier)).toBe("220");
+    // 200 * 1.1 = 220 (ceil accounts for floating-point)
+    const expected = "220";
+    expect(tierToTransactionFee(baseTier)).toBe(expected);
   });
 
   it("applies a custom buffer percentage", () => {
@@ -155,11 +156,14 @@ describe("describeContractCall", () => {
 describe("fetchGasEstimateSafe", () => {
   beforeEach(() => {
     jest.restoreAllMocks();
+    if (!global.fetch) {
+      global.fetch = jest.fn();
+    }
   });
 
   it("returns fallback values when the API is unreachable", async () => {
-    // Mock fetch to reject
-    jest.spyOn(global, "fetch").mockRejectedValue(new Error("Network error"));
+    // Mock fetch to reject (jsdom has no native fetch)
+    global.fetch = jest.fn().mockRejectedValue(new Error("Network error"));
 
     const result = await fetchGasEstimateSafe();
 
@@ -173,7 +177,7 @@ describe("fetchGasEstimateSafe", () => {
 
   it("returns fallback values when API returns non-OK status", async () => {
     jest.spyOn(global, "fetch").mockResolvedValue(
-      new Response(null, { status: 500 })
+      { ok: false, status: 500 } as unknown as Response
     );
 
     const result = await fetchGasEstimateSafe();
@@ -183,7 +187,7 @@ describe("fetchGasEstimateSafe", () => {
   });
 
   it("returns fallback with null USD values by default", async () => {
-    jest.spyOn(global, "fetch").mockRejectedValue(new Error("Network error"));
+    global.fetch = jest.fn().mockRejectedValue(new Error("Network error"));
 
     const result = await fetchGasEstimateSafe();
 
@@ -193,7 +197,7 @@ describe("fetchGasEstimateSafe", () => {
   });
 
   it("returns a valid updatedAt timestamp even in fallback", async () => {
-    jest.spyOn(global, "fetch").mockRejectedValue(new Error("Network error"));
+    global.fetch = jest.fn().mockRejectedValue(new Error("Network error"));
 
     const result = await fetchGasEstimateSafe();
     const timestamp = Date.parse(result.updatedAt);

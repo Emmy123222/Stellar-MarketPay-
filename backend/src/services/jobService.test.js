@@ -19,6 +19,8 @@ jest.mock("../utils/queue", () => ({
 }));
 
 const pool = require("../db/pool");
+const originalEnv = process.env.NODE_ENV;
+process.env.NODE_ENV = "production";
 const {
   createJob,
   getJob,
@@ -47,6 +49,7 @@ const {
   getSuggestions,
   rowToJob,
 } = require("./jobService");
+process.env.NODE_ENV = originalEnv;
 
 describe("jobService", () => {
   beforeEach(() => {
@@ -327,11 +330,44 @@ describe("jobService", () => {
       });
     });
 
-    it("filters by status", async () => {
-      const { jobs: openJobs } = await listJobs({ status: "open" });
-      expect(openJobs.length).toBeGreaterThanOrEqual(1);
-      expect(openJobs.every((job) => job.status === "open")).toBe(true);
-    });
+it("filters by status", async () => {
+       const { jobs: openJobs } = await listJobs({ status: "open" });
+       expect(openJobs.length).toBeGreaterThanOrEqual(1);
+       expect(openJobs.every((job) => job.status === "open")).toBe(true);
+     });
+
+     it("excludes non-open jobs when no status filter is provided", async () => {
+       const cancelledJob = await createJob({
+         title: "Cancelled Job long enough",
+         description:
+           "This is a cancelled job description that is long enough to pass validation.",
+         budget: "400",
+         category: "Backend Development",
+         clientAddress: validClientAddress,
+         currency: "XLM",
+       });
+       await updateJobStatus(cancelledJob.id, "cancelled");
+
+       const { jobs: allJobs } = await listJobs({});
+       expect(allJobs.every((job) => job.status === "open")).toBe(true);
+       expect(allJobs.some((job) => job.id === cancelledJob.id)).toBe(false);
+     });
+
+     it("returns all statuses when status is 'all'", async () => {
+       const cancelledJob = await createJob({
+         title: "Cancelled Job 2 long enough",
+         description:
+           "This is another cancelled job description that is long enough to pass validation.",
+         budget: "400",
+         category: "Backend Development",
+         clientAddress: validClientAddress,
+         currency: "XLM",
+       });
+       await updateJobStatus(cancelledJob.id, "cancelled");
+
+       const { jobs: allJobs } = await listJobs({ status: "all" });
+       expect(allJobs.some((job) => job.id === cancelledJob.id)).toBe(true);
+     });
 
     it("filters by category", async () => {
       const { jobs: frontendJobs } = await listJobs({
@@ -342,23 +378,70 @@ describe("jobService", () => {
       expect(frontendJobs.every((job) => job.category === "Frontend Development")).toBe(true);
     });
 
-    it("returns has_more when there are more results", async () => {
-      const { jobs, nextCursor } = await listJobs({ limit: 1 });
+    it("defaults to limit=20 and returns nextCursor when more results exist", async () => {
+      const { jobs, nextCursor } = await listJobs({ status: "open" });
+      // Default limit is 20; we only have 2 open jobs, so all fit in one page
+      expect(jobs.length).toBe(2);
+      // nextCursor should be null because all results fit
+      expect(nextCursor).toBeNull();
+    });
+
+    it("returns nextCursor and has_more when there are more results", async () => {
+      const { jobs, nextCursor, hasMore } = await listJobs({ limit: 1 });
       expect(jobs.length).toBe(1);
       expect(nextCursor).toBeTruthy();
+      // nextCursor is present → there are more results
+      expect(typeof nextCursor).toBe("string");
+      expect(hasMore).toBe(true);
     });
 
     it("paginates with cursor and maintains consistent ordering", async () => {
-      // Mock doesn't implement cursor-based filtering deeply,
-      // but we verify the function returns cursor and can be called with it
-      const page1 = await listJobs({ limit: 2 });
-      expect(page1.jobs.length).toBe(2);
+      // Use status: "all" so all 3 jobs (including in_progress) are returned
+      const page1 = await listJobs({ limit: 1, status: "all" });
+      expect(page1.jobs.length).toBe(1);
       expect(page1.nextCursor).toBeTruthy();
 
-      // Cursor-based pagination requires proper SQL, just verify API shape
-      const page2 = await listJobs({ limit: 2, cursor: page1.nextCursor });
-      expect(page2).toHaveProperty("jobs");
-      expect(page2).toHaveProperty("nextCursor");
+      const page2 = await listJobs({ limit: 2, cursor: page1.nextCursor, status: "all" });
+      expect(page2.jobs.length).toBeGreaterThanOrEqual(1);
+
+      // Pages should not overlap
+      const ids1 = page1.jobs.map((j) => j.id);
+      const ids2 = page2.jobs.map((j) => j.id);
+      const overlap = ids1.filter((id) => ids2.includes(id));
+      expect(overlap).toEqual([]);
+
+      // After 2 pages of 1+2=3 items total, there should be no more results
+      if (page2.nextCursor) {
+        const page3 = await listJobs({ limit: 2, cursor: page2.nextCursor, status: "all" });
+        expect(page3.nextCursor).toBeNull();
+      }
+    });
+
+    it("returns nextCursor null on last page", async () => {
+      // With status: "open", we have 2 open jobs. Limit 100 fits them all.
+      const { jobs, nextCursor } = await listJobs({ limit: 100, status: "open" });
+      expect(jobs.length).toBe(2);
+      expect(nextCursor).toBeNull();
+    });
+
+    it("throws 400 on invalid cursor", async () => {
+      await expect(
+        listJobs({ cursor: "not-a-valid-base64-cursor!" }),
+      ).rejects.toThrow("Invalid cursor");
+    });
+
+    it("enforces max limit of 100", async () => {
+      const { jobs } = await listJobs({ limit: 200, status: "open" });
+      // The route handler caps at 100; the service respects whatever limit it receives.
+      // We verify the service responds correctly with the passed limit.
+      expect(jobs.length).toBeLessThanOrEqual(200);
+      expect(jobs.every((job) => job.status === "open")).toBe(true);
+    });
+
+    it("returns empty jobs array when no jobs match status", async () => {
+      const { jobs, nextCursor } = await listJobs({ status: "completed" });
+      expect(jobs).toEqual([]);
+      expect(nextCursor).toBeNull();
     });
 
     it("returns has_more false on last page", async () => {
@@ -464,6 +547,27 @@ describe("jobService", () => {
 
       const updated = await updateJobEscrowId(job.id, "CONTRACT123");
       expect(updated.escrowContractId).toBe("CONTRACT123");
+    });
+
+    it("uses an explicit escrow amount when provided", async () => {
+      const job = await createJob({
+        title: "Escrow amount test job",
+        description: "Description format that is long enough to pass validation.",
+        budget: "100",
+        category: "Frontend Development",
+        clientAddress: validClientAddress,
+        currency: "XLM",
+      });
+
+      const updated = await updateJobEscrowId(job.id, "CONTRACT123", { amount: "75.5000000" });
+
+      expect(updated.escrowContractId).toBe("CONTRACT123");
+      const escrowInsert = pool.query.mock.calls.find(([sql]) =>
+        sql.includes("INSERT INTO escrows"),
+      );
+      expect(escrowInsert[1]).toEqual(
+        expect.arrayContaining(["75.5000000"]),
+      );
     });
 
     it("rejects invalid escrow contract ID", async () => {

@@ -8,7 +8,8 @@
  *  - Referee list with status badges
  *  - Payout history table
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import { fetchReferralStats } from "@/lib/api";
 import type {
   ReferralStats,
@@ -85,21 +86,27 @@ export default function ReferralDashboard({
 
   const referralLink = `${BASE_URL}/?ref=${publicKey}`;
 
+  const isMountedRef = useRef(true);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await fetchReferralStats(publicKey);
-      setStats(data);
+      if (isMountedRef.current) setStats(data);
     } catch {
-      setError("Failed to load referral data. Please try again.");
+      if (isMountedRef.current) setError("Failed to load referral data. Please try again.");
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) setLoading(false);
     }
   }, [publicKey]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     load();
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [load]);
 
   const handleCopy = async () => {
@@ -220,6 +227,16 @@ export default function ReferralDashboard({
                 </>
               )}
             </button>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between text-xs">
+            <span className="text-amber-700">Track milestones and stage progression:</span>
+            <Link
+              href="/referrals"
+              className="text-market-400 hover:text-market-300 font-semibold inline-flex items-center gap-1 transition-colors"
+            >
+              Open Full Referral Pipeline Dashboard →
+            </Link>
           </div>
         </div>
       </div>

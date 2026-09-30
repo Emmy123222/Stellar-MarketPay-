@@ -163,7 +163,7 @@ describe("Job list cache invalidation on create (#852)", () => {
       .send(VALID_JOB_BODY);
 
     expect(created.status).toBe(201);
-    expect(cache.delPattern).toHaveBeenCalledWith("jobs:list:*");
+    expect(cache.invalidateJobListCache).toHaveBeenCalled();
 
     // The next listing request must miss the (now-cleared) cache and hit the
     // DB again, which is what makes the newly created job show up.
@@ -183,7 +183,7 @@ describe("Job list cache invalidation on create (#852)", () => {
       .send({ ...VALID_JOB_BODY, title: "Short" }); // < 10 chars → 400
 
     expect(rejected.status).toBe(400);
-    expect(cache.delPattern).not.toHaveBeenCalled();
+    expect(cache.invalidateJobListCache).not.toHaveBeenCalled();
 
     const stillCached = await request(app).get("/api/jobs");
     expect(stillCached.headers["x-cache"]).toBe("HIT");

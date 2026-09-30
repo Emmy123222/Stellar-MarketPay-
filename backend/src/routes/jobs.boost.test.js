@@ -1,7 +1,7 @@
 const request = require("supertest");
 const express = require("express");
 const jobRoutes = require("./jobs");
-const { verifyJWT } = require("../middleware/auth");
+
 const horizonClient = require("../utils/horizonClient");
 const jobService = require("../services/jobService");
 
@@ -13,7 +13,13 @@ jest.mock("../middleware/auth", () => ({
 }));
 
 jest.mock("../utils/horizonClient");
-jest.mock("../services/jobService");
+jest.mock("../services/jobService", () => {
+  const actual = jest.requireActual("../services/jobService");
+  return {
+    ...actual,
+    boostJob: jest.fn(),
+  };
+});
 
 const app = express();
 app.use(express.json());

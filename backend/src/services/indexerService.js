@@ -5,6 +5,8 @@ const pool = require("../db/pool");
 const { requireEnv } = require("../config/env");
 const horizonClient = require("../utils/horizonClient");
 
+const HORIZON_CURSOR_START = "now";
+
 function parseJobIdFromMemo(memoValue) {
   if (!memoValue || typeof memoValue !== "string") return null;
   const trimmed = memoValue.trim();
@@ -53,14 +55,20 @@ class IndexerService {
   }
 
   async loadCheckpoint() {
-    const { rows } = await pool.query(
-      "SELECT synced, last_processed_ledger, last_transaction_at, updated_at FROM indexer_state WHERE id = 1"
-    );
-    if (!rows.length) return null;
-    this.syncState.synced = Boolean(rows[0].synced);
-    this.syncState.lastProcessedLedger = rows[0].last_processed_ledger;
-    this.syncState.lastTransactionAt = rows[0].last_transaction_at;
-    return rows[0].last_processed_ledger;
+    try {
+      const { rows } = await pool.query(
+        "SELECT synced, last_processed_ledger, last_transaction_at, updated_at FROM indexer_state WHERE id = 1"
+      );
+      if (!rows.length) return null;
+      this.syncState.synced = Boolean(rows[0].synced);
+      this.syncState.lastProcessedLedger = rows[0].last_processed_ledger;
+      this.syncState.lastTransactionAt = rows[0].last_transaction_at;
+      return rows[0].last_processed_ledger;
+    } catch (error) {
+      console.warn("[Indexer] Failed to load checkpoint, falling back to HORIZON_CURSOR_START:", error.message);
+      this.syncState.lastProcessedLedger = null;
+      return null;
+    }
   }
 
   async saveCheckpoint({ ledger, txTimestamp, synced = true }) {
@@ -350,7 +358,7 @@ class IndexerService {
     this.syncState.running = true;
     this.syncState.lastError = null;
 
-    const cursor = this.syncState.lastProcessedLedger ? String(this.syncState.lastProcessedLedger) : "now";
+    const cursor = this.syncState.lastProcessedLedger ? String(this.syncState.lastProcessedLedger) : HORIZON_CURSOR_START;
 
     this.closeStream = this.horizon
       .transactions()
