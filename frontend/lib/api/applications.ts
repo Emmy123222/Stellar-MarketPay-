@@ -71,3 +71,21 @@ export async function fetchMyApplications(publicKey: string) {
   );
   return data.data;
 }
+
+export async function bulkUpdateApplications(payload: {
+  applicationIds: string[];
+  action: "reject" | "shortlist";
+  clientAddress: string;
+}) {
+  const { data } = await api.post<{
+    success: boolean;
+    data: {
+      updatedCount: number;
+      status: string;
+      jobId?: string;
+      applications: Application[];
+    };
+  }>("/api/applications/bulk-update", payload);
+  return data.data;
+}
+

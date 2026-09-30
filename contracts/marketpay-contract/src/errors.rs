@@ -68,6 +68,14 @@ pub enum ContractError {
     OnlyAdminUpdateTimeout = 1023,
     /// "Timeout must be positive"
     TimeoutMustBePositive = 1024,
+    /// "Only an admin can freeze the escrow"
+    OnlyAdminCanFreezeEscrow = 1025,
+    /// "Escrow is already frozen"
+    EscrowAlreadyFrozen = 1026,
+    /// "Escrow is not frozen"
+    EscrowNotFrozen = 1027,
+    /// "Cannot freeze a resolved escrow"
+    CannotFreezeResolved = 1028,
 
     // ── 2xxx: Escrow lifecycle ────────────────────────────────────────────
     /// "Amount must be positive"
@@ -96,6 +104,8 @@ pub enum ContractError {
     OnlyClientCanTimeoutRefund = 2012,
     /// "Timeout period has not expired yet"
     TimeoutNotExpired = 2013,
+    /// "Escrow already settled; deliverable hash cannot be updated"
+    EscrowAlreadySettled = 2014,
 
     // ── 3xxx: Milestones ──────────────────────────────────────────────────
     /// "Maximum 5 milestones allowed"
@@ -174,6 +184,8 @@ pub enum ContractError {
     QuorumProposalNotPassed = 6010,
     /// "No matching quorum change proposal"
     NoMatchingQuorumProposal = 6011,
+    /// "TimelockActive"
+    TimelockActive = 6012,
 
     // ── 7xxx: Disputes & arbitration ──────────────────────────────────────
     /// "Only participants can raise a dispute"
@@ -271,6 +283,10 @@ impl ContractError {
             Self::ReferrerCapNegative => "Referrer bonus cap must be non-negative",
             Self::OnlyAdminUpdateTimeout => "Only admin can update the timeout",
             Self::TimeoutMustBePositive => "Timeout must be positive",
+            Self::OnlyAdminCanFreezeEscrow => "Only an admin can freeze the escrow",
+            Self::EscrowAlreadyFrozen => "Escrow is already frozen",
+            Self::EscrowNotFrozen => "Escrow is not frozen",
+            Self::CannotFreezeResolved => "Cannot freeze a resolved escrow",
             // 2xxx
             Self::AmountMustBePositive => "Amount must be positive",
             Self::InvalidReferrer => "Referrer cannot be the client or freelancer",
@@ -287,6 +303,9 @@ impl ContractError {
             Self::CanOnlyRefundLocked => "Can only refund before work has started",
             Self::OnlyClientCanTimeoutRefund => "Only the client can request a timeout refund",
             Self::TimeoutNotExpired => "Timeout period has not expired yet",
+            Self::EscrowAlreadySettled => {
+                "Escrow already settled; deliverable hash cannot be updated"
+            }
             // 3xxx
             Self::MaxMilestones => "Maximum 5 milestones allowed",
             Self::MilestonePercentagePositive => "Milestone percentage must be positive",
@@ -328,6 +347,7 @@ impl ContractError {
             Self::QuorumExceedsMax => "Quorum cannot exceed 50% (5000 bps)",
             Self::QuorumProposalNotPassed => "Quorum change proposal has not passed",
             Self::NoMatchingQuorumProposal => "No matching quorum change proposal",
+            Self::TimelockActive => "TimelockActive",
             // 7xxx
             Self::OnlyParticipantsCanDispute => "Only participants can raise a dispute",
             Self::CannotDisputeResolved => {
@@ -429,6 +449,10 @@ pub fn error_code_from_panic(msg: &str) -> Option<u32> {
         "Referrer bonus cap must be non-negative" => Some(1022),
         "Only admin can update the timeout" => Some(1023),
         "Timeout must be positive" => Some(1024),
+        "Only an admin can freeze the escrow" => Some(1025),
+        "Escrow is already frozen" => Some(1026),
+        "Escrow is not frozen" => Some(1027),
+        "Cannot freeze a resolved escrow" => Some(1028),
         // 2xxx
         "Amount must be positive" => Some(2001),
         "Referrer cannot be the client or freelancer" => Some(2002),
