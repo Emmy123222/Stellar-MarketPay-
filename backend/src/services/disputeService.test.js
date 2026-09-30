@@ -8,11 +8,20 @@ jest.mock("../db/pool", () => ({
 
 jest.mock("./ipfsService", () => ({
   uploadFile: jest.fn(),
+  verifyPin: jest.fn(),
   getGatewayUrl: jest.fn((cid) => `https://gateway.pinata.cloud/ipfs/${cid}`),
 }));
 
 jest.mock("./sorobanArbitratorRegistry", () => ({
   isArbitrator: jest.fn().mockResolvedValue(false),
+}));
+
+// sorobanEvidence pulls in @stellar/stellar-sdk (ESM-only deps under Jest), so
+// mock it to keep this a true unit test and to avoid any network calls when
+// uploadEvidence anchors the CID on-chain.
+jest.mock("./sorobanEvidence", () => ({
+  recordEvidenceCidOnChain: jest.fn().mockResolvedValue({ success: false, error: "not configured" }),
+  getOnchainEvidenceCids: jest.fn().mockResolvedValue([]),
 }));
 
 const pool = require("../db/pool");
@@ -23,6 +32,9 @@ const {
   uploadEvidence,
   resolveDispute,
   getDispute,
+  recordDisputeEvent,
+  getDisputeEvents,
+  DISPUTE_EVENT_TYPES,
   MAX_EVIDENCE_FILES,
   MAX_FILE_SIZE,
   validateIpfsCid,
@@ -61,6 +73,7 @@ function makeEvidenceRow(overrides = {}) {
     file_size: 1024,
     mime_type: "application/pdf",
     ipfs_cid: VALID_CID_V0,
+    pinned: true,
     created_at: new Date().toISOString(),
     ...overrides,
   };
@@ -155,7 +168,7 @@ describe("disputeService", () => {
         .mockResolvedValueOnce({ rows: [{ count: "0" }] })
         .mockResolvedValueOnce({ rows: [makeEvidenceRow()] });
 
-      ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V0 });
+      ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V0, pinned: true });
 
       const result = await uploadEvidence(
         JOB_ID,
@@ -167,6 +180,44 @@ describe("disputeService", () => {
 
       expect(result.success).toBe(true);
       expect(result.data.ipfsCid).toBe(VALID_CID_V0);
+      expect(result.data.pinned).toBe(true);
+
+      // Issue #1439 — AC #3: the verified pin state is persisted.
+      const [insertSql, insertParams] = pool.query.mock.calls[3];
+      expect(insertSql).toMatch(/INSERT INTO dispute_evidence/);
+      expect(insertSql).toMatch(/pinned/);
+      expect(insertParams).toEqual([
+        JOB_ID,
+        CLIENT_ADDRESS,
+        fileName,
+        fileBuffer.length,
+        mimeType,
+        VALID_CID_V0,
+        true,
+      ]);
+    });
+
+    it("records pinned: false when pin verification fails", async () => {
+      pool.query
+        .mockResolvedValueOnce({ rows: [makeJob()] })
+        .mockResolvedValueOnce({ rows: [{ id: "dispute-1", status: "open" }] })
+        .mockResolvedValueOnce({ rows: [{ count: "0" }] })
+        .mockResolvedValueOnce({ rows: [makeEvidenceRow({ pinned: false })] });
+
+      ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V0, pinned: false });
+
+      const result = await uploadEvidence(
+        JOB_ID,
+        CLIENT_ADDRESS,
+        fileBuffer,
+        fileName,
+        mimeType,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data.pinned).toBe(false);
+      const [, insertParams] = pool.query.mock.calls[3];
+      expect(insertParams[6]).toBe(false);
     });
 
     it("rejects evidence upload from non-participant", async () => {
@@ -238,7 +289,7 @@ describe("disputeService", () => {
           rows: [makeEvidenceRow({ ipfs_cid: VALID_CID_V1 })],
         });
 
-      ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V1 });
+      ipfsService.uploadFile.mockResolvedValue({ cid: VALID_CID_V1, pinned: true });
 
       const result = await uploadEvidence(
         JOB_ID,
@@ -474,6 +525,116 @@ describe("disputeService", () => {
       expect(result.data.evidence[0].gatewayUrl).toBe(
         "https://gateway.pinata.cloud/ipfs/QmPresignedUrlTest",
       );
+    });
+  });
+
+  describe("dispute timeline events (Issue #1429)", () => {
+    describe("recordDisputeEvent", () => {
+      it("inserts a timeline event with evidence id and JSON payload", async () => {
+        await recordDisputeEvent(JOB_ID, "evidence_submitted", CLIENT_ADDRESS, {
+          evidenceId: "ev-1",
+          payload: { fileName: "evidence.pdf" },
+        });
+
+        expect(pool.query).toHaveBeenCalledTimes(1);
+        const [text, params] = pool.query.mock.calls[0];
+        expect(text).toContain("INSERT INTO dispute_events");
+        expect(params[0]).toBe(JOB_ID);
+        expect(params[1]).toBe("evidence_submitted");
+        expect(params[2]).toBe(CLIENT_ADDRESS);
+        expect(params[3]).toBe("ev-1");
+        expect(JSON.parse(params[4])).toEqual({ fileName: "evidence.pdf" });
+      });
+
+      it("swallows insert errors so the triggering operation never fails", async () => {
+        pool.query.mockRejectedValueOnce(new Error("db down"));
+
+        await expect(
+          recordDisputeEvent(JOB_ID, "opened", CLIENT_ADDRESS),
+        ).resolves.toBeUndefined();
+      });
+
+      it("skips unknown event types without querying", async () => {
+        await recordDisputeEvent(JOB_ID, "bogus_event", CLIENT_ADDRESS);
+
+        expect(pool.query).not.toHaveBeenCalled();
+      });
+
+      it("skips when the actor address is missing", async () => {
+        await recordDisputeEvent(JOB_ID, "opened", null);
+
+        expect(pool.query).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("getDisputeEvents", () => {
+      it("returns events with camelCase fields and embedded evidence metadata", async () => {
+        pool.query.mockResolvedValueOnce({
+          rows: [
+            {
+              id: "e1",
+              job_id: JOB_ID,
+              event_type: "opened",
+              actor_address: CLIENT_ADDRESS,
+              evidence_id: null,
+              payload: { disputeId: "dispute-1" },
+              created_at: "2026-01-01T10:00:00.000Z",
+            },
+            {
+              id: "e2",
+              job_id: JOB_ID,
+              event_type: "evidence_submitted",
+              actor_address: FREELANCER_ADDRESS,
+              evidence_id: "ev-9",
+              payload: { fileName: "proof.pdf" },
+              file_name: "proof.pdf",
+              mime_type: "application/pdf",
+              ipfs_cid: VALID_CID_V0,
+              created_at: "2026-01-02T10:00:00.000Z",
+            },
+          ],
+        });
+
+        const events = await getDisputeEvents(JOB_ID);
+
+        expect(events).toHaveLength(2);
+        expect(events[0]).toMatchObject({
+          id: "e1",
+          jobId: JOB_ID,
+          eventType: "opened",
+          actorAddress: CLIENT_ADDRESS,
+          evidence: null,
+          payload: { disputeId: "dispute-1" },
+          createdAt: "2026-01-01T10:00:00.000Z",
+        });
+        expect(events[1].eventType).toBe("evidence_submitted");
+        expect(events[1].actorAddress).toBe(FREELANCER_ADDRESS);
+        expect(events[1].evidence).toEqual({
+          id: "ev-9",
+          fileName: "proof.pdf",
+          mimeType: "application/pdf",
+          gatewayUrl: `https://gateway.pinata.cloud/ipfs/${VALID_CID_V0}`,
+        });
+      });
+
+      it("returns an empty array when no events exist", async () => {
+        pool.query.mockResolvedValueOnce({ rows: [] });
+
+        const events = await getDisputeEvents(JOB_ID);
+
+        expect(events).toEqual([]);
+      });
+    });
+
+    describe("DISPUTE_EVENT_TYPES", () => {
+      it("covers the four timeline event types", () => {
+        expect(DISPUTE_EVENT_TYPES).toEqual([
+          "opened",
+          "evidence_submitted",
+          "arbitrator_assigned",
+          "resolved",
+        ]);
+      });
     });
   });
 });

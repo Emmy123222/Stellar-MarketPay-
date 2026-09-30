@@ -428,7 +428,7 @@ CREATE INDEX IF NOT EXISTS referral_payouts_referee_idx  ON referral_payouts(ref
 -- ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS scope_sessions (
   session_id        TEXT PRIMARY KEY,
-  content           TEXT          NOT NULL DEFAULT '',
+  content           TEXT          NOT NULL DEFAULT '' CHECK (octet_length(content) <= 524288),
   cursors           JSONB         NOT NULL DEFAULT '{}'::jsonb,
   finalized         BOOLEAN       NOT NULL DEFAULT false,
   finalized_hash    TEXT,
@@ -467,10 +467,16 @@ CREATE TABLE IF NOT EXISTS dispute_evidence (
   file_size        INTEGER NOT NULL,
   mime_type        TEXT  NOT NULL,
   ipfs_cid         TEXT  NOT NULL,
+  pinned           BOOLEAN NOT NULL DEFAULT FALSE,  -- Issue #1439: pin confirmed after upload
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS dispute_evidence_job_id_idx ON dispute_evidence(job_id);
+
+-- Issue #1439: surface not-yet-confirmed pins first for reconciliation jobs.
+CREATE INDEX IF NOT EXISTS dispute_evidence_unpinned_idx
+  ON dispute_evidence(created_at DESC)
+  WHERE pinned = FALSE;
 
 -- ─────────────────────────────────────────
 -- time_entries  (Issue #346 — time tracking)
@@ -524,6 +530,7 @@ CREATE TABLE IF NOT EXISTS job_invitations (
   status              TEXT        NOT NULL DEFAULT 'pending'
                                   CHECK (status IN ('pending', 'accepted', 'declined')),
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at          TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '7 days'),
   UNIQUE (job_id, freelancer_address)
 );
 
@@ -723,3 +730,19 @@ WITH DATA;
 
 CREATE UNIQUE INDEX IF NOT EXISTS platform_stats_mv_singleton_idx
   ON platform_stats_mv ((1));
+
+-- ─────────────────────────────────────────
+-- escrow_releases (V54 / V58 — Issue #1450)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS escrow_releases (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id        UUID        NOT NULL UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,
+  freelancer_id TEXT,
+  released_by   TEXT,
+  tx_hash       TEXT,
+  status        TEXT        NOT NULL DEFAULT 'released',
+  released_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_escrow_freelancer_date
+  ON escrow_releases(freelancer_id, released_at);

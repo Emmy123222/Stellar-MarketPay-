@@ -12,12 +12,32 @@
 
 const { calculateFreelancerTier } = require("./profileService");
 
+function encodeApplicationCursor(row) {
+  return Buffer.from(JSON.stringify({
+    createdAt: row.created_at || row.createdAt,
+    id: row.id,
+  })).toString("base64url");
+}
+
+function decodeApplicationCursor(cursor) {
+  try {
+    const decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (!decoded.createdAt || !decoded.id) throw new Error("Invalid cursor");
+    return decoded;
+  } catch {
+    const error = new Error("Invalid application cursor");
+    error.status = 400;
+    throw error;
+  }
+}
+
 // Provide an in-memory test-mode implementation so unit tests don't require
 // a running Postgres instance. When `NODE_ENV === 'test'` we operate on
 // `services/store.js` maps.
 if (process.env.NODE_ENV === 'test') {
   const store = require('./store');
   const crypto = require('crypto');
+  const statusHistory = new Map();
 
   function validatePublicKey(key) {
     if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
@@ -144,11 +164,42 @@ if (process.env.NODE_ENV === 'test') {
     return rowToApp(store.applications.get(applicationId));
   }
 
+  async function updateStatus(applicationId, newStatus, changedBy) {
+    const app = store.applications.get(applicationId);
+    if (!app) { const e = new Error('Application not found'); e.status = 404; throw e; }
+    if (!['pending', 'shortlisted', 'accepted', 'rejected'].includes(newStatus)) {
+      const e = new Error('Invalid application status'); e.status = 400; throw e;
+    }
+    const entry = { id: crypto.randomUUID(), applicationId, oldStatus: app.status, newStatus, changedBy, changedAt: new Date().toISOString() };
+    app.status = newStatus;
+    store.applications.set(applicationId, app);
+    statusHistory.set(applicationId, [...(statusHistory.get(applicationId) || []), entry]);
+    return rowToApp(app);
+  }
+
+  async function getApplicationStatusHistory(applicationId) {
+    if (!store.applications.has(applicationId)) { const e = new Error('Application not found'); e.status = 404; throw e; }
+    return statusHistory.get(applicationId) || [];
+  }
+
   module.exports = {
     submitApplication,
-    getApplicationsForJob: async (jobId) => Array.from(store.applications.values()).filter(a => a.jobId === jobId).map(rowToApp),
+    getApplicationsForJob: async (jobId, { limit = 20, cursor = null } = {}) => {
+      const rows = Array.from(store.applications.values())
+        .filter(a => a.jobId === jobId)
+        .sort((a, b) => new Date(a.createdAt || a.created_at).getTime() - new Date(b.createdAt || b.created_at).getTime());
+      const decodedCursor = cursor ? decodeApplicationCursor(cursor) : null;
+      const start = decodedCursor ? rows.findIndex(row => row.id === decodedCursor.id) + 1 : 0;
+      const page = rows.slice(start, start + limit + 1);
+      const hasNext = page.length > limit;
+      const applications = page.slice(0, limit).map(rowToApp);
+      applications.nextCursor = hasNext ? encodeApplicationCursor(page[limit - 1]) : null;
+      return applications;
+    },
     getApplicationsForFreelancer: async (freelancerAddress) => Array.from(store.applications.values()).filter(a => a.freelancerAddress === freelancerAddress).map(rowToApp),
     acceptApplication,
+    updateStatus,
+    getApplicationStatusHistory,
   };
 
 }
@@ -357,7 +408,16 @@ async function submitApplication({
  * @param {string} jobId  UUID of the job.
  * @returns {Promise<Application[]>}
  */
-async function getApplicationsForJob(jobId) {
+async function getApplicationsForJob(jobId, { limit = 20, cursor = null } = {}) {
+  const values = [jobId];
+  let cursorClause = "";
+  if (cursor) {
+    const decodedCursor = decodeApplicationCursor(cursor);
+    values.push(decodedCursor.createdAt, decodedCursor.id);
+    cursorClause = "AND (a.created_at > $2::timestamptz OR (a.created_at = $2::timestamptz AND a.id > $3::uuid))";
+  }
+  values.push(limit + 1);
+
   const { rows } = await pool.query(
     `SELECT a.*,
             COALESCE(p.completed_jobs, 0) AS completed_jobs,
@@ -366,11 +426,17 @@ async function getApplicationsForJob(jobId) {
      LEFT JOIN profiles p ON p.public_key = a.freelancer_address
      LEFT JOIN ratings r ON r.rated_address = a.freelancer_address
      WHERE a.job_id = $1
+     ${cursorClause}
      GROUP BY a.id, p.completed_jobs
-     ORDER BY a.created_at ASC`,
-    [jobId]
+     ORDER BY a.created_at ASC, a.id ASC
+     LIMIT $${values.length}`,
+    values
   );
-  return rows.map(rowToApp);
+  const hasNext = rows.length > limit;
+  return {
+    applications: rows.slice(0, limit).map(rowToApp),
+    nextCursor: hasNext ? encodeApplicationCursor(rows[limit - 1]) : null,
+  };
 }
 
 /**
@@ -414,7 +480,7 @@ async function getApplicationsForFreelancer(freelancerAddress) {
  * @throws {Error} 403 — caller is not the job's client.
  * @throws {Error} 404 — application or job not found.
  */
-async function acceptApplication(applicationId, clientAddress) {
+  async function acceptApplication(applicationId, clientAddress) {
   validatePublicKey(clientAddress);
 
   const { rows: appRows } = await pool.query("SELECT * FROM applications WHERE id = $1", [applicationId]);
@@ -423,6 +489,7 @@ async function acceptApplication(applicationId, clientAddress) {
     e.status = 404;
     throw e;
   }
+
   const app = appRows[0];
 
   const job = await getJob(app.job_id);
@@ -466,10 +533,47 @@ async function acceptApplication(applicationId, clientAddress) {
   }
 }
 
+  async function updateStatus(applicationId, newStatus, changedBy) {
+    if (!['pending', 'shortlisted', 'accepted', 'rejected'].includes(newStatus)) {
+      const e = new Error('Invalid application status'); e.status = 400; throw e;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(
+        'SELECT id, status FROM applications WHERE id = $1 FOR UPDATE', [applicationId],
+      );
+      if (!rows.length) { const e = new Error('Application not found'); e.status = 404; throw e; }
+      const oldStatus = rows[0].status;
+      await client.query('UPDATE applications SET status = $1 WHERE id = $2', [newStatus, applicationId]);
+      await client.query(
+        `INSERT INTO application_status_history (application_id, old_status, new_status, changed_by)
+         VALUES ($1, $2, $3, $4)`, [applicationId, oldStatus, newStatus, changedBy || null],
+      );
+      await client.query('COMMIT');
+      const { rows: updated } = await pool.query('SELECT * FROM applications WHERE id = $1', [applicationId]);
+      return rowToApp(updated[0]);
+    } catch (err) { await client.query('ROLLBACK'); throw err; }
+    finally { client.release(); }
+  }
+
+  async function getApplicationStatusHistory(applicationId) {
+    const { rows: appRows } = await pool.query('SELECT id FROM applications WHERE id = $1', [applicationId]);
+    if (!appRows.length) { const e = new Error('Application not found'); e.status = 404; throw e; }
+    const { rows } = await pool.query(
+      `SELECT id, application_id AS "applicationId", old_status AS "oldStatus",
+              new_status AS "newStatus", changed_by AS "changedBy", changed_at AS "changedAt"
+       FROM application_status_history WHERE application_id = $1 ORDER BY changed_at ASC`, [applicationId],
+    );
+    return rows;
+  }
+
   module.exports = {
     submitApplication,
     getApplicationsForJob,
     getApplicationsForFreelancer,
     acceptApplication,
+    updateStatus,
+    getApplicationStatusHistory,
   };
 }

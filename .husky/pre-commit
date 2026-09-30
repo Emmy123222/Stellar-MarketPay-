@@ -18,29 +18,83 @@ set +e
 # ---------------------------------------------------------------------------
 echo "🔍 Running gitleaks to detect secrets..."
 
+# Pinned gitleaks release (repo moved from zricethezav/gitleaks to gitleaks/gitleaks).
+GITLEAKS_VERSION="8.30.1"
+
+gitleaks_bin_dir="$(git rev-parse --git-dir)/hooks-bin"
+
+# Reuse a previously downloaded release binary (avoids re-downloading on every commit).
+if [ -x "$gitleaks_bin_dir/gitleaks" ]; then
+  PATH="$gitleaks_bin_dir:$PATH"
+  export PATH
+fi
+
 if ! command -v gitleaks >/dev/null 2>&1; then
   echo "⚠️  gitleaks is not installed. Installing..."
-  if command -v brew >/dev/null 2>&1; then
+
+  # Preferred: download a prebuilt release binary into .git/ (no root, no brew).
+  if command -v curl >/dev/null 2>&1 && command -v tar >/dev/null 2>&1; then
+    mkdir -p "$gitleaks_bin_dir"
+    case "$(uname -m)" in
+      x86_64|amd64) gitleaks_arch="x64" ;;
+      aarch64|arm64) gitleaks_arch="arm64" ;;
+      *) gitleaks_arch="" ;;
+    esac
+    if [ -n "$gitleaks_arch" ]; then
+      gitleaks_url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_$(uname -s | tr '[:upper:]' '[:lower:]')_${gitleaks_arch}.tar.gz"
+      echo "   Downloading gitleaks v${GITLEAKS_VERSION} (${gitleaks_arch})..."
+      if curl -fsSL "$gitleaks_url" | tar -xz -C "$gitleaks_bin_dir" gitleaks 2>/dev/null \
+        && chmod +x "$gitleaks_bin_dir/gitleaks"; then
+        PATH="$gitleaks_bin_dir:$PATH"
+        export PATH
+        echo "   ✅ gitleaks installed to $gitleaks_bin_dir/gitleaks"
+      else
+        echo "   ⚠️  Release download failed, falling back to other install methods..."
+      fi
+    fi
+  fi
+
+  # Fallback 1: Homebrew.
+  if ! command -v gitleaks >/dev/null 2>&1 && command -v brew >/dev/null 2>&1; then
     brew install gitleaks
-  elif command -v go >/dev/null 2>&1; then
-    go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest
-  else
-    echo "❌ Please install gitleaks manually:"
+  fi
+
+  # Fallback 2: Go install. NOTE: the module path is github.com/gitleaks/gitleaks/v8
+  # (the old zricethezav path no longer contains the cmd/gitleaks package).
+  if ! command -v gitleaks >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
+    if go install github.com/gitleaks/gitleaks/v8/cmd/gitleaks@v${GITLEAKS_VERSION}; then
+      go_bin="$(go env GOPATH 2>/dev/null)/bin"
+      if [ -n "$go_bin" ] && [ -d "$go_bin" ]; then
+        PATH="$go_bin:$PATH"
+        export PATH
+      fi
+    else
+      echo "   ⚠️  go install failed, gitleaks still not available."
+    fi
+  fi
+
+  if ! command -v gitleaks >/dev/null 2>&1; then
+    echo "❌ Could not install gitleaks automatically. Please install it manually:"
     echo "   macOS: brew install gitleaks"
-    echo "   Go: go install github.com/zricethezav/gitleaks/v8/cmd/gitleaks@latest"
-    echo "   Or download from: https://github.com/zricethezav/gitleaks/releases"
+    echo "   Go:    go install github.com/gitleaks/gitleaks/v8/cmd/gitleaks@v${GITLEAKS_VERSION}"
+    echo "   Or download from: https://github.com/gitleaks/gitleaks/releases"
     exit 1
   fi
 fi
 
-# Run gitleaks on staged files
-gitleaks protect -v --staged --config .gitleaks.toml
+# Run gitleaks on staged files (modern command; `protect --staged` was deprecated in v8.19)
+gitleaks git --pre-commit --redact --staged --verbose --config .gitleaks.toml
 gitleaks_status=$?
 
-if [ "$gitleaks_status" -ne 0 ]; then
+# Distinguish "tool ran and found leaks" (1) from "tool could not run" (other).
+if [ "$gitleaks_status" -eq 1 ]; then
   echo "❌ Gitleaks detected potential secrets in your changes!"
   echo "Please remove or redact the secrets before committing."
-  echo "Run 'gitleaks detect --source . --config .gitleaks.toml --verbose' for details."
+  echo "Run 'gitleaks git -v --config .gitleaks.toml' for details."
+  exit 1
+elif [ "$gitleaks_status" -ne 0 ]; then
+  echo "❌ Gitleaks failed to run (exit $gitleaks_status), not a secret-detection result."
+  echo "Fix the gitleaks installation, or skip hooks in an emergency with: git commit --no-verify"
   exit 1
 fi
 

@@ -8,48 +8,56 @@
 import { useState } from "react";
 import clsx from "clsx";
 import type { BulkActionResponse } from "@/utils/types";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 interface BulkJobActionBarProps {
   selectedCount: number;
-  onCancel: () => Promise<BulkActionResponse>;
+  onCancel?: () => Promise<BulkActionResponse>;
+  onClose?: () => Promise<BulkActionResponse>;
   onExtend: () => Promise<BulkActionResponse>;
   onBoost: () => Promise<BulkActionResponse>;
   onClearSelection: () => void;
   loading: boolean;
 }
 
-type ActiveAction = "cancel" | "extend" | "boost" | null;
-
 export default function BulkJobActionBar({
   selectedCount,
   onCancel,
+  onClose,
   onExtend,
   onBoost,
   onClearSelection,
   loading,
 }: BulkJobActionBarProps) {
-  const [confirmAction, setConfirmAction] = useState<ActiveAction>(null);
+  const [showConfirmClose, setShowConfirmClose] = useState(false);
   const [result, setResult] = useState<BulkActionResponse | null>(null);
 
   if (selectedCount === 0) return null;
 
-  const handleAction = async (action: ActiveAction) => {
-    if (!action) return;
+  const closeAction = onClose || onCancel;
+
+  const handleAction = async (action: "extend" | "boost") => {
     setResult(null);
 
     let res: BulkActionResponse;
-    if (action === "cancel") res = await onCancel();
-    else if (action === "extend") res = await onExtend();
+    if (action === "extend") res = await onExtend();
     else res = await onBoost();
 
     setResult(res);
-    setConfirmAction(null);
   };
 
-  const actionLabel = (a: ActiveAction) => {
-    if (a === "cancel") return "Cancel Jobs";
-    if (a === "extend") return "Extend Jobs";
-    return "Boost Jobs";
+  const handleConfirmClose = async () => {
+    if (!closeAction) {
+      setShowConfirmClose(false);
+      return;
+    }
+    setResult(null);
+    try {
+      const res = await closeAction();
+      setResult(res);
+    } finally {
+      setShowConfirmClose(false);
+    }
   };
 
   return (
@@ -142,11 +150,13 @@ export default function BulkJobActionBar({
           Boost
         </button>
 
-        {/* Cancel — destructive, requires confirmation */}
+        {/* Close selected — destructive, requires confirmation */}
         <button
-          onClick={() => setConfirmAction("cancel")}
+          onClick={() => setShowConfirmClose(true)}
           disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium bg-red-500/10 border border-red-500/20 text-red-400 hover:border-red-400 hover:bg-red-500/15 transition-all disabled:opacity-50"
+          aria-label="Close selected"
+          title="Close selected"
         >
           <svg
             className="w-4 h-4"
@@ -161,71 +171,22 @@ export default function BulkJobActionBar({
               d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
             />
           </svg>
-          Cancel Jobs
+          Close selected
         </button>
       </div>
 
-      {/* ── Confirmation modal ──────────────────────────────────────────── */}
-      {confirmAction === "cancel" && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-950/80 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="bulk-confirm-title"
-        >
-          <div className="bg-ink-800 border border-red-500/20 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center flex-shrink-0">
-                <svg
-                  className="w-5 h-5 text-red-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
-              </div>
-              <div>
-                <h3
-                  id="bulk-confirm-title"
-                  className="font-display font-semibold text-amber-100"
-                >
-                  Cancel {selectedCount} job{selectedCount !== 1 ? "s" : ""}?
-                </h3>
-                <p className="text-xs text-amber-700 mt-0.5">
-                  This cannot be undone.
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-amber-700 mb-6">
-              Only <span className="text-amber-300 font-medium">open</span> jobs
-              will be cancelled. Jobs that are in progress, completed, or
-              already cancelled will be skipped.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setConfirmAction(null)}
-                className="flex-1 btn-secondary text-sm"
-                disabled={loading}
-              >
-                Keep Jobs
-              </button>
-              <button
-                onClick={() => handleAction("cancel")}
-                disabled={loading}
-                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 transition-all disabled:opacity-50"
-              >
-                {loading ? "Cancelling…" : "Yes, Cancel"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── Confirmation dialog ─────────────────────────────────────────── */}
+      <ConfirmDialog
+        open={showConfirmClose}
+        title={`Close ${selectedCount} Jobs`}
+        description={`You are about to close ${selectedCount} jobs. This cannot be undone.`}
+        confirmLabel="Confirm"
+        cancelLabel="Cancel"
+        variant="danger"
+        loading={loading}
+        onConfirm={handleConfirmClose}
+        onCancel={() => setShowConfirmClose(false)}
+      />
 
       {/* ── Result toast ────────────────────────────────────────────────── */}
       {result && (

@@ -70,7 +70,7 @@ services:
     ports:
       - "5432:5432"         # expose for local tooling (TablePlus, psql, etc.)
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - marketpay_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U stellarwork -d stellarwork"]
       interval: 5s
@@ -115,5 +115,6 @@ services:
       - elasticsearch
 
 volumes:
-  postgres_data:   # named volume — survives container restarts
+  # Note: Use docker-compose down (without -v) to preserve data
+  marketpay_pgdata:   # named volume — survives container restarts
   es_data:

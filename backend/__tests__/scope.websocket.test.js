@@ -227,4 +227,33 @@ describe("WebSocket scope session", () => {
 
     expect(msg1.payload.finalizedHash).toBe(msg2.payload.finalizedHash);
   });
+
+  test("TC5: finalized session is locked — collaborators cannot edit after submission", async () => {
+    const ws1 = wsConnectScope("session-lock-test", TEST_PARTICIPANT_1);
+    const ws2 = wsConnectScope("session-lock-test", TEST_PARTICIPANT_2);
+    await Promise.all([waitForOpen(ws1), waitForOpen(ws2)]);
+
+    await ws1._waitForMessage((m) => m.event === "scope:init", 2000);
+    await ws2._waitForMessage((m) => m.event === "scope:init", 2000);
+
+    // Owner finalizes the scope when the proposal is submitted.
+    ws1.send(
+      JSON.stringify({
+        type: "scope:finalize",
+        content: "# Locked proposal",
+        payload: { jobId: "job-lock" },
+      }),
+    );
+    await ws1._waitForMessage((m) => m.event === "scope:finalized");
+
+    // A collaborator attempts a late edit — it must be rejected, not applied.
+    ws2.send(
+      JSON.stringify({ type: "scope:update", content: "# tampered" }),
+    );
+    const err = await ws2._waitForMessage((m) => m.event === "scope:error");
+    expect(err.payload.error).toMatch(/locked/i);
+
+    ws1.close();
+    ws2.close();
+  });
 });

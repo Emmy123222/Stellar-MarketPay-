@@ -13,6 +13,7 @@ import {
   fetchClientSpendingAnalytics, fetchPriceAlertPreference, upsertPriceAlertPreference,
   fetchSavedSearches, updateSavedSearch, deleteSavedSearch,
   createProposalTemplate, updateProposalTemplate, deleteProposalTemplate,
+  batchJobOperation, bulkExtendJobs,
 } from "@/lib/api";
 import { getXLMBalance, getUSDCBalance, streamAccountTransactions } from "@/lib/stellar";
 import { formatXLM, shortenAddress, copyToClipboard } from "@/utils/format";
@@ -227,14 +228,24 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     [],
   );
 
+  // Issue #868: Wire up bulk actions with the unified batch API
   const handleBulkCancel = useCallback(async () => {
     setBulkLoading(true);
     try {
       const ids = Array.from(selectedJobIds);
-      await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/cancel`, { method: "POST" })));
+      const result = await batchJobOperation("close", ids);
+      await refreshDashboard();
       setSelectedJobIds(new Set());
-      return bulkResult(ids, true);
-    } catch {
+      return {
+        results: [
+          ...result.succeeded.map((s) => ({ id: s.id, success: true })),
+          ...result.failed.map((f) => ({ id: f.id, success: false, error: f.error })),
+        ],
+        succeeded: result.succeeded.length,
+        failed: result.failed.length,
+      };
+    } catch (error) {
+      console.error("Bulk cancel failed:", error);
       return bulkResult(Array.from(selectedJobIds), false);
     } finally {
       setBulkLoading(false);
@@ -245,10 +256,12 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setBulkLoading(true);
     try {
       const ids = Array.from(selectedJobIds);
-      await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/extend`, { method: "POST" })));
+      const result = await bulkExtendJobs(ids, 30); // 30 days by default
+      await refreshDashboard();
       setSelectedJobIds(new Set());
-      return bulkResult(ids, true);
-    } catch {
+      return result;
+    } catch (error) {
+      console.error("Bulk extend failed:", error);
       return bulkResult(Array.from(selectedJobIds), false);
     } finally {
       setBulkLoading(false);
@@ -259,15 +272,17 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     setBulkLoading(true);
     try {
       const ids = Array.from(selectedJobIds);
-      await Promise.all(ids.map((id) => fetch(`/api/jobs/${id}/boost`, { method: "POST" })));
-      setSelectedJobIds(new Set());
-      return bulkResult(ids, true);
-    } catch {
+      // For boost, we'd need a transaction hash from the user
+      // For now, return a placeholder that indicates payment is needed
+      toast.info("Boost requires payment. Feature coming soon!");
+      return bulkResult(ids, false);
+    } catch (error) {
+      console.error("Bulk boost failed:", error);
       return bulkResult(Array.from(selectedJobIds), false);
     } finally {
       setBulkLoading(false);
     }
-  }, [selectedJobIds, bulkResult]);
+  }, [selectedJobIds, bulkResult, toast]);
 
   const loadDashboardData = useCallback(async () => {
     if (!publicKey) return null;

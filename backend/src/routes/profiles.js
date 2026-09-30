@@ -51,21 +51,11 @@ const {
   unblockFreelancer,
   markProfileForDeletion,
 } = require("../services/profileService");
+const { enqueuePortfolioVerification } = require("../services/linkVerificationService");
 const {
   migrateProfile,
 } = require("../services/profileMigrationService");
 const { validateProfileMigration } = require("../validators/profileMigrationValidator");
-const {
-  getProfile,
-  upsertProfile,
-  updateAvailability,
-  getProfileStats,
-  getResponseTime,
-  blockFreelancer,
-  unblockFreelancer,
-  getSkillEndorsements,
-  endorseSkill,
-} = require("../services/profileService");
 
 /**
  * @swagger
@@ -212,6 +202,22 @@ router.get("/", generalProfileRateLimiter, async (req, res, next) => {
  *         description: Profile updated
  *       403:
  *         description: Can only update own profile
+ *   patch:
+ *     summary: Update own profile (partial / avatar / bio update)
+ *     tags: [Profiles]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Profile updated
+ *       403:
+ *         description: Can only update own profile
  */
 router.get("/:publicKey", generalProfileRateLimiter, async (req, res, next) => {
   try {
@@ -290,6 +296,24 @@ router.get("/:publicKey/response-time", generalProfileRateLimiter, async (req, r
   catch (e) { next(e); }
 });
 
+/**
+ * Fire-and-forget dispatch of portfolio link verification after an
+ * upsert. Errors are swallowed so the HTTP response is not delayed or
+ * failed when Redis is unavailable; the link verification status
+ * remains the previous value until the next successful queue drain.
+ */
+function dispatchLinkVerification(publicKey, portfolioItems) {
+  if (!publicKey || !Array.isArray(portfolioItems) || portfolioItems.length === 0) {
+    return;
+  }
+  enqueuePortfolioVerification({ publicKey, portfolioItems }).catch((err) => {
+    profileLogger.warn(
+      { publicKey, err: err && err.message },
+      "Failed to enqueue link verification after profile upsert"
+    );
+  });
+}
+
 router.post("/", profileUpdateRateLimiter, validateJsonb({ portfolio_items: portfolioItemsSchema }), async (req, res, next) => {
   try {
     const body = validate(upsertProfileSchema, req.body);
@@ -298,16 +322,17 @@ router.post("/", profileUpdateRateLimiter, validateJsonb({ portfolio_items: port
       const key = cache.profileKey(body.publicKey);
       await cache.del(key);
       profileLogger.debug({ publicKey: body.publicKey, cacheKey: key }, "Cache invalidated after POST profile");
+      dispatchLinkVerification(body.publicKey, data && data.portfolioItems);
     }
     res.json({ success: true, data });
   }
   catch (e) { next(e); }
 });
 
-// PUT /api/profiles/:publicKey — update a profile (invalidates cache)
-router.put("/:publicKey", profileUpdateRateLimiter, verifyJWT, async (req, res, next) => {
+// PUT /api/profiles/:publicKey & PATCH /api/profiles/:publicKey — update a profile (invalidates cache)
+const updateProfileHandler = async (req, res, next) => {
   try {
-    const { publicKey } = req.params;
+    const publicKey = req.params.publicKey || req.params.id;
     if (req.user.publicKey !== publicKey) {
       return res.status(403).json({ error: "You can only update your own profile" });
     }
@@ -315,11 +340,14 @@ router.put("/:publicKey", profileUpdateRateLimiter, verifyJWT, async (req, res, 
     const data = await upsertProfile({ ...body, publicKey });
     const key = cache.profileKey(publicKey);
     await cache.del(key);
-    profileLogger.debug({ publicKey, cacheKey: key }, "Cache invalidated after PUT profile");
+    profileLogger.debug({ publicKey, cacheKey: key }, "Cache invalidated after profile update");
     res.json({ success: true, data });
   }
   catch (e) { next(e); }
-});
+};
+
+router.put("/:publicKey", profileUpdateRateLimiter, verifyJWT, updateProfileHandler);
+router.patch("/:publicKey", profileUpdateRateLimiter, verifyJWT, updateProfileHandler);
 
 // GET /api/profiles/:publicKey/notifications - Get notification preferences
 router.get("/:publicKey/notifications", generalProfileRateLimiter, async (req, res, next) => {
