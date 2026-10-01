@@ -59,10 +59,16 @@ jobs:
 
       - name: Audit production dependencies
         run: |
-          npm audit --omit=dev --audit-level=high --json > npm-audit.json || {
-            cat npm-audit.json
-            exit 1
-          }
+          if [ "${{ matrix.workspace }}" = "frontend" ]; then
+            # frontend: filter out known-unfixable next@14.x advisories that
+            # have no patched release in the 14.x series (fixes in >=15.5.27).
+            node scripts/audit-filter.mjs
+          else
+            npm audit --omit=dev --audit-level=high --json > npm-audit.json || {
+              cat npm-audit.json
+              exit 1
+            }
+          fi
 
       - name: Audit all dependencies (advisory)
         run: npm audit --audit-level=moderate
