@@ -1,53 +1,84 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/router";
-import { renewScopeSession } from "@/lib/api/scope";
-import SanitizedHtml from "@/components/SanitizedHtml";
-
-type CursorMap = Record<string, { start: number; end: number; updatedAt: number }>;
+import {
+  renewScopeSession,
+  saveScopeSession,
+  CursorMap,
+} from "@/lib/api/scope";
+import { useToast, toast } from "@/components/Toast";
+import CollaborativeEditor from "@/components/scope/CollaborativeEditor";
 
 type ScopeMessage =
-  | { event: "scope:init"; payload: { sessionId: string; participantId: string; content: string; cursors: CursorMap; finalized?: boolean; finalizedHash?: string; expiresAt?: string } }
-  | { event: "scope:update"; payload: { sessionId: string; content: string; cursors: CursorMap } }
-  | { event: "scope:finalized"; payload: { sessionId: string; content: string; finalizedHash?: string; payload?: Record<string, string> } }
+  | {
+      event: "scope:init";
+      payload: {
+        sessionId: string;
+        participantId: string;
+        content: string;
+        cursors: CursorMap;
+        finalized?: boolean;
+        finalizedHash?: string;
+        expiresAt?: string;
+        updatedAt?: string;
+        version?: number;
+      };
+    }
+  | {
+      event: "scope:update";
+      payload: {
+        sessionId: string;
+        content: string;
+        cursors: CursorMap;
+        finalizedHash?: string;
+        updatedAt?: string;
+        version?: number;
+      };
+    }
+  | {
+      event: "scope:finalized";
+      payload: {
+        sessionId: string;
+        content: string;
+        finalizedHash?: string;
+        payload?: Record<string, string>;
+        updatedAt?: string;
+        version?: number;
+      };
+    }
   | { event: "scope:error"; payload: { error: string } }
   | { event: "connected"; payload: { channel: string } };
 
-type ConnectionStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
+type ConnectionStatus =
+  "connected" | "connecting" | "reconnecting" | "disconnected";
 
-type OutboundMessage = { type: string; content?: string; cursors?: CursorMap; payload?: Record<string, string> };
+type OutboundMessage = {
+  type: string;
+  content?: string;
+  cursors?: CursorMap;
+  payload?: Record<string, string>;
+  version?: number;
+  updatedAt?: string;
+};
 
-const CURSOR_COLORS = ["#f59e0b", "#34d399", "#60a5fa", "#f472b6", "#a78bfa", "#fb923c"];
 const PREFILL_KEY = "marketpay_scope_prefill";
 const MAX_RECONNECT_ATTEMPTS = 5;
+const CONFLICT_TOAST_MESSAGE =
+  "Conflict detected — your changes may have been overwritten";
 
 function randomSessionId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  const arr = new Uint8Array(8);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(arr);
+    return `session-${Date.now()}-${Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("")}`;
+  }
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto)
+    return crypto.randomUUID();
   return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function reconnectDelay(attempt: number) {
   return Math.min(1000 * 2 ** attempt, 30000);
-}
-
-function renderMarkdown(text: string): string {
-  const escaped = text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  const html = escaped
-    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/^- (.+)$/gm, "<li>$1</li>")
-    .replace(/(<li>.*<\/li>\n?)+/g, "<ul>$&</ul>")
-    .replace(/^(\d+)\. (.+)$/gm, "<li>$2</li>")
-    .replace(/(<li>.*<\/li>\n?)+/g, "<ol>$&</ol>")
-    .replace(/\n\n/g, "</p><p>")
-    .replace(/\n/g, "<br>");
-  return `<div class="prose prose-sm max-w-none">${html}</div>`;
 }
 
 export default function ScopeSessionPage() {
@@ -58,10 +89,46 @@ export default function ScopeSessionPage() {
     return Array.isArray(raw) ? raw[0] : raw;
   }, [router.query.sessionId]);
 
+  let toastContext: {
+    error: (msg: string) => void;
+    success: (msg: string) => void;
+    info: (msg: string) => void;
+  } | null = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    toastContext = useToast();
+  } catch {
+    toastContext = null;
+  }
+
+  const triggerConflictNotification = useCallback(() => {
+    if (toastContext?.error) {
+      toastContext.error(CONFLICT_TOAST_MESSAGE);
+    } else {
+      toast.error(CONFLICT_TOAST_MESSAGE);
+    }
+  }, [toastContext]);
+
   const [participantId, setParticipantId] = useState("");
   const [documentText, setDocumentText] = useState("");
+  const [baseContent, setBaseContent] = useState("");
+  const [baseUpdatedAt, setBaseUpdatedAt] = useState<string | null>(null);
+  const [baseVersion, setBaseVersion] = useState<number>(1);
+
+  const [hasConflict, setHasConflict] = useState(false);
+  const [conflictingServerContent, setConflictingServerContent] = useState<
+    string | null
+  >(null);
+  const [conflictingServerUpdatedAt, setConflictingServerUpdatedAt] = useState<
+    string | null
+  >(null);
+  const [conflictingServerVersion, setConflictingServerVersion] = useState<
+    number | null
+  >(null);
+
   const [cursors, setCursors] = useState<CursorMap>({});
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>("connecting");
   const [shareUrl, setShareUrl] = useState("");
   const [error, setError] = useState("");
   const [finalized, setFinalized] = useState(false);
@@ -69,7 +136,9 @@ export default function ScopeSessionPage() {
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [showExpiryWarning, setShowExpiryWarning] = useState(false);
-  const [previewTab, setPreviewTab] = useState<"edit" | "preview" | "split">("edit");
+  const [previewTab, setPreviewTab] = useState<"edit" | "preview" | "split">(
+    "edit",
+  );
 
   const socketRef = useRef<WebSocket | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -79,6 +148,18 @@ export default function ScopeSessionPage() {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageQueueRef = useRef<OutboundMessage[]>([]);
   const intentionalCloseRef = useRef(false);
+
+  const documentTextRef = useRef(documentText);
+  documentTextRef.current = documentText;
+
+  const baseContentRef = useRef(baseContent);
+  baseContentRef.current = baseContent;
+
+  const baseUpdatedAtRef = useRef(baseUpdatedAt);
+  baseUpdatedAtRef.current = baseUpdatedAt;
+
+  const baseVersionRef = useRef(baseVersion);
+  baseVersionRef.current = baseVersion;
 
   const flushMessageQueue = useCallback(() => {
     const socket = socketRef.current;
@@ -99,33 +180,106 @@ export default function ScopeSessionPage() {
     messageQueueRef.current.push(message);
   }, []);
 
-  const handleScopeMessage = useCallback((msg: ScopeMessage) => {
-    if (msg.event === "scope:init") {
-      setDocumentText(msg.payload.content || "");
-      setCursors(msg.payload.cursors || {});
-      setParticipantId(msg.payload.participantId);
-      participantIdRef.current = msg.payload.participantId;
-      if (msg.payload.finalized) setFinalized(true);
-      if (msg.payload.finalizedHash) setFinalizedHash(msg.payload.finalizedHash);
-      if (msg.payload.expiresAt) setExpiresAt(msg.payload.expiresAt);
-      return;
-    }
-    if (msg.event === "scope:update") {
-      setDocumentText(msg.payload.content || "");
-      setCursors(msg.payload.cursors || {});
-      return;
-    }
-    if (msg.event === "scope:finalized") {
-      setDocumentText(msg.payload.content || "");
-      setFinalized(true);
-      if (msg.payload.finalizedHash) setFinalizedHash(msg.payload.finalizedHash);
-      setConnectionStatus("connected");
-      return;
-    }
-    if (msg.event === "scope:error") {
-      setError(msg.payload.error || "Session error");
-    }
-  }, []);
+  const handleScopeMessage = useCallback(
+    (msg: ScopeMessage) => {
+      if (msg.event === "scope:init") {
+        const initContent = msg.payload.content || "";
+        setDocumentText(initContent);
+        setBaseContent(initContent);
+        baseContentRef.current = initContent;
+
+        const initUpdatedAt = msg.payload.updatedAt || new Date().toISOString();
+        setBaseUpdatedAt(initUpdatedAt);
+        baseUpdatedAtRef.current = initUpdatedAt;
+
+        const initVersion = msg.payload.version ?? 1;
+        setBaseVersion(initVersion);
+        baseVersionRef.current = initVersion;
+
+        setCursors(msg.payload.cursors || {});
+        setParticipantId(msg.payload.participantId);
+        participantIdRef.current = msg.payload.participantId;
+        setHasConflict(false);
+
+        if (msg.payload.finalized) setFinalized(true);
+        if (msg.payload.finalizedHash)
+          setFinalizedHash(msg.payload.finalizedHash);
+        if (msg.payload.expiresAt) setExpiresAt(msg.payload.expiresAt);
+        return;
+      }
+
+      if (msg.event === "scope:update") {
+        const incomingContent = msg.payload.content ?? "";
+        const incomingCursors = msg.payload.cursors || {};
+        const incomingUpdatedAt = msg.payload.updatedAt || null;
+        const incomingVersion = msg.payload.version;
+
+        setCursors(incomingCursors);
+
+        const isLocallyDirty =
+          documentTextRef.current !== baseContentRef.current;
+        const hasContentDiverged = incomingContent !== documentTextRef.current;
+        const versionDiffers = Boolean(
+          (incomingVersion !== undefined &&
+            incomingVersion !== baseVersionRef.current) ||
+          (incomingUpdatedAt &&
+            baseUpdatedAtRef.current &&
+            incomingUpdatedAt !== baseUpdatedAtRef.current),
+        );
+
+        if (isLocallyDirty && hasContentDiverged && (versionDiffers || true)) {
+          setHasConflict(true);
+          setConflictingServerContent(incomingContent);
+          setConflictingServerUpdatedAt(incomingUpdatedAt);
+          setConflictingServerVersion(incomingVersion ?? null);
+          triggerConflictNotification();
+        } else if (!isLocallyDirty) {
+          setDocumentText(incomingContent);
+          documentTextRef.current = incomingContent;
+          setBaseContent(incomingContent);
+          baseContentRef.current = incomingContent;
+          if (incomingUpdatedAt) {
+            setBaseUpdatedAt(incomingUpdatedAt);
+            baseUpdatedAtRef.current = incomingUpdatedAt;
+          }
+          if (incomingVersion !== undefined) {
+            setBaseVersion(incomingVersion);
+            baseVersionRef.current = incomingVersion;
+          }
+          setHasConflict(false);
+        } else {
+          setBaseContent(incomingContent);
+          baseContentRef.current = incomingContent;
+          if (incomingUpdatedAt) {
+            setBaseUpdatedAt(incomingUpdatedAt);
+            baseUpdatedAtRef.current = incomingUpdatedAt;
+          }
+          if (incomingVersion !== undefined) {
+            setBaseVersion(incomingVersion);
+            baseVersionRef.current = incomingVersion;
+          }
+        }
+        return;
+      }
+
+      if (msg.event === "scope:finalized") {
+        const finalizedContent = msg.payload.content || "";
+        setDocumentText(finalizedContent);
+        setBaseContent(finalizedContent);
+        setFinalized(true);
+        if (msg.payload.finalizedHash)
+          setFinalizedHash(msg.payload.finalizedHash);
+        setConnectionStatus("connected");
+        setHasConflict(false);
+        return;
+      }
+
+      if (msg.event === "scope:error") {
+        setError(msg.payload.error || "Session error");
+      }
+    },
+    [triggerConflictNotification],
+  );
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -240,7 +394,32 @@ export default function ScopeSessionPage() {
     return () => clearInterval(interval);
   }, [expiresAt]);
 
-  const sendUpdate = (content: string, selectionStart: number, selectionEnd: number) => {
+  const sendCursorOnlyUpdate = (
+    selectionStart: number,
+    selectionEnd: number,
+  ) => {
+    if (!participantIdRef.current) return;
+    const nextCursors = {
+      [participantIdRef.current]: {
+        start: selectionStart,
+        end: selectionEnd,
+        updatedAt: Date.now(),
+      },
+    };
+    sendOrQueue({
+      type: "scope:update",
+      content: documentTextRef.current,
+      cursors: nextCursors,
+      version: baseVersionRef.current,
+      updatedAt: baseUpdatedAtRef.current || undefined,
+    });
+  };
+
+  const sendUpdate = (
+    content: string,
+    selectionStart: number,
+    selectionEnd: number,
+  ) => {
     if (!participantIdRef.current) return;
     const nextCursors = {
       [participantIdRef.current]: {
@@ -253,12 +432,16 @@ export default function ScopeSessionPage() {
       type: "scope:update",
       content,
       cursors: nextCursors,
+      version: baseVersionRef.current,
+      updatedAt: baseUpdatedAtRef.current || undefined,
     });
   };
 
   const handleTextChange = (value: string) => {
     if (finalized) return;
     setDocumentText(value);
+    documentTextRef.current = value;
+
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       const el = textareaRef.current;
@@ -266,9 +449,89 @@ export default function ScopeSessionPage() {
     }, 2000);
   };
 
+  const handleSelectionChange = (
+    selectionStart: number,
+    selectionEnd: number,
+  ) => {
+    if (finalized) return;
+    sendCursorOnlyUpdate(selectionStart, selectionEnd);
+  };
+
+  const handleManualSave = async () => {
+    if (finalized) return;
+    const el = textareaRef.current;
+    sendUpdate(documentText, el?.selectionStart || 0, el?.selectionEnd || 0);
+
+    try {
+      const saved = await saveScopeSession(sessionId, {
+        content: documentText,
+        cursors: {
+          [participantIdRef.current]: {
+            start: el?.selectionStart || 0,
+            end: el?.selectionEnd || 0,
+            updatedAt: Date.now(),
+          },
+        },
+      });
+
+      if (
+        baseUpdatedAtRef.current &&
+        saved.updated_at !== baseUpdatedAtRef.current &&
+        saved.content !== documentText
+      ) {
+        setHasConflict(true);
+        setConflictingServerContent(saved.content);
+        setConflictingServerUpdatedAt(saved.updated_at);
+        triggerConflictNotification();
+      } else {
+        setBaseContent(documentText);
+        baseContentRef.current = documentText;
+        setBaseUpdatedAt(saved.updated_at);
+        baseUpdatedAtRef.current = saved.updated_at;
+      }
+    } catch {
+      // WebSocket sync handles fallback
+    }
+  };
+
+  const handleDismissConflict = () => {
+    setHasConflict(false);
+    setBaseContent(documentText);
+    baseContentRef.current = documentText;
+    if (conflictingServerUpdatedAt) {
+      setBaseUpdatedAt(conflictingServerUpdatedAt);
+      baseUpdatedAtRef.current = conflictingServerUpdatedAt;
+    }
+    if (conflictingServerVersion !== null) {
+      setBaseVersion(conflictingServerVersion);
+      baseVersionRef.current = conflictingServerVersion;
+    }
+  };
+
+  const handleReloadConflict = () => {
+    if (conflictingServerContent !== null) {
+      setDocumentText(conflictingServerContent);
+      documentTextRef.current = conflictingServerContent;
+      setBaseContent(conflictingServerContent);
+      baseContentRef.current = conflictingServerContent;
+    }
+    if (conflictingServerUpdatedAt) {
+      setBaseUpdatedAt(conflictingServerUpdatedAt);
+      baseUpdatedAtRef.current = conflictingServerUpdatedAt;
+    }
+    if (conflictingServerVersion !== null) {
+      setBaseVersion(conflictingServerVersion);
+      baseVersionRef.current = conflictingServerVersion;
+    }
+    setHasConflict(false);
+    setConflictingServerContent(null);
+  };
+
   const finalizeScope = () => {
     const payload = {
-      title: documentText.split("\n").find((line) => line.trim()) || "New freelance scope",
+      title:
+        documentText.split("\n").find((line) => line.trim()) ||
+        "New freelance scope",
       description: documentText,
       category: "Backend Development",
     };
@@ -324,18 +587,23 @@ export default function ScopeSessionPage() {
     disconnected: "bg-red-400",
   }[connectionStatus];
 
-  const activePeerCursors = Object.entries(cursors).filter(([id]) => id !== participantId);
-  const previewHtml = useMemo(() => renderMarkdown(documentText), [documentText]);
-
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
       <div className="card space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="font-display text-2xl font-bold text-amber-100">Scope Collaboration Session</h1>
+            <h1 className="font-display text-2xl font-bold text-amber-100">
+              Scope Collaboration Session
+            </h1>
             <div className="flex items-center gap-2 mt-1">
-              <span className={`w-2 h-2 rounded-full ${finalized ? "bg-emerald-400" : statusDotClass}`} />
-              <p className="text-sm text-amber-800">{finalized ? "Scope finalized — document is now locked" : statusLabel}</p>
+              <span
+                className={`w-2 h-2 rounded-full ${finalized ? "bg-emerald-400" : statusDotClass}`}
+              />
+              <p className="text-sm text-amber-800">
+                {finalized
+                  ? "Scope finalized — document is now locked"
+                  : statusLabel}
+              </p>
             </div>
           </div>
           {!finalized && (
@@ -354,8 +622,12 @@ export default function ScopeSessionPage() {
           <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-center gap-3">
             <span className="text-emerald-400 text-lg">✓</span>
             <div>
-              <p className="text-sm font-medium text-emerald-300">Scope finalized and anchored on-chain</p>
-              <p className="text-xs text-emerald-600 font-mono mt-0.5 break-all">Hash: {finalizedHash}</p>
+              <p className="text-sm font-medium text-emerald-300">
+                Scope finalized and anchored on-chain
+              </p>
+              <p className="text-xs text-emerald-600 font-mono mt-0.5 break-all">
+                Hash: {finalizedHash}
+              </p>
             </div>
           </div>
         )}
@@ -364,191 +636,114 @@ export default function ScopeSessionPage() {
           <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-center gap-3">
             <span className="text-emerald-400 text-lg">✓</span>
             <div>
-              <p className="text-sm font-medium text-emerald-300">Scope finalized</p>
-              <p className="text-xs text-emerald-600">This document is locked and has been used to create the job.</p>
+              <p className="text-sm font-medium text-emerald-300">
+                Scope finalized
+              </p>
+              <p className="text-xs text-emerald-600">
+                This document is locked and has been used to create the job.
+              </p>
             </div>
           </div>
         )}
 
-        {showExpiryWarning && !finalized && timeRemaining !== null && timeRemaining > 0 && (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-3">
-            <div className="flex items-start gap-3">
-              <span className="text-amber-400 text-lg">⚠</span>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-amber-300">Session expiring soon</p>
-                <p className="text-xs text-amber-600 mt-1">
-                  This session will expire in {formatTimeRemaining(timeRemaining)}. Save your content now.
-                </p>
+        {showExpiryWarning &&
+          !finalized &&
+          timeRemaining !== null &&
+          timeRemaining > 0 && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <span className="text-amber-400 text-lg">⚠</span>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-300">
+                    Session expiring soon
+                  </p>
+                  <p className="text-xs text-amber-600 mt-1">
+                    This session will expire in{" "}
+                    {formatTimeRemaining(timeRemaining)}. Save your content now.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={downloadContent}
+                  className="btn-secondary px-3 py-1.5 text-xs"
+                >
+                  Download Content
+                </button>
+                <button
+                  type="button"
+                  onClick={renewSession}
+                  className="btn-primary px-3 py-1.5 text-xs"
+                >
+                  Extend Session (24h)
+                </button>
               </div>
             </div>
-            <div className="flex gap-2">
-              <button type="button" onClick={downloadContent} className="btn-secondary px-3 py-1.5 text-xs">
-                Download Content
-              </button>
-              <button type="button" onClick={renewSession} className="btn-primary px-3 py-1.5 text-xs">
-                Extend Session (24h)
-              </button>
-            </div>
-          </div>
-        )}
+          )}
 
         {timeRemaining !== null && timeRemaining <= 0 && (
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
             <div className="flex items-start gap-3">
               <span className="text-red-400 text-lg">✕</span>
               <div className="flex-1">
-                <p className="text-sm font-medium text-red-300">Session expired</p>
+                <p className="text-sm font-medium text-red-300">
+                  Session expired
+                </p>
                 <p className="text-xs text-red-600 mt-1">
-                  This session has expired. You can still download your content below.
+                  This session has expired. You can still download your content
+                  below.
                 </p>
               </div>
             </div>
-            <button type="button" onClick={downloadContent} className="btn-secondary px-3 py-1.5 text-xs mt-3">
+            <button
+              type="button"
+              onClick={downloadContent}
+              className="btn-secondary px-3 py-1.5 text-xs mt-3"
+            >
               Download Content
             </button>
           </div>
         )}
 
         <div className="rounded-xl border border-market-500/20 bg-market-900/30 p-4 space-y-2">
-          <p className="text-xs uppercase tracking-wider text-amber-800/70">Share this session URL</p>
+          <p className="text-xs uppercase tracking-wider text-amber-800/70">
+            Share this session URL
+          </p>
           <div className="flex gap-2">
-            <input className="input-field flex-1 text-xs" value={shareUrl} readOnly />
-            <button type="button" className="btn-secondary px-4 py-2 text-sm" onClick={() => navigator.clipboard.writeText(shareUrl)}>
+            <input
+              className="input-field flex-1 text-xs"
+              value={shareUrl}
+              readOnly
+            />
+            <button
+              type="button"
+              className="btn-secondary px-4 py-2 text-sm"
+              onClick={() => navigator.clipboard.writeText(shareUrl)}
+            >
               Copy
             </button>
           </div>
         </div>
 
-        {activePeerCursors.length > 0 && (
-          <div className="flex flex-wrap gap-2 items-center">
-            <p className="text-xs text-amber-800/70 uppercase tracking-wider">Online:</p>
-            {activePeerCursors.map(([peerId], idx) => (
-              <span
-                key={peerId}
-                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium"
-                style={{
-                  background: `${CURSOR_COLORS[idx % CURSOR_COLORS.length]}18`,
-                  color: CURSOR_COLORS[idx % CURSOR_COLORS.length],
-                  border: `1px solid ${CURSOR_COLORS[idx % CURSOR_COLORS.length]}40`,
-                }}
-              >
-                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: CURSOR_COLORS[idx % CURSOR_COLORS.length] }} />
-                {peerId.slice(0, 8)}
-              </span>
-            ))}
-          </div>
-        )}
-
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="label">
-              Shared Scope Document
-              {!finalized && <span className="ml-2 text-xs text-amber-800 font-normal">(auto-saves every 2s)</span>}
-            </label>
-            <div className="flex gap-1">
-              <button
-                type="button"
-                onClick={() => setPreviewTab("edit")}
-                className={`px-3 py-1 text-xs rounded-md transition-colors ${previewTab === "edit" ? "bg-market-700 text-amber-100" : "text-amber-800 hover:text-amber-300"}`}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewTab("preview")}
-                className={`px-3 py-1 text-xs rounded-md transition-colors ${previewTab === "preview" ? "bg-market-700 text-amber-100" : "text-amber-800 hover:text-amber-300"}`}
-              >
-                Preview
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewTab("split")}
-                className={`px-3 py-1 text-xs rounded-md transition-colors ${previewTab === "split" ? "bg-market-700 text-amber-100" : "text-amber-800 hover:text-amber-300"}`}
-              >
-                Split
-              </button>
-            </div>
-          </div>
-
-          {previewTab === "edit" && (
-            <textarea
-              ref={textareaRef}
-              value={documentText}
-              onChange={(e) => handleTextChange(e.target.value)}
-              onSelect={(e) => {
-                if (finalized) return;
-                const target = e.target as HTMLTextAreaElement;
-                sendUpdate(documentText, target.selectionStart, target.selectionEnd);
-              }}
-              onKeyDown={(e) => {
-                if (finalized) return;
-                if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-                  e.preventDefault();
-                  const target = e.target as HTMLTextAreaElement;
-                  if (saveTimer.current) clearTimeout(saveTimer.current);
-                  sendUpdate(documentText, target.selectionStart, target.selectionEnd);
-                } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-                  e.preventDefault();
-                  if (documentText.trim()) finalizeScope();
-                }
-              }}
-              rows={16}
-              className="textarea-field font-mono text-sm"
-              placeholder="Write requirements, milestones, and acceptance criteria together...
-
-Use markdown: # Title, **bold**, *italic*, `code`, - lists"
-              readOnly={finalized}
-              disabled={finalized}
-            />
-          )}
-
-          {previewTab === "preview" && (
-            <SanitizedHtml
-              as="div"
-              className="border border-market-500/20 bg-market-900/30 rounded-xl p-4 min-h-[16rem] overflow-auto"
-              html={previewHtml}
-            />
-          )}
-
-          {previewTab === "split" && (
-            <div className="flex gap-2">
-              <textarea
-                ref={textareaRef}
-                value={documentText}
-                onChange={(e) => handleTextChange(e.target.value)}
-                onSelect={(e) => {
-                  if (finalized) return;
-                  const target = e.target as HTMLTextAreaElement;
-                  sendUpdate(documentText, target.selectionStart, target.selectionEnd);
-                }}
-                onKeyDown={(e) => {
-                  if (finalized) return;
-                  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-                    e.preventDefault();
-                    const target = e.target as HTMLTextAreaElement;
-                    if (saveTimer.current) clearTimeout(saveTimer.current);
-                    sendUpdate(documentText, target.selectionStart, target.selectionEnd);
-                  }
-                }}
-                rows={16}
-                className="textarea-field font-mono text-sm w-1/2"
-                placeholder="Write in markdown..."
-                readOnly={finalized}
-                disabled={finalized}
-              />
-              <SanitizedHtml
-                as="div"
-                className="border border-market-500/20 bg-market-900/30 rounded-xl p-4 min-h-[16rem] w-1/2 overflow-auto"
-                html={previewHtml}
-              />
-            </div>
-          )}
-
-          <p className="text-xs text-amber-800 mt-2">
-            Supports markdown: # Heading, **bold**, *italic*, `code`, - unordered list, 1. ordered list &mdash;
-            Ctrl+S to save, Ctrl+Enter to finalize
-          </p>
-        </div>
+        {/* Collaborative Scope Editor with Real-Time Remote Cursors & Conflict Warning Banner */}
+        <CollaborativeEditor
+          documentText={documentText}
+          onChange={handleTextChange}
+          onSelectionChange={handleSelectionChange}
+          cursors={cursors}
+          participantId={participantId}
+          finalized={finalized}
+          hasConflict={hasConflict}
+          onDismissConflict={handleDismissConflict}
+          onReloadConflict={handleReloadConflict}
+          serverUpdatedAt={conflictingServerUpdatedAt}
+          onSave={handleManualSave}
+          onFinalize={finalizeScope}
+          previewTab={previewTab}
+          setPreviewTab={setPreviewTab}
+          textareaRef={textareaRef}
+        />
 
         {error && <p className="text-sm text-red-400">{error}</p>}
       </div>

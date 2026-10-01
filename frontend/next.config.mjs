@@ -69,6 +69,12 @@ const nextConfig = {
   webpack: (config, { isServer }) => {
     config.resolve.fallback = { ...config.resolve.fallback, fs: false, net: false, tls: false };
 
+    // `module` is a Node builtin used only by lib/sanitize.ts on the server;
+    // stub it out for the client so the browser bundle can resolve the import.
+    if (!isServer) {
+      config.resolve.fallback = { ...config.resolve.fallback, module: false };
+    }
+
     if (process.env.ANALYZE === 'true') {
       const { BundleAnalyzerPlugin } = require('@next/bundle-analyzer')({
         openAnalyzer: false,
@@ -98,6 +104,8 @@ const nextConfig = {
             key: 'Link',
             value: '</_next/static/css/app/layout.css>; rel=preload; as=style, </_next/static/chunks/webpack.js>; rel=preload; as=script, </_next/static/chunks/framework.js>; rel=preload; as=script',
           },
+          // HTML pages should not be cached by CDNs so users always get fresh content
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
         ],
       },
       {
@@ -110,6 +118,28 @@ const nextConfig = {
         source: '/profile/:path*',
         headers: [
           { key: 'Cache-Control', value: 'public, max-age=3600' },
+        ],
+      },
+      // Static assets (fonts, images, favicon) with long-lived immutable cache
+      {
+        source: '/(.*\\.(?:ico|png|jpg|jpeg|gif|webp|svg|woff|woff2|ttf|eot|otf))',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
+      // Service worker must never be cached
+      {
+        source: '/sw.js',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Service-Worker-Allowed', value: '/' },
+        ],
+      },
+      // API routes should not be cached
+      {
+        source: '/api/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
         ],
       },
     ];

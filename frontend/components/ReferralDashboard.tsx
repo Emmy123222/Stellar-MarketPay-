@@ -352,7 +352,7 @@ export default function ReferralDashboard({
         </div>
       ) : (
         /* Empty state */
-        <div className="card text-center py-14">
+        <div data-testid="referral-empty" className="card text-center py-14">
           <div className="w-14 h-14 rounded-2xl bg-market-500/10 border border-market-500/20 flex items-center justify-center mx-auto mb-4">
             <svg
               className="w-7 h-7 text-market-400"

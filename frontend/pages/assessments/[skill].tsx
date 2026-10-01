@@ -28,7 +28,9 @@ function pad(n: number) {
   return String(n).padStart(2, "0");
 }
 
-export default function AssessmentPage({ publicKey, onConnect }: Props) {
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+
+function AssessmentPage({ publicKey, onConnect }: Props) {
   const router = useRouter();
   const skill  = typeof router.query.skill === "string" ? router.query.skill : "";
 
@@ -303,5 +305,13 @@ export default function AssessmentPage({ publicKey, onConnect }: Props) {
         )}
       </div>
     </>
+  );
+}
+
+export default function AssessmentPageWrapper(props: Props) {
+  return (
+    <ErrorBoundary>
+      <AssessmentPage {...props} />
+    </ErrorBoundary>
   );
 }

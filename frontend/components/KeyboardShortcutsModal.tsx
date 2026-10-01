@@ -26,7 +26,7 @@ export default function KeyboardShortcutsModal({
     { keys: ["D"], description: "Go to Dashboard" },
     { keys: ["P"], description: "Post a new job" },
     { keys: ["Shift", "T"], description: "Cycle through themes (Light/Dark/High Contrast)" },
-    { keys: ["Cmd/Ctrl", "K"], description: "Open command palette" },
+    { keys: ["Cmd/Ctrl", "Shift", "K"], description: "Open command palette" },
     { keys: ["?"], description: "Show this shortcut guide" },
     { keys: ["Esc"], description: "Close modal / dialog" },
     { keys: ["/"], description: "Focus search bar" },
@@ -43,6 +43,7 @@ export default function KeyboardShortcutsModal({
   return (
     <AccessibleModal
       titleId="shortcuts-title"
+      description="Review the available keyboard shortcuts."
       onClose={onClose}
       className="z-[70]"
       panelClassName="w-full max-w-xl rounded-2xl border border-market-500/20 bg-ink-900 p-6 shadow-2xl"

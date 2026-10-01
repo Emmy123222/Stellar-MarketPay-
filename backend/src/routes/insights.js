@@ -170,47 +170,65 @@ router.get("/trends/pay", insightsRateLimiter, async (req, res, next) => {
 
 /**
  * @swagger
- * /api/insights/{publicKey}:
+ * /api/insights/earnings:
  *   get:
- *     summary: Get insights for a public key
+ *     summary: Get freelancer monthly earnings breakdown
+ *     tags: [Insights]
+ *     parameters:
+ *       - in: query
+ *         name: freelancerId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: months
+ *         schema:
+ *           type: integer
+ *           default: 12
+ *     responses:
+ *       200:
+ *         description: Monthly freelancer earnings aggregation
+ */
+router.get("/earnings", insightsRateLimiter, async (req, res, next) => {
+  try {
+    const { freelancerId, months } = req.query;
+    const earnings = await insightsService.getFreelancerEarnings(freelancerId, { months });
+    res.json({ success: true, data: earnings });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/insights/earnings/{freelancerId}:
+ *   get:
+ *     summary: Get earnings breakdown for a specific freelancer
  *     tags: [Insights]
  *     parameters:
  *       - in: path
- *         name: publicKey
+ *         name: freelancerId
  *         required: true
  *         schema:
  *           type: string
  *       - in: query
- *         name: from
+ *         name: months
  *         schema:
- *           type: string
- *       - in: query
- *         name: to
- *         schema:
- *           type: string
+ *           type: integer
+ *           default: 12
  *     responses:
  *       200:
- *         description: Public key insights
+ *         description: Monthly earnings aggregation for specific freelancer
  */
-router.get("/:publicKey", insightsRateLimiter, async (req, res, next) => {
+router.get("/earnings/:freelancerId", insightsRateLimiter, async (req, res, next) => {
   try {
-    const { publicKey } = req.params;
-    let { from, to } = req.query;
-
-    if (!from) {
-      const d = new Date();
-      d.setDate(d.getDate() - 90);
-      from = d.toISOString();
-    }
-    if (!to) {
-      to = new Date().toISOString();
-    }
-
-    const data = await insightsService.getPublicKeyInsights(publicKey, from, to);
-    res.json({ success: true, data });
+    const { freelancerId } = req.params;
+    const { months } = req.query;
+    const earnings = await insightsService.getFreelancerEarnings(freelancerId, { months });
+    res.json({ success: true, data: earnings });
   } catch (error) {
     next(error);
   }
 });
 
 module.exports = router;
+
