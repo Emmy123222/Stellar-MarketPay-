@@ -1651,4 +1651,3 @@ module.exports = {
   getJobTimeline,
   TIMELINE_EVENT_TYPES,
 };
-}}}

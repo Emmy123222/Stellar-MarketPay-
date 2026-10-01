@@ -320,7 +320,7 @@ router.get(
       next(e);
     }
   });
-);
+
 
 // GET /api/jobs/recommended/:publicKey — top 5 skill-matched open jobs for a freelancer
 router.get(
@@ -334,7 +334,6 @@ router.get(
       next(e);
     }
   });
-);
 
 // GET /api/jobs/:id/timeline — get job timeline events (Issue #876)
 router.get("/:id/timeline", generalJobRateLimiter, async (req, res, next) => {
@@ -618,7 +617,6 @@ router.patch(
       next(e);
     }
   });
-);
 
 // POST /api/jobs/:id/boost — boost a job listing for 7 days
 router.post("/:id/boost", verifyJWT, generalJobRateLimiter, async (req, res, next) => {
@@ -699,7 +697,6 @@ router.patch(
       next(e);
     }
   });
-);
 
 // POST /api/jobs/:id/referral — track a referral click
 router.post("/:id/referral", generalJobRateLimiter, async (req, res, next) => {
@@ -727,7 +724,6 @@ router.delete(
       next(e);
     }
   });
-);
 
 // POST /api/jobs/:id/report — report a job
 router.post("/:id/report", reportJobRateLimiter, (req, res, next) => {
@@ -787,7 +783,6 @@ router.post(
       next(e);
     }
   });
-);
 
 // POST /api/jobs/:id/resolve — resolve a dispute (Admin only)
 router.post(
@@ -809,7 +804,6 @@ router.post(
       next(e);
     }
   });
-);
 
 // GET /api/jobs/feed.rss — RSS 2.0 feed
 router.get("/feed.rss", generalJobRateLimiter, async (req, res, next) => {
@@ -1091,7 +1085,6 @@ router.post(
       next(e);
     }
   });
-);
 
 // POST /api/jobs/bulk-extend — extend expiry for multiple jobs at once
 router.post(
@@ -1120,7 +1113,6 @@ router.post(
       next(e);
     }
   });
-);
 
 // POST /api/jobs/bulk-boost — boost multiple jobs at once
 router.post(
