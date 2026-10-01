@@ -3,7 +3,7 @@
  * Freelancer applies to a job with a proposal and bid amount.
  */
 import { useState, useEffect, useRef } from "react";
-import { submitApplication, fetchProposalTemplates, scoreProposal } from "@/lib/api";
+import { submitApplication, fetchProposalTemplates, scoreProposal, createScopeSession, finalizeScopeSession } from "@/lib/api";
 import type { ProposalScore } from "@/lib/api";
 import type { Job } from "@/utils/types";
 import { formatXLM } from "@/utils/format";
@@ -81,6 +81,28 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
   const [proposalScore, setProposalScore] = useState<ProposalScore | null>(null);
   const [scoreWarning, setScoreWarning] = useState<string | null>(null);
   const [scoring, setScoring] = useState(false);
+  const [creatingScope, setCreatingScope] = useState(false);
+  const [scopeShareUrl, setScopeShareUrl] = useState("");
+  const [scopeSessionId, setScopeSessionId] = useState("");
+  const [scopeError, setScopeError] = useState<string | null>(null);
+  const [scopeCopied, setScopeCopied] = useState(false);
+  const handleInviteCollaborator = async () => {
+    if (scopeShareUrl) return;
+    setCreatingScope(true);
+    try {
+      const { sessionId, sharePath } = await createScopeSession({
+        jobId: job.id,
+        createdBy: publicKey,
+        initialContent: proposal,
+      });
+      setScopeSessionId(sessionId);
+      setScopeShareUrl(window.location.origin + sharePath);
+    } catch (e) {
+      toast.error("Failed to create collaboration session");
+    } finally {
+      setCreatingScope(false);
+    }
+  };
 
   // Issue #152 — enforce 50-word minimum on the proposal.
   const wordCount = proposal.trim() === "" ? 0 : proposal.trim().split(/\s+/).length;
@@ -170,6 +192,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
       const referredBy = typeof window !== "undefined" ? localStorage.getItem(`referral_${job.id}`) : null;
       const commitmentInput = `${parseFloat(bidAmount).toFixed(7)}:${revealNonce}`;
       const bidCommitment = await sha256Hex(commitmentInput);
+      if (scopeSessionId) { await finalizeScopeSession(scopeSessionId, { content: proposal, payload: { jobId: job.id } }); }
       await submitApplication({
         jobId: job.id,
         freelancerAddress: publicKey,

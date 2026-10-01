@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import NotificationBell from "../NotificationBell";
-import { OnboardingNotificationBell } from "../Onboarding/NotificationBell";
+import { NotificationBell as OnboardingNotificationBell } from "../Onboarding/NotificationBell";
 import { fetchNotifications, markAllNotificationsRead } from "@/lib/api";
 import { mutate } from "swr";
 

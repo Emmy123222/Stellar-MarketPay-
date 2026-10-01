@@ -101,7 +101,6 @@ describe("ApplicationForm — co-write proposal (#1552)", () => {
     await screen.findByLabelText("Co-writing invite link");
 
     fireEvent.click(screen.getByRole("button", { name: /submit proposal/i }));
-    fireEvent.click(screen.getByRole("button", { name: /confirm & submit/i }));
 
     await waitFor(() => expect(mockApi.submitApplication).toHaveBeenCalledTimes(1));
     await waitFor(() =>

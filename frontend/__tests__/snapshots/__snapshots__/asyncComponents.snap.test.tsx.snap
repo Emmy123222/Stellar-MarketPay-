@@ -563,7 +563,7 @@ exports[`async component snapshots JobAnalyticsPanel loading: JobAnalyticsPanel 
         <p
           class="font-mono text-sm text-amber-400"
         >
-          1/12/2026
+          12/01/2026
         </p>
       </div>
       <div>
@@ -724,7 +724,7 @@ exports[`async component snapshots JobAnalyticsPanel populated: JobAnalyticsPane
         <p
           class="font-mono text-sm text-amber-400"
         >
-          1/12/2026
+          12/01/2026
         </p>
       </div>
       <div>
@@ -803,7 +803,7 @@ exports[`async component snapshots JobAnalyticsPanel populated: JobAnalyticsPane
             <span
               class="text-[10px] text-amber-700 whitespace-nowrap"
             >
-              Jan 10
+              10 Jan
             </span>
           </div>
         </div>
@@ -811,10 +811,10 @@ exports[`async component snapshots JobAnalyticsPanel populated: JobAnalyticsPane
           class="flex justify-between text-[10px] text-amber-800 px-1"
         >
           <span>
-            Jan 10
+            10 Jan
           </span>
           <span>
-            Jan 10
+            10 Jan
           </span>
         </div>
       </div>
@@ -1051,7 +1051,7 @@ exports[`async component snapshots MessageThread empty: MessageThread empty 1`] 
     </span>
   </div>
   <div
-    class="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-[300px] max-h-[400px]"
+    class="flex-1 overflow-y-auto px-4 py-4 min-h-[300px] max-h-[400px]"
   >
     <div
       class="text-center py-12"
@@ -1062,7 +1062,6 @@ exports[`async component snapshots MessageThread empty: MessageThread empty 1`] 
         No messages yet. Start the conversation!
       </p>
     </div>
-    <div />
   </div>
   <form
     class="p-4 border-t border-market-500/8"

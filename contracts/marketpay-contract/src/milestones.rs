@@ -1,14 +1,13 @@
 use soroban_sdk::{symbol_short, token, Address, Env, String, Symbol};
 
 use crate::errors::ContractError;
-use crate::governance::record_completed_job;
 use crate::helpers::{check_escrow_not_frozen, check_not_frozen};
 use crate::types::*;
 
 /// Load the escrow for `job_id` and run the authorization/state guard rails
 /// shared by every release entry point.
 fn load_releasable_escrow(env: &Env, job_id: &String, client: &Address) -> Escrow {
-    check_not_frozen(env);
+    check_not_frozen(env, job_id);
 
     let escrow: Escrow = env
         .storage()
@@ -107,7 +106,7 @@ fn release_milestone_at(env: &Env, escrow: &mut Escrow, position: u32) -> i128 {
 
     // Referral bonus is honoured on partial milestone releases too (Issue #1379).
     let (to_freelancer, _referral_amount) =
-        crate::escrow::apply_referral_bonus(&env, &job_id, &escrow, after_fee);
+        crate::escrow::apply_referral_bonus(&env, &escrow.job_id, &escrow, after_fee);
 
     // Transfer remaining funds to freelancer
     token_client.transfer(

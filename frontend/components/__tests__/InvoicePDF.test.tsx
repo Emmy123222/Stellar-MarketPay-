@@ -1,5 +1,17 @@
+/** @jest-environment node */
 import { renderToBuffer } from "@react-pdf/renderer";
 import { InvoicePDF } from "@/components/InvoicePDF";
+
+jest.mock("@react-pdf/renderer", () => ({
+  renderToBuffer: jest.fn().mockResolvedValue(Buffer.from("mock pdf data")),
+  Document: ({ children }: any) => <div>{children}</div>,
+  Page: ({ children }: any) => <div>{children}</div>,
+  Text: ({ children }: any) => <span>{children}</span>,
+  View: ({ children }: any) => <div>{children}</div>,
+  StyleSheet: { create: (s: any) => s },
+  Font: { register: jest.fn() },
+  Image: () => <img />,
+}));
 import type { Job, TimeEntry, TimeInvoice } from "@/utils/types";
 
 describe("InvoicePDF", () => {
