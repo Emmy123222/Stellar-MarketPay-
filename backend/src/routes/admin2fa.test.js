@@ -52,6 +52,10 @@ jest.mock("../db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock("../middleware/rateLimiter", () => ({
+  createRateLimiter: () => (req, res, next) => next(),
+}));
+
 jest.mock("../routes/notifications", () => {
   const { Router } = require("express");
   const router = Router();
@@ -269,6 +273,34 @@ describe("POST /api/admin/2fa/setup", () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("POST /api/admin/2fa/verify", () => {
+  it("accepts a valid TOTP during setup and enables 2FA", async () => {
+    twoFactor.get2FAStatus.mockResolvedValue({ totp_enabled: false });
+    twoFactor.getDecryptedSecret.mockResolvedValue(FAKE_SECRET);
+    const res = await postWithCsrf("/api/admin/2fa/verify", {
+      token: adminToken(), body: { token: "123456", setup: true },
+    });
+    expect(res.status).toBe(200);
+    expect(twoFactor.enable2FA).toHaveBeenCalledWith(ADMIN, FAKE_SECRET, ["hash1", "hash2"]);
+    expect(speakeasy.totp.verify).toHaveBeenCalledWith(expect.objectContaining({ window: 1 }));
+  });
+
+  it("accepts the previous 30-second window but not a code two windows old", async () => {
+    twoFactor.get2FAStatus.mockResolvedValue({ totp_enabled: false });
+    twoFactor.getDecryptedSecret.mockResolvedValue(FAKE_SECRET);
+    speakeasy.totp.verify.mockReturnValueOnce(true);
+    const accepted = await postWithCsrf("/api/admin/2fa/verify", {
+      token: adminToken(), body: { token: "123456", setup: true },
+    });
+    expect(accepted.status).toBe(200);
+
+    twoFactor.getDecryptedSecret.mockResolvedValue(FAKE_SECRET);
+    speakeasy.totp.verify.mockReturnValueOnce(false);
+    const rejected = await postWithCsrf("/api/admin/2fa/verify", {
+      token: adminToken(), body: { token: "123456", setup: true },
+    });
+    expect(rejected.status).toBe(400);
+  });
+
   it("returns 401 when no token is provided", async () => {
     const res = await postWithCsrf("/api/admin/2fa/verify", {
       body: { token: "123456" },

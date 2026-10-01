@@ -1,17 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
-import { fetchJobs, searchFreelancers } from "@/lib/api";
-import type { Job, UserProfile } from "@/utils/types";
+import { searchUnified, type UnifiedSearchResult } from "@/lib/api";
 
-type Result = { id: string; group: "Pages" | "Jobs" | "Freelancers"; label: string; description: string; href: string };
+type EntityBadge = "Page" | "Job" | "Freelancer" | "Proposal";
 
-const pages: Result[] = [
-  { id: "page-home", group: "Pages", label: "Home", description: "Marketplace overview", href: "/" },
-  { id: "page-jobs", group: "Pages", label: "Browse Jobs", description: "Find open work", href: "/jobs" },
-  { id: "page-freelancers", group: "Pages", label: "Freelancers", description: "Browse talent", href: "/freelancers" },
-  { id: "page-dashboard", group: "Pages", label: "Dashboard", description: "Manage your work", href: "/dashboard" },
-  { id: "page-post-job", group: "Pages", label: "Post a Job", description: "Create a new listing", href: "/post-job" },
-  { id: "page-insights", group: "Pages", label: "Insights", description: "Marketplace analytics", href: "/insights" },
+type Result = {
+  id: string;
+  group: "Pages" | "Jobs" | "Freelancers" | "DAO Proposals";
+  badge: EntityBadge;
+  badgeColor: string;
+  label: string;
+  description: string;
+  href: string;
+  rank?: number;
+};
+
+const pages = [
+  { id: "page-home", group: "Pages" as const, label: "Home", description: "Marketplace overview", href: "/" },
+  { id: "page-jobs", group: "Pages" as const, label: "Browse Jobs", description: "Find open work", href: "/jobs" },
+  { id: "page-freelancers", group: "Pages" as const, label: "Freelancers", description: "Browse talent", href: "/freelancers" },
+  { id: "page-dao", group: "Pages" as const, label: "DAO Governance", description: "View proposals and voting", href: "/dao" },
+  { id: "page-dashboard", group: "Pages" as const, label: "Dashboard", description: "Manage your work", href: "/dashboard" },
+  { id: "page-post-job", group: "Pages" as const, label: "Post a Job", description: "Create a new listing", href: "/post-job" },
+  { id: "page-insights", group: "Pages" as const, label: "Insights", description: "Marketplace analytics", href: "/insights" },
 ];
 
 function score(text: string, query: string): number {
@@ -32,8 +43,11 @@ function score(text: string, query: string): number {
 export default function CommandPalette({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [freelancers, setFreelancers] = useState<UserProfile[]>([]);
+  const [searchResults, setSearchResults] = useState<UnifiedSearchResult>({
+    jobs: [],
+    freelancers: [],
+    proposals: [],
+  });
   const [activeIndex, setActiveIndex] = useState(0);
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -47,38 +61,74 @@ export default function CommandPalette({ isOpen, onClose }: { isOpen: boolean; o
   useEffect(() => {
     if (!isOpen) return;
     const controller = new AbortController();
+    if (!query.trim()) {
+      setSearchResults({ jobs: [], freelancers: [], proposals: [] });
+      return;
+    }
     const timer = window.setTimeout(async () => {
       try {
-        const [jobData, freelancerData] = await Promise.all([
-          fetchJobs({ search: query, limit: 5 }).then((r) => r.jobs).catch(() => []),
-          searchFreelancers({ search: query, limit: 5 }).catch(() => []),
-        ]);
+        const data = await searchUnified(query, 5);
         if (!controller.signal.aborted) {
-          setJobs(jobData);
-          setFreelancers(freelancerData);
+          setSearchResults(data);
         }
       } catch {
         if (!controller.signal.aborted) {
-          setJobs([]);
-          setFreelancers([]);
+          setSearchResults({ jobs: [], freelancers: [], proposals: [] });
         }
       }
     }, 150);
-    return () => { controller.abort(); window.clearTimeout(timer); };
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
   }, [isOpen, query]);
 
   const results = useMemo<Result[]>(() => {
-    const pageResults = pages
+    const pageResults: Result[] = pages
       .map((page) => ({ page, value: score(`${page.label} ${page.description}`, query) }))
       .filter(({ value }) => value > 0)
       .sort((a, b) => b.value - a.value)
-      .map(({ page }) => page);
-    return [
-      ...pageResults,
-      ...jobs.map((job) => ({ id: `job-${job.id}`, group: "Jobs" as const, label: job.title, description: `${job.budget} ${job.currency} · ${job.category}`, href: `/jobs/${job.id}` })),
-      ...freelancers.map((profile) => ({ id: `freelancer-${profile.publicKey}`, group: "Freelancers" as const, label: profile.displayName || profile.publicKey, description: profile.skills?.slice(0, 3).join(", ") || "Freelancer profile", href: `/freelancers/${encodeURIComponent(profile.publicKey)}` })),
-    ];
-  }, [freelancers, jobs, query]);
+      .map(({ page }) => ({
+        ...page,
+        badge: "Page",
+        badgeColor: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+      }));
+
+    const jobResults: Result[] = (searchResults.jobs || []).map((job) => ({
+      id: `job-${job.id}`,
+      group: "Jobs" as const,
+      badge: "Job",
+      badgeColor: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+      label: job.title,
+      description: `${job.budget} ${job.currency} · ${job.category || "General"}`,
+      href: `/jobs/${job.id}`,
+      rank: job.rank,
+    }));
+
+    const freelancerResults: Result[] = (searchResults.freelancers || []).map((profile) => ({
+      id: `freelancer-${profile.publicKey}`,
+      group: "Freelancers" as const,
+      badge: "Freelancer",
+      badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+      label: profile.displayName || profile.publicKey,
+      description: profile.skills?.slice(0, 3).join(", ") || profile.bio || "Freelancer profile",
+      href: `/freelancers/${encodeURIComponent(profile.publicKey)}`,
+      rank: profile.rank,
+    }));
+
+    const proposalResults: Result[] = (searchResults.proposals || []).map((proposal) => ({
+      id: `proposal-${proposal.id}`,
+      group: "DAO Proposals" as const,
+      badge: "Proposal",
+      badgeColor: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+      label: proposal.title,
+      description: `DAO Proposal (${proposal.type}) · ${proposal.status}`,
+      href: `/dao#proposal-${proposal.id}`,
+      rank: proposal.rank,
+    }));
+
+    return [...pageResults, ...jobResults, ...freelancerResults, ...proposalResults];
+  }, [searchResults, query]);
 
   const go = useCallback((result: Result | undefined) => {
     if (!result) return;
@@ -107,7 +157,7 @@ export default function CommandPalette({ isOpen, onClose }: { isOpen: boolean; o
   }, [activeIndex, go, isOpen, onClose, results]);
 
   if (!isOpen) return null;
-  const groups = ["Pages", "Jobs", "Freelancers"] as const;
+  const groups = ["Pages", "Jobs", "Freelancers", "DAO Proposals"] as const;
   const activeId = results[activeIndex]?.id;
   return (
     <div
@@ -124,17 +174,60 @@ export default function CommandPalette({ isOpen, onClose }: { isOpen: boolean; o
       >
         <div className="border-b border-market-500/20 p-4">
           <h2 id="command-palette-title" className="sr-only">Command palette</h2>
-          <input ref={inputRef} role="combobox" aria-expanded="true" aria-controls="command-palette-results" aria-activedescendant={activeId} value={query} onChange={(e) => { setQuery(e.target.value); setActiveIndex(0); }} placeholder="Search pages, jobs, or freelancers…" className="input-field w-full" />
+          <input
+            ref={inputRef}
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="command-palette-results"
+            aria-activedescendant={activeId}
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setActiveIndex(0); }}
+            placeholder="Search pages, jobs, freelancers, or DAO proposals…"
+            className="input-field w-full"
+          />
         </div>
         <div id="command-palette-results" role="listbox" className="max-h-[60vh] overflow-y-auto p-2">
-          {results.length === 0 ? <p className="p-6 text-center text-amber-300">No results found.</p> : groups.map((group) => {
-            const grouped = results.filter((result) => result.group === group);
-            if (!grouped.length) return null;
-            return <div key={group} className="py-2"><p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-amber-500">{group}</p>{grouped.map((result) => {
-              const index = results.findIndex((item) => item.id === result.id);
-              return <button key={result.id} id={result.id} role="option" aria-selected={index === activeIndex} onMouseEnter={() => setActiveIndex(index)} onClick={() => go(result)} className={`w-full rounded-xl px-3 py-3 text-left ${index === activeIndex ? "bg-market-500/20 text-amber-50" : "text-amber-100 hover:bg-ink-800"}`}><span className="block font-medium">{result.label}</span><span className="block text-sm text-amber-400">{result.description}</span></button>;
-            })}</div>;
-          })}
+          {results.length === 0 ? (
+            <p className="p-6 text-center text-amber-300">No results found.</p>
+          ) : (
+            groups.map((group) => {
+              const grouped = results.filter((result) => result.group === group);
+              if (!grouped.length) return null;
+              return (
+                <div key={group} className="py-2">
+                  <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-amber-500">
+                    {group}
+                  </p>
+                  {grouped.map((result) => {
+                    const index = results.findIndex((item) => item.id === result.id);
+                    return (
+                      <button
+                        key={result.id}
+                        id={result.id}
+                        role="option"
+                        aria-selected={index === activeIndex}
+                        onMouseEnter={() => setActiveIndex(index)}
+                        onClick={() => go(result)}
+                        className={`w-full rounded-xl px-3 py-3 text-left transition-colors ${
+                          index === activeIndex ? "bg-market-500/20 text-amber-50" : "text-amber-100 hover:bg-ink-800"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="block font-medium truncate">{result.label}</span>
+                          <span
+                            className={`inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${result.badgeColor}`}
+                          >
+                            {result.badge}
+                          </span>
+                        </div>
+                        <span className="block text-sm text-amber-400 truncate mt-0.5">{result.description}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </div>

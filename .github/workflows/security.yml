@@ -58,7 +58,11 @@ jobs:
         run: npm ci
 
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: |
+          npm audit --omit=dev --audit-level=high --json > npm-audit.json || {
+            cat npm-audit.json
+            exit 1
+          }
 
       - name: Audit all dependencies (advisory)
         run: npm audit --audit-level=moderate
@@ -103,13 +107,19 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Trivy
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
           severity: HIGH,CRITICAL
-          ignore-unfixed: true
           trivyignores: .trivyignore
           exit-code: "1"
-          format: table
           skip-version-check: true
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload Trivy results to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
