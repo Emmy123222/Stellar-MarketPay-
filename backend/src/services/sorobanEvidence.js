@@ -139,8 +139,9 @@ async function prepareDeliverableHashUpdate({ jobId, cid, callerAddress }) {
       networkPassphrase: NETWORK_PASSPHRASE,
     })
       .addOperation(new Contract(contractId).call(
-        "update_deliverable_hash",
+        "update_deliverable_proof_hash",
         nativeToScVal(jobId, { type: "string" }),
+        nativeToScVal(callerAddress, { type: "address" }),
         nativeToScVal(cid, { type: "string" }),
       ))
       .setTimeout(30)

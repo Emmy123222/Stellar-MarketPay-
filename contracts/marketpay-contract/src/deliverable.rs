@@ -242,9 +242,8 @@ pub(crate) fn verify_deliverable_hash(env: Env, job_id: String) -> bool {
 }
 
 /// Store the IPFS CID for a freelancer's milestone proof.
-pub(crate) fn update_deliverable_hash(env: Env, job_id: String, hash: String) {
-    let caller = env.invoker();
-    caller.require_auth();
+pub(crate) fn update_deliverable_proof_hash(env: Env, job_id: String, freelancer: Address, hash: String) {
+    freelancer.require_auth();
     check_not_frozen(&env, &job_id);
 
     let escrow: Escrow = env
@@ -252,7 +251,7 @@ pub(crate) fn update_deliverable_hash(env: Env, job_id: String, hash: String) {
         .instance()
         .get(&DataKey::Escrow(job_id.clone()))
         .expect("Escrow not found");
-    if escrow.freelancer != caller {
+    if escrow.freelancer != freelancer {
         panic!("Only the freelancer can update deliverable hash");
     }
     if escrow.status != EscrowStatus::InProgress && escrow.status != EscrowStatus::Locked {

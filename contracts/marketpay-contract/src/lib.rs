@@ -611,8 +611,8 @@ impl MarketPayContract {
     }
 
     /// Anchor an IPFS proof CID for the caller's milestone deliverable.
-    pub fn update_deliverable_hash(env: Env, job_id: String, hash: String) {
-        deliverable::update_deliverable_hash(env, job_id, hash)
+    pub fn update_deliverable_proof_hash(env: Env, job_id: String, freelancer: Address, hash: String) {
+        deliverable::update_deliverable_proof_hash(env, job_id, freelancer, hash)
     }
 
     /// Get the anchored IPFS proof CID for a job.
