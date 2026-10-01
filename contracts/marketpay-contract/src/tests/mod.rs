@@ -1,7 +1,10 @@
 mod basic_tests;
+mod certificates_tests;
 mod deliverable_hash_tests;
 mod deliverable_oracle_tests;
 mod extension_tests;
+mod freeze_escrow_tests;
+mod message_tests;
 #[cfg(feature = "proptest")]
 mod milestone_pct_proptests;
 mod milestone_pct_tests;
@@ -12,4 +15,3 @@ mod sealed_bid_tests;
 mod timeout_tests;
 mod upgrade_tests;
 mod usdc_tests;
-mod certificates_tests;

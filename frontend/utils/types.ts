@@ -24,6 +24,11 @@ export interface PortfolioItem {
   title: string;
   url: string;
   type: PortfolioItemType;
+  // ─── Fill-in metadata written by the link-verification worker ────────
+  verified?: boolean | null;
+  verificationError?: string | null;
+  verifiedAt?: string | null;
+  lastCheckedAt?: string | null;
 }
 
 export interface Availability {
@@ -39,6 +44,9 @@ export interface JobMilestone {
   releasedAt?: string | null;
   disputedAt?: string | null;
   rejectedAt?: string | null;
+  proofCid?: string | null;
+  proofGatewayUrl?: string | null;
+  proofAnchorTxHash?: string | null;
 }
 
 export interface NotificationItem {
@@ -117,7 +125,7 @@ export interface Application {
   proposal: string;
   bidAmount: string;
   currency: Currency;
-  status: "pending" | "accepted" | "rejected";
+  status: "pending" | "accepted" | "rejected" | "shortlisted";
   screeningAnswers?: Record<string, string>;
   estimatedDuration?: string;
   bidCommitment?: string | null;
