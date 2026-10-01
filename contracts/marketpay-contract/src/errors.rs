@@ -467,6 +467,7 @@ pub fn error_code_from_panic(msg: &str) -> Option<u32> {
         "Can only refund before work has started" => Some(2011),
         "Only the client can request a timeout refund" => Some(2012),
         "Timeout period has not expired yet" => Some(2013),
+        "Escrow already settled" => Some(2014),
         // 3xxx
         "Maximum 5 milestones allowed" => Some(3001),
         "Milestone percentage must be positive" => Some(3002),

@@ -8,10 +8,12 @@ NGINX_CONF="${4:-nginx/nginx.conf}"
 
 echo "=== Automated Rollback ==="
 echo "Failed environment: $FAILED_ENV"
+
 echo "Restoring active environment: $ACTIVE_ENV"
 
 echo "--- Stopping failed environment ($FAILED_ENV) ---"
-docker compose -f "$COMPOSE_FILE" --profile "$FAILED_ENV" rm -s -f "frontend-$FAILED_ENV" "backend-$FAILED_ENV" 2>/dev/null || true
+docker compose -f "$COMPOSE_FILE" --profile "$FAILED_ENV" stop -t 10 "frontend-$FAILED_ENV" "backend-$FAILED_ENV" 2>/dev/null || true
+docker compose -f "$COMPOSE_FILE" --profile "$FAILED_ENV" rm -f "frontend-$FAILED_ENV" "backend-$FAILED_ENV" 2>/dev/null || true
 
 echo "--- Reloading NGINX to restore $ACTIVE_ENV upstream ---"
 mkdir -p "$(dirname "$NGINX_CONF")"
@@ -58,4 +60,4 @@ docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -s reload 2>/dev/null || t
 
 echo "=== Rollback complete ==="
 echo "Traffic restored to $ACTIVE_ENV environment."
-exit 1
+exit 0

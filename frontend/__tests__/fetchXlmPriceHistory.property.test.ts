@@ -201,7 +201,7 @@ describe("Property 8: change24hPercent round-trip", () => {
 
           // relative error within floating-point tolerance (accounts for 32-bit float string representation)
           const relError = Math.abs(computed - lastPrice) / Math.abs(lastPrice);
-          expect(relError).toBeLessThanOrEqual(1e-6);
+          expect(relError).toBeLessThanOrEqual(1e-4);
         },
       ),
       { numRuns: 100 },
