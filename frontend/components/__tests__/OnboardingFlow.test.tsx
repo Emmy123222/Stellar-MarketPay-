@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { OnboardingFlow } from '../OnboardingFlow';
+import { OnboardingFlow } from '../Onboarding/OnboardingFlow';
 
 describe('OnboardingFlow Checkpoint (#1415)', () => {
   beforeEach(() => {

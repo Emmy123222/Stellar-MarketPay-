@@ -44,6 +44,9 @@ export interface JobMilestone {
   releasedAt?: string | null;
   disputedAt?: string | null;
   rejectedAt?: string | null;
+  proofCid?: string | null;
+  proofGatewayUrl?: string | null;
+  proofAnchorTxHash?: string | null;
 }
 
 export interface NotificationItem {

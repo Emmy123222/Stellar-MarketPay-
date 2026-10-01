@@ -7,7 +7,7 @@ HEALTH_CHECK_SCRIPT="$(dirname "$0")/health-check.sh"
 ROLLBACK_SCRIPT="$(dirname "$0")/rollback.sh"
 SWITCH_SCRIPT="$(dirname "$0")/switch-traffic.sh"
 
-MAX_RETRIES="${MAX_RETRIES:-30}"
+MAX_RETRIES="${MAX_RETRIES:-3}"
 RETRY_INTERVAL="${RETRY_INTERVAL:-5}"
 ROLLBACK_WINDOW="${ROLLBACK_WINDOW:-600}"
 
@@ -57,6 +57,13 @@ main() {
   if ! "$HEALTH_CHECK_SCRIPT" "$standby" "$MAX_RETRIES" "$RETRY_INTERVAL"; then
     echo "ERROR: Health check failed for $standby environment."
     echo "--- Initiating automated rollback ---"
+    
+    if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
+      curl -s -X POST -H 'Content-type: application/json' \
+        --data '{"text":"🚨 Automated Rollback Initiated for environment '"$standby"' 🚨"}' \
+        "$SLACK_WEBHOOK_URL" || true
+    fi
+    
     "$ROLLBACK_SCRIPT" "$standby" "$active" "$COMPOSE_FILE" "$NGINX_CONF"
     exit 1
   fi
@@ -65,6 +72,13 @@ main() {
   if ! "$SWITCH_SCRIPT" "$standby" "$COMPOSE_FILE" "$NGINX_CONF"; then
     echo "ERROR: Traffic switch failed."
     echo "--- Initiating automated rollback ---"
+
+    if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
+      curl -s -X POST -H 'Content-type: application/json' \
+        --data '{"text":"🚨 Automated Rollback Initiated for environment '"$standby"' 🚨"}' \
+        "$SLACK_WEBHOOK_URL" || true
+    fi
+
     "$ROLLBACK_SCRIPT" "$standby" "$active" "$COMPOSE_FILE" "$NGINX_CONF"
     exit 1
   fi
