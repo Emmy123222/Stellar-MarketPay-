@@ -116,6 +116,71 @@ describe("Escrow Route Suite (/api/escrow)", () => {
   // =========================================================================
   // 1. POST /api/escrow/:jobId/release
   // =========================================================================
+    describe("POST /api/escrow/create", () => {
+    it("400 - rejects amount 0", async () => {
+      const res = await request(app)
+        .post("/api/escrow/create")
+        .send({ amount: 0 });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Amount must be a positive integer");
+    });
+
+    it("400 - rejects negative amount", async () => {
+      const res = await request(app)
+        .post("/api/escrow/create")
+        .send({ amount: -100 });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Amount must be a positive integer");
+    });
+
+        it("400 - rejects numeric string integer amount", async () => {
+      const res = await request(app)
+        .post("/api/escrow/create")
+        .send({ amount: "100" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Amount must be a positive integer");
+    });
+
+    it("400 - rejects string amount (non-numeric)", async () => {
+      const res = await request(app)
+        .post("/api/escrow/create")
+        .send({ amount: "invalid" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Amount must be a positive integer");
+    });
+    
+    it("400 - rejects numeric string float amount", async () => {
+      const res = await request(app)
+        .post("/api/escrow/create")
+        .send({ amount: "10.5" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Amount must be a positive integer");
+    });
+
+    it("400 - rejects float amount", async () => {
+      const res = await request(app)
+        .post("/api/escrow/create")
+        .send({ amount: 10.5 });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Amount must be a positive integer");
+    });
+    
+    it("400 - rejects amount greater than MAX_SAFE_INTEGER", async () => {
+      const res = await request(app)
+        .post("/api/escrow/create")
+        .send({ amount: Number.MAX_SAFE_INTEGER + 1 });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Amount must be a positive integer");
+    });
+
+    it("200 - accepts valid positive integer", async () => {
+      const res = await request(app)
+        .post("/api/escrow/create")
+        .send({ amount: 100 });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+  });
   describe("POST /api/escrow/:jobId/release", () => {
     it("200 — releases escrow and completes job successfully", async () => {
       getJob.mockResolvedValue({
@@ -798,3 +863,5 @@ describe("Escrow Route Suite (/api/escrow)", () => {
     });
   });
 });
+
+

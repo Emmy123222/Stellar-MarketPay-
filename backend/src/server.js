@@ -1,3 +1,4 @@
+/* global userAddress, userLastSeen, userClients, setWebsocketConnections, broadcastToUser, createServiceLogger, sendEmail, logError, startEscrowTimeoutChecker, refreshWsMetrics, startNotificationProcessor, startAdminReportScheduler, startWeeklyDigestScheduler, startPurgeDeletedRecords, startRecurringEscrowTicker */
 /* eslint-disable */
 /**
  * src/server.js
@@ -30,26 +31,32 @@ const eventRoutes       = require("./routes/events");
 const statsRoutes       = require("./routes/stats");
 const contributorRoutes = require("./routes/contributors");
 const verificationRoutes = require("./routes/verification");
-const nftRoutes          = require("./routes/nft");
-const aiScorerRoutes     = require("./routes/aiScorer");
+const nftRoutes         = require("./routes/nft");
+const aiScorerRoutes    = require("./routes/aiScorer");
+
 const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
-const priceAlertRoutes   = require("./routes/priceAlerts");
-const turretRoutes       = require("./routes/turrets");
-const referralRoutes     = require("./routes/referrals");
-const reputationRoutes   = require("./routes/reputation");
-const autoConvertRoutes  = require("./routes/autoConvert");
+const priceAlertRoutes     = require("./routes/priceAlerts");
+
+const turretRoutes         = require("./routes/turrets");
+const referralRoutes       = require("./routes/referrals");
+const reputationRoutes     = require("./routes/reputation");
+const autoConvertRoutes    = require("./routes/autoConvert");
+const invitationRoutes     = require("./routes/invitations");
+
+const migrate           = require("./db/migrate");
+const IndexerService    = require("./services/indexerService");
+const { PriceAlertService } = require("./services/priceAlertService");
+const pool              = require("./db/pool");
+const anchorRoutes        = require("./routes/anchors");
 const scopeRoutes        = require("./routes/scope");
 const analyticsRoutes    = require("./routes/analytics");
 const searchRoutes       = require("./routes/search");
 
-const migrate               = require("./db/migrate");
-const IndexerService        = require("./services/indexerService");
-const { PriceAlertService } = require("./services/priceAlertService");
-const pool                  = require("./db/pool");
 const { setWebsocketConnections } = require("./metrics");
+const { startEscrowTimeoutChecker } = require("./services/escrowService");
 const { scheduleStatsRefresh } = require("./services/statsService");
 const { startPushSubscriptionPurge } = require("./services/pushSubscriptionService");
 
@@ -192,6 +199,7 @@ app.use("/api/contributors",  contributorRoutes);
 app.use("/api/verification",  verificationRoutes);
 app.use("/api/nft",           nftRoutes);
 app.use("/api/ai-scorer",     aiScorerRoutes);
+app.use("/api/anchors",       anchorRoutes);
 
 app.get("/api/indexer/health", (req, res) => {
   res.json({
@@ -199,6 +207,12 @@ app.get("/api/indexer/health", (req, res) => {
     indexer: indexerService.getHealth(),
   });
 });
+app.use("/api/gas-estimate",    gasEstimatorRoutes);
+app.use("/api/transactions",   transactionRoutes);
+app.use("/api/dao",            daoRoutes);
+app.use("/api/proposal-templates", proposalTemplateRoutes);
+app.use("/api/price-alerts",      priceAlertRoutes);
+app.use("/api/ai",                aiScorerRoutes);
 app.use("/api/scope",             scopeRoutes);
 app.use("/api/gas-estimate",      gasEstimatorRoutes);
 app.use("/api/transactions",      transactionRoutes);
@@ -209,6 +223,7 @@ app.use("/api/turrets",           turretRoutes);
 app.use("/api/referrals",         referralRoutes);
 app.use("/api/reputation",        reputationRoutes);
 app.use("/api/auto-convert",      autoConvertRoutes);
+app.use("/api/invitations",       rateLimit({ windowMs: 60_000, max: 20 }), invitationRoutes);
 app.use("/api/analytics",         analyticsRoutes);
 app.use("/api/search",            searchRoutes);
 
@@ -433,7 +448,7 @@ wsServer.on("connection", async (ws, request) => {
           }
         }
       } catch (error) {
-        sendJson(ws, "scope:error", { error: error.message || "Invalid message payload" });
+        sendJson(ws, "scope:error", { error: "Invalid message payload" });
       }
     });
 
@@ -467,6 +482,12 @@ async function bootstrap() {
   await indexerService.start();
   priceAlertService.start();
 
+  // Start job expiry checker - run every hour
+  startJobExpiryChecker();
+
+  // Start invitation cleanup job (purge expired / accepted / declined invitations)
+  const { startInvitationCleanup } = require("./services/invitationCleanupService");
+  startInvitationCleanup();
   // Issue #232 perf: start the 5-minute stats MV refresh cycle after migrations
   scheduleStatsRefresh();
 
@@ -533,7 +554,6 @@ async function startJobExpiryChecker() {
   }, 60 * 60 * 1000).unref();
 }
 
-bootstrap();
 
 /**
  * Periodically process pending notifications (runs every 2 minutes).
