@@ -224,6 +224,35 @@ describe("profileService", () => {
 
       expect(pool.query).not.toHaveBeenCalled();
     });
+
+    it("sanitizes bio and strips HTML before storing", async () => {
+      const malicious = '<script>alert(1)</script><b>Bold</b> &amp; <i>italics</i>';
+
+      pool.query.mockResolvedValueOnce({
+        rows: [
+          {
+            public_key: publicKey,
+            display_name: "Jane Doe",
+            bio: "Bold & italics",
+            skills: [],
+            portfolio_items: [],
+            availability: null,
+            role: "freelancer",
+            completed_jobs: 0,
+            total_earned_xlm: "0.0000000",
+            rating: null,
+            created_at: "2026-04-23T00:00:00.000Z",
+            updated_at: "2026-04-23T00:00:00.000Z",
+          },
+        ],
+      });
+
+      await upsertProfile({ publicKey, bio: malicious });
+
+      // The third parameter in the query parameters is the bio value passed to the DB
+      const passedBio = pool.query.mock.calls[0][1][2];
+      expect(passedBio).toBe("Bold & italics");
+    });
   });
 
   describe("getProfile", () => {

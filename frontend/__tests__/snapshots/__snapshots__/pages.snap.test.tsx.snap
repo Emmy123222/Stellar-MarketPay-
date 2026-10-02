@@ -226,7 +226,7 @@ exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connec
       <button
         class="px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap border-transparent text-amber-700 hover:text-amber-400"
       >
-        Referrals
+        Talent Pool
       </button>
     </div>
     <div
@@ -318,9 +318,9 @@ exports[`pages/dashboard.tsx snapshots renders initial load state (wallet connec
           Saved Searches
         </option>
         <option
-          value="referrals"
+          value="talent_pool"
         >
-          Referrals
+          Talent Pool
         </option>
       </select>
     </div>

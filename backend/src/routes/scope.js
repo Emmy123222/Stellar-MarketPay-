@@ -9,11 +9,13 @@
  */
 "use strict";
 
+const crypto = require("crypto");
 const express = require("express");
 const router = express.Router();
 const pool = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
+const createSessionRateLimiter = createRateLimiter(5, 1);
 const renewRateLimiter = createRateLimiter(5, 1);
 const upsertRateLimiter = createRateLimiter(60, 1);
 

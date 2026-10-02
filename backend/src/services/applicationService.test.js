@@ -38,7 +38,7 @@ const {
   extendBiddingClose,
   bulkUpdateApplications,
 } = applicationService;
-const { createJob, extendBiddingClose } = require("./jobService");
+const { createJob } = require("./jobService");
 
 describe("applicationService", () => {
   const validClientAddress =

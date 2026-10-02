@@ -4,7 +4,7 @@ jest.mock("../db/pool", () => ({ query: jest.fn() }));
 jest.mock("./notificationService", () => ({ createInAppNotification: jest.fn().mockResolvedValue({}) }));
 
 const pool = require("../db/pool");
-const { PriceAlertService } = require("./priceAlertService");
+const { PriceAlertService, crossedThreshold } = require("./priceAlertService");
 
 const VALID_ADDRESS = "GABCDEFGHIJKLMNOPQRSTUVWXYZ123456789ABCDEFGHIJKLMNOPQRSTU";
 
@@ -63,5 +63,23 @@ describe("PriceAlertService.runOnce", () => {
       (c) => /UPDATE price_alerts SET triggered = TRUE/i.test(c[0]) && c[1][0] === alert.id
     );
     expect(updateCall).toBeDefined();
+  });
+});
+
+describe("crossedThreshold", () => {
+  test("detects below-to-above crossings", () => {
+    expect(crossedThreshold(0.09, 0.11, "above", 0.1)).toBe(true);
+    expect(crossedThreshold(0.11, 0.12, "above", 0.1)).toBe(false);
+  });
+
+  test("detects above-to-below crossings", () => {
+    expect(crossedThreshold(0.11, 0.09, "below", 0.1)).toBe(true);
+    expect(crossedThreshold(0.09, 0.08, "below", 0.1)).toBe(false);
+  });
+
+  test("does not notify for ordinary fluctuations and supports a first observation", () => {
+    expect(crossedThreshold(0.1, 0.1001, "above", 0.1)).toBe(true);
+    expect(crossedThreshold(0.1001, 0.1002, "above", 0.1)).toBe(false);
+    expect(crossedThreshold(null, 0.11, "above", 0.1)).toBe(true);
   });
 });
