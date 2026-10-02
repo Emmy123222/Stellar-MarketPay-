@@ -1,6 +1,6 @@
 /**
  * pages/dashboard.tsx
- * User dashboard â€” shows posted jobs, applications, and wallet balance.
+ * User dashboard — shows posted jobs, applications, and wallet balance.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
@@ -73,7 +73,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "proposals" | "invitations" | "analytics" | "earnings" | "swap" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals" | "talent_pool";
+type Tab = "posted" | "applied" | "proposals" | "invitations" | "saved" | "analytics" | "earnings" | "swap" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals" | "talent_pool";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 async function fetchBalances(
@@ -123,7 +123,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const toast = useToast();
   const { xlmPriceUsd } = usePriceContext();
   const { progress, checklistItems } = useOnboarding(publicKey);
-  const { savedCount, getSavedJobs, toggleBookmark, isSaved } = useBookmarks();
+  const { savedCount, getSavedJobs } = useBookmarks();
 
   const [tab, setTab] = useState<Tab>("posted");
   const [canViewSpending, setCanViewSpending] = useState(true);
@@ -531,7 +531,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     );
   }
 
-  // â”€â”€ Tab content handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Tab content handlers ─────────────────────────────────────────────────
   const handleSaveTemplate = async () => {
     if (!templateName.trim() || !templateContent.trim()) return;
     if (editingTemplateId) {
@@ -618,7 +618,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     }
   };
 
-  // â”€â”€ Tab render map (replaces the previous 14-level ternary chain) â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Tab render map (replaces the previous 14-level ternary chain) ────────
   const tabContent: Record<string, ReactNode> = {
     posted: (
       <PostedJobsTab
@@ -629,6 +629,19 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         onJobExtended={handleJobExtended}
         onCloseExtendModal={() => setExtendModalJob(null)}
       />
+    ),
+    saved: savedJobsLoading ? (
+      <div className="card animate-pulse h-24" />
+    ) : savedJobs.length === 0 ? (
+      <div className="card text-center py-12 text-amber-700">
+        No saved jobs yet. Bookmark jobs from the job board to see them here.
+      </div>
+    ) : (
+      <div className="grid gap-4">
+        {savedJobs.map((job) => (
+          <JobCard key={job.id} job={job} />
+        ))}
+      </div>
     ),
     applied: <AppliedJobsTab myApplications={myApplications} />,
     proposals: (
@@ -846,14 +859,14 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                   href="/jobs"
                   className="text-xs text-market-400 hover:text-market-300 underline whitespace-nowrap"
                 >
-                  Browse all â†’
+                  Browse all →
                 </Link>
                 <button
                   onClick={() => setAlertMatchesDismissed(true)}
                   className="text-amber-800 hover:text-amber-500 transition-colors text-lg leading-none"
                   title="Dismiss"
                 >
-                  âœ•
+                  ✕
                 </button>
               </div>
             </div>
@@ -869,18 +882,18 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
                       {job.title}
                     </p>
                     <p className="text-xs text-amber-800">
-                      {CATEGORY_ICONS[job.category] ?? ""} {job.category} Â·{" "}
+                      {CATEGORY_ICONS[job.category] ?? ""} {job.category} ·{" "}
                       {formatXLM(job.budget)}
                     </p>
                   </div>
                   <span className="text-market-400 text-xs ml-2 flex-shrink-0">
-                    View â†’
+                    View →
                   </span>
                 </Link>
               ))}
               {alertMatches.length > 3 && (
                 <p className="text-xs text-amber-800 px-3">
-                  +{alertMatches.length - 3} more â€”{" "}
+                  +{alertMatches.length - 3} more —{" "}
                   <Link
                     href="/jobs"
                     className="text-market-400 hover:underline"
@@ -938,7 +951,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
 
         return (
           <>
-            {/* Desktop/tablet: horizontal tab row â€” sm and up. */}
+            {/* Desktop/tablet: horizontal tab row — sm and up. */}
             <div className="hidden sm:flex border-b border-market-500/10 mb-6 overflow-x-auto">
               {tabIds.map((t) => (
                 <button key={t} onClick={() => setTab(t)} className={clsx("px-6 py-3 text-sm font-medium transition-all border-b-2 -mb-px whitespace-nowrap", tab === t ? "border-market-400 text-market-300" : "border-transparent text-amber-700 hover:text-amber-400")}>
@@ -947,7 +960,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
               ))}
             </div>
 
-            {/* Mobile: dropdown â€” Issue #859. A 13-item horizontal tab bar
+            {/* Mobile: dropdown — Issue #859. A 13-item horizontal tab bar
                 overflows and truncates on narrow screens; a native select
                 is both compact and gets the OS's own accessible picker UI
                 for free. */}
