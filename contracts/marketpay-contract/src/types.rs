@@ -141,6 +141,24 @@ pub struct RevealedBid {
     pub revealed_at_ledger: u32,
 }
 
+/// A live, token-backed auction for the highest-bid-wins flow.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct LiveAuction {
+    pub job_id: String,
+    pub token: Address,
+    pub highest_bid: i128,
+    pub winner: Option<Address>,
+}
+
+/// Funds currently locked for a bidder in a live auction.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct LiveBid {
+    pub bidder: Address,
+    pub amount: i128,
+}
+
 /// A pending request to extend the escrow timeout, initiated by one party.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -158,6 +176,7 @@ pub struct ExtensionRequest {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Certificate {
+    pub token_id: BytesN<32>,
     pub job_id: String,
     pub title: String,
     pub client: Address,
@@ -264,8 +283,11 @@ pub enum DataKey {
     BidCommitment(String, Address),
     BiddingState(String),
     RevealedBids(String),
+    LiveAuction(String),
+    LiveBid(String, Address),
     Certificate(String),
     FreelancerCertificates(Address),
+    CertificateTokenCounter,
     ClientRating(String),
     FreelancerRating(String),
     FreelancerRatingStats(Address),
@@ -276,11 +298,16 @@ pub enum DataKey {
     ArbitrationCase(u32),
     ArbitrationCaseCount,
     DisputeCase(String),
+    /// Upgrade counter (starts at 1, bumped by every `upgrade()`)
     Version,
+    /// Semver string of the deployed WASM, returned by `get_version()`
+    ContractVersion,
     /// Stores list of IPFS CIDs for messages in a job thread
     MessageCid(String),
     /// Freelancer-submitted deliverable SHA-256 hash for release verification
     FreelancerDeliverableHash(String),
+    /// Freelancer-submitted IPFS proof CID for milestone verification
+    DeliverableProofHash(String),
     /// Address that receives platform fees on every escrow release
     TreasuryAddress,
     /// Platform fee in basis points (e.g. 100 = 1%)
@@ -299,6 +326,10 @@ pub enum DataKey {
     EligibleVoterCount,
     /// Quorum value (bps) a quorum-change proposal will apply once passed
     PendingQuorumChange(u32),
+    /// Delay between a passed proposal and its execution.
+    ExecutionDelaySeconds,
+    /// Status an escrow had before it was frozen, restored on unfreeze
+    PreFreezeStatus(String),
 }
 
 pub(crate) const DEFAULT_QUORUM_THRESHOLD_BPS: u32 = 1_000;
@@ -319,4 +350,6 @@ pub struct Proposal {
     pub deadline_ledger: u32,
     pub resolved: bool,
     pub result: bool,
+    pub resolved_at_timestamp: u64,
+    pub executed: bool,
 }

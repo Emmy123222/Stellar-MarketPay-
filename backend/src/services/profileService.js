@@ -6,8 +6,34 @@
 "use strict";
 
 const pool = require("../db/pool");
+const notificationService = require("./notificationService");
 const { validatePortfolioFiles } = require("./ipfsService");
+const { mergeVerificationMetadata } = require("./linkVerificationService");
 const encryptionService = require("./encryptionService");
+const { JSDOM } = require("jsdom");
+const createDOMPurify = require("dompurify");
+
+const window = new JSDOM("").window;
+const purify = createDOMPurify(window);
+
+/**
+ * Sanitizes a bio string with DOMPurify (server-side, using jsdom) before storing.
+ * Strips all HTML tags — stores plain text only.
+ *
+ * @param {string|null|undefined} bio
+ * @returns {string|null}
+ */
+function sanitizeBio(bio) {
+  if (bio == null) return null;
+  if (typeof bio !== "string") return null;
+  // First sanitize any malicious HTML, then strip tags and return plain text
+  const cleaned = purify.sanitize(bio, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
+  // Remove any remaining HTML entities and tags to ensure plain-text storage
+  const withoutTags = cleaned.replace(/<[^>]*>/g, "");
+  // Decode common HTML entities produced by sanitizers
+  const decoded = withoutTags.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  return decoded.trim();
+}
 
 const VALID_PROFILE_ROLES = ["client", "freelancer", "both"];
 const VALID_PORTFOLIO_TYPES = ["github", "live", "stellar_tx", "file"];
@@ -363,11 +389,33 @@ async function getProfile(publicKey) {
 async function upsertProfile({ publicKey, displayName, bio, skills, portfolioItems, portfolioFiles, availability, role, email, emailNotificationsEnabled, webhookUrl, webhookSecret, phone, kycData, encryptionPublicKey }) {
   validatePublicKey(publicKey);
 
+  const safeBio = bio != null ? (sanitizeBio(bio) || null) : null;
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 15) : null;
-  const safePortfolioItems = validatePortfolioItems(portfolioItems);
+  const validatedPortfolio = validatePortfolioItems(portfolioItems);
   const safePortfolioFiles = validatePortfolioFiles(portfolioFiles);
   const safeAvailability = availability === undefined ? null : validateAvailability(availability);
   const safeRole = validateProfileRole(role);
+
+  // Fetch existing portfolio items only after validation succeeds.
+  // We merge prior link-verification metadata forward so a user re-
+  // saving a profile without changing a portfolio URL keeps the
+  // green-check badge; items whose URL/type has changed start
+  // unverified and the background worker fills the new state.
+  let existingPortfolioItems = [];
+  if (Array.isArray(portfolioItems)) {
+    const { rows: priorRows } = await pool.query(
+      "SELECT portfolio_items FROM profiles WHERE public_key = $1",
+      [publicKey]
+    );
+    existingPortfolioItems = Array.isArray(priorRows[0]?.portfolio_items)
+      ? priorRows[0].portfolio_items
+      : [];
+  }
+
+  const safePortfolioItems = mergeVerificationMetadata(
+    validatedPortfolio,
+    existingPortfolioItems
+  );
 
   const encryptedEmail = encryptionService.encrypt(email?.trim());
   const emailHash = encryptionService.hashEmail(email);
@@ -402,7 +450,7 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
     [
       publicKey,
       displayName?.trim() || null,
-      bio?.trim() || null,
+      safeBio,
       safeSkills,
       JSON.stringify(safePortfolioItems),
       JSON.stringify(safePortfolioFiles),
@@ -745,6 +793,13 @@ async function calculateTier(publicKey, queryRunner = pool) {
 async function refreshFreelancerTier(publicKey, queryRunner = pool) {
   validatePublicKey(publicKey);
 
+  // Read current stored tier so we can detect upgrades
+  const { rows: beforeRows } = await queryRunner.query(
+    `SELECT COALESCE(completed_jobs,0) AS completed_jobs, COALESCE(total_earned_xlm::numeric,0) AS total_earned_xlm, rating FROM profiles WHERE public_key = $1`,
+    [publicKey]
+  );
+  const previousTier = beforeRows.length ? calculateFreelancerTier({ completedJobs: beforeRows[0].completed_jobs, totalEarnedXlm: beforeRows[0].total_earned_xlm, rating: beforeRows[0].rating }) : FREELANCER_TIERS.NEWCOMER;
+
   await queryRunner.query(
     `
     UPDATE profiles
@@ -763,7 +818,23 @@ async function refreshFreelancerTier(publicKey, queryRunner = pool) {
     [publicKey],
   );
 
-  return calculateTier(publicKey, queryRunner);
+  const newTier = await calculateTier(publicKey, queryRunner);
+
+  // If tier has changed (upgrade), emit event + notification
+  if (newTier && newTier !== previousTier) {
+    try {
+      const title = `Tier upgraded to ${newTier}`;
+      const body = `Congratulations — your developer tier increased to ${newTier}.`;
+      await notificationService.createInAppNotification({ userAddress: publicKey, type: "tier_upgraded", title, body, sendPush: true }, queryRunner).catch(() => {});
+
+      await notificationService.queueNotification({ recipientAddress: publicKey, notificationType: "email", eventType: "tier_upgraded", jobId: null, payload: { newTier } }).catch(() => {});
+      await notificationService.queueNotification({ recipientAddress: publicKey, notificationType: "webhook", eventType: "tier_upgraded", jobId: null, payload: { newTier } }).catch(() => {});
+    } catch (err) {
+      // non-fatal
+    }
+  }
+
+  return newTier;
 }
 
 async function getClientSpendingAnalytics(publicKey) {
@@ -1054,16 +1125,12 @@ module.exports = {
   calculateFreelancerTier,
   refreshFreelancerTier,
   FREELANCER_TIERS,
-  getProfileStats,
-  getResponseTime,
-  isBlocked,
-  blockFreelancer,
-  unblockFreelancer,
   softDeleteProfile,
   purgeDeletedProfiles,
   VALID_PORTFOLIO_TYPES,
   VALID_AVAILABILITY_STATUSES,
   MAX_PORTFOLIO_ITEMS,
   markProfileForDeletion,
-  permanentlyDeleteExpiredProfiles
+  permanentlyDeleteExpiredProfiles,
+  sanitizeBio,
 };

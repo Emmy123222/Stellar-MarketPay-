@@ -89,3 +89,42 @@ JSON Output:
 module.exports = {
   scoreProposals,
 };
+
+/**
+ * Scores a single proposal. Added for #1394.
+ */
+async function scoreProposal(proposalData) {
+  if (!CLAUDE_API_KEY) {
+    throw new Error("CLAUDE_API_KEY is not configured on the server.");
+  }
+  
+  const prompt = `Score this proposal out of 10:\n\n${JSON.stringify(proposalData)}`;
+  
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": CLAUDE_API_KEY,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: CLAUDE_MODEL,
+      max_tokens: 1024,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Claude API error: ${response.status} ${errText}`);
+  }
+
+  const result = await response.json();
+  const content = result.content[0].text;
+  
+  // Extract number
+  const scoreMatch = content.match(/\d+/);
+  return { score: scoreMatch ? parseInt(scoreMatch[0], 10) : 5 };
+}
+
+module.exports.scoreProposal = scoreProposal;

@@ -112,6 +112,40 @@ router.get("/my-stats", verifyJWT, generalRateLimiter, async (req, res, next) =>
 
 /**
  * @swagger
+ * /api/referrals/stats:
+ *   get:
+ *     summary: Get referral stats and total earned bonuses for the authenticated user
+ *     tags: [Referrals]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Referral stats
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/stats", verifyJWT, generalRateLimiter, async (req, res, next) => {
+  try {
+    const publicKey = req.user?.publicKey;
+    if (!publicKey) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const stats = await getReferralStats(publicKey);
+    res.json({
+      success: true,
+      data: {
+        ...stats,
+        earnedBonuses: stats.totalEarnedXlm,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * @swagger
  * /api/referrals/{publicKey}:
  *   get:
  *     summary: Get referral stats and history

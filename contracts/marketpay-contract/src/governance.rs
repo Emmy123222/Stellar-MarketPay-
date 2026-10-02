@@ -3,6 +3,8 @@ use soroban_sdk::{symbol_short, Address, Env, String, Vec};
 use crate::helpers::check_not_frozen;
 use crate::types::*;
 
+pub(crate) const DEFAULT_EXECUTION_DELAY_SECONDS: u64 = 48 * 60 * 60;
+
 pub(crate) fn create_proposal(
     env: Env,
     proposer: Address,
@@ -11,7 +13,7 @@ pub(crate) fn create_proposal(
     duration_ledgers: u32,
 ) -> u32 {
     proposer.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &title);
 
     if duration_ledgers == 0 {
         panic!("Duration must be positive");
@@ -38,6 +40,8 @@ pub(crate) fn create_proposal(
         deadline_ledger,
         resolved: false,
         result: false,
+        resolved_at_timestamp: 0,
+        executed: false,
     };
 
     env.storage()
@@ -57,7 +61,7 @@ pub(crate) fn create_proposal(
 
 pub(crate) fn cast_vote(env: Env, voter: Address, proposal_id: u32, approve: bool) {
     voter.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, proposal_id);
 
     let mut proposal: Proposal = env
         .storage()
@@ -108,7 +112,7 @@ pub(crate) fn cast_vote(env: Env, voter: Address, proposal_id: u32, approve: boo
 }
 
 pub(crate) fn resolve_proposal(env: Env, proposal_id: u32) {
-    check_not_frozen(&env);
+    check_not_frozen(&env, proposal_id);
 
     let mut proposal: Proposal = env
         .storage()
@@ -126,6 +130,7 @@ pub(crate) fn resolve_proposal(env: Env, proposal_id: u32) {
 
     proposal.resolved = true;
     proposal.result = quorum_met(&env, &proposal) && proposal.votes_for > proposal.votes_against;
+    proposal.resolved_at_timestamp = env.ledger().timestamp();
 
     env.storage()
         .instance()
@@ -135,6 +140,63 @@ pub(crate) fn resolve_proposal(env: Env, proposal_id: u32) {
         (symbol_short!("resolved"), proposal_id),
         (proposal.result, proposal.votes_for, proposal.votes_against),
     );
+}
+
+/// Execute a passed proposal after the configured timelock has elapsed.
+pub(crate) fn execute_proposal(env: Env, proposal_id: u32) {
+    check_not_frozen(&env, proposal_id);
+
+    let mut proposal = get_proposal(env.clone(), proposal_id);
+    if !proposal.resolved {
+        panic!("Proposal has not been resolved");
+    }
+    if !proposal.result {
+        panic!("Proposal did not pass");
+    }
+    if proposal.executed {
+        panic!("Proposal already executed");
+    }
+
+    let delay = get_execution_delay(env.clone());
+    let ready_at = proposal
+        .resolved_at_timestamp
+        .checked_add(delay)
+        .expect("Execution timelock overflow");
+    if env.ledger().timestamp() < ready_at {
+        panic!("TimelockActive");
+    }
+
+    proposal.executed = true;
+    env.storage()
+        .instance()
+        .set(&DataKey::Proposal(proposal_id), &proposal);
+    env.events()
+        .publish((symbol_short!("executed"), proposal_id), true);
+}
+
+pub(crate) fn set_execution_delay(env: Env, admin: Address, seconds: u64) {
+    admin.require_auth();
+    check_not_frozen(&env, seconds);
+    let stored_admin: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .expect("Not initialized");
+    if stored_admin != admin {
+        panic!("Only admin can set the execution delay");
+    }
+    env.storage()
+        .instance()
+        .set(&DataKey::ExecutionDelaySeconds, &seconds);
+    env.events()
+        .publish((symbol_short!("delay"), admin), seconds);
+}
+
+pub(crate) fn get_execution_delay(env: Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::ExecutionDelaySeconds)
+        .unwrap_or(DEFAULT_EXECUTION_DELAY_SECONDS)
 }
 
 /// Cross-multiplied so fractional requirements round up without floats:
@@ -216,7 +278,7 @@ pub(crate) fn propose_quorum_change(
 
 pub(crate) fn set_quorum(env: Env, admin: Address, proposal_id: u32, new_threshold_bps: u32) {
     admin.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, proposal_id);
 
     let stored_admin: Address = env
         .storage()
