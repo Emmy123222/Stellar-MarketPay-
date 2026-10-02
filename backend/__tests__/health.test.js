@@ -21,6 +21,13 @@ jest.mock("../src/services/cacheService", () => ({
   set: jest.fn(),
 }));
 
+const mockGetLatestLedger = jest.fn();
+jest.mock("../src/services/sorobanClient", () => ({
+  getServer: () => ({
+    getLatestLedger: () => mockGetLatestLedger(),
+  }),
+}));
+
 const mockGetContractVersion = jest.fn();
 jest.mock("../src/services/contractVersionService", () => ({
   getContractVersion: () => mockGetContractVersion(),
@@ -88,6 +95,7 @@ describe("GET /health", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetContractVersion.mockResolvedValue("1.2.0");
+    mockGetLatestLedger.mockResolvedValue({ sequence: 123 });
   });
 
   describe("all healthy", () => {
@@ -104,11 +112,10 @@ describe("GET /health", () => {
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({
         status: "healthy",
-        checks: {
-          db: "ok",
-          redis: "ok",
-          stellar: "ok",
-        },
+        database: "up",
+        redis: "up",
+        stellar: "up",
+        soroban: "up",
       });
       expect(res.body).toHaveProperty("uptime_seconds");
       expect(res.body).toHaveProperty("version");
@@ -149,16 +156,12 @@ describe("GET /health", () => {
       expect(res.status).toBe(503);
       expect(res.body).toMatchObject({
         status: "degraded",
-        checks: {
-          db: "error",
-          redis: "ok",
-          stellar: "ok",
-        },
+        database: "down",
+        redis: "up",
+        stellar: "up",
+        soroban: "up",
       });
       expect(res.body.contractVersion).toBe("1.2.0");
-      expect(res.body).not.toHaveProperty("database");
-      expect(res.body).not.toHaveProperty("redis");
-      expect(res.body).not.toHaveProperty("stellar");
     });
   });
 
@@ -176,11 +179,10 @@ describe("GET /health", () => {
       expect(res.status).toBe(503);
       expect(res.body).toMatchObject({
         status: "degraded",
-        checks: {
-          db: "ok",
-          redis: "error",
-          stellar: "ok",
-        },
+        database: "up",
+        redis: "down",
+        stellar: "up",
+        soroban: "up",
       });
     });
   });
@@ -199,11 +201,10 @@ describe("GET /health", () => {
       expect(res.status).toBe(503);
       expect(res.body).toMatchObject({
         status: "degraded",
-        checks: {
-          db: "ok",
-          redis: "ok",
-          stellar: "error",
-        },
+        database: "up",
+        redis: "up",
+        stellar: "down",
+        soroban: "up",
       });
     });
   });
@@ -222,11 +223,10 @@ describe("GET /health", () => {
       expect(res.status).toBe(503);
       expect(res.body).toMatchObject({
         status: "degraded",
-        checks: {
-          db: "error",
-          redis: "error",
-          stellar: "ok",
-        },
+        database: "down",
+        redis: "down",
+        stellar: "up",
+        soroban: "up",
       });
     });
   });

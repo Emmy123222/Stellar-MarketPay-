@@ -607,6 +607,26 @@ async function listJobs({
     params.push(maxApps);
     conditions.push(`applicant_count <= $${params.length}`);
   }
+
+  if (search) {
+    const normalizedSearch = String(search).trim().toLowerCase();
+    const tsQuery = normalizedSearch
+      .split(/\s+/)
+      .filter(Boolean)
+      .join(" & ");
+    params.push(tsQuery || normalizedSearch);
+    const tsIdx = params.length;
+    params.push(`%${normalizedSearch}%`);
+    const likeIdx = params.length;
+    conditions.push(
+      `(
+        job_search_vector @@ to_tsquery('simple', $${tsIdx})
+        OR LOWER(title) LIKE $${likeIdx}
+        OR LOWER(description) LIKE $${likeIdx}
+      )`,
+    );
+  }
+
   if (viewerAddress && /^G[A-Z0-9]{55}$/.test(viewerAddress)) {
     params.push(viewerAddress);
     const viewerIdx = params.length;

@@ -215,6 +215,7 @@ For frontend development without a deployed Soroban contract:
 | Frontend unit snapshots | `cd frontend && npm test`                      | Jest + React Testing Library                     |
 | Update snapshots        | `cd frontend && npm run test:update-snapshots` | Regenerate when UI changes are intentional       |
 | Backend unit + coverage | `cd backend && npm test`                       | HTML report in `backend/coverage/`               |
+| Backend mutation tests | `cd backend && npm run stryker`                | Fails below the required 80% mutation score     |
 | E2E (Playwright)        | `cd frontend && npm run test:e2e`              | Includes full client/freelancer marketplace flow |
 
 Deploy or upgrade the Soroban escrow contract using [docs/contract-deployment.md](docs/contract-deployment.md).
