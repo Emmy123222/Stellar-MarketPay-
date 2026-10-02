@@ -9,10 +9,10 @@
   ],
   "jest": {
     "projectType": "custom",
-    "configFile": "package.json",
+    "configFile": "jest.stryker.config.js",
     "enableFindRelatedTests": true
   },
-  "reporters": ["clear-text", "progress", "html", "dashboard"],
+  "reporters": ["clear-text", "progress", "html"],
   "dashboard": {
     "project": "github.com/GdAyo19/Stellar-MarketPay-",
     "version": "${BRANCH_NAME}",
@@ -23,7 +23,7 @@
   "thresholds": {
     "high": 80,
     "low": 60,
-    "break": null
+    "break": 80
   },
   "cleanTempDir": true,
   "tempDir": "stryker-tmp",

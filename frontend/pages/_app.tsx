@@ -39,7 +39,7 @@ function getInitialLocale(): string {
   );
 }
 
-function App({ Component, pageProps }: AppProps) {
+function AppContent({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -84,6 +84,10 @@ function App({ Component, pageProps }: AppProps) {
     onToggleBookmark: () => window.dispatchEvent(new CustomEvent("shortcut-toggle-bookmark")),
     onOpenCommandPalette: () => setCommandPaletteOpen(true),
     onToggleShortcutsModal: handleToggleShortcutsModal,
+    onFocusSearch: () => window.dispatchEvent(new CustomEvent("shortcut-focus-search")),
+    onToggleBookmark: () => window.dispatchEvent(new CustomEvent("shortcut-toggle-bookmark")),
+    onToggleTheme: () => window.dispatchEvent(new CustomEvent("shortcut-toggle-theme")),
+    onOpenCommandPalette: () => setCommandPaletteOpen(true),
     shortcutsModalOpen,
   });
 

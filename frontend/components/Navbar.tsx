@@ -126,6 +126,30 @@ export default function Navbar({
   }, []);
 
   useEffect(() => {
+    const handleShortcutFocusSearch = () => {
+      setSearchOpen(true);
+      requestAnimationFrame(() => searchInputRef.current?.focus());
+    };
+
+    window.addEventListener("shortcut-focus-search", handleShortcutFocusSearch);
+    return () =>
+      window.removeEventListener(
+        "shortcut-focus-search",
+        handleShortcutFocusSearch,
+      );
+  }, []);
+
+  useEffect(() => {
+    const handleShortcutToggleTheme = () => toggleTheme();
+    window.addEventListener("shortcut-toggle-theme", handleShortcutToggleTheme);
+    return () =>
+      window.removeEventListener(
+        "shortcut-toggle-theme",
+        handleShortcutToggleTheme,
+      );
+  }, [toggleTheme]);
+
+  useEffect(() => {
     const query = searchQuery.trim();
     if (query.length < 2) {
       setSearchResults([]);

@@ -96,6 +96,78 @@ const JOB_SELECT_CLAUSE = "SELECT * FROM jobs";
  * @returns {void}
  * @throws {Error}      `status === 400` if the key fails the G-address regex.
  */
+function normalizeMilestoneRows(milestones, budget) {
+  const fallbackAmount = parseFloat(budget || 0).toFixed(7);
+  if (!Array.isArray(milestones) || milestones.length === 0) {
+    return [
+      {
+        description: "Final delivery",
+        amount: fallbackAmount,
+        status: "pending",
+        releasedAt: null,
+        disputedAt: null,
+      },
+    ];
+  }
+
+  return milestones.map((milestone) => ({
+    description: String(milestone.description || "").trim(),
+    amount: parseFloat(milestone.amount || 0).toFixed(7),
+    status: milestone.status || "pending",
+    releasedAt: milestone.releasedAt || milestone.released_at || null,
+    disputedAt: milestone.disputedAt || milestone.disputed_at || null,
+  }));
+}
+
+function validateMilestones(milestones, budget) {
+  const numericBudget = parseFloat(budget);
+  if (!Array.isArray(milestones) || milestones.length === 0) {
+    return normalizeMilestoneRows([], numericBudget);
+  }
+
+  if (milestones.length > 10) {
+    const e = new Error("Jobs can have at most 10 milestones");
+    e.status = 400;
+    throw e;
+  }
+
+  const safeMilestones = milestones.map((milestone, index) => {
+    const description = String(milestone.description || "").trim();
+    const amount = parseFloat(milestone.amount);
+
+    if (!description) {
+      const e = new Error(`Milestone ${index + 1} needs a description`);
+      e.status = 400;
+      throw e;
+    }
+    if (Number.isNaN(amount) || amount <= 0) {
+      const e = new Error(`Milestone ${index + 1} needs a positive amount`);
+      e.status = 400;
+      throw e;
+    }
+
+    return {
+      description,
+      amount: amount.toFixed(7),
+      status: "pending",
+      releasedAt: null,
+      disputedAt: null,
+    };
+  });
+
+  const milestoneTotal = safeMilestones.reduce(
+    (sum, milestone) => sum + parseFloat(milestone.amount),
+    0,
+  );
+  if (Math.abs(milestoneTotal - numericBudget) > 0.0000001) {
+    const e = new Error("Milestone amounts must equal the job budget");
+    e.status = 400;
+    throw e;
+  }
+
+  return safeMilestones;
+}
+
 function validatePublicKey(key) {
   if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
     const e = new Error("Invalid Stellar public key");
@@ -535,6 +607,26 @@ async function listJobs({
     params.push(maxApps);
     conditions.push(`applicant_count <= $${params.length}`);
   }
+
+  if (search) {
+    const normalizedSearch = String(search).trim().toLowerCase();
+    const tsQuery = normalizedSearch
+      .split(/\s+/)
+      .filter(Boolean)
+      .join(" & ");
+    params.push(tsQuery || normalizedSearch);
+    const tsIdx = params.length;
+    params.push(`%${normalizedSearch}%`);
+    const likeIdx = params.length;
+    conditions.push(
+      `(
+        job_search_vector @@ to_tsquery('simple', $${tsIdx})
+        OR LOWER(title) LIKE $${likeIdx}
+        OR LOWER(description) LIKE $${likeIdx}
+      )`,
+    );
+  }
+
   if (viewerAddress && /^G[A-Z0-9]{55}$/.test(viewerAddress)) {
     params.push(viewerAddress);
     const viewerIdx = params.length;
