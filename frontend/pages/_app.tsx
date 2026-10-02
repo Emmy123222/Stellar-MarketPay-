@@ -84,6 +84,9 @@ function App({ Component, pageProps }: AppProps) {
     onToggleBookmark: () => window.dispatchEvent(new CustomEvent("shortcut-toggle-bookmark")),
     onOpenCommandPalette: () => setCommandPaletteOpen(true),
     onToggleShortcutsModal: handleToggleShortcutsModal,
+    onFocusSearch: () => window.dispatchEvent(new CustomEvent("shortcut-focus-search")),
+    onToggleBookmark: () => window.dispatchEvent(new CustomEvent("shortcut-toggle-bookmark")),
+    onOpenCommandPalette: () => setCommandPaletteOpen(true),
     shortcutsModalOpen,
   });
 

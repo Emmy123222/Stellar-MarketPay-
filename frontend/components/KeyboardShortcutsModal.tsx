@@ -75,7 +75,12 @@ export default function KeyboardShortcutsModal({
           {shortcuts.map((row) => (
             <tr key={row.description}>
               <td className="py-2.5 pr-4">
-                <Key>{row.keys[0]}</Key>
+                {row.keys.map((key, index) => (
+                  <span key={`${row.description}-${key}`}>
+                    {index > 0 && <span className="mx-1 text-amber-800">+</span>}
+                    <Key>{key}</Key>
+                  </span>
+                ))}
               </td>
               <td className="py-2.5 text-amber-200/90">{row.description}</td>
             </tr>
