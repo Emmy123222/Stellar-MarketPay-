@@ -150,6 +150,8 @@
     "amount": "Monto",
     "created": "Creado",
     "ends": "Finaliza",
-    "loading": "Cargando datos de gobernanza..."
+    "loading": "Cargando datos de gobernanza...",
+    "loadMore": "Cargar más propuestas",
+    "loadingMore": "Cargando más propuestas..."
   }
 }

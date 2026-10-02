@@ -5,6 +5,10 @@ const mockConnect = jest.fn().mockReturnValue({
   query: jest.fn().mockResolvedValue({ rows: [] }),
   release: jest.fn(),
 });
+const mockLogError = jest.fn();
+const mockTimeoutLogger = {
+  info: jest.fn(),
+};
 
 jest.mock("../db/pool", () => ({
   query: mockQuery,
@@ -14,6 +18,11 @@ jest.mock("../db/pool", () => ({
 jest.mock("../config/env", () => ({
   requireEnv: jest.fn((key, options) => options?.fallback || "mocked-env-value"),
   requireChoice: jest.fn((key, choices, options) => options?.fallback || choices[0]),
+}));
+
+jest.mock("../utils/logger", () => ({
+  createServiceLogger: jest.fn(() => mockTimeoutLogger),
+  logError: mockLogError,
 }));
 
 // Mock @stellar/stellar-sdk Horizon Server
@@ -37,7 +46,12 @@ jest.mock("@stellar/stellar-sdk", () => ({
 
 const IndexerService = require("./indexerService");
 const escrowService = require("./escrowService");
-const { startEscrowTimeoutChecker } = escrowService;
+const {
+  startEscrowTimeoutChecker,
+  ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS,
+  ESCROW_TIMEOUT_CHECK_MAX_DELAY_MS,
+  getEscrowTimeoutCheckDelay,
+} = escrowService;
 
 // Spy on timeoutRefund to intercept internal module calls and prevent real execution
 jest.spyOn(escrowService, "timeoutRefund").mockImplementation(async () => {
@@ -139,6 +153,13 @@ describe("IndexerService & Escrow Timeout Checker", () => {
   });
 
   describe("startEscrowTimeoutChecker", () => {
+    it("jitter-schedules follow-up checks within the hourly spread", () => {
+      expect(getEscrowTimeoutCheckDelay(() => 0)).toBe(ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS);
+      expect(getEscrowTimeoutCheckDelay(() => 0.999999)).toBeLessThanOrEqual(
+        ESCROW_TIMEOUT_CHECK_MAX_DELAY_MS,
+      );
+    });
+
     it("queries expired escrows and calls timeoutRefund", async () => {
       mockQuery.mockResolvedValueOnce({
         rows: [{ job_id: "job-expired-1", client_address: "GClientAddress" }],
@@ -154,6 +175,72 @@ describe("IndexerService & Escrow Timeout Checker", () => {
 
       // Verify timeoutRefund was invoked for the expired escrow
       expect(escrowService.timeoutRefund).toHaveBeenCalledWith("job-expired-1", "GClientAddress");
+    });
+
+    it("refunds all expired escrows in one guardian run", async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          { job_id: "job-expired-1", client_address: "GClientAddress1" },
+          { job_id: "job-expired-2", client_address: "GClientAddress2" },
+          { job_id: "job-expired-3", client_address: "GClientAddress3" },
+        ],
+      });
+
+      await startEscrowTimeoutChecker();
+
+      expect(escrowService.timeoutRefund).toHaveBeenCalledTimes(3);
+      expect(escrowService.timeoutRefund).toHaveBeenNthCalledWith(
+        1,
+        "job-expired-1",
+        "GClientAddress1",
+      );
+      expect(escrowService.timeoutRefund).toHaveBeenNthCalledWith(
+        2,
+        "job-expired-2",
+        "GClientAddress2",
+      );
+      expect(escrowService.timeoutRefund).toHaveBeenNthCalledWith(
+        3,
+        "job-expired-3",
+        "GClientAddress3",
+      );
+    });
+
+    it("does not refund an escrow expiring in the future", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      await startEscrowTimeoutChecker();
+
+      expect(escrowService.timeoutRefund).not.toHaveBeenCalled();
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining("e.created_at + INTERVAL '7 days' < NOW()"),
+      );
+    });
+
+    it("logs a refund failure and continues processing other expired escrows", async () => {
+      const refundError = new Error("Horizon unavailable");
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          { job_id: "job-expired-1", client_address: "GClientAddress1" },
+          { job_id: "job-expired-2", client_address: "GClientAddress2" },
+        ],
+      });
+      escrowService.timeoutRefund
+        .mockRejectedValueOnce(refundError)
+        .mockResolvedValueOnce({ success: true });
+
+      await startEscrowTimeoutChecker();
+
+      expect(mockLogError).toHaveBeenCalledWith(
+        expect.anything(),
+        refundError,
+        { operation: "escrow_timeout_refund_item", jobId: "job-expired-1" },
+      );
+      expect(escrowService.timeoutRefund).toHaveBeenNthCalledWith(
+        2,
+        "job-expired-2",
+        "GClientAddress2",
+      );
     });
   });
 });

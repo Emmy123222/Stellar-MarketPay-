@@ -8,7 +8,7 @@ use crate::types::*;
 /// Client submits deliverable hash.
 pub(crate) fn submit_client_deliverable(env: Env, job_id: String, client: Address) {
     client.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut submission: DeliverableSubmission = env
         .storage()
@@ -33,7 +33,7 @@ pub(crate) fn submit_client_deliverable(env: Env, job_id: String, client: Addres
 /// Freelancer submits deliverable hash.
 pub(crate) fn submit_freelancer_deliverable(env: Env, job_id: String, freelancer: Address) {
     freelancer.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut submission: DeliverableSubmission = env
         .storage()
@@ -66,7 +66,7 @@ pub(crate) fn submit_deliverable(
     caller: Address,
 ) {
     caller.require_auth();
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()
@@ -109,7 +109,7 @@ pub(crate) fn submit_deliverable(
 
 /// Auto-release if both hashes match (manual fallback if mismatch after 7 days).
 pub(crate) fn check_deliverable_match(env: Env, job_id: String) -> bool {
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let submission: DeliverableSubmission = env
         .storage()
@@ -171,6 +171,45 @@ pub(crate) fn submit_deliverable_hash(
         .publish((symbol_short!("dlv_sub"), freelancer), (job_id, hash));
 }
 
+/// Freelancer updates a previously submitted deliverable hash.
+///
+/// The deliverable record must stay immutable once the escrow has left the
+/// active `InProgress` state: allowing an update after the escrow is Released
+/// (or Refunded) would let a freelancer retroactively falsify what was
+/// delivered after funds have already moved. Updates are therefore permitted
+/// only while `status == InProgress`; any settled/inactive state panics with
+/// `ContractError::EscrowAlreadySettled` (2014).
+pub(crate) fn update_deliverable_hash(
+    env: Env,
+    job_id: String,
+    freelancer: Address,
+    new_hash: BytesN<32>,
+) {
+    freelancer.require_auth();
+
+    let escrow: Escrow = env
+        .storage()
+        .instance()
+        .get(&DataKey::Escrow(job_id.clone()))
+        .expect("Escrow not found");
+
+    if escrow.freelancer != freelancer {
+        panic!("Only the freelancer can update deliverable hash");
+    }
+    // ContractError::EscrowAlreadySettled (2014)
+    if escrow.status != EscrowStatus::InProgress {
+        panic!("Escrow already settled; deliverable hash cannot be updated");
+    }
+
+    env.storage().instance().set(
+        &DataKey::FreelancerDeliverableHash(job_id.clone()),
+        &new_hash,
+    );
+
+    env.events()
+        .publish((symbol_short!("dlv_upd"), freelancer), (job_id, new_hash));
+}
+
 /// Get the freelancer-submitted deliverable hash, if any.
 pub(crate) fn get_freelancer_deliverable_hash(env: Env, job_id: String) -> Option<BytesN<32>> {
     env.storage()
@@ -200,4 +239,34 @@ pub(crate) fn verify_deliverable_hash(env: Env, job_id: String) -> bool {
     };
 
     &submitted == expected
+}
+
+/// Store the IPFS CID for a freelancer's milestone proof.
+pub(crate) fn update_deliverable_proof_hash(env: Env, job_id: String, freelancer: Address, hash: String) {
+    freelancer.require_auth();
+    check_not_frozen(&env, &job_id);
+
+    let escrow: Escrow = env
+        .storage()
+        .instance()
+        .get(&DataKey::Escrow(job_id.clone()))
+        .expect("Escrow not found");
+    if escrow.freelancer != freelancer {
+        panic!("Only the freelancer can update deliverable hash");
+    }
+    if escrow.status != EscrowStatus::InProgress && escrow.status != EscrowStatus::Locked {
+        panic!("Can only update hash for active escrow");
+    }
+
+    env.storage()
+        .instance()
+        .set(&DataKey::DeliverableProofHash(job_id.clone()), &hash);
+    env.events()
+        .publish((symbol_short!("proof"), caller), (job_id, hash));
+}
+
+pub(crate) fn get_deliverable_proof_hash(env: Env, job_id: String) -> Option<String> {
+    env.storage()
+        .instance()
+        .get(&DataKey::DeliverableProofHash(job_id))
 }

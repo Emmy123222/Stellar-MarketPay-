@@ -1,9 +1,15 @@
 import createDOMPurify from "dompurify";
+import { createRequire } from "module";
 
-const window = typeof globalThis.window === "undefined"
-  ? new (eval("require")("jsdom") as typeof import("jsdom")).JSDOM("").window
-  : globalThis.window;
-const DOMPurify = createDOMPurify(window);
+// `module` is a Node builtin and `jsdom` is server-only. The client bundle
+// stubs "module" out (see next.config.mjs) and never evaluates this branch, so
+// neither jsdom nor eval() ends up in the browser bundle.
+const serverWindow =
+  typeof globalThis.window === "undefined"
+    ? new (createRequire(import.meta.url)("jsdom") as typeof import("jsdom")).JSDOM("").window
+    : globalThis.window;
+
+const DOMPurify = createDOMPurify(serverWindow);
 
 export function sanitizeHtml(dirty: string): string {
   return DOMPurify.sanitize(dirty, {

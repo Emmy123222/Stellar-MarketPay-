@@ -33,6 +33,7 @@ jest.mock("../services/insightsService", () => ({
   getSkillInsights: jest.fn(),
   getCompetitiveJobs: jest.fn(),
   getPayTrends: jest.fn(),
+  getFreelancerEarnings: jest.fn(),
 }));
 
 const pool = require("../db/pool");
@@ -260,6 +261,48 @@ describe("Insights Route Suite (/api/insights)", () => {
 
       expect(res.status).toBe(200);
       expect(insightsService.getPayTrends).toHaveBeenCalledWith(30);
+    });
+  });
+
+  // GET /api/insights/earnings — freelancer monthly earnings breakdown (Issue #1450)
+  describe("GET /api/insights/earnings", () => {
+    const mockEarnings = [
+      { freelancerId: "GA111", month: "2026-08", releasedAt: "2026-08-15T00:00:00Z", earningsCount: 3 },
+      { freelancerId: "GA111", month: "2026-09", releasedAt: "2026-09-10T00:00:00Z", earningsCount: 5 },
+    ];
+
+    it("200 — returns earnings aggregation for all freelancers", async () => {
+      insightsService.getFreelancerEarnings.mockResolvedValue(mockEarnings);
+
+      const res = await request(app).get("/api/insights/earnings");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, data: mockEarnings });
+      expect(insightsService.getFreelancerEarnings).toHaveBeenCalledWith(undefined, { months: undefined });
+    });
+
+    it("200 — passes freelancerId and months query parameters", async () => {
+      insightsService.getFreelancerEarnings.mockResolvedValue(mockEarnings);
+
+      const res = await request(app)
+        .get("/api/insights/earnings")
+        .query({ freelancerId: "GA111", months: "6" });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, data: mockEarnings });
+      expect(insightsService.getFreelancerEarnings).toHaveBeenCalledWith("GA111", { months: "6" });
+    });
+
+    it("200 — returns earnings for a specific freelancer path parameter", async () => {
+      insightsService.getFreelancerEarnings.mockResolvedValue(mockEarnings);
+
+      const res = await request(app)
+        .get("/api/insights/earnings/GA111")
+        .query({ months: "3" });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, data: mockEarnings });
+      expect(insightsService.getFreelancerEarnings).toHaveBeenCalledWith("GA111", { months: "3" });
     });
   });
 

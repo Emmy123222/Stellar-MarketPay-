@@ -68,6 +68,14 @@ pub enum ContractError {
     OnlyAdminUpdateTimeout = 1023,
     /// "Timeout must be positive"
     TimeoutMustBePositive = 1024,
+    /// "Only an admin can freeze the escrow"
+    OnlyAdminCanFreezeEscrow = 1025,
+    /// "Escrow is already frozen"
+    EscrowAlreadyFrozen = 1026,
+    /// "Escrow is not frozen"
+    EscrowNotFrozen = 1027,
+    /// "Cannot freeze a resolved escrow"
+    CannotFreezeResolved = 1028,
 
     // ── 2xxx: Escrow lifecycle ────────────────────────────────────────────
     /// "Amount must be positive"
@@ -96,6 +104,8 @@ pub enum ContractError {
     OnlyClientCanTimeoutRefund = 2012,
     /// "Timeout period has not expired yet"
     TimeoutNotExpired = 2013,
+    /// "Escrow already settled; deliverable hash cannot be updated"
+    EscrowAlreadySettled = 2014,
 
     // ── 3xxx: Milestones ──────────────────────────────────────────────────
     /// "Maximum 5 milestones allowed"
@@ -112,6 +122,8 @@ pub enum ContractError {
     InvalidMilestoneIndex = 3006,
     /// "Milestone already completed"
     MilestoneAlreadyCompleted = 3007,
+    /// "Previous milestone not approved"
+    PreviousMilestoneNotApproved = 3008,
 
     // ── 4xxx: Bidding & sealed-bid auction ────────────────────────────────
     /// "Budget must be positive"
@@ -145,7 +157,7 @@ pub enum ContractError {
     /// "Freelancer rating already submitted for this job"
     FreelancerRatingAlreadySubmitted = 5004,
     /// "Escrow must be released to mint certificate"
-    EscrowMustBeReleased = 5005,
+    EscrowNotReleased = 5005,
     /// "Certificate already minted"
     CertificateAlreadyMinted = 5006,
 
@@ -164,6 +176,16 @@ pub enum ContractError {
     AlreadyVoted = 6006,
     /// "Voting period is not over yet"
     VotingNotOver = 6007,
+    /// "Only admin can set the quorum"
+    OnlyAdminSetQuorum = 6008,
+    /// "Quorum cannot exceed 50% (5000 bps)"
+    QuorumExceedsMax = 6009,
+    /// "Quorum change proposal has not passed"
+    QuorumProposalNotPassed = 6010,
+    /// "No matching quorum change proposal"
+    NoMatchingQuorumProposal = 6011,
+    /// "TimelockActive"
+    TimelockActive = 6012,
 
     // ── 7xxx: Disputes & arbitration ──────────────────────────────────────
     /// "Only participants can raise a dispute"
@@ -202,6 +224,8 @@ pub enum ContractError {
     NoDeliverableHash = 8002,
     /// "IPFS CID cannot be empty"
     IpfsCidEmpty = 8003,
+    /// "Message too long"
+    MessageTooLong = 8004,
 
     // ── 9xxx: Job boost & extensions ──────────────────────────────────────
     /// "Minimum boost is 5 XLM"
@@ -259,6 +283,10 @@ impl ContractError {
             Self::ReferrerCapNegative => "Referrer bonus cap must be non-negative",
             Self::OnlyAdminUpdateTimeout => "Only admin can update the timeout",
             Self::TimeoutMustBePositive => "Timeout must be positive",
+            Self::OnlyAdminCanFreezeEscrow => "Only an admin can freeze the escrow",
+            Self::EscrowAlreadyFrozen => "Escrow is already frozen",
+            Self::EscrowNotFrozen => "Escrow is not frozen",
+            Self::CannotFreezeResolved => "Cannot freeze a resolved escrow",
             // 2xxx
             Self::AmountMustBePositive => "Amount must be positive",
             Self::InvalidReferrer => "Referrer cannot be the client or freelancer",
@@ -275,6 +303,9 @@ impl ContractError {
             Self::CanOnlyRefundLocked => "Can only refund before work has started",
             Self::OnlyClientCanTimeoutRefund => "Only the client can request a timeout refund",
             Self::TimeoutNotExpired => "Timeout period has not expired yet",
+            Self::EscrowAlreadySettled => {
+                "Escrow already settled; deliverable hash cannot be updated"
+            }
             // 3xxx
             Self::MaxMilestones => "Maximum 5 milestones allowed",
             Self::MilestonePercentagePositive => "Milestone percentage must be positive",
@@ -283,6 +314,7 @@ impl ContractError {
             Self::CannotReleaseMilestoneStatus => "Cannot release milestone in current status",
             Self::InvalidMilestoneIndex => "Milestone index out of bounds",
             Self::MilestoneAlreadyCompleted => "Milestone already completed",
+            Self::PreviousMilestoneNotApproved => "Previous milestone not approved",
             // 4xxx
             Self::BudgetPositive => "Budget must be positive",
             Self::BudgetCommitmentNotFound => "Budget commitment not found",
@@ -301,7 +333,7 @@ impl ContractError {
             Self::FreelancerRatingAlreadySubmitted => {
                 "Freelancer rating already submitted for this job"
             }
-            Self::EscrowMustBeReleased => "Escrow must be released to mint certificate",
+            Self::EscrowNotReleased => "Escrow must be released to mint certificate",
             Self::CertificateAlreadyMinted => "Certificate already minted",
             // 6xxx
             Self::DurationPositive => "Duration must be positive",
@@ -311,6 +343,11 @@ impl ContractError {
             Self::OnlyCompletedJobsCanVote => "Only users with completed jobs can vote",
             Self::AlreadyVoted => "Voter has already cast a vote",
             Self::VotingNotOver => "Voting period is not over yet",
+            Self::OnlyAdminSetQuorum => "Only admin can set the quorum",
+            Self::QuorumExceedsMax => "Quorum cannot exceed 50% (5000 bps)",
+            Self::QuorumProposalNotPassed => "Quorum change proposal has not passed",
+            Self::NoMatchingQuorumProposal => "No matching quorum change proposal",
+            Self::TimelockActive => "TimelockActive",
             // 7xxx
             Self::OnlyParticipantsCanDispute => "Only participants can raise a dispute",
             Self::CannotDisputeResolved => {
@@ -332,6 +369,7 @@ impl ContractError {
             Self::OnlyFreelancerOrOracle => "Only freelancer or oracle can submit deliverable",
             Self::NoDeliverableHash => "Escrow has no deliverable hash",
             Self::IpfsCidEmpty => "IPFS CID cannot be empty",
+            Self::MessageTooLong => "Message too long",
             // 9xxx
             Self::MinimumBoost5Xlm => "Minimum boost is 5 XLM",
             Self::BoostAmountPositive => "Boost amount must be positive",
@@ -411,6 +449,10 @@ pub fn error_code_from_panic(msg: &str) -> Option<u32> {
         "Referrer bonus cap must be non-negative" => Some(1022),
         "Only admin can update the timeout" => Some(1023),
         "Timeout must be positive" => Some(1024),
+        "Only an admin can freeze the escrow" => Some(1025),
+        "Escrow is already frozen" => Some(1026),
+        "Escrow is not frozen" => Some(1027),
+        "Cannot freeze a resolved escrow" => Some(1028),
         // 2xxx
         "Amount must be positive" => Some(2001),
         "Referrer cannot be the client or freelancer" => Some(2002),
@@ -425,6 +467,7 @@ pub fn error_code_from_panic(msg: &str) -> Option<u32> {
         "Can only refund before work has started" => Some(2011),
         "Only the client can request a timeout refund" => Some(2012),
         "Timeout period has not expired yet" => Some(2013),
+        "Escrow already settled" => Some(2014),
         // 3xxx
         "Maximum 5 milestones allowed" => Some(3001),
         "Milestone percentage must be positive" => Some(3002),
@@ -433,6 +476,7 @@ pub fn error_code_from_panic(msg: &str) -> Option<u32> {
         "Cannot release milestone in current status" => Some(3005),
         "Milestone index out of bounds" | "Invalid milestone index" => Some(3006),
         "Milestone already completed" => Some(3007),
+        "Previous milestone not approved" => Some(3008),
         // 4xxx
         "Budget must be positive" => Some(4001),
         "Budget commitment not found" => Some(4002),
@@ -459,6 +503,10 @@ pub fn error_code_from_panic(msg: &str) -> Option<u32> {
         "Only users with completed jobs can vote" => Some(6005),
         "Voter has already cast a vote" => Some(6006),
         "Voting period is not over yet" => Some(6007),
+        "Only admin can set the quorum" => Some(6008),
+        "Quorum cannot exceed 50% (5000 bps)" => Some(6009),
+        "Quorum change proposal has not passed" => Some(6010),
+        "No matching quorum change proposal" => Some(6011),
         // 7xxx
         "Only participants can raise a dispute" => Some(7001),
         "Cannot dispute a resolved, frozen, or already-disputed escrow" => Some(7002),
@@ -478,6 +526,7 @@ pub fn error_code_from_panic(msg: &str) -> Option<u32> {
         "Only freelancer or oracle can submit deliverable" => Some(8001),
         "Escrow has no deliverable hash" => Some(8002),
         "IPFS CID cannot be empty" => Some(8003),
+        "Message too long" => Some(8004),
         // 9xxx
         "Minimum boost is 5 XLM" => Some(9001),
         "Boost amount must be positive" => Some(9002),
@@ -524,6 +573,14 @@ mod tests {
         let msg = err.panic_message();
         let parsed = error_code_from_panic(msg);
         assert_eq!(parsed, Some(err.code()));
+    }
+
+    #[test]
+    fn message_too_long_round_trips() {
+        let err = ContractError::MessageTooLong;
+        let msg = err.panic_message();
+        assert_eq!(msg, "Message too long");
+        assert_eq!(error_code_from_panic(msg), Some(8004));
     }
 
     #[test]

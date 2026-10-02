@@ -24,6 +24,20 @@ export interface AnchorEndpoints {
   currencies: Array<{ code: string; issuer?: string }>;
 }
 
+export interface ApprovedAnchor {
+  homeDomain: string;
+  name?: string;
+  displayName?: string;
+}
+
+export async function fetchApprovedAnchors(): Promise<ApprovedAnchor[]> {
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+  const response = await fetch(`${apiBase}/api/anchors`);
+  if (!response.ok) throw new Error(`Could not fetch approved anchors (${response.status}).`);
+  const payload = await response.json() as { data?: ApprovedAnchor[] };
+  return Array.isArray(payload.data) ? payload.data : [];
+}
+
 /** Cache TOML lookups for the lifetime of the page. */
 const tomlCache = new Map<string, AnchorEndpoints>();
 

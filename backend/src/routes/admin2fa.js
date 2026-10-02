@@ -5,6 +5,15 @@
  * POST /api/admin/2fa/disable — disable 2FA (requires valid TOTP or backup code)
  * GET  /api/admin/2fa/status  — check enabled state
  *
+ * 2FA Implementation Notes:
+ * - TOTP Validation Window: Configured with `window: 1` (allowing ±1 time step of 30 seconds drift).
+ *   This accepts codes generated within [-30s, +30s] of the server time, strictly rejecting
+ *   codes from 61+ seconds ago to protect privileged admin operations against replay attacks.
+ *   A wider window (such as window: 2 / ±90s) is considered too permissive for admin actions.
+ * - Secret Storage: Stored base32 TOTP secret is AES-256-GCM encrypted in `admin_profiles.totp_secret`.
+ * - Brute-Force Rate Limiting: 5 consecutive failed verification attempts lock the admin account for 15 minutes.
+ * - Backup Codes: 10 single-use cryptographically hashed backup codes generated at setup.
+ *
  * @swagger
  * tags:
  *   name: Admin 2FA
@@ -17,6 +26,7 @@ const QRCode = require("qrcode");
 const speakeasy = require("speakeasy");
 const pool = require("../db/pool");
 const { verifyJWT, requireAdminRole } = require("../middleware/auth");
+const { createRateLimiter } = require("../middleware/rateLimiter");
 const { signAccessToken } = require("../services/authTokens");
 const { encrypt } = require("../utils/encryption");
 const {
@@ -29,12 +39,29 @@ const {
   get2FAStatus,
   ensureAdminProfile,
   getDecryptedSecret,
+  TOTP_WINDOW: SERVICE_TOTP_WINDOW,
 } = require("../services/twoFactorService");
 
 const router = express.Router();
 
+/**
+ * Validation window for TOTP verification (Issue #1459).
+ * window: 1 corresponds to ±1 time step (±30 seconds) tolerance.
+ */
+const TOTP_WINDOW = SERVICE_TOTP_WINDOW || 1;
+
+// TOTP setup/verify/disable are authentication operations: an unbounded
+// request rate lets an attacker brute-force the 6-digit code or flood the
+// profile table, so cap them per IP. Reads get a looser ceiling.
+const twoFactorAuthRateLimiter = createRateLimiter(10, 1); // 10 req/min per IP
+const twoFactorStatusRateLimiter = createRateLimiter(30, 1); // 30 req/min per IP
+
 function issueAdminToken(publicKey, twoFaVerified) {
-  return signAccessToken({ publicKey, role: "admin", "2fa_verified": twoFaVerified });
+  return signAccessToken({
+    publicKey,
+    role: "admin",
+    "2fa_verified": twoFaVerified,
+  });
 }
 
 /**
@@ -51,14 +78,14 @@ function issueAdminToken(publicKey, twoFaVerified) {
  *       400:
  *         description: 2FA already enabled
  */
-router.post("/setup", verifyJWT, requireAdminRole, async (req, res, next) => {
+router.post("/setup", twoFactorAuthRateLimiter, verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const { publicKey } = req.user;
     await ensureAdminProfile(publicKey);
 
     const { rows } = await pool.query(
       "SELECT totp_enabled FROM admin_profiles WHERE id = $1",
-      [publicKey]
+      [publicKey],
     );
     if (rows[0]?.totp_enabled) {
       return res.status(400).json({ error: "2FA is already enabled" });
@@ -69,7 +96,7 @@ router.post("/setup", verifyJWT, requireAdminRole, async (req, res, next) => {
 
     await pool.query(
       "UPDATE admin_profiles SET totp_secret = $1, totp_enabled = false, updated_at = NOW() WHERE id = $2",
-      [encrypt(secret.base32), publicKey]
+      [encrypt(secret.base32), publicKey],
     );
 
     res.json({
@@ -108,7 +135,7 @@ router.post("/setup", verifyJWT, requireAdminRole, async (req, res, next) => {
  *       400:
  *         description: Invalid code
  */
-router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
+router.post("/verify", twoFactorAuthRateLimiter, verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const { publicKey } = req.user;
     const { token, setup } = req.body;
@@ -121,7 +148,9 @@ router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
     const secret = await getDecryptedSecret(publicKey);
 
     if (!secret) {
-      return res.status(400).json({ error: "2FA setup not initiated. Call /setup first." });
+      return res
+        .status(400)
+        .json({ error: "2FA setup not initiated. Call /setup first." });
     }
 
     let plainBackupCodes;
@@ -132,7 +161,7 @@ router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
         secret,
         encoding: "base32",
         token: String(token),
-        window: 1,
+        window: TOTP_WINDOW,
       });
 
       if (!verified) {
@@ -168,13 +197,15 @@ router.post("/verify", verifyJWT, requireAdminRole, async (req, res, next) => {
 });
 
 // POST /api/admin/2fa/disable
-router.post("/disable", verifyJWT, requireAdminRole, async (req, res, next) => {
+router.post("/disable", twoFactorAuthRateLimiter, verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const { publicKey } = req.user;
     const { token, backupCode } = req.body;
 
     if (!token && !backupCode) {
-      return res.status(400).json({ error: "A TOTP token or backup code is required" });
+      return res
+        .status(400)
+        .json({ error: "A TOTP token or backup code is required" });
     }
 
     let ok = false;
@@ -207,7 +238,7 @@ router.post("/disable", verifyJWT, requireAdminRole, async (req, res, next) => {
  *       200:
  *         description: 2FA status including verification state
  */
-router.get("/status", verifyJWT, requireAdminRole, async (req, res, next) => {
+router.get("/status", twoFactorStatusRateLimiter, verifyJWT, requireAdminRole, async (req, res, next) => {
   try {
     const status = await get2FAStatus(req.user.publicKey);
     res.json({
@@ -219,4 +250,7 @@ router.get("/status", verifyJWT, requireAdminRole, async (req, res, next) => {
   }
 });
 
+router.TOTP_WINDOW = TOTP_WINDOW;
+
 module.exports = router;
+module.exports.TOTP_WINDOW = TOTP_WINDOW;

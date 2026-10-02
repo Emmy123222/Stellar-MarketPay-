@@ -198,7 +198,7 @@ Message bodies are end-to-end encrypted; see [messaging-encryption.md](messaging
 
 ## Notifications
 
-Push notifications use VAPID web push; see [web-push-setup.md](web-push-setup.md).
+Push notifications use VAPID web push; see the notification endpoints below.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -238,6 +238,7 @@ Evidence files are stored on IPFS; see ADR-006 if present or [dispute_resolution
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/disputes/:jobId` | Dispute details and evidence list |
+| GET | `/api/disputes/:jobId/evidence` | List dispute evidence (client, freelancer, or arbitrator) |
 | POST | `/api/disputes/:jobId/evidence` | Upload dispute evidence file |
 | GET | `/api/disputes/:jobId/evidence/:id/url` | Generate signed URL for evidence access |
 | GET | `/api/disputes/:jobId/onchain-cids` | Chain-attested evidence CID list |
@@ -463,6 +464,8 @@ Collaborative scope session management.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| POST | `/api/scope` | Create a collaborative scope session (returns `sessionId` + `sharePath`) |
+| POST | `/api/scope/:sessionId/finalize` | Lock a scope session when its proposal is submitted |
 | POST | `/api/scope/:sessionId/renew` | Extend a scope session by 24 hours |
 
 ---

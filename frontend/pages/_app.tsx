@@ -3,21 +3,62 @@ import { useState, useEffect, useCallback } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import Navbar from "@/components/Navbar";
-import { connectWallet, getConnectedPublicKey, signTransactionWithWallet } from "@/lib/wallet";
-import { fetchAuthChallenge, verifyAuthChallenge, setJwtToken } from "@/lib/api";
+import {
+  connectWallet,
+  getConnectedPublicKey,
+  signTransactionWithWallet,
+} from "@/lib/wallet";
+import {
+  fetchAuthChallenge,
+  verifyAuthChallenge,
+  setJwtToken,
+} from "@/lib/api";
 import "@/styles/globals.css";
-import { ToastProvider } from "@/components/Toast";
+import { ToastProvider, toast } from "@/components/Toast";
 import { PriceProvider } from "@/contexts/PriceContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
+import CommandPalette from "@/components/CommandPalette";
 import OfflineBanner from "@/components/OfflineBanner";
 import RateLimitWatcher from "@/components/RateLimitWatcher";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
-import "../lib/i18n";
+import { useTranslation } from "@/lib/i18n";
+
+const LOCALE_STORAGE_KEY = "stellar-marketpay:locale";
+const SUPPORTED_LOCALES = new Set(["en", "es", "fr", "pt"]);
+
+function getInitialLocale(): string {
+  if (typeof window === "undefined") return "en";
+
+  const savedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+  const browserLocale = window.navigator.language?.split("-")[0];
+  return (
+    [savedLocale, browserLocale, "en"].find((locale): locale is string =>
+      Boolean(locale && SUPPORTED_LOCALES.has(locale)),
+    ) || "en"
+  );
+}
 
 function App({ Component, pageProps }: AppProps) {
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const router = useRouter();
+  const { i18n } = useTranslation("common");
+  const initialLocale = getInitialLocale();
+
+  // Sync the persisted/browser locale once the i18next instance is available.
+  // next-i18next only initialises it on the client, so guard the call: during
+  // prerender `i18n` is a placeholder without changeLanguage().
+  useEffect(() => {
+    if (
+      i18n &&
+      typeof i18n.changeLanguage === "function" &&
+      i18n.language !== initialLocale
+    ) {
+      void i18n.changeLanguage(initialLocale);
+    }
+  }, [i18n, initialLocale]);
 
   const isJobDetailPage = router.pathname === "/jobs/[id]";
 
@@ -25,14 +66,24 @@ function App({ Component, pageProps }: AppProps) {
     setShortcutsModalOpen((current) => !current);
   }, []);
 
+  const handleCloseCommandPalette = useCallback(() => setCommandPaletteOpen(false), []);
+
+  // Every callback below has to match UseKeyboardShortcutsOptions: the hook
+  // invokes each one from a key handler, so a name it does not declare is dead
+  // (this call used to pass `isJobDetailPage`, `onNewJobPost`, `onJobApply` and
+  // `onJobBackToListing`, none of which the hook accepts) while a required one
+  // that is missing throws as soon as that key is pressed — `p`, `/`, `b` and
+  // Cmd/Ctrl+K were unreachable for exactly that reason. `/` and `b` are
+  // forwarded as events because the jobs page already listens for them
+  // (pages/jobs/index.tsx).
   useKeyboardShortcuts({
-    isJobDetailPage,
     onGoToJobs: () => router.push("/jobs"),
     onGoToDashboard: () => router.push("/dashboard"),
-    onNewJobPost: () => router.push("/post-job"),
+    onPostJob: () => router.push("/post-job"),
+    onFocusSearch: () => window.dispatchEvent(new CustomEvent("shortcut-focus-search")),
+    onToggleBookmark: () => window.dispatchEvent(new CustomEvent("shortcut-toggle-bookmark")),
+    onOpenCommandPalette: () => setCommandPaletteOpen(true),
     onToggleShortcutsModal: handleToggleShortcutsModal,
-    onJobApply: () => window.dispatchEvent(new CustomEvent("shortcut-apply-job")),
-    onJobBackToListing: () => router.push("/jobs"),
     shortcutsModalOpen,
   });
 
@@ -86,6 +137,7 @@ function App({ Component, pageProps }: AppProps) {
 
   return (
     <>
+      <ThemeProvider>
       <ToastProvider>
         <PriceProvider>
         <Head>
@@ -108,12 +160,14 @@ function App({ Component, pageProps }: AppProps) {
             onClose={() => setShortcutsModalOpen(false)}
             showJobDetailShortcuts={isJobDetailPage}
           />
+          <CommandPalette isOpen={commandPaletteOpen} onClose={handleCloseCommandPalette} />
         </div>
         <RateLimitWatcher />
         </PriceProvider>
       </ToastProvider>
+      </ThemeProvider>
     </>
   );
 }
 
-export default App;
+export default appWithTranslation(App, nextI18NextConfig);
