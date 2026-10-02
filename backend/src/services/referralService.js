@@ -92,7 +92,7 @@ async function registerReferral(referrerAddress, refereeAddress) {
 async function getReferrerForReferee(refereeAddress) {
   const { rows } = await pool.query(
     `SELECT referrer_address FROM referrals
-     WHERE referee_address = $1 AND status = 'pending'
+     WHERE referee_address = $1 AND status IN ('referral_credit_pending', 'pending')
      LIMIT 1`,
     [refereeAddress],
   );
@@ -138,7 +138,7 @@ async function processReferralPayout(
   // Find the pending referral
   const { rows: refRows } = await pool.query(
     `SELECT * FROM referrals
-     WHERE referee_address = $1 AND status = 'pending'
+     WHERE referee_address = $1 AND status IN ('referral_credit_pending', 'pending')
      LIMIT 1`,
     [refereeAddress],
   );
@@ -210,7 +210,7 @@ async function getReferralStats(publicKey) {
     `SELECT
        COUNT(*)                                          AS total_referrals,
        COUNT(*) FILTER (WHERE status = 'paid')          AS paid_referrals,
-       COUNT(*) FILTER (WHERE status = 'pending')       AS pending_referrals,
+       COUNT(*) FILTER (WHERE status IN ('referral_credit_pending', 'pending'))       AS pending_referrals,
        COALESCE(SUM(payout_amount) FILTER (WHERE status = 'paid'), 0) AS total_earned_xlm
      FROM referrals
      WHERE referrer_address = $1`,
