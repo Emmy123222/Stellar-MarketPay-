@@ -20,6 +20,7 @@ concurrency:
 
 jobs:
   build-and-deploy:
+    name: Build Storybook & Deploy to GitHub Pages
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -39,7 +40,13 @@ jobs:
       - run: npm install
 
       - name: Build Storybook
-        run: npx storybook build --output-dir storybook-static
+        run: npm run storybook:build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: storybook-build
+          path: frontend/storybook-static
+          retention-days: 1
 
       - name: Setup Pages
         uses: actions/configure-pages@v6
