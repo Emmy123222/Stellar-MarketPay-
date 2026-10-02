@@ -40,6 +40,15 @@ describe("ApplicationForm proposal scoring (#1548)", () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     (api.fetchProposalTemplates as jest.Mock).mockResolvedValue([]);
+    Object.defineProperty(window, "crypto", {
+      configurable: true,
+      value: {
+        ...window.crypto,
+        subtle: {
+          digest: jest.fn().mockResolvedValue(new ArrayBuffer(32)),
+        },
+      },
+    });
   });
 
   afterEach(() => {
@@ -127,7 +136,6 @@ describe("ApplicationForm proposal scoring (#1548)", () => {
   });
 
   it("shows the submitted state while the application request is pending", async () => {
-    (window.crypto.subtle.digest as jest.Mock) = jest.fn().mockResolvedValue(new ArrayBuffer(32));
     (api.submitApplication as jest.Mock).mockReturnValue(new Promise(() => {}));
 
     render(
@@ -143,7 +151,6 @@ describe("ApplicationForm proposal scoring (#1548)", () => {
   });
 
   it("reverts the submitted state and shows an error when submission fails", async () => {
-    (window.crypto.subtle.digest as jest.Mock) = jest.fn().mockResolvedValue(new ArrayBuffer(32));
     (api.submitApplication as jest.Mock).mockRejectedValue(new Error("request failed"));
 
     render(
@@ -160,7 +167,6 @@ describe("ApplicationForm proposal scoring (#1548)", () => {
   });
 
   it("keeps the submitted state after a successful application request", async () => {
-    (window.crypto.subtle.digest as jest.Mock) = jest.fn().mockResolvedValue(new ArrayBuffer(32));
     (api.submitApplication as jest.Mock).mockResolvedValue({ id: "application-1" });
 
     render(
