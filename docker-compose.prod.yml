@@ -1,9 +1,11 @@
 version: "3.9"
 
 x-logging: &default-logging
+  driver: json-file
   options:
-    max-size: "10m"
-    max-file: "3"
+    max-size: "50m"
+    max-file: "5"
+
 x-default-labels: &default-labels
   project: stellar-marketpay
   environment: production
@@ -34,6 +36,9 @@ services:
           cpus: '0.5'
           memory: 256M
     logging: *default-logging
+    labels:
+      <<: *default-labels
+      service: nginx
 
   certbot:
     image: certbot/certbot
@@ -48,6 +53,10 @@ services:
         limits:
           cpus: '0.2'
           memory: 128M
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      service: certbot
 
   frontend-blue:
     image: ${IMAGE_TAG}
@@ -55,6 +64,7 @@ services:
     profiles: ["blue"]
     environment:
       NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_API_URL_FILE: /run/secrets/next_public_api_url
     secrets:
       - next_public_api_url
@@ -69,7 +79,6 @@ services:
           cpus: '1.0'
           memory: 1G
     logging: *default-logging
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     labels:
       <<: *default-labels
       service: frontend
@@ -83,6 +92,7 @@ services:
     profiles: ["blue"]
     environment:
       NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
       DATABASE_URL_FILE: /run/secrets/database_url
     secrets:
       - database_url
@@ -97,6 +107,9 @@ services:
           cpus: '1.0'
           memory: 1G
     logging: *default-logging
+    labels:
+      <<: *default-labels
+      service: backend
 
   frontend-green:
     image: ${IMAGE_TAG}
@@ -104,6 +117,7 @@ services:
     profiles: ["green"]
     environment:
       NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_API_URL_FILE: /run/secrets/next_public_api_url
     secrets:
       - next_public_api_url
@@ -118,6 +132,9 @@ services:
           cpus: '1.0'
           memory: 1G
     logging: *default-logging
+    labels:
+      <<: *default-labels
+      service: frontend
 
   backend-green:
     image: ${BACKEND_IMAGE_TAG:-${IMAGE_TAG}}
@@ -128,6 +145,7 @@ services:
     profiles: ["green"]
     environment:
       NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
       DATABASE_URL_FILE: /run/secrets/database_url
     secrets:
       - database_url
@@ -142,7 +160,6 @@ services:
           cpus: '1.0'
           memory: 1G
     logging: *default-logging
-      DATABASE_URL: ${DATABASE_URL}
     labels:
       <<: *default-labels
       service: backend
@@ -158,13 +175,14 @@ services:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/rootfs:ro
+    ports:
+      - "9100:9100"
     deploy:
       resources:
         limits:
           cpus: '0.5'
           memory: 256M
-    ports:
-      - "9100:9100"
+    logging: *default-logging
     labels:
       <<: *default-labels
       service: node-exporter
@@ -177,13 +195,14 @@ services:
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+    ports:
+      - "9090:9090"
     deploy:
       resources:
         limits:
           cpus: '0.5'
           memory: 512M
-    ports:
-      - "9090:9090"
+    logging: *default-logging
     labels:
       <<: *default-labels
       service: prometheus
@@ -203,14 +222,21 @@ services:
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
     deploy:
       resources:
         limits:
           cpus: '0.5'
           memory: 512M
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      service: grafana
 
   watchtower:
     image: containrrr/watchtower
+    restart: unless-stopped
     profiles:
       - watchtower
     volumes:
@@ -221,6 +247,10 @@ services:
         limits:
           cpus: '0.2'
           memory: 128M
+    logging: *default-logging
+    labels:
+      <<: *default-labels
+      service: watchtower
 
 volumes:
   certbot-etc:
@@ -236,8 +266,3 @@ secrets:
     external: true
   grafana_admin_password:
     external: true
-    ports:
-      - "3001:3000"
-    labels:
-      <<: *default-labels
-      service: grafana

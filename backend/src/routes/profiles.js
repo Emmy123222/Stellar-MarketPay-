@@ -56,7 +56,6 @@ const {
   migrateProfile,
 } = require("../services/profileMigrationService");
 const { validateProfileMigration } = require("../validators/profileMigrationValidator");
-const { getPriceAlertPreference, upsertPriceAlertPreference } = require("../services/priceAlertService");
 
 /**
  * @swagger
@@ -203,6 +202,22 @@ router.get("/", generalProfileRateLimiter, async (req, res, next) => {
  *         description: Profile updated
  *       403:
  *         description: Can only update own profile
+ *   patch:
+ *     summary: Update own profile (partial / avatar / bio update)
+ *     tags: [Profiles]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: publicKey
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Profile updated
+ *       403:
+ *         description: Can only update own profile
  */
 router.get("/:publicKey", generalProfileRateLimiter, async (req, res, next) => {
   try {
@@ -314,10 +329,10 @@ router.post("/", profileUpdateRateLimiter, validateJsonb({ portfolio_items: port
   catch (e) { next(e); }
 });
 
-// PUT /api/profiles/:publicKey — update a profile (invalidates cache)
-router.put("/:publicKey", profileUpdateRateLimiter, verifyJWT, async (req, res, next) => {
+// PUT /api/profiles/:publicKey & PATCH /api/profiles/:publicKey — update a profile (invalidates cache)
+const updateProfileHandler = async (req, res, next) => {
   try {
-    const { publicKey } = req.params;
+    const publicKey = req.params.publicKey || req.params.id;
     if (req.user.publicKey !== publicKey) {
       return res.status(403).json({ error: "You can only update your own profile" });
     }
@@ -325,12 +340,14 @@ router.put("/:publicKey", profileUpdateRateLimiter, verifyJWT, async (req, res, 
     const data = await upsertProfile({ ...body, publicKey });
     const key = cache.profileKey(publicKey);
     await cache.del(key);
-    profileLogger.debug({ publicKey, cacheKey: key }, "Cache invalidated after PUT profile");
-    dispatchLinkVerification(publicKey, data && data.portfolioItems);
+    profileLogger.debug({ publicKey, cacheKey: key }, "Cache invalidated after profile update");
     res.json({ success: true, data });
   }
   catch (e) { next(e); }
-});
+};
+
+router.put("/:publicKey", profileUpdateRateLimiter, verifyJWT, updateProfileHandler);
+router.patch("/:publicKey", profileUpdateRateLimiter, verifyJWT, updateProfileHandler);
 
 // GET /api/profiles/:publicKey/notifications - Get notification preferences
 router.get("/:publicKey/notifications", generalProfileRateLimiter, async (req, res, next) => {

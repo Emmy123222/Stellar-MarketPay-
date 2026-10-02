@@ -3,7 +3,7 @@
  * Freelancer applies to a job with a proposal and bid amount.
  */
 import { useState, useEffect, useRef } from "react";
-import { submitApplication, fetchProposalTemplates, scoreProposal } from "@/lib/api";
+import { submitApplication, fetchProposalTemplates, scoreProposal, createScopeSession, finalizeScopeSession } from "@/lib/api";
 import type { ProposalScore } from "@/lib/api";
 import type { Job } from "@/utils/types";
 import { formatXLM } from "@/utils/format";
@@ -14,6 +14,11 @@ import clsx from "clsx";
 const SCORE_DEBOUNCE_MS = 2000;
 // Don't bother the AI with very short drafts.
 const MIN_SCORE_CHARS = 20;
+// Issue #1416 — proposal character limit; surface it in the UI with a live
+// counter so writers never hit it blind.
+export const MAX_PROPOSAL_CHARS = 2000;
+// Turn the counter red when the writer is this close to the limit.
+const CHAR_WARNING_THRESHOLD = 100;
 
 interface ApplicationFormProps {
   job: Job;
@@ -33,6 +38,8 @@ function randomNonceHex(bytes = 16): string {
   const arr = new Uint8Array(bytes);
   if (typeof window !== "undefined" && window.crypto?.getRandomValues) {
     window.crypto.getRandomValues(arr);
+  } else if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(arr);
   } else {
     for (let i = 0; i < arr.length; i += 1) arr[i] = Math.floor(Math.random() * 256);
   }
@@ -60,6 +67,11 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
   const [screeningAnswers, setScreeningAnswers] = useState<Record<string, string>>({});
   const [templates, setTemplates] = useState<{ id: string; name: string; content: string }[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [creatingScope, setCreatingScope] = useState(false);
+  const [scopeShareUrl, setScopeShareUrl] = useState<string | null>(null);
+  const [scopeSessionId, setScopeSessionId] = useState<string | null>(null);
+  const [scopeCopied, setScopeCopied] = useState(false);
+  const [scopeError, setScopeError] = useState<string | null>(null);
 
   const isSubmitting = submitStatus === "submitting";
   const isSubmitted = submitStatus === "success";
@@ -76,12 +88,39 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
   const [proposalScore, setProposalScore] = useState<ProposalScore | null>(null);
   const [scoreWarning, setScoreWarning] = useState<string | null>(null);
   const [scoring, setScoring] = useState(false);
+  const [creatingScope, setCreatingScope] = useState(false);
+  const [scopeShareUrl, setScopeShareUrl] = useState("");
+  const [scopeSessionId, setScopeSessionId] = useState("");
+  const [scopeError, setScopeError] = useState<string | null>(null);
+  const [scopeCopied, setScopeCopied] = useState(false);
+  const handleInviteCollaborator = async () => {
+    if (scopeShareUrl) return;
+    setCreatingScope(true);
+    try {
+      const { sessionId, sharePath } = await createScopeSession({
+        jobId: job.id,
+        createdBy: publicKey,
+        initialContent: proposal,
+      });
+      setScopeSessionId(sessionId);
+      setScopeShareUrl(window.location.origin + sharePath);
+    } catch (e) {
+      toast.error("Failed to create collaboration session");
+    } finally {
+      setCreatingScope(false);
+    }
+  };
 
   // Issue #152 — enforce 50-word minimum on the proposal.
   const wordCount = proposal.trim() === "" ? 0 : proposal.trim().split(/\s+/).length;
   const MIN_WORDS = 50;
   const wordsRemaining = Math.max(0, MIN_WORDS - wordCount);
   const meetsWordMinimum = wordCount >= MIN_WORDS;
+
+  // Issue #1416 — character counter: turns red once fewer than
+  // CHAR_WARNING_THRESHOLD characters remain.
+  const charsRemaining = MAX_PROPOSAL_CHARS - proposal.length;
+  const nearCharLimit = charsRemaining < CHAR_WARNING_THRESHOLD;
 
   const isValid = meetsWordMinimum && parseFloat(bidAmount) > 0;
 
@@ -160,6 +199,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
       const referredBy = typeof window !== "undefined" ? localStorage.getItem(`referral_${job.id}`) : null;
       const commitmentInput = `${parseFloat(bidAmount).toFixed(7)}:${revealNonce}`;
       const bidCommitment = await sha256Hex(commitmentInput);
+      if (scopeSessionId) { await finalizeScopeSession(scopeSessionId, { content: proposal, payload: { jobId: job.id } }); }
       await submitApplication({
         jobId: job.id,
         freelancerAddress: publicKey,
@@ -176,6 +216,16 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
         setSubmitStatus("success");
         setRevealLater(true);
       }
+      if (scopeSessionId) {
+        try {
+          await finalizeScopeSession(scopeSessionId, {
+            content: proposal.trim(),
+            payload: { jobId: String(job.id) },
+          });
+        } catch {
+          // Locking the co-writing session is best-effort; never block submission.
+        }
+      }
       toast.success("Sealed bid commitment submitted.");
       onSuccess?.();
     } catch {
@@ -186,6 +236,41 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
       toast.error("Failed to submit application. Please try again.");
     } finally {
       submittingRef.current = false;
+    }
+  };
+
+  const handleInviteCollaborator = async () => {
+    if (scopeShareUrl) {
+      try {
+        await navigator.clipboard?.writeText(scopeShareUrl);
+        setScopeCopied(true);
+      } catch {
+        // Clipboard access can be denied; the link stays visible for manual copy.
+      }
+      return;
+    }
+
+    setCreatingScope(true);
+    setScopeError(null);
+    try {
+      const session = await createScopeSession({
+        jobId: String(job.id),
+        createdBy: publicKey,
+        content: proposal,
+      });
+      const url = `${window.location.origin}${session.sharePath}`;
+      setScopeSessionId(session.sessionId);
+      setScopeShareUrl(url);
+      try {
+        await navigator.clipboard?.writeText(url);
+        setScopeCopied(true);
+      } catch {
+        // Clipboard access can be denied; the link stays visible for manual copy.
+      }
+    } catch {
+      setScopeError("Failed to create a co-writing session. Please try again.");
+    } finally {
+      setCreatingScope(false);
     }
   };
 
@@ -225,6 +310,57 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
             </select>
           </div>
 
+          {/* Co-write proposal — invite a teammate (#1552) */}
+          <div className="rounded-xl border border-market-500/20 bg-market-900/30 p-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-amber-100">Co-write this proposal</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Invite a teammate to edit and review together in real time. The
+                  session locks automatically when you submit.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleInviteCollaborator}
+                disabled={creatingScope}
+                className="btn-secondary px-3 py-2 text-sm whitespace-nowrap"
+                data-testid="invite-collaborator"
+              >
+                {creatingScope
+                  ? "Creating..."
+                  : scopeShareUrl
+                    ? "Copy invite link"
+                    : "Invite collaborator"}
+              </button>
+            </div>
+            {scopeShareUrl && (
+              <div className="mt-3 flex gap-2">
+                <input
+                  className="input-field flex-1 text-xs"
+                  value={scopeShareUrl}
+                  readOnly
+                  aria-label="Co-writing invite link"
+                />
+                <button
+                  type="button"
+                  className="btn-secondary px-3 py-2 text-xs"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard?.writeText(scopeShareUrl);
+                      setScopeCopied(true);
+                    } catch {
+                      /* noop */
+                    }
+                  }}
+                >
+                  {scopeCopied ? "Copied" : "Copy"}
+                </button>
+              </div>
+            )}
+            {scopeError && <p className="mt-2 text-xs text-red-400">{scopeError}</p>}
+          </div>
+
           {/* Cover letter */}
           <div>
             <label className="label" htmlFor="cover-letter">Cover Letter</label>
@@ -233,13 +369,14 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
               value={proposal} onChange={(e) => setProposal(e.target.value)}
               disabled={isPending}
               rows={6}
+              maxLength={MAX_PROPOSAL_CHARS}
               placeholder="Describe your relevant experience, your approach to this project, and why you're the best fit..."
               className={clsx(
                 "textarea-field",
                 proposal.length > 0 && !meetsWordMinimum && "border-red-500/40"
               )}
               aria-invalid={proposal.length > 0 && !meetsWordMinimum}
-              aria-describedby="proposal-word-count"
+              aria-describedby="proposal-word-count proposal-char-count"
             />
             <p
               id="proposal-word-count"
@@ -254,6 +391,16 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
                   — {wordsRemaining} more {wordsRemaining === 1 ? "word" : "words"} needed
                 </span>
               )}
+            </p>
+            <p
+              id="proposal-char-count"
+              data-testid="proposal-char-count"
+              className={clsx(
+                "mt-0.5 text-xs font-medium tabular-nums",
+                nearCharLimit ? "text-red-400" : "text-amber-700"
+              )}
+            >
+              {proposal.length} / {MAX_PROPOSAL_CHARS}
             </p>
 
             <ProposalScores
