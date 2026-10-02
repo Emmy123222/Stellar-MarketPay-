@@ -92,7 +92,7 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - run: npm ci
+      - run: npm install
         continue-on-error: true
 
       - name: Lint
@@ -172,7 +172,7 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - run: npm ci
+      - run: npm install
         continue-on-error: true
 
       - name: Run migrations
@@ -208,7 +208,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      - run: npm install
         continue-on-error: true
 
       - name: Lint
@@ -254,7 +254,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      - run: npm install
         continue-on-error: true
 
       - name: Install Playwright browsers
@@ -321,7 +321,7 @@ jobs:
     name: Docs Link Checker
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check markdown links
         uses: lycheeverse/lychee-action@v2

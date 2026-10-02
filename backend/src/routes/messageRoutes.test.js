@@ -189,6 +189,35 @@ describe("Message Routes Suite (/api/messages)", () => {
       expect(createMessage).not.toHaveBeenCalled();
     });
 
+    it("400 — rejects when content exceeds 10,000 characters (Issue #1392)", async () => {
+      const oversizedContent = "a".repeat(10_001);
+      
+      const res = await request(app)
+        .post(`/api/messages/job/${JOB_ID}`)
+        .set("Authorization", `Bearer ${makeToken()}`)
+        .set("X-CSRF-Token", "dummy-token")
+        .send({ content: oversizedContent });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/too long/i);
+      expect(res.body.error).toMatch(/10,000/);
+      expect(createMessage).not.toHaveBeenCalled();
+    });
+
+    it("201 — accepts content at exactly 10,000 characters (boundary test)", async () => {
+      const maxContent = "a".repeat(10_000);
+      createMessage.mockResolvedValue(fakeMessage({ content: maxContent }));
+
+      const res = await request(app)
+        .post(`/api/messages/job/${JOB_ID}`)
+        .set("Authorization", `Bearer ${makeToken()}`)
+        .set("X-CSRF-Token", "dummy-token")
+        .send({ content: maxContent });
+
+      expect(res.status).toBe(201);
+      expect(createMessage).toHaveBeenCalled();
+    });
+
     it("403 — surfaces 403 from service when user is not a job participant", async () => {
       const err = Object.assign(
         new Error("Unauthorized: You are not a participant in this job"),
@@ -222,32 +251,60 @@ describe("Message Routes Suite (/api/messages)", () => {
   });
 
   // ===========================================================================
-  // 2. GET /api/messages/job/:jobId  — list messages for a job
+  // 2. GET /api/messages/job/:jobId and /thread/:threadId — list messages for a job
   // ===========================================================================
   describe("GET /api/messages/job/:jobId", () => {
-    it("200 — happy path: returns message list", async () => {
-      const messages = [fakeMessage(), fakeMessage({ id: "msg-2" })];
-      getMessagesByJob.mockResolvedValue(messages);
+    it("200 — happy path: returns message list and nextCursor", async () => {
+      const result = {
+        messages: [fakeMessage(), fakeMessage({ id: "msg-2" })],
+        nextCursor: "2026-09-25T08:00:00.000Z",
+      };
+      getMessagesByJob.mockResolvedValue(result);
 
       const res = await request(app)
-        .get(`/api/messages/job/${JOB_ID}`)
+        .get(`/api/messages/job/${JOB_ID}?limit=20&before=2026-09-25T09:00:00.000Z`)
         .set("Authorization", `Bearer ${makeToken()}`);
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data).toHaveLength(2);
-      expect(getMessagesByJob).toHaveBeenCalledWith(JOB_ID, USER_ADDRESS);
+      expect(res.body.data.messages).toHaveLength(2);
+      expect(res.body.data.nextCursor).toBe("2026-09-25T08:00:00.000Z");
+      expect(getMessagesByJob).toHaveBeenCalledWith(JOB_ID, USER_ADDRESS, {
+        limit: "20",
+        before: "2026-09-25T09:00:00.000Z",
+      });
     });
 
-    it("200 — returns empty array when job has no messages yet", async () => {
-      getMessagesByJob.mockResolvedValue([]);
+    it("200 — works via /api/messages/thread/:threadId alias", async () => {
+      const result = {
+        messages: [fakeMessage()],
+        nextCursor: null,
+      };
+      getMessagesByJob.mockResolvedValue(result);
+
+      const res = await request(app)
+        .get(`/api/messages/thread/${JOB_ID}`)
+        .set("Authorization", `Bearer ${makeToken()}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.messages).toHaveLength(1);
+      expect(res.body.data.nextCursor).toBeNull();
+      expect(getMessagesByJob).toHaveBeenCalledWith(JOB_ID, USER_ADDRESS, {
+        limit: undefined,
+        before: undefined,
+      });
+    });
+
+    it("200 — returns empty array and null cursor when job has no messages yet", async () => {
+      getMessagesByJob.mockResolvedValue({ messages: [], nextCursor: null });
 
       const res = await request(app)
         .get(`/api/messages/job/${JOB_ID}`)
         .set("Authorization", `Bearer ${makeToken()}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.data).toEqual([]);
+      expect(res.body.data).toEqual({ messages: [], nextCursor: null });
     });
 
     it("401 — rejects when no JWT is supplied", async () => {

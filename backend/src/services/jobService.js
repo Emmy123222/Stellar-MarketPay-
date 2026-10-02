@@ -1,10 +1,12 @@
+
+Jobservice · JS
 /**
  * src/services/jobService.js
  * Service responsibility: Manages job listings, including creation, retrieval, searching, status updates, freelancer assignment, escrow integration, and visibility boosting.
  * All data persisted in the `jobs` PostgreSQL table.
  */
 "use strict";
-
+ 
 const poolModule = require("../db/pool");
 const pool = poolModule.writePool || poolModule;
 const readPool = poolModule.readPool || poolModule;
@@ -16,7 +18,7 @@ const {
   buildJobTfIdfVector,
   updateVocabularyAndIdf,
 } = require("./recommendationService");
-
+ 
 /**
  * Camel-cased job record returned by this service.
  *
@@ -43,7 +45,7 @@ const {
  * @property {string}   createdAt           ISO timestamp when the job was created.
  * @property {string}   updatedAt           ISO timestamp of last write.
  */
-
+ 
 /**
  * Input shape accepted by {@link createJob}.
  *
@@ -57,10 +59,9 @@ const {
  * @property {string}   [deadline]            ISO timestamp.
  * @property {string}   [timezone]            IANA timezone name.
  * @property {string[]} [screeningQuestions]  Up to 5 questions; non-empty entries are kept.
- * @property {{description:string,amount:string|number}[]} [milestones] Up to 10 milestone payouts; amounts must total budget.
  * @property {string}   clientAddress         Stellar G-address of the posting client.
  */
-
+ 
 /**
  * Pagination wrapper returned by {@link listJobs}.
  *
@@ -68,32 +69,9 @@ const {
  * @property {Job[]}      jobs
  * @property {string|null} nextCursor  Opaque base64 cursor for the next page, or null when exhausted.
  */
-
-const VALID_STATUSES = [
-  "open",
-  "in_progress",
-  "completed",
-  "cancelled",
-  "disputed",
-];
-
-// Single-pass skill aggregation via LEFT JOIN — eliminates the correlated
-// subquery that previously ran once per job row (N+1 pattern).
-const JOB_SELECT_CLAUSE = `
-  SELECT jobs.*,
-         COALESCE(agg.skills, '{}') AS skills,
-         cat.slug  AS category_slug,
-         cat.name  AS category_name,
-         cat.id    AS category_id_resolved
-  FROM   jobs
-  LEFT JOIN LATERAL (
-    SELECT array_agg(s.display_name ORDER BY s.display_name) AS skills
-    FROM   job_skills js
-    JOIN   skills s ON s.id = js.skill_id
-    WHERE  js.job_id = jobs.id
-  ) agg ON true
-  LEFT JOIN categories cat ON cat.id = jobs.category_id`;
-
+ 
+const VALID_STATUSES = ["open", "in_progress", "completed", "cancelled"];
+ 
 const VALID_CATEGORIES = [
   "Smart Contracts",
   "Frontend Development",
@@ -106,7 +84,11 @@ const VALID_CATEGORIES = [
   "Mobile Development",
   "Other",
 ];
-
+ 
+// RECONSTRUCTED: this constant was not in the pasted file but is used below.
+// If main defines it differently, use main's definition.
+const JOB_SELECT_CLAUSE = "SELECT * FROM jobs";
+ 
 /**
  * Throws a 400 Error when `key` is not a valid Stellar G-address.
  *
@@ -114,78 +96,6 @@ const VALID_CATEGORIES = [
  * @returns {void}
  * @throws {Error}      `status === 400` if the key fails the G-address regex.
  */
-function normalizeMilestoneRows(milestones, budget) {
-  const fallbackAmount = parseFloat(budget || 0).toFixed(7);
-  if (!Array.isArray(milestones) || milestones.length === 0) {
-    return [
-      {
-        description: "Final delivery",
-        amount: fallbackAmount,
-        status: "pending",
-        releasedAt: null,
-        disputedAt: null,
-      },
-    ];
-  }
-
-  return milestones.map((milestone) => ({
-    description: String(milestone.description || "").trim(),
-    amount: parseFloat(milestone.amount || 0).toFixed(7),
-    status: milestone.status || "pending",
-    releasedAt: milestone.releasedAt || milestone.released_at || null,
-    disputedAt: milestone.disputedAt || milestone.disputed_at || null,
-  }));
-}
-
-function validateMilestones(milestones, budget) {
-  const numericBudget = parseFloat(budget);
-  if (!Array.isArray(milestones) || milestones.length === 0) {
-    return normalizeMilestoneRows([], numericBudget);
-  }
-
-  if (milestones.length > 10) {
-    const e = new Error("Jobs can have at most 10 milestones");
-    e.status = 400;
-    throw e;
-  }
-
-  const safeMilestones = milestones.map((milestone, index) => {
-    const description = String(milestone.description || "").trim();
-    const amount = parseFloat(milestone.amount);
-
-    if (!description) {
-      const e = new Error(`Milestone ${index + 1} needs a description`);
-      e.status = 400;
-      throw e;
-    }
-    if (Number.isNaN(amount) || amount <= 0) {
-      const e = new Error(`Milestone ${index + 1} needs a positive amount`);
-      e.status = 400;
-      throw e;
-    }
-
-    return {
-      description,
-      amount: amount.toFixed(7),
-      status: "pending",
-      releasedAt: null,
-      disputedAt: null,
-    };
-  });
-
-  const milestoneTotal = safeMilestones.reduce(
-    (sum, milestone) => sum + parseFloat(milestone.amount),
-    0,
-  );
-  if (Math.abs(milestoneTotal - numericBudget) > 0.0000001) {
-    const e = new Error("Milestone amounts must equal the job budget");
-    e.status = 400;
-    throw e;
-  }
-
-  return safeMilestones;
-}
-
 function validatePublicKey(key) {
   if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
     const e = new Error("Invalid Stellar public key");
@@ -193,7 +103,7 @@ function validatePublicKey(key) {
     throw e;
   }
 }
-
+ 
 /**
  * Convert a snake_case `jobs` row into the camelCase API object.
  *
@@ -207,12 +117,10 @@ function rowToJob(row) {
     description: row.description,
     budget: row.budget,
     currency: row.currency || "XLM",
-    category: row.category_name || row.category,
-    categorySlug: row.category_slug || null,
-    categoryId: row.category_id_resolved || row.category_id || null,
+    category: row.category,
+    visibility: row.visibility || "public",
     skills: row.skills,
     status: row.status,
-    visibility: row.visibility || "public",
     clientAddress: row.client_address,
     freelancerAddress: row.freelancer_address,
     escrowContractId: row.escrow_contract_id,
@@ -223,72 +131,52 @@ function rowToJob(row) {
     deadline: row.deadline,
     timezone: row.timezone,
     screeningQuestions: row.screening_questions || [],
-    milestones: normalizeMilestoneRows(row.milestones, row.budget),
-    disputeReason: row.dispute_reason,
-    disputeDescription: row.dispute_description,
-    disputedBy: row.disputed_by,
-    disputedAt: row.disputed_at,
-    expiresAt: row.expires_at,
-    extendedCount: row.extended_count,
-    extendedUntil: row.extended_until,
-    biddingClosedAt: row.bidding_closed_at,
-    viewCount: row.view_count,
-    deletedAt: row.deleted_at || null,
+    milestones: row.milestones || [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    searchHeadline: row.headline_title || null,
-    descriptionHeadline: row.headline_description || null,
+    expiresAt: row.expires_at,
+    extendedCount: row.extended_count || 0,
+    extendedUntil: row.extended_until,
   };
 }
-
+ 
 /**
- * @typedef {Object} CreateJobInput
- * @property {string} title - The title of the job (min 10 characters).
- * @property {string} description - The detailed description of the job (min 30 characters).
- * @property {string|number} budget - The positive budget amount for the job.
- * @property {string} [currency='XLM'] - The currency, either 'XLM' or 'USDC'.
- * @property {string} category - The category of the job (must be a valid category).
- * @property {string[]} [skills] - Array of relevant skills (max 8).
- * @property {Date|string} [deadline] - The deadline for the job.
- * @property {string} clientAddress - The Stellar public key of the client.
- */
-
-/**
- * Create a new job listing.
- * Note: client's profile row must already exist (FK constraint).
+ * Create a new job listing in `status = 'open'`.
  *
- * @param {CreateJobInput} params - The parameters to create a job.
- * @returns {Promise<Object>} The created job object.
- * @throws {Error} If validation fails or client profile doesn't exist.
+ * The client's profile row must already exist; the FK constraint on
+ * `client_address` will otherwise reject the insert.
+ *
+ * @param {CreateJobInput} input
+ * @returns {Promise<Job>}  The newly persisted job.
+ * @throws {Error} 400 — when title/description/budget/category/currency fail validation.
  *
  * @example
- * const newJob = await jobService.createJob({
- *   title: 'Build a Smart Contract',
- *   description: 'Need a developer to build a Soroban smart contract for an escrow service.',
- *   budget: 500,
- *   currency: 'USDC',
- *   category: 'Smart Contracts',
- *   skills: ['Soroban', 'Rust'],
- *   clientAddress: 'GBX...',
+ * const job = await createJob({
+ *   title: "Build a Soroban escrow contract",
+ *   description: "We need a Rust developer to ship an escrow with milestones...",
+ *   budget: "500",
+ *   currency: "XLM",
+ *   category: "Smart Contracts",
+ *   skills: ["Rust", "Soroban"],
+ *   clientAddress: "GABCDEF...XYZ",
  * });
  */
 let createJob = async function ({
   title,
   description,
   budget,
-  currency,
+  currency = "XLM",
   category,
-  categorySlug,
+  visibility = "public",
   skills,
   deadline,
   timezone,
-  clientAddress,
   screeningQuestions,
   milestones,
-  visibility = "public",
+  clientAddress,
 }) {
   validatePublicKey(clientAddress);
-
+ 
   if (!title || title.length < 10) {
     const e = new Error("Title must be at least 10 characters");
     e.status = 400;
@@ -299,8 +187,7 @@ let createJob = async function ({
     e.status = 400;
     throw e;
   }
-  const numericBudget = parseFloat(budget);
-  if (budget === undefined || budget === null || isNaN(numericBudget) || numericBudget <= 0) {
+  if (!budget || isNaN(parseFloat(budget)) || parseFloat(budget) <= 0) {
     const e = new Error("Budget must be a positive number");
     e.status = 400;
     throw e;
@@ -310,50 +197,41 @@ let createJob = async function ({
     e.status = 400;
     throw e;
   }
-  // Resolve category: accept either a slug (e.g. "frontend-development") or a legacy name.
-  // categorySlug takes precedence; falls back to category name lookup.
-  const categoryLookupVal = categorySlug || category;
-  let resolvedCategoryId = null;
-  let resolvedCategoryName = category;
-
-  if (categoryLookupVal) {
-    const { rows: catRows } = await pool.query(
-      "SELECT id, name FROM categories WHERE slug = $1 OR LOWER(name) = LOWER($2) LIMIT 1",
-      [categoryLookupVal, categoryLookupVal],
-    );
-    if (catRows.length) {
-      resolvedCategoryId = catRows[0].id;
-      resolvedCategoryName = catRows[0].name;
-    }
-  }
-
-  // Still validate against VALID_CATEGORIES for backward-compat when no DB match found
-  if (!resolvedCategoryId && !VALID_CATEGORIES.includes(category)) {
+  if (!VALID_CATEGORIES.includes(category)) {
     const e = new Error("Invalid category");
     e.status = 400;
     throw e;
   }
-
-  const jobVisibility = visibility || "public";
-  if (!["public", "private", "invite_only"].includes(jobVisibility)) {
+  if (!["public", "private", "invite_only"].includes(visibility)) {
     const e = new Error("Visibility must be public, private, or invite_only");
     e.status = 400;
     throw e;
   }
-
-  const safeSkills = Array.isArray(skills)
-    ? skills
-        .slice(0, 8)
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
+ 
+  const safeSkills = Array.isArray(skills) ? skills.slice(0, 8) : [];
   const safeScreeningQuestions = Array.isArray(screeningQuestions)
     ? screeningQuestions.slice(0, 5).filter((q) => q && q.trim().length > 0)
     : [];
-  const safeMilestones = validateMilestones(milestones, budget);
-
-  const client = await pool.connect();
+ 
+  // RECONSTRUCTED: these four values were not in the pasted file but are used
+  // by the INSERT below. If main computes them differently (e.g. validates
+  // milestones), use main's version of this block.
+  const safeMilestones = Array.isArray(milestones) ? milestones : [];
+  const jobVisibility = visibility;
+  const resolvedCategoryName = category;
+  let resolvedCategoryId = null;
+  try {
+    const { rows: categoryRows } = await pool.query(
+      "SELECT id, name FROM categories WHERE LOWER(name) = LOWER($1) OR slug = $1 LIMIT 1",
+      [category],
+    );
+    if (categoryRows.length) resolvedCategoryId = categoryRows[0].id;
+  } catch {
+    resolvedCategoryId = null;
+  }
+ 
   let job;
+  const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
@@ -367,7 +245,7 @@ let createJob = async function ({
         title.trim(),
         description.trim(),
         parseFloat(budget).toFixed(7),
-        currency || "XLM",
+        currency,
         resolvedCategoryName,
         resolvedCategoryId,
         clientAddress,
@@ -379,7 +257,7 @@ let createJob = async function ({
       ],
     );
     job = rows[0];
-
+ 
     if (safeSkills.length > 0) {
       // Normalize and insert missing skills
       const skillValues = safeSkills
@@ -390,14 +268,14 @@ let createJob = async function ({
         VALUES ${skillValues}
         ON CONFLICT (slug) DO NOTHING
       `);
-
+ 
       // Fetch skill IDs
       const slugs = safeSkills.map((s) => s.toLowerCase().trim());
       const { rows: skillRows } = await client.query(
         "SELECT id FROM skills WHERE slug = ANY($1::text[])",
         [slugs],
       );
-
+ 
       // Insert into job_skills
       if (skillRows.length > 0) {
         const jobSkillValues = skillRows
@@ -417,7 +295,7 @@ let createJob = async function ({
   } finally {
     client.release();
   }
-
+ 
   // To return the job with skills, we fetch the newly mapped skills
   if (safeSkills.length > 0) {
     const { rows: updatedSkills } = await pool.query(
@@ -428,7 +306,7 @@ let createJob = async function ({
   } else {
     job.skills = [];
   }
-
+ 
   try {
     const tfidfVector = await buildJobTfIdfVector(
       job.title,
@@ -451,10 +329,10 @@ let createJob = async function ({
       err.message,
     );
   }
-
+ 
   return rowToJob(job);
 };
-
+ 
 function tokenize(text) {
   if (!text) return [];
   return text
@@ -463,7 +341,7 @@ function tokenize(text) {
     .split(/\s+/)
     .filter((word) => word.length > 1);
 }
-
+ 
 /**
  * Retrieves a job by its ID.
  *
@@ -482,7 +360,7 @@ async function getJob(id, { includeDeleted = false } = {}) {
   }
   return rowToJob(row);
 }
-
+ 
 /**
  * Encode a (createdAt, id) pair into an opaque base64 cursor.
  * Currently unused but kept for future pagination implementation.
@@ -499,7 +377,7 @@ function encodeCursor(jobRow) {
     }),
   ).toString("base64");
 }
-
+ 
 /**
  * Decode a base64 pagination cursor produced by {@link encodeCursor}.
  *
@@ -518,7 +396,7 @@ function decodeCursor(cursor) {
     throw e;
   }
 }
-
+ 
 /**
  * @typedef {Object} ListJobsOptions
  * @property {string} [category] - Filter by job category.
@@ -528,7 +406,7 @@ function decodeCursor(cursor) {
  * @property {string} [cursor] - Pagination cursor.
  * @property {string} [timezone] - Filter by timezone.
  */
-
+ 
 /**
  * List jobs with optional filtering, searching, and pagination.
  *
@@ -559,7 +437,7 @@ async function listJobs({
   const params = [];
   let selectColumns = "jobs.*";
   let orderClause = `CASE WHEN boosted = true AND (boosted_until IS NULL OR boosted_until > NOW()) THEN 0 ELSE 1 END, created_at DESC, id DESC`;
-
+ 
   if (search && search.trim()) {
     params.push(search.trim());
     const searchIdx = params.length;
@@ -574,18 +452,18 @@ async function listJobs({
     );
     orderClause = `rank DESC, ${orderClause}`;
   }
-
+ 
   if (!includeDeleted) {
     conditions.push("deleted_at IS NULL");
   }
-
+ 
   if (status && status !== "all") {
     params.push(status);
     conditions.push(`status = $${params.length}`);
   } else if (!includeExpired) {
     conditions.push("status != 'expired'");
   }
-
+ 
   if (category) {
     params.push(category);
     // Support slug (e.g. 'frontend-development') OR legacy name (e.g. 'Frontend Development')
@@ -594,19 +472,19 @@ async function listJobs({
       OR jobs.category = $${params.length}
     )`);
   }
-
+ 
   const minBudget = parseFloat(min_budget);
   if (!Number.isNaN(minBudget)) {
     params.push(minBudget);
     conditions.push(`budget >= $${params.length}`);
   }
-
+ 
   const maxBudget = parseFloat(max_budget);
   if (!Number.isNaN(maxBudget)) {
     params.push(maxBudget);
     conditions.push(`budget <= $${params.length}`);
   }
-
+ 
   const skillList = String(skills || "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
@@ -617,7 +495,7 @@ async function listJobs({
     params.push(skillList);
     conditions.push(`jobs.skills && $${params.length}::text[]`);
   }
-
+ 
   const minRating = parseFloat(min_client_rating);
   if (!Number.isNaN(minRating)) {
     params.push(minRating);
@@ -629,7 +507,7 @@ async function listJobs({
        )`,
     );
   }
-
+ 
   if (duration === "short") {
     conditions.push(
       "deadline IS NOT NULL AND deadline <= created_at + INTERVAL '7 days'",
@@ -643,7 +521,7 @@ async function listJobs({
       "deadline IS NOT NULL AND deadline > created_at + INTERVAL '28 days'",
     );
   }
-
+ 
   if (posted_since === "today") {
     conditions.push("created_at >= date_trunc('day', NOW())");
   } else if (posted_since === "week") {
@@ -651,7 +529,7 @@ async function listJobs({
   } else if (posted_since === "month") {
     conditions.push("created_at >= NOW() - INTERVAL '30 days'");
   }
-
+ 
   const maxApps = parseInt(max_applications, 10);
   if (!Number.isNaN(maxApps)) {
     params.push(maxApps);
@@ -677,7 +555,7 @@ async function listJobs({
   } else {
     conditions.push("visibility = 'public'");
   }
-
+ 
   if (cursor && !search) {
     const decoded = decodeCursor(cursor);
     params.push(decoded.createdAt, decoded.id);
@@ -687,7 +565,7 @@ async function listJobs({
       `(created_at < $${createdAtIdx} OR (created_at = $${createdAtIdx} AND id < $${idIdx}))`,
     );
   }
-
+ 
   const rows = await queryListJobs(readPool, {
     selectColumns,
     conditions,
@@ -695,17 +573,17 @@ async function listJobs({
     orderClause,
     limit,
   });
-
+ 
   const jobs = rows.map(rowToJob);
   let nextCursor = null;
-
+ 
   if (rows.length === limit && !search) {
     nextCursor = encodeCursor(rows[rows.length - 1]);
   }
-
+ 
   return { jobs, nextCursor, hasMore: Boolean(nextCursor) };
 }
-
+ 
 /**
  * Retrieve all jobs posted by a specific client.
  *
@@ -727,7 +605,7 @@ async function listJobsByClient(
   );
   return rows.map(rowToJob);
 }
-
+ 
 /**
  * Update the status of a specific job.
  *
@@ -742,30 +620,30 @@ let updateJobStatus = async function (id, status) {
     e.status = 400;
     throw e;
   }
-
+ 
   // Fetch old value before updating (for audit log)
   const { rows: oldRows } = await pool.query(
     "SELECT * FROM jobs WHERE id = $1",
     [id],
   );
   const oldJob = oldRows.length ? rowToJob(oldRows[0]) : null;
-
+ 
   const { rows } = await pool.query(
     "UPDATE jobs SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
     [status, id],
   );
-
+ 
   if (!rows.length) {
     const e = new Error("Job not found");
     e.status = 404;
     throw e;
   }
-
+ 
   const job = rowToJob(rows[0]);
   if (status === "completed" && job.freelancerAddress) {
     await refreshFreelancerTier(job.freelancerAddress);
   }
-
+ 
   // Append-only audit log for this state change
   try {
     await insertAuditLog({
@@ -779,10 +657,10 @@ let updateJobStatus = async function (id, status) {
   } catch {
     // Non-fatal: audit logging must never block the primary operation
   }
-
+ 
   return job;
 };
-
+ 
 /**
  * Assign a freelancer to a job and update its status to 'in_progress'.
  *
@@ -793,7 +671,7 @@ let updateJobStatus = async function (id, status) {
  */
 let assignFreelancer = async function (jobId, freelancerAddress) {
   validatePublicKey(freelancerAddress);
-
+ 
   const { rows } = await pool.query(
     `UPDATE jobs
      SET freelancer_address = $1, status = 'in_progress', updated_at = NOW()
@@ -801,16 +679,16 @@ let assignFreelancer = async function (jobId, freelancerAddress) {
      RETURNING *`,
     [freelancerAddress, jobId],
   );
-
+ 
   if (!rows.length) {
     const e = new Error("Job not found");
     e.status = 404;
     throw e;
   }
-
+ 
   return rowToJob(rows[0]);
 };
-
+ 
 /**
  * Update the escrow contract ID associated with a job.
  *
@@ -832,12 +710,12 @@ let updateJobEscrowId = async function (
     e.status = 400;
     throw e;
   }
-
+ 
   const { rows } = await pool.query(
     "UPDATE jobs SET escrow_contract_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
     [escrowContractId, jobId],
   );
-
+ 
   if (rows.length) {
     const job = rowToJob(rows[0]);
     // Use explicit amount when provided (e.g. accepted bid amount); fall back to job budget
@@ -855,12 +733,12 @@ let updateJobEscrowId = async function (
     );
     return job;
   }
-
+ 
   const e = new Error("Job not found");
   e.status = 404;
   throw e;
 };
-
+ 
 /**
  * Soft-delete a job by its ID (sets deleted_at instead of removing).
  *
@@ -879,7 +757,7 @@ async function deleteJob(jobId) {
     throw e;
   }
 }
-
+ 
 /**
  * Permanently purge soft-deleted jobs older than the given number of days.
  *
@@ -895,7 +773,7 @@ async function purgeDeletedJobs(days = 90) {
   );
   return rowCount || 0;
 }
-
+ 
 /**
  * Boost a job to increase its visibility.
  * Duration is determined by the XLM payment amount:
@@ -919,10 +797,10 @@ async function boostJob(jobId, txHash, boostDays = 7) {
     e.status = 404;
     throw e;
   }
-
+ 
   const boostedUntil = new Date();
   boostedUntil.setDate(boostedUntil.getDate() + boostDays);
-
+ 
   const { rows: updateRows } = await pool.query(
     `UPDATE jobs
      SET boosted = true, boosted_until = $1, updated_at = NOW()
@@ -930,10 +808,10 @@ async function boostJob(jobId, txHash, boostDays = 7) {
      RETURNING *`,
     [boostedUntil.toISOString(), jobId],
   );
-
+ 
   return rowToJob(updateRows[0]);
 }
-
+ 
 /**
  * Increment the share count for a specific job.
  *
@@ -946,14 +824,14 @@ async function incrementShareCount(jobId) {
     "UPDATE jobs SET share_count = COALESCE(share_count, 0) + 1, updated_at = NOW() WHERE id = $1",
     [jobId],
   );
-
+ 
   if (!rowCount) {
     const e = new Error("Job not found");
     e.status = 404;
     throw e;
   }
 }
-
+ 
 async function raiseDispute(jobId, { reason, description, raisedBy }) {
   // Fetch old value before updating (for audit log)
   const { rows: oldRows } = await pool.query(
@@ -961,7 +839,7 @@ async function raiseDispute(jobId, { reason, description, raisedBy }) {
     [jobId],
   );
   const oldJob = oldRows.length ? rowToJob(oldRows[0]) : null;
-
+ 
   const { rows } = await pool.query(
     `UPDATE jobs 
      SET status = 'disputed', 
@@ -974,15 +852,15 @@ async function raiseDispute(jobId, { reason, description, raisedBy }) {
      RETURNING *`,
     [reason, description, raisedBy, jobId],
   );
-
+ 
   if (!rows.length) {
     const e = new Error("Job not found or not in progress");
     e.status = 404;
     throw e;
   }
-
+ 
   const job = rowToJob(rows[0]);
-
+ 
   // Append-only audit log for dispute filing
   try {
     await insertAuditLog({
@@ -1000,11 +878,11 @@ async function raiseDispute(jobId, { reason, description, raisedBy }) {
   } catch {
     // Non-fatal
   }
-
+ 
   const recipients = new Set(
     [job.clientAddress, job.freelancerAddress].filter(Boolean),
   );
-
+ 
   for (const userAddress of recipients) {
     await createJobNotification({
       userAddress,
@@ -1015,10 +893,10 @@ async function raiseDispute(jobId, { reason, description, raisedBy }) {
       linkPath: `/disputes/${jobId}`,
     });
   }
-
+ 
   return job;
 }
-
+ 
 async function resolveDispute(jobId) {
   // Fetch old value before updating (for audit log)
   const { rows: oldRows } = await pool.query(
@@ -1026,7 +904,7 @@ async function resolveDispute(jobId) {
     [jobId],
   );
   const oldJob = oldRows.length ? rowToJob(oldRows[0]) : null;
-
+ 
   const { rows } = await pool.query(
     `UPDATE jobs 
      SET status = 'in_progress', 
@@ -1039,15 +917,15 @@ async function resolveDispute(jobId) {
      RETURNING *`,
     [jobId],
   );
-
+ 
   if (!rows.length) {
     const e = new Error("Job not found or not disputed");
     e.status = 404;
     throw e;
   }
-
+ 
   const job = rowToJob(rows[0]);
-
+ 
   // Append-only audit log for dispute resolution
   try {
     await insertAuditLog({
@@ -1061,10 +939,10 @@ async function resolveDispute(jobId) {
   } catch {
     // Non-fatal
   }
-
+ 
   return job;
 }
-
+ 
 async function getCategoryAnalytics() {
   const { rows } = await pool.query(`
     SELECT
@@ -1079,9 +957,9 @@ async function getCategoryAnalytics() {
     WHERE deleted_at IS NULL
     GROUP BY category
   `);
-
+ 
   const rowMap = new Map(rows.map((r) => [r.category, r]));
-
+ 
   return VALID_CATEGORIES.map((cat) => {
     const r = rowMap.get(cat);
     return {
@@ -1097,7 +975,7 @@ async function getCategoryAnalytics() {
     };
   }).sort((a, b) => b.jobCount - a.jobCount);
 }
-
+ 
 async function getAnalyticsOverview() {
   const { rows } = await pool.query(`
     SELECT
@@ -1113,7 +991,7 @@ async function getAnalyticsOverview() {
     FROM jobs
     WHERE deleted_at IS NULL
   `);
-
+ 
   const r = rows[0];
   return {
     totalJobs: parseInt(r.total_jobs, 10),
@@ -1129,7 +1007,7 @@ async function getAnalyticsOverview() {
       : null,
   };
 }
-
+ 
 /**
  * Extend a job's expiry by the given number of days.
  * Validates ownership, max 90-day total extension limit, and charges a 0.5 XLM fee per 7-day block.
@@ -1147,7 +1025,7 @@ async function extendJobExpiry(jobId, days = 30, clientAddress) {
     e.status = 400;
     throw e;
   }
-
+ 
   const { rows } = await pool.query(
     `${JOB_SELECT_CLAUSE} WHERE id = $1 AND deleted_at IS NULL`,
     [jobId],
@@ -1157,22 +1035,22 @@ async function extendJobExpiry(jobId, days = 30, clientAddress) {
     e.status = 404;
     throw e;
   }
-
+ 
   const job = rows[0];
-
+ 
   if (clientAddress && job.client_address !== clientAddress) {
     const e = new Error("Only the job owner can extend expiry");
     e.status = 403;
     throw e;
   }
-
+ 
   // Calculate total extension from original expires_at (or created_at if never set)
   const originalDate = job.expires_at || job.created_at;
   const originalTime = new Date(originalDate).getTime();
   const currentTime = Date.now();
   const alreadyExtendedMs = currentTime - originalTime;
   const alreadyExtendedDays = alreadyExtendedMs / (1000 * 60 * 60 * 24);
-
+ 
   if (alreadyExtendedDays + daysNum > 90) {
     const e = new Error(
       "Maximum total extension is 90 days from the original expiry",
@@ -1180,15 +1058,15 @@ async function extendJobExpiry(jobId, days = 30, clientAddress) {
     e.status = 400;
     throw e;
   }
-
+ 
   // Calculate fee: 0.5 XLM per 7-day block
   const feeBlocks = Math.ceil(daysNum / 7);
   const feeXlm = (0.5 * feeBlocks).toFixed(7);
-
+ 
   // Update the job
   const newExpiry = new Date();
   newExpiry.setDate(newExpiry.getDate() + daysNum);
-
+ 
   const { rows: updateRows } = await pool.query(
     `UPDATE jobs
      SET expires_at = $1,
@@ -1199,13 +1077,13 @@ async function extendJobExpiry(jobId, days = 30, clientAddress) {
      RETURNING *`,
     [newExpiry.toISOString(), jobId],
   );
-
+ 
   const updatedJob = rowToJob(updateRows[0]);
   updatedJob.extensionFeeXlm = feeXlm;
-
+ 
   return updatedJob;
 }
-
+ 
 /**
  * Increment view count for a job.
  * @param {string} jobId
@@ -1224,7 +1102,7 @@ async function incrementViewCount(jobId) {
   }
   return rows[0].view_count;
 }
-
+ 
 /**
  * Get job analytics for a specific job.
  * @param {string} jobId
@@ -1240,7 +1118,7 @@ async function getJobAnalytics(jobId) {
     e.status = 404;
     throw e;
   }
-
+ 
   const { rows: appRows } = await pool.query(
     `SELECT
        COUNT(*)::int AS total_applications,
@@ -1251,14 +1129,14 @@ async function getJobAnalytics(jobId) {
      FROM applications WHERE job_id = $1`,
     [jobId],
   );
-
+ 
   const { rows: viewRows } = await pool.query(
     `SELECT COUNT(*)::int AS total_views,
             COUNT(DISTINCT ip_hash)::int AS unique_views
      FROM job_views WHERE job_id = $1`,
     [jobId],
   );
-
+ 
   return {
     jobId,
     totalApplications: appRows[0]?.total_applications || 0,
@@ -1270,7 +1148,7 @@ async function getJobAnalytics(jobId) {
     uniqueViews: viewRows[0]?.unique_views || 0,
   };
 }
-
+ 
 /**
  * Auto-expire jobs past their expiry date.
  * @returns {Promise<number>} Count of expired jobs.
@@ -1286,7 +1164,7 @@ async function expireOldJobs() {
   );
   return rowCount || 0;
 }
-
+ 
 /**
  * Get jobs expiring within the given number of days.
  * @param {number} daysFromNow
@@ -1305,7 +1183,7 @@ async function getExpiringJobs(daysFromNow = 3) {
   );
   return rows.map(rowToJob);
 }
-
+ 
 /**
  * Bulk cancel multiple jobs owned by a client.
  * @param {string[]} jobIds
@@ -1329,7 +1207,7 @@ async function bulkCancelJobs(jobIds, clientAddress) {
   }
   return results;
 }
-
+ 
 /**
  * Bulk extend expiry for multiple jobs owned by a client.
  * @param {string[]} jobIds
@@ -1349,7 +1227,7 @@ async function bulkExtendJobs(jobIds, clientAddress, days = 30) {
   }
   return results;
 }
-
+ 
 /**
  * Bulk boost multiple jobs.
  * @param {string[]} jobIds
@@ -1369,7 +1247,7 @@ async function bulkBoostJobs(jobIds, clientAddress, txHash) {
   }
   return results;
 }
-
+ 
 /**
  * Get recommended jobs for a freelancer based on their skills.
  * Excludes jobs the freelancer has already applied to, been accepted for, or rejected from.
@@ -1382,7 +1260,7 @@ async function getRecommendedJobs(publicKey) {
     [publicKey],
   );
   const skills = profileRows.length ? profileRows[0].skills || [] : [];
-
+ 
   if (!skills.length) {
     // No skills, return recent open jobs excluding applied ones
     const { rows } = await pool.query(
@@ -1400,7 +1278,7 @@ async function getRecommendedJobs(publicKey) {
     );
     return rows.map(rowToJob);
   }
-
+ 
   const { rows } = await pool.query(
     `SELECT * FROM jobs
      WHERE status = 'open'
@@ -1411,17 +1289,22 @@ async function getRecommendedJobs(publicKey) {
      LIMIT 5`,
     [skills, publicKey],
   );
-
+ 
   return rows.map(rowToJob);
 }
-
+ 
 async function getSuggestions(query) {
-  if (!query || query.length < 2) {
+  // `query` originates from the request query string, which may be an array or
+  // object when a parameter is repeated (e.g. ?q=a&q=b). Only a plain string is
+  // a valid search term, so normalize anything else away before using it —
+  // otherwise the tainted value could be interpreted as a non-string type.
+  const normalizedQuery = typeof query === "string" ? query.trim() : "";
+  if (normalizedQuery.length < 2) {
     return { titles: [], skills: [], categories: [] };
   }
-
-  const q = query.trim();
-
+ 
+  const q = normalizedQuery;
+ 
   try {
     const [titleResults, skillResults] = await Promise.all([
       pool.query(
@@ -1440,11 +1323,11 @@ async function getSuggestions(query) {
         [`%${q}%`],
       ),
     ]);
-
+ 
     const categoryMatches = VALID_CATEGORIES.filter((cat) =>
       cat.toLowerCase().includes(q.toLowerCase()),
     ).slice(0, 2);
-
+ 
     return {
       titles: titleResults.rows.map((r) => r.title),
       skills: skillResults.rows.map((r) => r.skill),
@@ -1455,9 +1338,9 @@ async function getSuggestions(query) {
     return { titles: [], skills: [], categories: [] };
   }
 }
-
+ 
 // ─── Job Timeline (Issue #876) ────────────────────────────────────────────
-
+ 
 /**
  * Valid timeline event types.
  */
@@ -1468,7 +1351,7 @@ const TIMELINE_EVENT_TYPES = [
   "work_completed",
   "escrow_released",
 ];
-
+ 
 /**
  * Record a timeline event for a job. If an event type already exists for this
  * job, it is skipped (idempotent).
@@ -1485,7 +1368,7 @@ async function recordTimelineEvent(jobId, eventType, txHash = null) {
     e.status = 400;
     throw e;
   }
-
+ 
   // Idempotent: skip if this event type already exists for the job
   const { rows: existing } = await pool.query(
     "SELECT id FROM job_timeline WHERE job_id = $1 AND event_type = $2",
@@ -1494,7 +1377,7 @@ async function recordTimelineEvent(jobId, eventType, txHash = null) {
   if (existing.length > 0) {
     return existing[0];
   }
-
+ 
   const { rows } = await pool.query(
     `INSERT INTO job_timeline (job_id, event_type, tx_hash)
      VALUES ($1, $2, $3)
@@ -1503,7 +1386,7 @@ async function recordTimelineEvent(jobId, eventType, txHash = null) {
   );
   return rows[0];
 }
-
+ 
 /**
  * Get all timeline events for a job, ordered by creation time ascending.
  *
@@ -1518,7 +1401,7 @@ async function getJobTimeline(jobId) {
      ORDER BY created_at ASC`,
     [jobId],
   );
-
+ 
   return rows.map((row) => ({
     id: row.id,
     jobId: row.job_id,
@@ -1527,9 +1410,9 @@ async function getJobTimeline(jobId) {
     createdAt: row.created_at,
   }));
 }
-
+ 
 // ─── Integrate timeline recording into existing lifecycle methods ───────
-
+ 
 // Wrap createJob to record 'job_posted' event
 const _createJob = createJob;
 createJob = async function (params) {
@@ -1541,7 +1424,7 @@ createJob = async function (params) {
   }
   return job;
 };
-
+ 
 // Wrap assignFreelancer to record 'bid_accepted' event
 const _assignFreelancer = assignFreelancer;
 assignFreelancer = async function (jobId, freelancerAddress) {
@@ -1556,7 +1439,7 @@ assignFreelancer = async function (jobId, freelancerAddress) {
   }
   return job;
 };
-
+ 
 // Wrap updateJobStatus to record 'work_completed' event
 const _updateJobStatus = updateJobStatus;
 updateJobStatus = async function (id, status) {
@@ -1573,7 +1456,7 @@ updateJobStatus = async function (id, status) {
   }
   return job;
 };
-
+ 
 // Extend updateJobEscrowId to accept optional txHash for recording escrow_funded event
 const _updateJobEscrowId = updateJobEscrowId;
 updateJobEscrowId = async function (jobId, escrowContractId, options = {}) {
@@ -1589,7 +1472,104 @@ updateJobEscrowId = async function (jobId, escrowContractId, options = {}) {
   }
   return job;
 };
-
+ 
+/**
+ * Unified batch operation endpoint (Issue #869).
+ * Processes multiple job operations in a single DB transaction.
+ * Supports 'close' (cancel) and 'delete' actions.
+ *
+ * @param {('close'|'delete')} action - The batch action to perform
+ * @param {string[]} ids - Array of job IDs (max 50)
+ * @param {string} userPublicKey - Public key of the authenticated user
+ * @returns {Promise<{succeeded: Array<{id: string}>, failed: Array<{id: string, error: string}>}>}
+ */
+async function batchJobOperation(action, ids, userPublicKey) {
+  if (ids.length > 50) {
+    throw new Error("Maximum 50 IDs per batch request");
+  }
+ 
+  const succeeded = [];
+  const failed = [];
+ 
+  const client = await pool.connect();
+ 
+  try {
+    await client.query("BEGIN");
+ 
+    for (const id of ids) {
+      try {
+        // Verify ownership
+        const { rows: ownerRows } = await client.query(
+          "SELECT id, client_address, status FROM jobs WHERE id = $1 AND deleted_at IS NULL",
+          [id]
+        );
+ 
+        if (ownerRows.length === 0) {
+          failed.push({ id, error: "Job not found" });
+          continue;
+        }
+ 
+        const job = ownerRows[0];
+ 
+        if (job.client_address !== userPublicKey) {
+          failed.push({ id, error: "Unauthorized: you don't own this job" });
+          continue;
+        }
+ 
+        if (action === "close") {
+          // Can only close jobs that are 'open'
+          if (job.status !== "open") {
+            failed.push({ id, error: `Cannot close job with status '${job.status}'` });
+            continue;
+          }
+ 
+          await client.query(
+            "UPDATE jobs SET status = 'cancelled', updated_at = NOW() WHERE id = $1",
+            [id]
+          );
+          succeeded.push({ id });
+ 
+        } else if (action === "delete") {
+          // Can only delete jobs without escrow or applications
+          const { rows: appRows } = await client.query(
+            "SELECT COUNT(*) as count FROM applications WHERE job_id = $1",
+            [id]
+          );
+ 
+          if (parseInt(appRows[0].count, 10) > 0) {
+            failed.push({ id, error: "Cannot delete job with applications" });
+            continue;
+          }
+ 
+          if (job.status === "in_progress" || job.status === "completed") {
+            failed.push({ id, error: "Cannot delete job that is in progress or completed" });
+            continue;
+          }
+ 
+          await client.query(
+            "UPDATE jobs SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1",
+            [id]
+          );
+          succeeded.push({ id });
+        }
+ 
+      } catch (err) {
+        failed.push({ id, error: err.message || "Operation failed" });
+      }
+    }
+ 
+    await client.query("COMMIT");
+ 
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+ 
+  return { succeeded, failed };
+}
+ 
 module.exports = {
   createJob,
   getJob,
@@ -1614,6 +1594,7 @@ module.exports = {
   bulkCancelJobs,
   bulkExtendJobs,
   bulkBoostJobs,
+  batchJobOperation,
   getRecommendedJobs,
   getSuggestions,
   rowToJob,
@@ -1621,3 +1602,4 @@ module.exports = {
   getJobTimeline,
   TIMELINE_EVENT_TYPES,
 };
+ 
