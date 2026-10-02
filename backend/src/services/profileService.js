@@ -8,6 +8,7 @@
 const pool = require("../db/pool");
 const notificationService = require("./notificationService");
 const { validatePortfolioFiles } = require("./ipfsService");
+const { mergeVerificationMetadata } = require("./linkVerificationService");
 const encryptionService = require("./encryptionService");
 const { JSDOM } = require("jsdom");
 const createDOMPurify = require("dompurify");
@@ -390,10 +391,31 @@ async function upsertProfile({ publicKey, displayName, bio, skills, portfolioIte
 
   const safeBio = bio != null ? (sanitizeBio(bio) || null) : null;
   const safeSkills = Array.isArray(skills) ? skills.slice(0, 15) : null;
-  const safePortfolioItems = validatePortfolioItems(portfolioItems);
+  const validatedPortfolio = validatePortfolioItems(portfolioItems);
   const safePortfolioFiles = validatePortfolioFiles(portfolioFiles);
   const safeAvailability = availability === undefined ? null : validateAvailability(availability);
   const safeRole = validateProfileRole(role);
+
+  // Fetch existing portfolio items only after validation succeeds.
+  // We merge prior link-verification metadata forward so a user re-
+  // saving a profile without changing a portfolio URL keeps the
+  // green-check badge; items whose URL/type has changed start
+  // unverified and the background worker fills the new state.
+  let existingPortfolioItems = [];
+  if (Array.isArray(portfolioItems)) {
+    const { rows: priorRows } = await pool.query(
+      "SELECT portfolio_items FROM profiles WHERE public_key = $1",
+      [publicKey]
+    );
+    existingPortfolioItems = Array.isArray(priorRows[0]?.portfolio_items)
+      ? priorRows[0].portfolio_items
+      : [];
+  }
+
+  const safePortfolioItems = mergeVerificationMetadata(
+    validatedPortfolio,
+    existingPortfolioItems
+  );
 
   const encryptedEmail = encryptionService.encrypt(email?.trim());
   const emailHash = encryptionService.hashEmail(email);

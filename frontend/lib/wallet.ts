@@ -13,6 +13,8 @@ type FreighterWindowApi = {
   requestAccess?: () => Promise<unknown>;
   getPublicKey?: () => Promise<string | { publicKey?: string }>;
   signTransaction?: (transactionXDR: string, opts: Record<string, unknown>) => Promise<string | { signedTransaction?: string }>;
+  getVersion?: () => Promise<string>;
+  requestBuy?: (opts: { assetCode: string }) => Promise<{ success: boolean } | void>;
 };
 
 function getWindowFreighter(): FreighterWindowApi | null {
@@ -45,6 +47,74 @@ export async function isFreighterInstalled(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Minimum Freighter extension version required for `requestBuy()`.
+ * See docs/auth-flow.md § Freighter On-Ramp (requestBuy).
+ */
+export const FREIGHTER_REQUEST_BUY_MIN_VERSION = "5.0.0";
+
+/**
+ * Parse a semver-like version string into a numeric tuple for comparison.
+ * Handles "5.2.1", "5.2", "5" and ignores pre-release suffixes.
+ */
+export function parseVersion(version: string): [number, number, number] {
+  const [major = 0, minor = 0, patch = 0] = version
+    .split("-")[0]
+    .split(".")
+    .map((n) => parseInt(n, 10) || 0);
+  return [major, minor, patch];
+}
+
+/**
+ * Returns true if `version` >= `minimum` (semver-style comparison).
+ */
+export function isVersionAtLeast(version: string, minimum: string): boolean {
+  const [mMaj, mMin, mPat] = parseVersion(minimum);
+  const [vMaj, vMin, vPat] = parseVersion(version);
+  if (vMaj !== mMaj) return vMaj > mMaj;
+  if (vMin !== mMin) return vMin > mMin;
+  return vPat >= mPat;
+}
+
+/**
+ * Get the installed Freighter extension version string.
+ * Returns null if Freighter is not installed or does not expose getVersion().
+ */
+export async function getFreighterVersion(): Promise<string | null> {
+  const freighter = getWindowFreighter();
+  if (!freighter?.getVersion) return null;
+  try {
+    const v = await freighter.getVersion();
+    return typeof v === "string" && v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns true if the installed Freighter extension supports requestBuy().
+ * Requires Freighter >= FREIGHTER_REQUEST_BUY_MIN_VERSION and the method present.
+ */
+export async function supportsRequestBuy(): Promise<boolean> {
+  const freighter = getWindowFreighter();
+  if (!freighter?.requestBuy) return false;
+  const version = await getFreighterVersion();
+  if (!version) return false;
+  return isVersionAtLeast(version, FREIGHTER_REQUEST_BUY_MIN_VERSION);
+}
+
+/**
+ * Invoke Freighter's native on-ramp flow for the given asset.
+ * Resolves on success, throws on user cancellation or API error.
+ */
+export async function freighterRequestBuy(assetCode: string): Promise<void> {
+  const freighter = getWindowFreighter();
+  if (!freighter?.requestBuy) {
+    throw new Error("Freighter requestBuy() is not available in this version.");
+  }
+  await freighter.requestBuy({ assetCode });
 }
 
 export async function connectWallet(): Promise<{ publicKey: string | null; error: string | null }> {

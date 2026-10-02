@@ -69,6 +69,12 @@ const nextConfig = {
   webpack: (config, { isServer }) => {
     config.resolve.fallback = { ...config.resolve.fallback, fs: false, net: false, tls: false };
 
+    // `module` is a Node builtin used only by lib/sanitize.ts on the server;
+    // stub it out for the client so the browser bundle can resolve the import.
+    if (!isServer) {
+      config.resolve.fallback = { ...config.resolve.fallback, module: false };
+    }
+
     if (process.env.ANALYZE === 'true') {
       const { BundleAnalyzerPlugin } = require('@next/bundle-analyzer')({
         openAnalyzer: false,

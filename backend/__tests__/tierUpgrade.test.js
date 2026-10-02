@@ -18,7 +18,8 @@ describe("Tier upgrade flow", () => {
     // Before: profile shows low stats
     pool.query
       .mockResolvedValueOnce({ rows: [{ completed_jobs: 4, total_earned_xlm: 400, rating: 4.6 }] }) // previous profile select
-      .mockResolvedValueOnce({ rows: [{ completed_jobs: 20, total_earned_xlm: 600, avg_rating: 4.85, total_jobs: 20 }] }); // stats select & update
+      .mockResolvedValueOnce({ rows: [{ completed_jobs: 20, total_earned_xlm: 600, avg_rating: 4.85, total_jobs: 20 }] }) // stats select & update
+      .mockResolvedValueOnce({ rows: [{ created_at: "2024-01-01T00:00:00Z", completed_jobs: 20, total_earned_xlm: 600, avg_rating: 4.85, total_jobs: 20 }] }); // calculateTier query
 
     const newTier = await refreshFreelancerTier(publicKey);
 

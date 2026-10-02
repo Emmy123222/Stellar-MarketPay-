@@ -167,8 +167,9 @@ router.get("/project/:id/results", verifyJWT, async (req, res, next) => {
     }
 
     const { rows: results } = await pool.query(
-      `SELECT s.*, p.display_name
+      `SELECT s.*, a.title AS assessment_name, p.display_name
        FROM project_assessment_submissions s
+       JOIN project_assessments a ON a.id = s.assessment_id
        JOIN profiles p ON s.freelancer_address = p.public_key
        WHERE s.assessment_id = $1
        ORDER BY s.submitted_at DESC NULLS LAST`,

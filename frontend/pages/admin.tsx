@@ -1,12 +1,15 @@
 /**
  * pages/admin.tsx
  * Admin moderation dashboard gated by the server-issued admin JWT role.
- * Non-admin wallets are immediately redirected to /jobs.
+ * Non-admin wallets are immediately redirected to the homepage (/).
+ * The role is validated server-side in getServerSideProps (Issue #1423) so
+ * unauthenticated/non-admin sessions never see the admin layout flash.
  */
 import { useEffect, useState, useCallback } from "react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import Head from "next/head";
 import { useRouter } from "next/router";
+import type { GetServerSideProps } from "next";
 import {
   fetchAdminJobReports,
   fetchAdminDisputes,
@@ -29,20 +32,35 @@ import { useToast } from "@/components/Toast";
 
 // Dynamic import for heavy AdminAnalytics component
 const AdminAnalytics = dynamic(() => import("@/components/AdminAnalytics"), {
-  loading: () => <div className="animate-pulse bg-market-900/30 h-64 rounded-xl" />,
+  loading: () => (
+    <div className="animate-pulse bg-market-900/30 h-64 rounded-xl" />
+  ),
   ssr: false,
 });
 
-const AdminApiKeyUsage = dynamic(() => import("@/components/AdminApiKeyUsage"), {
-  loading: () => <div className="animate-pulse bg-market-900/30 h-64 rounded-xl" />,
-  ssr: false,
-});
+const AdminApiKeyUsage = dynamic(
+  () => import("@/components/AdminApiKeyUsage"),
+  {
+    loading: () => (
+      <div className="animate-pulse bg-market-900/30 h-64 rounded-xl" />
+    ),
+    ssr: false,
+  },
+);
 
 interface AdminPageProps {
   publicKey: string | null;
 }
 
-type ActiveTab = "analytics" | "disputes" | "reports" | "wallets" | "logs" | "cost" | "metrics" | "apiKeys";
+type ActiveTab =
+  | "analytics"
+  | "disputes"
+  | "reports"
+  | "wallets"
+  | "logs"
+  | "cost"
+  | "metrics"
+  | "apiKeys";
 type AdminState = "checking" | "authorized" | "denied";
 
 function getJwtRole() {
@@ -64,26 +82,110 @@ function getJwtRole() {
   }
 }
 
-function Badge({ label, color }: { label: string; color: "red" | "amber" | "emerald" | "blue" | "gray" }) {
+/**
+ * Read the backend's httpOnly `token` session cookie from an incoming
+ * request (Issue #1423). The cookie is set by the backend auth flow and is
+ * the only server-visible part of the session — the in-memory JWT held by
+ * `lib/api` is not available during SSR.
+ */
+function readSessionToken(
+  cookieHeader: string | undefined | null,
+): string | null {
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(";")) {
+    const separatorIndex = part.indexOf("=");
+    if (separatorIndex === -1) continue;
+    const name = part.slice(0, separatorIndex).trim();
+    if (name !== "token") continue;
+    const value = part.slice(separatorIndex + 1).trim();
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  }
+  return null;
+}
+
+/** Decode a JWT payload without verifying the signature (browser + Node). */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const encodedPayload = token.split(".")[1] || "";
+    const base64Payload = encodedPayload
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(encodedPayload.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(base64Payload));
+    return payload && typeof payload === "object" ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Server-side authentication guard for /admin (Issue #1423).
+ *
+ * Executes before any page content is rendered, so unauthenticated and
+ * non-admin sessions are redirected to `/` immediately — the admin layout
+ * never flashes for users who are not allowed to see it.
+ *
+ * NOTE: the JWT signature is intentionally *not* verified here —
+ * `JWT_SECRET` exists only in the backend. This guard is a render gate;
+ * authoritative enforcement stays with `requireAdminRole` on every admin
+ * API endpoint, which verifies the signature and role server-side.
+ */
+export const getServerSideProps: GetServerSideProps<AdminPageProps> = async ({
+  req,
+}) => {
+  const token = readSessionToken(req.headers.cookie);
+  const payload = token ? decodeJwtPayload(token) : null;
+  const role = typeof payload?.role === "string" ? payload.role : null;
+
+  if (role !== "admin") {
+    return { redirect: { destination: "/", permanent: false } };
+  }
+
+  return { props: { publicKey: null } };
+};
+
+function Badge({
+  label,
+  color,
+}: {
+  label: string;
+  color: "red" | "amber" | "emerald" | "blue" | "gray";
+}) {
   const colorMap = {
-    red:     "bg-red-500/10 text-red-400 border-red-500/20",
-    amber:   "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    red: "bg-red-500/10 text-red-400 border-red-500/20",
+    amber: "bg-amber-500/10 text-amber-400 border-amber-500/20",
     emerald: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    blue:    "bg-blue-500/10 text-blue-400 border-blue-500/20",
-    gray:    "bg-white/5 text-amber-800 border-white/10",
+    blue: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+    gray: "bg-white/5 text-amber-800 border-white/10",
   };
   return (
-    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${colorMap[color]}`}>
+    <span
+      className={`text-xs px-2 py-0.5 rounded-full border font-medium ${colorMap[color]}`}
+    >
       {label}
     </span>
   );
 }
 
-function Section({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
+function Section({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count?: number;
+  children: React.ReactNode;
+}) {
   return (
     <section className="mb-8">
       <div className="flex items-center gap-3 mb-4">
-        <h2 className="font-display text-xl font-bold text-amber-100">{title}</h2>
+        <h2 className="font-display text-xl font-bold text-amber-100">
+          {title}
+        </h2>
         {count !== undefined && (
           <span className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-2.5 py-1 rounded-full font-semibold">
             {count}
@@ -132,18 +234,30 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
   const [tsLoading, setTsLoading] = useState(false);
 
   // Per-row modal state
-  const [resolveModal, setResolveModal] = useState<{ jobId: string; title: string } | null>(null);
+  const [resolveModal, setResolveModal] = useState<{
+    jobId: string;
+    title: string;
+  } | null>(null);
   const [resolveNote, setResolveNote] = useState("");
-  const [releaseTo, setReleaseTo] = useState<"client" | "freelancer">("freelancer");
+  const [releaseTo, setReleaseTo] = useState<"client" | "freelancer">(
+    "freelancer",
+  );
 
-  const [cancelModal, setCancelModal] = useState<{ jobId: string; title: string } | null>(null);
+  const [cancelModal, setCancelModal] = useState<{
+    jobId: string;
+    title: string;
+  } | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
-  const [freezeModal, setFreezeModal] = useState<{ address: string } | null>(null);
+  const [freezeModal, setFreezeModal] = useState<{ address: string } | null>(
+    null,
+  );
   const [freezeReason, setFreezeReason] = useState("");
 
-  const [twoFaState, setTwoFaState] = useState<"loading" | "setup" | "verify" | "ready">("loading");
+  const [twoFaState, setTwoFaState] = useState<
+    "loading" | "setup" | "verify" | "ready"
+  >("loading");
   const [adminState, setAdminState] = useState<AdminState>("checking");
 
   const isAdmin = adminState === "authorized";
@@ -170,7 +284,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
       }
 
       setAdminState("denied");
-      router.replace("/jobs");
+      router.replace("/");
     }
 
     verifyAdminToken();
@@ -328,19 +442,22 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
   const tabs: { id: ActiveTab; label: string; count?: number }[] = [
     { id: "analytics", label: "Analytics" },
     { id: "disputes", label: "Open Disputes", count: disputes.length },
-    { id: "reports",  label: "Flagged Jobs",  count: reports.length },
-    { id: "wallets",  label: "Frozen Wallets", count: frozenWallets.length },
-    { id: "logs",     label: "Audit Log",      count: logs.length },
-    { id: "cost",     label: "Cost Report" },
-    { id: "metrics",  label: "Time-Series" },
-    { id: "apiKeys",  label: "API Key Usage" },
+    { id: "reports", label: "Flagged Jobs", count: reports.length },
+    { id: "wallets", label: "Frozen Wallets", count: frozenWallets.length },
+    { id: "logs", label: "Audit Log", count: logs.length },
+    { id: "cost", label: "Cost Report" },
+    { id: "metrics", label: "Time-Series" },
+    { id: "apiKeys", label: "API Key Usage" },
   ];
 
   return (
     <>
       <Head>
         <title>Admin — Stellar MarketPay</title>
-        <meta name="description" content="Platform moderation and admin dashboard." />
+        <meta
+          name="description"
+          content="Platform moderation and admin dashboard."
+        />
         <meta name="robots" content="noindex,nofollow" />
       </Head>
 
@@ -349,11 +466,14 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
             <span className="text-2xl">🛡️</span>
-            <h1 className="font-display text-3xl font-bold text-amber-100">Admin Dashboard</h1>
+            <h1 className="font-display text-3xl font-bold text-amber-100">
+              Admin Dashboard
+            </h1>
             <Badge label="Admin" color="amber" />
           </div>
           <p className="text-amber-800 text-sm mt-1">
-            Platform moderation center — flagged jobs, open disputes, and wallet controls.
+            Platform moderation center — flagged jobs, open disputes, and wallet
+            controls.
           </p>
           <p className="text-amber-900 text-xs mt-1 font-mono">
             Logged in as: {publicKey}
@@ -398,7 +518,10 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
         {loading ? (
           <div className="space-y-4 animate-pulse">
             {[1, 2, 3].map((n) => (
-              <div key={n} className="h-20 bg-market-500/5 rounded-xl border border-market-500/10" />
+              <div
+                key={n}
+                className="h-20 bg-market-500/5 rounded-xl border border-market-500/10"
+              />
             ))}
           </div>
         ) : (
@@ -433,28 +556,47 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                             <div className="text-sm text-amber-800 space-y-0.5">
                               <p>
                                 <span className="text-amber-700">Client:</span>{" "}
-                                <span className="font-mono">{shortenAddress(d.client_address)}</span>
+                                <span className="font-mono">
+                                  {shortenAddress(d.client_address)}
+                                </span>
                               </p>
                               <p>
-                                <span className="text-amber-700">Freelancer:</span>{" "}
-                                <span className="font-mono">{d.freelancer_address ? shortenAddress(d.freelancer_address) : "—"}</span>
+                                <span className="text-amber-700">
+                                  Freelancer:
+                                </span>{" "}
+                                <span className="font-mono">
+                                  {d.freelancer_address
+                                    ? shortenAddress(d.freelancer_address)
+                                    : "—"}
+                                </span>
                               </p>
                               <p>
-                                <span className="text-amber-700">Budget:</span> {d.budget} {d.currency}
+                                <span className="text-amber-700">Budget:</span>{" "}
+                                {d.budget} {d.currency}
                               </p>
                             </div>
                           </div>
                           <div className="flex gap-2 flex-wrap">
                             <button
                               id={`resolve-dispute-${d.job_id}`}
-                              onClick={() => setResolveModal({ jobId: d.job_id, title: d.job_title || d.job_id })}
+                              onClick={() =>
+                                setResolveModal({
+                                  jobId: d.job_id,
+                                  title: d.job_title || d.job_id,
+                                })
+                              }
                               className="btn-primary text-sm py-2 px-4"
                             >
                               Resolve
                             </button>
                             <button
                               id={`cancel-job-dispute-${d.job_id}`}
-                              onClick={() => setCancelModal({ jobId: d.job_id, title: d.job_title || d.job_id })}
+                              onClick={() =>
+                                setCancelModal({
+                                  jobId: d.job_id,
+                                  title: d.job_title || d.job_id,
+                                })
+                              }
                               className="btn-ghost text-sm py-2 px-4 text-red-400/80 hover:text-red-400"
                             >
                               Cancel Job
@@ -485,30 +627,45 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                           <div className="flex-1">
                             <div className="flex flex-wrap items-center gap-2 mb-2">
                               <Badge label={r.category} color="amber" />
-                              <Badge label={r.job_status || "unknown"} color="gray" />
+                              <Badge
+                                label={r.job_status || "unknown"}
+                                color="gray"
+                              />
                             </div>
                             <h3 className="font-semibold text-amber-100 mb-1">
                               {r.job_title || r.job_id}
                             </h3>
                             {r.description && (
-                              <p className="text-sm text-amber-800 mb-2 line-clamp-2">{r.description}</p>
+                              <p className="text-sm text-amber-800 mb-2 line-clamp-2">
+                                {r.description}
+                              </p>
                             )}
                             <p className="text-xs text-amber-900">
-                              Reported by <span className="font-mono">{shortenAddress(r.reporter_address)}</span>{" "}
+                              Reported by{" "}
+                              <span className="font-mono">
+                                {shortenAddress(r.reporter_address)}
+                              </span>{" "}
                               · {timeAgo(r.created_at)}
                             </p>
                           </div>
                           <div className="flex gap-2 flex-wrap">
                             <button
                               id={`admin-cancel-job-${r.job_id}`}
-                              onClick={() => setCancelModal({ jobId: r.job_id, title: r.job_title || r.job_id })}
+                              onClick={() =>
+                                setCancelModal({
+                                  jobId: r.job_id,
+                                  title: r.job_title || r.job_id,
+                                })
+                              }
                               className="btn-ghost text-sm py-2 px-4 text-red-400/80 hover:text-red-400"
                             >
                               Cancel Job
                             </button>
                             <button
                               id={`admin-freeze-reporter-${r.job_id}`}
-                              onClick={() => setFreezeModal({ address: r.reporter_address })}
+                              onClick={() =>
+                                setFreezeModal({ address: r.reporter_address })
+                              }
                               className="btn-ghost text-sm py-2 px-4 text-amber-700 hover:text-amber-400"
                             >
                               Freeze Reporter
@@ -545,12 +702,18 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                         className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-red-500/20 bg-red-500/5"
                       >
                         <div>
-                          <p className="font-mono text-amber-100 text-sm break-all">{fw.address}</p>
+                          <p className="font-mono text-amber-100 text-sm break-all">
+                            {fw.address}
+                          </p>
                           {fw.reason && (
-                            <p className="text-xs text-amber-800 mt-1">Reason: {fw.reason}</p>
+                            <p className="text-xs text-amber-800 mt-1">
+                              Reason: {fw.reason}
+                            </p>
                           )}
                           {fw.created_at && (
-                            <p className="text-xs text-amber-900 mt-0.5">Frozen {timeAgo(fw.created_at)}</p>
+                            <p className="text-xs text-amber-900 mt-0.5">
+                              Frozen {timeAgo(fw.created_at)}
+                            </p>
                           )}
                         </div>
                         <button
@@ -586,10 +749,17 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                       </thead>
                       <tbody className="divide-y divide-market-500/8">
                         {logs.map((log) => (
-                          <tr key={log.id} className="hover:bg-market-500/5 transition-colors">
-                            <td className="px-4 py-3 text-amber-100 font-mono text-xs">{log.action}</td>
+                          <tr
+                            key={log.id}
+                            className="hover:bg-market-500/5 transition-colors"
+                          >
+                            <td className="px-4 py-3 text-amber-100 font-mono text-xs">
+                              {log.action}
+                            </td>
                             <td className="px-4 py-3 text-amber-800 font-mono text-xs">
-                              {shortenAddress(log.actor_address || log.admin_address)}
+                              {shortenAddress(
+                                log.actor_address || log.admin_address,
+                              )}
                             </td>
                             <td className="px-4 py-3 text-amber-800 font-mono text-xs">
                               {formatAuditTarget(log.target || log.target_id)}
@@ -619,7 +789,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                       try {
                         const data = await fetchCostReport();
                         setCostReport(data);
-                      } catch { }
+                      } catch {}
                       setCostLoading(false);
                     }}
                     className="btn-primary text-sm py-2 px-5"
@@ -629,7 +799,9 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                   <button
                     onClick={async () => {
                       await generateCostReport();
-                      toast.success("Cost report generation triggered. Check audit log.");
+                      toast.success(
+                        "Cost report generation triggered. Check audit log.",
+                      );
                     }}
                     className="btn-ghost text-sm py-2 px-5"
                   >
@@ -640,50 +812,92 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                   <div className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                        <p className="text-xs text-amber-800 uppercase tracking-wider">Estimated Monthly</p>
+                        <p className="text-xs text-amber-800 uppercase tracking-wider">
+                          Estimated Monthly
+                        </p>
                         <p className="text-2xl font-bold text-amber-400">
                           ${costReport.totalEstimatedMonthlyCost.toFixed(2)}
                         </p>
-                        <p className="text-xs text-amber-800">Threshold: ${costReport.monthlySpendThresholdUsd}</p>
+                        <p className="text-xs text-amber-800">
+                          Threshold: ${costReport.monthlySpendThresholdUsd}
+                        </p>
                       </div>
                       <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                        <p className="text-xs text-amber-800 uppercase tracking-wider">Top Cost Driver</p>
-                        <p className="text-lg font-bold text-blue-400">{costReport.topCostDrivers[0]?.resource}</p>
-                        <p className="text-xs text-amber-800">${costReport.topCostDrivers[0]?.monthlyEstimateUsd}/mo</p>
+                        <p className="text-xs text-amber-800 uppercase tracking-wider">
+                          Top Cost Driver
+                        </p>
+                        <p className="text-lg font-bold text-blue-400">
+                          {costReport.topCostDrivers[0]?.resource}
+                        </p>
+                        <p className="text-xs text-amber-800">
+                          ${costReport.topCostDrivers[0]?.monthlyEstimateUsd}/mo
+                        </p>
                       </div>
                       <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
-                        <p className="text-xs text-amber-800 uppercase tracking-wider">Resources Tagged</p>
-                        <p className="text-lg font-bold text-green-400">{costReport.resourceTagging.project}</p>
-                        <p className="text-xs text-amber-800">{costReport.resourceTagging.untaggedResourcesFound} untagged</p>
+                        <p className="text-xs text-amber-800 uppercase tracking-wider">
+                          Resources Tagged
+                        </p>
+                        <p className="text-lg font-bold text-green-400">
+                          {costReport.resourceTagging.project}
+                        </p>
+                        <p className="text-xs text-amber-800">
+                          {costReport.resourceTagging.untaggedResourcesFound}{" "}
+                          untagged
+                        </p>
                       </div>
                     </div>
                     <div className="bg-market-800 p-4 rounded-lg">
-                      <h4 className="font-medium text-amber-100 mb-3">Top Cost Drivers</h4>
+                      <h4 className="font-medium text-amber-100 mb-3">
+                        Top Cost Drivers
+                      </h4>
                       <div className="space-y-2">
-                        {costReport.topCostDrivers.map((driver: any, i: number) => (
-                          <div key={i} className="flex items-center justify-between p-3 bg-market-700 rounded">
-                            <div className="flex-1">
-                              <p className="text-sm font-medium text-amber-100">{driver.resource}</p>
-                              <p className="text-xs text-amber-800">{driver.recommendation}</p>
+                        {costReport.topCostDrivers.map(
+                          (driver: any, i: number) => (
+                            <div
+                              key={i}
+                              className="flex items-center justify-between p-3 bg-market-700 rounded"
+                            >
+                              <div className="flex-1">
+                                <p className="text-sm font-medium text-amber-100">
+                                  {driver.resource}
+                                </p>
+                                <p className="text-xs text-amber-800">
+                                  {driver.recommendation}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-sm font-bold text-amber-400">
+                                  ${driver.monthlyEstimateUsd.toFixed(2)}
+                                </p>
+                                <p className="text-xs text-amber-800">
+                                  {driver.percentage}%
+                                </p>
+                              </div>
                             </div>
-                            <div className="text-right">
-                              <p className="text-sm font-bold text-amber-400">${driver.monthlyEstimateUsd.toFixed(2)}</p>
-                              <p className="text-xs text-amber-800">{driver.percentage}%</p>
-                            </div>
-                          </div>
-                        ))}
+                          ),
+                        )}
                       </div>
                     </div>
                     <div className="bg-market-800 p-4 rounded-lg">
-                      <h4 className="font-medium text-amber-100 mb-3">Right-Sizing Recommendations</h4>
+                      <h4 className="font-medium text-amber-100 mb-3">
+                        Right-Sizing Recommendations
+                      </h4>
                       <div className="space-y-2">
-                        {costReport.rightSizingRecommendations.map((rec: any, i: number) => (
-                          <div key={i} className="p-3 bg-market-700 rounded">
-                            <p className="text-sm font-medium text-amber-100">{rec.resource}</p>
-                            <p className="text-xs text-amber-800">{rec.current} → {rec.recommended}</p>
-                            <p className="text-xs text-green-400">Save {rec.estimatedSavings} — {rec.rationale}</p>
-                          </div>
-                        ))}
+                        {costReport.rightSizingRecommendations.map(
+                          (rec: any, i: number) => (
+                            <div key={i} className="p-3 bg-market-700 rounded">
+                              <p className="text-sm font-medium text-amber-100">
+                                {rec.resource}
+                              </p>
+                              <p className="text-xs text-amber-800">
+                                {rec.current} → {rec.recommended}
+                              </p>
+                              <p className="text-xs text-green-400">
+                                Save {rec.estimatedSavings} — {rec.rationale}
+                              </p>
+                            </div>
+                          ),
+                        )}
                       </div>
                     </div>
                   </div>
@@ -705,7 +919,9 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                     className="bg-market-800 border border-market-600 rounded-lg px-3 py-2 text-sm text-amber-100"
                   >
                     <option value="total_jobs">Total Jobs</option>
-                    <option value="total_escrow_volume_xlm">Escrow Volume (XLM)</option>
+                    <option value="total_escrow_volume_xlm">
+                      Escrow Volume (XLM)
+                    </option>
                     <option value="active_users">Active Users</option>
                     <option value="dispute_rate">Dispute Rate</option>
                   </select>
@@ -726,7 +942,7 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                           granularity: tsGranularity,
                         });
                         setTimeSeriesData(data);
-                      } catch { }
+                      } catch {}
                       setTsLoading(false);
                     }}
                     className="btn-primary text-sm py-2 px-5"
@@ -747,11 +963,22 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                       </thead>
                       <tbody className="divide-y divide-market-500/8">
                         {timeSeriesData.map((row: any, i: number) => (
-                          <tr key={i} className="hover:bg-market-500/5 transition-colors">
-                            <td className="px-4 py-3 text-amber-100 font-mono text-xs">{row.metric_name}</td>
-                            <td className="px-4 py-3 text-amber-800 font-mono text-xs">{Number(row.value).toFixed(4)}</td>
-                            <td className="px-4 py-3 text-amber-800 text-xs">{row.granularity}</td>
-                            <td className="px-4 py-3 text-amber-900 text-xs whitespace-nowrap">{row.bucket}</td>
+                          <tr
+                            key={i}
+                            className="hover:bg-market-500/5 transition-colors"
+                          >
+                            <td className="px-4 py-3 text-amber-100 font-mono text-xs">
+                              {row.metric_name}
+                            </td>
+                            <td className="px-4 py-3 text-amber-800 font-mono text-xs">
+                              {Number(row.value).toFixed(4)}
+                            </td>
+                            <td className="px-4 py-3 text-amber-800 text-xs">
+                              {row.granularity}
+                            </td>
+                            <td className="px-4 py-3 text-amber-900 text-xs whitespace-nowrap">
+                              {row.bucket}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -771,11 +998,22 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
       {resolveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="card max-w-md w-full border-market-500/30">
-            <h3 className="font-display text-lg font-bold text-amber-100 mb-1">Resolve Dispute</h3>
+            <h3 className="font-display text-lg font-bold text-amber-100 mb-1">
+              Resolve Dispute
+            </h3>
             <p className="text-amber-800 text-sm mb-4">{resolveModal.title}</p>
 
-            <span id="release-funds-to" className="block text-xs text-amber-800 mb-1">Release funds to</span>
-            <div className="flex gap-2 mb-4" role="group" aria-labelledby="release-funds-to">
+            <span
+              id="release-funds-to"
+              className="block text-xs text-amber-800 mb-1"
+            >
+              Release funds to
+            </span>
+            <div
+              className="flex gap-2 mb-4"
+              role="group"
+              aria-labelledby="release-funds-to"
+            >
               {(["freelancer", "client"] as const).map((side) => (
                 <button
                   key={side}
@@ -792,7 +1030,12 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
               ))}
             </div>
 
-            <label htmlFor="resolve-note" className="block text-xs text-amber-800 mb-1">Resolution note *</label>
+            <label
+              htmlFor="resolve-note"
+              className="block text-xs text-amber-800 mb-1"
+            >
+              Resolution note *
+            </label>
             <textarea
               id="resolve-note"
               value={resolveNote}
@@ -811,7 +1054,10 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                 Confirm Resolution
               </button>
               <button
-                onClick={() => { setResolveModal(null); setResolveNote(""); }}
+                onClick={() => {
+                  setResolveModal(null);
+                  setResolveNote("");
+                }}
                 className="btn-ghost text-sm px-4"
               >
                 Cancel
@@ -825,10 +1071,17 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
       {cancelModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="card max-w-md w-full border-red-500/30">
-            <h3 className="font-display text-lg font-bold text-amber-100 mb-1">Cancel Job</h3>
+            <h3 className="font-display text-lg font-bold text-amber-100 mb-1">
+              Cancel Job
+            </h3>
             <p className="text-amber-800 text-sm mb-4">{cancelModal.title}</p>
 
-            <label htmlFor="cancel-reason" className="block text-xs text-amber-800 mb-1">Reason *</label>
+            <label
+              htmlFor="cancel-reason"
+              className="block text-xs text-amber-800 mb-1"
+            >
+              Reason *
+            </label>
             <textarea
               id="cancel-reason"
               value={cancelReason}
@@ -847,7 +1100,10 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                 Cancel Job
               </button>
               <button
-                onClick={() => { setCancelModal(null); setCancelReason(""); }}
+                onClick={() => {
+                  setCancelModal(null);
+                  setCancelReason("");
+                }}
                 className="btn-ghost text-sm px-4"
               >
                 Back
@@ -876,9 +1132,16 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
       {freezeModal !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="card max-w-md w-full border-amber-500/30">
-            <h3 className="font-display text-lg font-bold text-amber-100 mb-4">Freeze Wallet</h3>
+            <h3 className="font-display text-lg font-bold text-amber-100 mb-4">
+              Freeze Wallet
+            </h3>
 
-            <label htmlFor="freeze-address" className="block text-xs text-amber-800 mb-1">Wallet Address *</label>
+            <label
+              htmlFor="freeze-address"
+              className="block text-xs text-amber-800 mb-1"
+            >
+              Wallet Address *
+            </label>
             <input
               id="freeze-address"
               type="text"
@@ -888,7 +1151,12 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
               placeholder="G..."
             />
 
-            <label htmlFor="freeze-reason" className="block text-xs text-amber-800 mb-1">Reason</label>
+            <label
+              htmlFor="freeze-reason"
+              className="block text-xs text-amber-800 mb-1"
+            >
+              Reason
+            </label>
             <input
               id="freeze-reason"
               type="text"
@@ -908,7 +1176,10 @@ export default function AdminDashboard({ publicKey }: AdminPageProps) {
                 Freeze
               </button>
               <button
-                onClick={() => { setFreezeModal(null); setFreezeReason(""); }}
+                onClick={() => {
+                  setFreezeModal(null);
+                  setFreezeReason("");
+                }}
                 className="btn-ghost text-sm px-4"
               >
                 Cancel

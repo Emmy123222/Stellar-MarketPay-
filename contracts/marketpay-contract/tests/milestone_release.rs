@@ -320,4 +320,233 @@ mod tests {
         // Everything is already released — the escrow is closed.
         contract.release_milestone(&job_id, &0u32, &client);
     }
+
+    // ─── release_all_milestones (Issue #1480) ─────────────────────────────
+
+    #[test]
+    fn test_release_all_milestones_transfers_all_balances() {
+        let env = Env::default();
+        let (contract, admin, client, freelancer, token_id) = setup(&env, 1_000);
+        let job_id = String::from_str(&env, "ms-batch-release-all");
+
+        create_milestone_escrow(
+            &contract,
+            &env,
+            &job_id,
+            &client,
+            &freelancer,
+            &token_id,
+            1_000,
+            &[20, 30, 50],
+        );
+        contract.start_work(&job_id, &freelancer);
+
+        contract.release_all_milestones(&job_id, &client);
+
+        // Every milestone is released and the escrow closes itself.
+        let escrow = contract.get_escrow(&job_id);
+        assert_eq!(escrow.status, EscrowStatus::Released);
+        assert_eq!(escrow.milestones.len(), 3);
+        for i in 0..escrow.milestones.len() {
+            let ms = escrow.milestones.get(i).unwrap();
+            assert!(ms.released, "milestone {i} should be released");
+            assert!(!ms.rejected);
+        }
+
+        // 1000 total: 1 % platform fee = 10 → freelancer 990, treasury 10,
+        // and the contract keeps nothing.
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&freelancer), 990);
+        assert_eq!(token_client.balance(&admin), 10);
+        assert_eq!(token_client.balance(&contract.address), 0);
+    }
+
+    #[test]
+    fn test_release_all_milestones_skips_already_released() {
+        let env = Env::default();
+        let (contract, admin, client, freelancer, token_id) = setup(&env, 1_000);
+        let job_id = String::from_str(&env, "ms-batch-partial");
+
+        create_milestone_escrow(
+            &contract,
+            &env,
+            &job_id,
+            &client,
+            &freelancer,
+            &token_id,
+            1_000,
+            &[20, 30, 50],
+        );
+        contract.start_work(&job_id, &freelancer);
+
+        // 20 % of 1000 = 200; fee = 2 → freelancer gets 198.
+        contract.release_milestone(&job_id, &0u32, &client);
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&freelancer), 198);
+
+        // The batch mops up the two outstanding milestones.
+        contract.release_all_milestones(&job_id, &client);
+
+        let escrow = contract.get_escrow(&job_id);
+        assert_eq!(escrow.status, EscrowStatus::Released);
+        assert_eq!(token_client.balance(&freelancer), 990);
+        assert_eq!(token_client.balance(&admin), 10);
+    }
+
+    #[test]
+    fn test_release_all_milestones_equivalent_to_sequential_release() {
+        let env = Env::default();
+        let (contract, _admin, batch_client, batch_freelancer, token_id) = setup(&env, 1_000);
+
+        // Second escrow with its own client/freelancer so balances don't mix.
+        let seq_client = Address::generate(&env);
+        let seq_freelancer = Address::generate(&env);
+        token::StellarAssetClient::new(&env, &token_id).mint(&seq_client, &1_000);
+
+        let batch_job = String::from_str(&env, "ms-batch-equivalent-a");
+        let seq_job = String::from_str(&env, "ms-batch-equivalent-b");
+        let percentages = [20, 30, 50];
+
+        create_milestone_escrow(
+            &contract,
+            &env,
+            &batch_job,
+            &batch_client,
+            &batch_freelancer,
+            &token_id,
+            1_000,
+            &percentages,
+        );
+        create_milestone_escrow(
+            &contract,
+            &env,
+            &seq_job,
+            &seq_client,
+            &seq_freelancer,
+            &token_id,
+            1_000,
+            &percentages,
+        );
+
+        contract.start_work(&batch_job, &batch_freelancer);
+        contract.start_work(&seq_job, &seq_freelancer);
+
+        // One batch call vs. three sequential single-milestone calls.
+        contract.release_all_milestones(&batch_job, &batch_client);
+        contract.release_milestone(&seq_job, &0u32, &seq_client);
+        contract.release_milestone(&seq_job, &1u32, &seq_client);
+        contract.release_milestone(&seq_job, &2u32, &seq_client);
+
+        let token_client = token::Client::new(&env, &token_id);
+        assert_eq!(token_client.balance(&batch_freelancer), 990);
+        assert_eq!(
+            token_client.balance(&batch_freelancer),
+            token_client.balance(&seq_freelancer)
+        );
+
+        let batch_escrow = contract.get_escrow(&batch_job);
+        let seq_escrow = contract.get_escrow(&seq_job);
+        assert_eq!(batch_escrow.status, EscrowStatus::Released);
+        assert_eq!(batch_escrow.status, seq_escrow.status);
+        for i in 0..batch_escrow.milestones.len() {
+            assert_eq!(
+                batch_escrow.milestones.get(i).unwrap().released,
+                seq_escrow.milestones.get(i).unwrap().released
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot batch release: a milestone was rejected")]
+    fn test_release_all_milestones_panics_when_milestone_rejected() {
+        let env = Env::default();
+        let (contract, _admin, client, freelancer, token_id) = setup(&env, 1_000);
+        let job_id = String::from_str(&env, "ms-batch-rejected");
+
+        create_milestone_escrow(
+            &contract,
+            &env,
+            &job_id,
+            &client,
+            &freelancer,
+            &token_id,
+            1_000,
+            &[40, 60],
+        );
+        contract.start_work(&job_id, &freelancer);
+
+        // A single rejected milestone blocks the whole batch.
+        contract.reject_milestone(&job_id, &1u32, &client);
+        contract.release_all_milestones(&job_id, &client);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the client can release a milestone")]
+    fn test_release_all_milestones_unauthorized_caller_panics() {
+        let env = Env::default();
+        let (contract, _admin, client, freelancer, token_id) = setup(&env, 1_000);
+        let job_id = String::from_str(&env, "ms-batch-unauthorized");
+
+        create_milestone_escrow(
+            &contract,
+            &env,
+            &job_id,
+            &client,
+            &freelancer,
+            &token_id,
+            1_000,
+            &[40, 60],
+        );
+        contract.start_work(&job_id, &freelancer);
+
+        contract.release_all_milestones(&job_id, &freelancer);
+    }
+
+    #[test]
+    #[should_panic(expected = "Escrow has no milestones")]
+    fn test_release_all_milestones_without_milestones_panics() {
+        let env = Env::default();
+        let (contract, _admin, client, freelancer, token_id) = setup(&env, 1_000);
+        let job_id = String::from_str(&env, "ms-batch-no-milestones");
+
+        contract.create_escrow(
+            &job_id,
+            &client,
+            &CreateEscrowParams {
+                freelancer: freelancer.clone(),
+                token: token_id.clone(),
+                amount: 1_000,
+                milestones: None,
+                timeout_ledgers: None,
+                referrer: None,
+            },
+        );
+        contract.start_work(&job_id, &freelancer);
+
+        contract.release_all_milestones(&job_id, &client);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot release milestone in current status")]
+    fn test_release_all_milestones_after_escrow_released_panics() {
+        let env = Env::default();
+        let (contract, _admin, client, freelancer, token_id) = setup(&env, 1_000);
+        let job_id = String::from_str(&env, "ms-batch-after-release");
+
+        create_milestone_escrow(
+            &contract,
+            &env,
+            &job_id,
+            &client,
+            &freelancer,
+            &token_id,
+            1_000,
+            &[40, 60],
+        );
+        contract.start_work(&job_id, &freelancer);
+        contract.release_all_milestones(&job_id, &client);
+
+        // The escrow is already Released — a second batch must be rejected.
+        contract.release_all_milestones(&job_id, &client);
+    }
 }
