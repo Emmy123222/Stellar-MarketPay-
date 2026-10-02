@@ -73,7 +73,41 @@ describe("Referrals Route Suite (/api/referrals)", () => {
   });
 
   // =========================================================================
-  // 2. GET /api/referrals/:publicKey
+  // 2. GET /api/referrals/stats
+  // =========================================================================
+  describe("GET /api/referrals/stats", () => {
+    it("200 — returns referral stats and earned bonuses for authenticated user", async () => {
+      const summaryRow = {
+        total_referrals: "2",
+        paid_referrals: "1",
+        pending_referrals: "1",
+        total_earned_xlm: "15.5000000",
+      };
+
+      pool.query
+        .mockResolvedValueOnce({ rows: [summaryRow] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const res = await request(app)
+        .get("/api/referrals/stats")
+        .set("Authorization", `Bearer ${makeToken(USER_KEY)}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.totalReferrals).toBe(2);
+      expect(res.body.data.totalEarnedXlm).toBe("15.5000000");
+      expect(res.body.data.earnedBonuses).toBe("15.5000000");
+    });
+
+    it("401 — rejects unauthenticated requests", async () => {
+      const res = await request(app).get("/api/referrals/stats");
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // =========================================================================
+  // 3. GET /api/referrals/:publicKey
   // =========================================================================
   describe("GET /api/referrals/:publicKey", () => {
     it("200 — happy path: returns referral stats and history for the authenticated user", async () => {

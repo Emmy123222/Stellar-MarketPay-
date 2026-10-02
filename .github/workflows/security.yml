@@ -54,12 +54,21 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ matrix.workspace }}/package-lock.json
 
-      - run: npm ci
-        continue-on-error: true
+      - name: Install dependencies
+        run: npm ci
 
       - name: Audit production dependencies
         run: |
-          npx audit-ci@^6.0.0 --high --skip-dev --allowlist GHSA-h25m-26qc-wcjf --allowlist GHSA-q4gf-8mx6-v5v3 --allowlist GHSA-8h8q-6873-q5fj --allowlist GHSA-c4j6-fc7j-m34r --allowlist GHSA-36qx-fr4f-26g5 --allowlist GHSA-m99w-x7hq-7vfj --allowlist GHSA-89xv-2m56-2m9x --allowlist GHSA-p9j2-gv94-2wf4 --allowlist GHSA-p293-qw3h-jr36 --allowlist GHSA-2xp9-vwfh-vxw4 --allowlist GHSA-6g55-p6wh-862q --allowlist GHSA-r28c-9q8g-f849 --allowlist GHSA-82x6-q7mm-w9cf --allowlist GHSA-v5mp-jgw5-2x6j --allowlist GHSA-6hxq-p678-4hr2
+          if [ "${{ matrix.workspace }}" = "frontend" ]; then
+            # frontend: filter out known-unfixable next@14.x advisories that
+            # have no patched release in the 14.x series (fixes in >=15.5.27).
+            node scripts/audit-filter.mjs
+          else
+            npm audit --omit=dev --audit-level=high --json > npm-audit.json || {
+              cat npm-audit.json
+              exit 1
+            }
+          fi
 
       - name: Audit all dependencies (advisory)
         run: npm audit --audit-level=moderate
@@ -104,15 +113,19 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Trivy
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
           severity: HIGH,CRITICAL
-          ignore-unfixed: true
           trivyignores: .trivyignore
           exit-code: "1"
-          format: table
+          skip-version-check: true
+          format: sarif
+          output: trivy-results.sarif
 
-
-
+      - name: Upload Trivy results to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif

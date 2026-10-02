@@ -182,10 +182,16 @@ async function createMessage({ jobId, senderAddress, content, contractTxHash }) 
 }
 
 /**
- * Get all messages for a job.
- * Merges off-chain DB messages with on-chain event records.
+ * Get messages for a job with cursor-based pagination.
+ *
+ * @param {string} jobId - UUID of the job
+ * @param {string} userAddress - Stellar public key of requesting user
+ * @param {Object} [options] - Pagination options
+ * @param {number|string} [options.limit=50] - Number of messages to fetch (1-100)
+ * @param {string} [options.before] - Cursor (created_at ISO string) to fetch messages older than
+ * @returns {Promise<{ messages: Object[], nextCursor: string|null }>}
  */
-async function getMessagesByJob(jobId, userAddress) {
+async function getMessagesByJob(jobId, userAddress, { limit = 50, before = null } = {}) {
   // Verify user is participant and fetch job details
   const job = await verifyJobParticipant(jobId, userAddress);
 
@@ -195,16 +201,69 @@ async function getMessagesByJob(jobId, userAddress) {
     throw e;
   }
 
-  // Fetch DB messages (includes both IPFS-backed and legacy off-chain messages)
+  const parsedLimit = parseInt(limit, 10);
+  const safeLimit = isNaN(parsedLimit) || parsedLimit <= 0 ? 50 : Math.min(parsedLimit, 100);
+
+  const params = [jobId];
+  let cursorClause = "";
+
+  if (before) {
+    let beforeDate = null;
+    if (typeof before === "string") {
+      const directDate = new Date(before);
+      if (!isNaN(directDate.getTime())) {
+        beforeDate = directDate;
+      } else {
+        try {
+          const decoded = Buffer.from(before, "base64").toString("utf-8");
+          const parsed = JSON.parse(decoded);
+          const parsedDate = new Date(parsed.createdAt || parsed);
+          if (!isNaN(parsedDate.getTime())) {
+            beforeDate = parsedDate;
+          }
+        } catch {
+          // not base64 json
+        }
+      }
+    } else if (before instanceof Date) {
+      beforeDate = before;
+    }
+
+    if (beforeDate && !isNaN(beforeDate.getTime())) {
+      params.push(beforeDate.toISOString());
+      cursorClause = `AND created_at < $${params.length}`;
+    }
+  }
+
+  params.push(safeLimit + 1);
+  const limitPlaceholder = `$${params.length}`;
+
+  // Fetch DB messages ordered newest first to get the most recent batch before the cursor
   const { rows } = await pool.query(
     `SELECT * FROM messages
      WHERE job_id = $1
-     ORDER BY created_at ASC`,
-    [jobId]
+       ${cursorClause}
+     ORDER BY created_at DESC, id DESC
+     LIMIT ${limitPlaceholder}`,
+    params
   );
 
-  // Mark messages where receiver = userAddress and read = false as read
-  if (rows.length > 0) {
+  const hasMore = rows.length > safeLimit;
+  const pageRows = hasMore ? rows.slice(0, safeLimit) : rows;
+
+  let nextCursor = null;
+  if (hasMore && pageRows.length > 0) {
+    const oldestRow = pageRows[pageRows.length - 1];
+    nextCursor = oldestRow.created_at instanceof Date
+      ? oldestRow.created_at.toISOString()
+      : new Date(oldestRow.created_at).toISOString();
+  }
+
+  // Reverse so the returned messages are in chronological order (oldest to newest)
+  const messagesChronological = pageRows.slice().reverse();
+
+  // Mark unread messages where receiver = userAddress as read
+  if (pageRows.length > 0) {
     await pool.query(
       `UPDATE messages
        SET read = TRUE
@@ -215,7 +274,10 @@ async function getMessagesByJob(jobId, userAddress) {
     );
   }
 
-  return rows.map(rowToMessage);
+  return {
+    messages: messagesChronological.map(rowToMessage),
+    nextCursor,
+  };
 }
 
 /**

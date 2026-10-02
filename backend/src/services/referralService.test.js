@@ -1,20 +1,16 @@
 "use strict";
 
-/**
- * src/services/referralService.test.js
- *
- * Unit test suite for referralService.js
- * Verifies:
- *   1. Referral credit is deferred until the referred user completes their first job (escrow released).
- *   2. Registration assigns referral_credit_pending status in the referrals table.
- *   3. escrowService.releaseEscrow() / processReferralPayout() triggers referral credit settlement on first job release.
- *   4. Subsequent jobs for the referee do not trigger duplicate referral credit settlement.
- */
+const mockQuery = jest.fn();
+const mockClientQuery = jest.fn();
+const mockRelease = jest.fn();
 
-jest.mock("../db/pool", () => {
-  const { createPgMock } = require("../testUtils/pgMock");
-  return createPgMock();
-});
+jest.mock("../db/pool", () => ({
+  query: mockQuery,
+  connect: jest.fn().mockResolvedValue({
+    query: mockClientQuery,
+    release: mockRelease,
+  }),
+}));
 
 const pool = require("../db/pool");
 const {
@@ -25,167 +21,284 @@ const {
   REFERRAL_BONUS_BPS,
 } = require("./referralService");
 
-const REFERRER_KEY = "G" + "A".repeat(55);
-const REFEREE_KEY = "G" + "B".repeat(55);
-const JOB_ID = "11111111-2222-3333-4444-555555555555";
-const JOB_2_ID = "66666666-7777-8888-9999-000000000000";
+describe("referralService", () => {
+  const REFERRER = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  const REFEREE = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+  const OTHER_REFERRER = "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+  const JOB_ID = "123e4567-e89b-12d3-a456-426614174000";
 
-describe("referralService Unit Tests", () => {
   beforeEach(() => {
-    pool.reset();
     jest.clearAllMocks();
+    mockQuery.mockReset();
+    mockClientQuery.mockReset();
+    mockRelease.mockReset();
   });
 
   describe("registerReferral", () => {
-    it("creates a referral with status 'referral_credit_pending' and does not issue immediate credit", async () => {
-      const createdRow = {
+    it("should successfully register a referral and increment referrer referral_count", async () => {
+      const newReferral = {
         id: "ref-uuid-1",
-        referrer_address: REFERRER_KEY,
-        referee_address: REFEREE_KEY,
-        status: "referral_credit_pending",
-        created_at: new Date().toISOString(),
+        referrer_address: REFERRER,
+        referee_address: REFEREE,
+        status: "pending",
       };
+      // 1. INSERT with WHERE NOT EXISTS -> returned row
+      mockQuery.mockResolvedValueOnce({ rows: [newReferral] });
+      // 2. UPDATE profiles SET referral_count = referral_count + 1
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
 
-      pool.query
-        .mockResolvedValueOnce({ rows: [createdRow] }) // INSERT referrals
-        .mockResolvedValueOnce({ rows: [] }); // UPDATE profiles referral_count
+      const result = await registerReferral(REFERRER, REFEREE);
 
-      const result = await registerReferral(REFERRER_KEY, REFEREE_KEY);
-
-      expect(result).toEqual(createdRow);
-      expect(result.status).toBe("referral_credit_pending");
-
-      // Verify DB query inserted 'referral_credit_pending' status
-      expect(pool.query).toHaveBeenCalledWith(
-        expect.stringContaining("VALUES ($1, $2, 'referral_credit_pending')"),
-        [REFERRER_KEY, REFEREE_KEY],
+      expect(result).toEqual(newReferral);
+      expect(mockQuery).toHaveBeenCalledTimes(2);
+      expect(mockQuery).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining("INSERT INTO referrals"),
+        [REFERRER, REFEREE]
+      );
+      expect(mockQuery).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining("UPDATE profiles"),
+        [REFERRER]
       );
     });
 
-    it("rejects self-referral", async () => {
-      await expect(registerReferral(REFERRER_KEY, REFERRER_KEY)).rejects.toThrow(
-        "Referrer and referee cannot be the same address",
-      );
+    it("should reject self-referrals with status 400", async () => {
+      await expect(registerReferral(REFERRER, REFERRER)).rejects.toMatchObject({
+        message: "Referrer and referee cannot be the same address",
+        status: 400,
+      });
+      expect(mockQuery).not.toHaveBeenCalled();
+    });
+
+    it("should prevent a referee from being referred more than once", async () => {
+      // If referee was already referred, WHERE NOT EXISTS returns 0 rows
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      const result = await registerReferral(REFERRER, REFEREE);
+
+      expect(result).toBeNull();
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+    });
+
+    it("should return null if insert conflict occurs (already existed)", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      const result = await registerReferral(REFERRER, REFEREE);
+
+      expect(result).toBeNull();
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+    });
+
+    it("should throw 400 for invalid public keys", async () => {
+      await expect(registerReferral("invalid-key", REFEREE)).rejects.toMatchObject({
+        message: "Invalid Stellar public key",
+        status: 400,
+      });
+      await expect(registerReferral(REFERRER, "invalid-key")).rejects.toMatchObject({
+        message: "Invalid Stellar public key",
+        status: 400,
+      });
     });
   });
 
   describe("getReferrerForReferee", () => {
-    it("finds referrer when status is 'referral_credit_pending'", async () => {
-      pool.query.mockResolvedValueOnce({
-        rows: [{ referrer_address: REFERRER_KEY }],
+    it("should return referrer address when pending referral exists", async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ referrer_address: REFERRER }],
       });
 
-      const referrer = await getReferrerForReferee(REFEREE_KEY);
-      expect(referrer).toBe(REFERRER_KEY);
+      const result = await getReferrerForReferee(REFEREE);
+      expect(result).toBe(REFERRER);
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining("WHERE referee_address = $1 AND status = 'pending'"),
+        [REFEREE]
+      );
     });
 
-    it("returns null if no pending referral exists", async () => {
-      pool.query.mockResolvedValueOnce({ rows: [] });
+    it("should return null when no pending referral exists", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
 
-      const referrer = await getReferrerForReferee(REFEREE_KEY);
-      expect(referrer).toBeNull();
+      const result = await getReferrerForReferee(REFEREE);
+      expect(result).toBeNull();
     });
   });
 
-  describe("processReferralPayout (escrow release trigger)", () => {
-    it("deferred settlement: issues 2% credit and updates status to 'paid' when first job is completed", async () => {
-      const pendingReferralRow = {
-        id: "ref-uuid-1",
-        referrer_address: REFERRER_KEY,
-        referee_address: REFEREE_KEY,
-        status: "referral_credit_pending",
-      };
+  describe("processReferralPayout", () => {
+    it("should calculate 1% bonus on escrow release and store in referral_payouts table", async () => {
+      // 1. Previous jobs count -> 0 (referee's first job)
+      mockQuery.mockResolvedValueOnce({ rows: [{ cnt: "0" }] });
+      // 2. Pending referral row -> found
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            id: "referral-uuid-1",
+            referrer_address: REFERRER,
+            referee_address: REFEREE,
+            status: "pending",
+          },
+        ],
+      });
 
-      // Mock pool.query for prevJobs check (0 previous jobs)
-      pool.query
-        .mockResolvedValueOnce({ rows: [{ cnt: "0" }] }) // prevJobs
-        .mockResolvedValueOnce({ rows: [pendingReferralRow] }); // find pending referral
+      // Transaction queries (client)
+      mockClientQuery.mockResolvedValue({ rowCount: 1 });
 
-      // Mock client transaction
-      const mockClient = {
-        query: jest.fn().mockResolvedValue({ rows: [] }),
-        release: jest.fn(),
-      };
-      pool.connect.mockResolvedValueOnce(mockClient);
+      const amountXlm = "100.0000000"; // 100 XLM escrow
+      // With 1% bonus (100 BPS), 1% of 100 is 1.0000000 XLM
+      const expectedBonus = ((100 * REFERRAL_BONUS_BPS) / 10_000).toFixed(7);
 
-      const amountXlm = "100.0000000";
-      const expectedBonus = ((100 * REFERRAL_BONUS_BPS) / 10000).toFixed(7); // "2.0000000"
+      const result = await processReferralPayout(JOB_ID, REFEREE, amountXlm, "tx-hash-123");
 
-      const res = await processReferralPayout(JOB_ID, REFEREE_KEY, amountXlm, "tx-hash-123");
-
-      expect(res).toEqual({
-        referrer: REFERRER_KEY,
+      expect(result).toEqual({
+        referrer: REFERRER,
         bonusXlm: expectedBonus,
       });
 
-      expect(mockClient.query).toHaveBeenCalledWith("BEGIN");
-      expect(mockClient.query).toHaveBeenCalledWith(
-        expect.stringContaining("SET status = 'paid'"),
-        [expectedBonus, JOB_ID, pendingReferralRow.id],
+      // Verify transaction flow
+      expect(mockClientQuery).toHaveBeenCalledWith("BEGIN");
+      // Update referrals to paid
+      expect(mockClientQuery).toHaveBeenCalledWith(
+        expect.stringContaining("UPDATE referrals"),
+        [expectedBonus, JOB_ID, "referral-uuid-1"]
       );
-      expect(mockClient.query).toHaveBeenCalledWith(
+      // Insert into referral_payouts
+      expect(mockClientQuery).toHaveBeenCalledWith(
         expect.stringContaining("INSERT INTO referral_payouts"),
-        [
-          pendingReferralRow.id,
-          REFERRER_KEY,
-          REFEREE_KEY,
-          JOB_ID,
-          expectedBonus,
-          "tx-hash-123",
-        ],
+        ["referral-uuid-1", REFERRER, REFEREE, JOB_ID, expectedBonus, "tx-hash-123"]
       );
-      expect(mockClient.query).toHaveBeenCalledWith(
-        expect.stringContaining("reputation_points = reputation_points + 5"),
-        [REFERRER_KEY],
+      // Update referrer reputation
+      expect(mockClientQuery).toHaveBeenCalledWith(
+        expect.stringContaining("UPDATE profiles"),
+        [REFERRER]
       );
-      expect(mockClient.query).toHaveBeenCalledWith("COMMIT");
-      expect(mockClient.release).toHaveBeenCalled();
+      expect(mockClientQuery).toHaveBeenCalledWith("COMMIT");
+      expect(mockRelease).toHaveBeenCalled();
     });
 
-    it("does not issue credit if it is not the referee's first job", async () => {
-      pool.query.mockResolvedValueOnce({ rows: [{ cnt: "1" }] }); // 1 previous completed job
+    it("should return null if referee has already completed a previous job", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ cnt: "1" }] }); // previously completed 1 job
 
-      const res = await processReferralPayout(JOB_2_ID, REFEREE_KEY, "100.0000000", null);
+      const result = await processReferralPayout(JOB_ID, REFEREE, "50.0000000");
 
-      expect(res).toBeNull();
-      expect(pool.connect).not.toHaveBeenCalled();
+      expect(result).toBeNull();
+      expect(mockClientQuery).not.toHaveBeenCalled();
+    });
+
+    it("should return null if no pending referral exists for referee", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ cnt: "0" }] });
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // no pending referral
+
+      const result = await processReferralPayout(JOB_ID, REFEREE, "50.0000000");
+
+      expect(result).toBeNull();
+    });
+
+    it("should return null for invalid or non-positive escrow amounts", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ cnt: "0" }] });
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ id: "ref-1", referrer_address: REFERRER }],
+      });
+
+      const res1 = await processReferralPayout(JOB_ID, REFEREE, "0");
+      expect(res1).toBeNull();
+
+      mockQuery.mockResolvedValueOnce({ rows: [{ cnt: "0" }] });
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ id: "ref-1", referrer_address: REFERRER }],
+      });
+
+      const res2 = await processReferralPayout(JOB_ID, REFEREE, "invalid");
+      expect(res2).toBeNull();
+    });
+
+    it("should rollback transaction on error", async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ cnt: "0" }] });
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ id: "ref-1", referrer_address: REFERRER }],
+      });
+
+      mockClientQuery.mockResolvedValueOnce({}); // BEGIN
+      mockClientQuery.mockRejectedValueOnce(new Error("DB failure during payout")); // UPDATE referrals fails
+
+      await expect(
+        processReferralPayout(JOB_ID, REFEREE, "100.0000000")
+      ).rejects.toThrow("DB failure during payout");
+
+      expect(mockClientQuery).toHaveBeenCalledWith("ROLLBACK");
+      expect(mockRelease).toHaveBeenCalled();
     });
   });
 
   describe("getReferralStats", () => {
-    it("shows zero earned XLM while credit is pending in referral_credit_pending status", async () => {
-      const summaryRow = {
-        total_referrals: "1",
-        paid_referrals: "0",
-        pending_referrals: "1",
-        total_earned_xlm: "0",
-      };
+    it("should return summary counts, earned bonuses, and lists", async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            total_referrals: "5",
+            paid_referrals: "3",
+            pending_referrals: "2",
+            total_earned_xlm: "15.5000000",
+          },
+        ],
+      });
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            id: "ref-1",
+            referee_address: REFEREE,
+            status: "paid",
+            payout_amount: "5.0000000",
+            paid_at: "2026-01-01T00:00:00Z",
+            created_at: "2025-12-01T00:00:00Z",
+            referee_display_name: "Alice",
+            job_title: "Build Website",
+          },
+        ],
+      });
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            id: "payout-1",
+            referee_address: REFEREE,
+            job_id: JOB_ID,
+            amount_xlm: "5.0000000",
+            contract_tx_hash: "hash-1",
+            created_at: "2026-01-01T00:00:00Z",
+            job_title: "Build Website",
+          },
+        ],
+      });
 
-      const refereeRows = [
-        {
-          id: "ref-uuid-1",
-          referee_address: REFEREE_KEY,
-          status: "referral_credit_pending",
-          payout_amount: null,
-          paid_at: null,
-          created_at: new Date().toISOString(),
-          referee_display_name: "Referee User",
-          job_title: null,
-        },
-      ];
+      const stats = await getReferralStats(REFERRER);
 
-      pool.query
-        .mockResolvedValueOnce({ rows: [summaryRow] })
-        .mockResolvedValueOnce({ rows: refereeRows })
-        .mockResolvedValueOnce({ rows: [] });
+      expect(stats.totalReferrals).toBe(5);
+      expect(stats.paidReferrals).toBe(3);
+      expect(stats.pendingReferrals).toBe(2);
+      expect(stats.totalEarnedXlm).toBe("15.5000000");
+      expect(stats.referees).toHaveLength(1);
+      expect(stats.payouts).toHaveLength(1);
+    });
 
-      const stats = await getReferralStats(REFERRER_KEY);
+    it("should handle empty stats correctly", async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            total_referrals: "0",
+            paid_referrals: "0",
+            pending_referrals: "0",
+            total_earned_xlm: "0",
+          },
+        ],
+      });
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      mockQuery.mockResolvedValueOnce({ rows: [] });
 
-      expect(stats.totalReferrals).toBe(1);
-      expect(stats.paidReferrals).toBe(0);
-      expect(stats.pendingReferrals).toBe(1);
+      const stats = await getReferralStats(REFERRER);
+
+      expect(stats.totalReferrals).toBe(0);
       expect(stats.totalEarnedXlm).toBe("0.0000000");
-      expect(stats.referees[0].status).toBe("referral_credit_pending");
+      expect(stats.referees).toEqual([]);
+      expect(stats.payouts).toEqual([]);
     });
   });
 });

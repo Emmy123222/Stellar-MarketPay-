@@ -75,16 +75,22 @@ fn try_create(percentages: &[u32]) -> bool {
     ok
 }
 
+/// Any non-empty percentages whose (u64) sum is not 100. Mixes small values
+/// (near the 100 boundary), zeros, and arbitrary u32s (overflow territory), and
+/// allows lengths above the 5-milestone cap. An empty vector is excluded: it is
+/// a valid single-payment escrow (see `test_empty_milestones_vec_is_allowed_as_single_payment`)
+/// rather than an invalid percentage split.
 /// Any percentages whose (u64) sum is not 100. Mixes small values (near the
 /// 100 boundary), zeros, and arbitrary u32s (overflow territory), and allows
-/// empty vectors and lengths above the 5-milestone cap.
+/// non-empty vectors and lengths above the 5-milestone cap. Empty milestone
+/// lists are valid for single-payment escrows.
 fn invalid_sum_percentages() -> impl Strategy<Value = std::vec::Vec<u32>> {
     let pct = prop_oneof![
         4 => 0u32..=100,
         1 => Just(0u32),
         1 => any::<u32>(),
     ];
-    proptest::collection::vec(pct, 0..=8).prop_filter("sum must not be 100", |v| {
+    proptest::collection::vec(pct, 1..=8).prop_filter("sum must not be 100", |v| {
         v.iter().map(|p| *p as u64).sum::<u64>() != 100
     })
 }
@@ -141,7 +147,8 @@ proptest! {
 
 #[test]
 fn edge_cases_from_issue() {
-    assert!(!try_create(&[]));
+    // An empty milestone list is a single-payment escrow, so it is accepted.
+    assert!(try_create(&[]));
     assert!(!try_create(&[0, 0, 0]));
     assert!(try_create(&[100]));
     assert!(try_create(&[20, 20, 20, 20, 20]));
