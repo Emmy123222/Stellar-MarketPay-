@@ -724,3 +724,84 @@ fn test_timeout_refund_after_complete_refund_and_recreate() {
         },
     );
 }
+
+// -- resolve_timeout tests --------------------------------------------------
+
+#[test]
+fn test_resolve_timeout_locked_refunds_client() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let setup = setup_escrow(&env, None, None, None);
+    let job_id = String::from_str(&env, "job1");
+    let contract_client = MarketPayContractClient::new(&env, &setup.contract_id);
+    let attacker = Address::generate(&env);
+
+    // Initial balances
+    let client_balance_before = setup.token_client.balance(&setup.client);
+    let contract_balance_before = setup.token_client.balance(&setup.contract_id);
+
+    // Advance beyond timeout (default 7 days)
+    env.ledger().set_timestamp(env.ledger().timestamp() + 7 * 24 * 60 * 60 + 1);
+
+    // Any caller can resolve
+    contract_client.resolve_timeout(&job_id);
+
+    // Verify refund
+    let client_balance_after = setup.token_client.balance(&setup.client);
+    let contract_balance_after = setup.token_client.balance(&setup.contract_id);
+
+    assert_eq!(client_balance_after, client_balance_before + setup.escrow_amount);
+    assert_eq!(contract_balance_after, contract_balance_before - setup.escrow_amount);
+    
+    // Status should be Refunded
+    let status = contract_client.get_status(&job_id);
+    assert_eq!(status, EscrowStatus::Refunded);
+}
+
+#[test]
+fn test_resolve_timeout_inprogress_pays_freelancer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let setup = setup_escrow(&env, None, None, None);
+    let job_id = String::from_str(&env, "job1");
+    let contract_client = MarketPayContractClient::new(&env, &setup.contract_id);
+
+    // Freelancer starts work
+    contract_client.start_work(&job_id, &setup.freelancer);
+
+    // Advance beyond timeout (default 7 days)
+    env.ledger().set_timestamp(env.ledger().timestamp() + 7 * 24 * 60 * 60 + 1);
+
+    let freelancer_balance_before = setup.token_client.balance(&setup.freelancer);
+    let treasury_balance_before = setup.token_client.balance(&setup.treasury);
+
+    // Any caller can resolve
+    contract_client.resolve_timeout(&job_id);
+
+    // Status should be Released
+    let status = contract_client.get_status(&job_id);
+    assert_eq!(status, EscrowStatus::Released);
+
+    let freelancer_balance_after = setup.token_client.balance(&setup.freelancer);
+    let treasury_balance_after = setup.token_client.balance(&setup.treasury);
+
+    // Check fee calculation (default 100 bps = 1%)
+    let expected_fee = setup.escrow_amount * 100 / 10000;
+    let expected_freelancer_amount = setup.escrow_amount - expected_fee;
+
+    assert_eq!(freelancer_balance_after, freelancer_balance_before + expected_freelancer_amount);
+    assert_eq!(treasury_balance_after, treasury_balance_before + expected_fee);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, 2014): Timeout period has not expired yet")]
+fn test_resolve_timeout_before_timeout_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let setup = setup_escrow(&env, None, None, None);
+    let job_id = String::from_str(&env, "job1");
+    let contract_client = MarketPayContractClient::new(&env, &setup.contract_id);
+    
+    // Call before timeout
+    contract_client.resolve_timeout(&job_id);
+}

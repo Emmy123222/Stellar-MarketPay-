@@ -20,6 +20,13 @@ export default function PostJob({ publicKey, onConnect }: PostJobProps) {
   const suggestedFreelancer =
     typeof router.query.freelancer === "string" ? router.query.freelancer : "";
 
+  const templateId =
+    typeof router.query.templateId === "string"
+      ? router.query.templateId
+      : typeof router.query.template === "string"
+      ? router.query.template
+      : "";
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
       {!publicKey ? (
@@ -39,6 +46,7 @@ export default function PostJob({ publicKey, onConnect }: PostJobProps) {
           publicKey={publicKey}
           initialCategory={category}
           suggestedFreelancer={suggestedFreelancer}
+          initialTemplateId={templateId}
         />
       )}
     </div>

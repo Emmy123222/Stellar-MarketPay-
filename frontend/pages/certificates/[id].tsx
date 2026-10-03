@@ -6,6 +6,7 @@ import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
+import type { GetServerSideProps } from "next";
 import { fetchCertificate, type CertificateData } from "@/lib/api";
 import { shortenAddress } from "@/utils/format";
 
@@ -15,11 +16,42 @@ type LoadState =
   | { status: "error"; message: string }
   | { status: "ok"; cert: CertificateData };
 
-export default function CertificatePage() {
+interface CertificatePageProps {
+  initialCertificate: CertificateData | null;
+  ogBaseUrl: string;
+}
+
+export const getServerSideProps: GetServerSideProps<CertificatePageProps> = async ({ params, req }) => {
+  const id = typeof params?.id === "string" ? params.id : "";
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined) ||
+    (req.headers.host as string | undefined) ||
+    "marketpay.stellar.org";
+  const protocol =
+    (req.headers["x-forwarded-proto"] as string | undefined) || "https";
+  const ogBaseUrl = `${protocol}://${host}`.replace(/\/$/, "");
+
+  if (!id) return { props: { initialCertificate: null, ogBaseUrl } };
+
+  try {
+    const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/$/, "");
+    const response = await fetch(`${apiBaseUrl}/api/certificates/${encodeURIComponent(id)}`);
+    if (!response.ok) return { props: { initialCertificate: null, ogBaseUrl } };
+    const body = await response.json();
+    return { props: { initialCertificate: body.success ? body.data : null, ogBaseUrl } };
+  } catch {
+    return { props: { initialCertificate: null, ogBaseUrl } };
+  }
+};
+
+export default function CertificatePage({ initialCertificate, ogBaseUrl }: CertificatePageProps) {
   const router = useRouter();
   const id = typeof router.query.id === "string" ? router.query.id : "";
 
-  const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [state, setState] = useState<LoadState>(
+    initialCertificate ? { status: "ok", cert: initialCertificate } : { status: "loading" },
+  );
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!router.isReady || !id) return;
@@ -50,6 +82,28 @@ export default function CertificatePage() {
     state.status === "ok"
       ? `${state.cert.skill.charAt(0).toUpperCase() + state.cert.skill.slice(1)} Certificate · MarketPay`
       : "Certificate · MarketPay";
+  const shareUrl = `${ogBaseUrl}/certificates/${encodeURIComponent(id)}`;
+  const shareDescription =
+    state.status === "ok"
+      ? `Verified ${state.cert.skill} skill certificate issued by Stellar MarketPay`
+      : "Skill certificate verification";
+
+  const shareCertificate = async () => {
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+      window.matchMedia("(pointer: coarse)").matches;
+
+    try {
+      if (isMobile && navigator.share) {
+        await navigator.share({ title, text: shareDescription, url: shareUrl });
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 2000);
+      }
+    } catch {
+      // Ignore cancellation from the native share sheet.
+    }
+  };
 
   return (
     <>
@@ -57,12 +111,19 @@ export default function CertificatePage() {
         <title>{title}</title>
         <meta
           name="description"
+          content={shareDescription}
+        />
+        <meta property="og:title" content={title} />
+        <meta
+          property="og:description"
           content={
             state.status === "ok"
               ? `Verified ${state.cert.skill} skill certificate issued by Stellar MarketPay`
               : "Skill certificate verification"
           }
         />
+        <meta property="og:url" content={typeof window !== "undefined" ? window.location.href : ""} />
+        <meta property="og:type" content="website" />
       </Head>
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12 animate-fade-in">
@@ -195,6 +256,14 @@ export default function CertificatePage() {
               {/* Actions */}
               <div className="flex flex-col sm:flex-row gap-3 pt-2">
                 <button
+                  type="button"
+                  onClick={shareCertificate}
+                  className="btn-secondary text-sm flex-1"
+                >
+                  {copied ? "Link copied!" : "Share Certificate"}
+                </button>
+                <button
+                  type="button"
                   onClick={() => window.print()}
                   className="btn-primary text-sm flex-1"
                 >
@@ -203,11 +272,37 @@ export default function CertificatePage() {
                   </svg>
                   Print / Save PDF
                 </button>
+                <button
+                  onClick={async () => {
+                    const url = window.location.href;
+                    if (navigator.share && /Mobi|Android/i.test(navigator.userAgent)) {
+                      try {
+                        await navigator.share({
+                          title,
+                          text: `Check out my Verified ${state.cert.skill} Certificate!`,
+                          url,
+                        });
+                      } catch (e) {
+                        console.error("Error sharing:", e);
+                      }
+                    } else {
+                      await navigator.clipboard.writeText(url);
+                      const { toast } = await import("@/components/Toast");
+                      toast.success("Certificate link copied to clipboard!");
+                    }
+                  }}
+                  className="btn-secondary text-sm flex-1"
+                >
+                  <svg className="w-4 h-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                  </svg>
+                  Share
+                </button>
                 <Link
                   href={`/freelancers/${state.cert.publicKey}`}
                   className="btn-secondary text-sm flex-1 text-center"
                 >
-                  View Freelancer Profile
+                  View Profile
                 </Link>
               </div>
             </div>

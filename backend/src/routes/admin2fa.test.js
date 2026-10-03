@@ -52,6 +52,10 @@ jest.mock("../db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock("../middleware/rateLimiter", () => ({
+  createRateLimiter: () => (req, res, next) => next(),
+}));
+
 jest.mock("../routes/notifications", () => {
   const { Router } = require("express");
   const router = Router();

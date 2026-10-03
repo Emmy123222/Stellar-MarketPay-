@@ -1,19 +1,38 @@
 import { api } from "./client";
 import type { Message } from "@/utils/types";
 
+export interface FetchMessagesParams {
+  limit?: number;
+  before?: string | null;
+}
+
+export interface FetchMessagesResponse {
+  messages: Message[];
+  nextCursor: string | null;
+}
+
 /**
- * Fetches all messages for a specific job.
+ * Fetches messages for a specific job with cursor-based pagination.
  * Automatically marks messages as read for the current user.
  *
  * @param jobId Job identifier.
- * @returns Messages sorted chronologically (oldest first).
+ * @param params Optional pagination parameters (limit, before cursor).
+ * @returns Object containing messages array and nextCursor string (or null).
  * @throws {import("axios").AxiosError} If unauthorized, job not found, or request fails.
  * @see backend/src/routes/messageRoutes.js
  */
-export async function fetchMessages(jobId: string): Promise<Message[]> {
-  const { data } = await api.get<{ success: boolean; data: Message[] }>(
-    `/api/messages/job/${jobId}`,
-  );
+export async function fetchMessages(
+  jobId: string,
+  params?: FetchMessagesParams,
+): Promise<FetchMessagesResponse> {
+  const { data } = await api.get<{
+    success: boolean;
+    data: FetchMessagesResponse | Message[];
+  }>(`/api/messages/job/${jobId}`, { params });
+
+  if (Array.isArray(data.data)) {
+    return { messages: data.data, nextCursor: null };
+  }
   return data.data;
 }
 

@@ -34,6 +34,7 @@ export async function fetchJobs(params?: {
     next_cursor: string | null;
     nextCursor: string | null;
     has_more: boolean;
+    total?: number | null;
   }>("/api/jobs", {
     params: {
       ...rest,
@@ -52,6 +53,7 @@ export async function fetchJobs(params?: {
     jobs: data.data,
     nextCursor: data.nextCursor ?? data.next_cursor ?? null,
     hasMore: data.has_more ?? Boolean(data.nextCursor ?? data.next_cursor),
+    total: data.total ?? null,
   };
 }
 
@@ -330,6 +332,25 @@ export async function deleteDraft(draftId: string) {
 
 // ─── Bulk Job Actions ───────────────────────────────────────────────────────
 
+/**
+ * Unified batch operation endpoint (Issue #869).
+ * Supports 'close' and 'delete' actions in a single DB transaction.
+ */
+export async function batchJobOperation(
+  action: "close" | "delete",
+  ids: string[]
+): Promise<{ succeeded: Array<{ id: string }>; failed: Array<{ id: string; error: string }> }> {
+  const { data } = await api.post<{
+    success: boolean;
+    succeeded: Array<{ id: string }>;
+    failed: Array<{ id: string; error: string }>;
+  }>(
+    "/api/jobs/batch",
+    { action, ids },
+  );
+  return { succeeded: data.succeeded, failed: data.failed };
+}
+
 export async function bulkCancelJobs(jobIds: string[]): Promise<BulkActionResponse> {
   const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
     "/api/jobs/bulk-cancel",
@@ -347,7 +368,7 @@ export async function bulkExtendJobs(jobIds: string[], days: number): Promise<Bu
 }
 
 export async function bulkBoostJobs(jobIds: string[], txHash: string): Promise<BulkActionResponse> {
-  const { data } = await api.post<{ success: boolean; data: BulkActionResponse }>(
+  const { data} = await api.post<{ success: boolean; data: BulkActionResponse }>(
     "/api/jobs/bulk-boost",
     { jobIds, txHash },
   );

@@ -1525,7 +1525,6 @@ function createPgMock() {
   mock.readPool = { query };
   mock.writePool = mock;
   return mock;
-
 }
 
 module.exports = {
@@ -1540,4 +1539,3 @@ module.exports = {
   defaultOnboardingRow,
   defaultPriceAlertRow,
 };
-
