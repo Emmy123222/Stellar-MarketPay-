@@ -121,12 +121,16 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
   const [encrypting, setEncrypting] = useState(false);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore]     = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
 
   const messagesEndRef       = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef             = useRef<HTMLInputElement>(null);
   const fileInputRef         = useRef<HTMLInputElement>(null);
   const isMountedRef         = useRef<boolean>(true);
+  const shouldScrollToBottomRef = useRef<boolean>(true);
 
   const rowVirtualizer = useVirtualizer({
     count: messages.length,
@@ -405,7 +409,10 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
               position: "relative",
             }}
           >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            {(rowVirtualizer.getVirtualItems().length > 0
+              ? rowVirtualizer.getVirtualItems()
+              : messages.map((_, i) => ({ index: i, key: i, start: i * 100, size: 100 }))
+            ).map((virtualRow) => {
               const msg = messages[virtualRow.index];
               const own = isOwnMessage(msg.senderAddress);
               return (

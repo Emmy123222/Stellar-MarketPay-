@@ -16,7 +16,8 @@
     "build": "npm run generate-openapi && npm run lint",
     "migrate": "node src/db/migrate.js",
     "migrate:rollback": "node src/db/migrate.js down",
-    "db:seed": "node ../scripts/seed-db.js"
+    "db:seed": "node ../scripts/seed-db.js",
+    "stryker": "stryker run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1141.0",
