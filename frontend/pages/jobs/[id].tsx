@@ -1,4 +1,5 @@
 import SubmitDeliverableHash from "@/components/SubmitDeliverableHash";
+import MessageThread from "@/components/MessageThread";
 import TimeTracker from "@/components/TimeTracker";
 import FeeEstimationModal from "@/components/FeeEstimationModal";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -221,6 +222,17 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
   const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
   const hasApplied = applications.some((a) => a.freelancerAddress === publicKey);
+
+  // The private message thread is available to both participants once the job
+  // has an assigned counterpart — i.e. once it is no longer open for
+  // applications (#1893).
+  const messageThreadRecipient = !job || job.status === "open" || !publicKey
+    ? null
+    : isClient
+      ? job.freelancerAddress ?? null
+      : isFreelancer
+        ? job.clientAddress ?? null
+        : null;
 
   // ── fetchApplications wrapper for useRealtimeBids ────────────────────────
   const fetchAppsForJob = useCallback(async (): Promise<Application[]> => {
@@ -729,6 +741,17 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
 
         {isFreelancer && job.status === "in_progress" && publicKey && (
           <SubmitDeliverableHash jobId={job.id} freelancerAddress={publicKey} />
+        )}
+
+        {/* ── Private message thread between client and freelancer (#1893) ── */}
+        {job && publicKey && messageThreadRecipient && (
+          <div className="mb-6">
+            <MessageThread
+              jobId={job.id}
+              currentUserAddress={publicKey}
+              otherUserAddress={messageThreadRecipient}
+            />
+          </div>
         )}
 
         {/* ── Applications list (client only, real-time via RealtimeBidComparison) ── */}
