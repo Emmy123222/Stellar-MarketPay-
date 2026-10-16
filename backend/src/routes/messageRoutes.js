@@ -132,6 +132,16 @@ router.post("/job/:jobId", generalRateLimiter, verifyJWT, async (req, res, next)
       contractTxHash: contractTxHash || null,
     });
 
+    // Real-time delivery (Issue #1893): push the new message to everyone
+    // subscribed to this job's message room. `jobId` in the payload makes
+    // broadcastRealtime target only `job:<jobId>` room subscribers, and the
+    // room name in the event matches what MessageThread filters on.
+    req.app.locals.broadcastRealtime?.(`job:${jobId}:messages`, {
+      type: "message:new",
+      message,
+      jobId,
+    });
+
     res.status(201).json({ success: true, data: message });
   } catch (e) {
     next(e);

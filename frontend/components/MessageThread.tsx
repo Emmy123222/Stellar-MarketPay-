@@ -121,12 +121,16 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
   const [encrypting, setEncrypting] = useState(false);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
+  const [nextCursor, setNextCursor]     = useState<string | null>(null);
+  const [hasMore, setHasMore]           = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
 
   const messagesEndRef       = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef             = useRef<HTMLInputElement>(null);
   const fileInputRef         = useRef<HTMLInputElement>(null);
   const isMountedRef         = useRef<boolean>(true);
+  const shouldScrollToBottomRef = useRef(false);
 
   const rowVirtualizer = useVirtualizer({
     count: messages.length,
@@ -171,6 +175,69 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
       publishMyEncryptionKey(currentUserAddress, myKey).catch(() => {});
     } catch { /* noop — SSR guard inside myPublicKeyBase64 */ }
   }, [currentUserAddress]);
+
+  // Real-time delivery (#1893): subscribe to this job's message room on the
+  // backend's realtime WebSocket. Frames are {event, payload}; the server
+  // sends `job:<jobId>:messages` with `{type: "message:new", message,
+  // jobId}` to every socket in the room. Reconnects with capped exponential
+  // back-off; the initial load via fetchMessages above stays the source of
+  // truth for history, while live frames only append new messages.
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let disposed = false;
+    let attempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    const room = `job:${jobId}`;
+
+    const connect = () => {
+      if (disposed) return;
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const socket = new WebSocket(`${protocol}//${window.location.host}/ws/realtime?room=${room}`);
+      ws = socket;
+
+      socket.onopen = () => {
+        if (disposed) return;
+        attempt = 0;
+        // The URL query already subscribed us server-side, but send an
+        // explicit subscribe frame too so reconnects re-join deterministically.
+        socket.send(JSON.stringify({ type: "subscribe", rooms: [room] }));
+      };
+
+      socket.onmessage = (event) => {
+        if (disposed) return;
+        try {
+          const frame = JSON.parse(event.data as string);
+          if (frame.event !== `job:${jobId}:messages`) return;
+          if (frame.payload?.type !== "message:new" || !frame.payload?.message) return;
+          const incoming: Message = frame.payload.message;
+          shouldScrollToBottomRef.current = true;
+          setMessages((prev) =>
+            prev.some((m) => m.id === incoming.id) ? prev : [...prev, incoming],
+          );
+        } catch {
+          // malformed frame — ignore
+        }
+      };
+
+      socket.onclose = () => {
+        if (disposed) return;
+        const delay = Math.min(1000 * 2 ** attempt, 15_000);
+        attempt += 1;
+        reconnectTimer = setTimeout(connect, delay);
+      };
+
+      socket.onerror = () => {
+        socket.close();
+      };
+    };
+
+    connect();
+    return () => {
+      disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      ws?.close();
+    };
+  }, [jobId]);
 
   const scrollToBottom = useCallback(() => {
     if (messages.length > 0) {
@@ -274,7 +341,15 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
       }
 
       if (isMountedRef.current) {
-        setMessages((prev) => prev.map((m) => (m.id === tempId ? sentMessage : m)));
+        // The realtime frame for our own message may have already arrived on
+        // this socket (the backend broadcasts to the whole room, sender
+        // included) — drop it so the optimistic entry and the confirmed copy
+        // collapse into a single row.
+        setMessages((prev) =>
+          prev
+            .filter((m) => m.id !== sentMessage.id || m.id === tempId)
+            .map((m) => (m.id === tempId ? sentMessage : m)),
+        );
       }
     } catch (e: unknown) {
       if (isMountedRef.current) {
@@ -357,7 +432,7 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
   }
 
   return (
-    <div className="card border-market-500/12 flex flex-col">
+    <div className="card border-market-500/12 flex flex-col" data-testid="message-thread">
       {/* Header */}
       <div className="flex items-center gap-2 px-4 pt-4 pb-2 border-b border-market-500/8">
         <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
