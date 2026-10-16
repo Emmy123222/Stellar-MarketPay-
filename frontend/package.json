@@ -22,7 +22,6 @@
     "i18n:check": "node scripts/check-translations.mjs --strict"
   },
   "dependencies": {
-    "@ducanh2912/next-pwa": "^10.2.9",
     "@react-pdf/renderer": "^4.9.0",
     "@simplewebauthn/browser": "^9.0.1",
     "@stellar/freighter-api": "^2.0.0",
@@ -47,11 +46,12 @@
     "react-dom": "^18.3.1",
     "react-i18next": "^17.0.8",
     "recharts": "^3.9.0",
-    "swr": "^2.4.2",
+    "swr": "^2.5.1",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
+    "@ducanh2912/next-pwa": "^10.2.9",
     "@next/bundle-analyzer": "^15.5.27",
     "@playwright/test": "^1.62.1",
     "@storybook/addon-links": "^9.1.20",

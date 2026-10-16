@@ -11,6 +11,17 @@ jest.mock('../services/cacheService', () => ({
   ping: jest.fn().mockResolvedValue('up'),
 }));
 
+// /health probes Soroban RPC directly; keep the probe deterministic offline.
+jest.mock('../services/sorobanClient', () => ({
+  getServer: jest.fn(() => ({
+    getLatestLedger: jest.fn().mockResolvedValue({ sequence: 456 }),
+  })),
+}));
+
+jest.mock('../services/contractVersionService', () => ({
+  getContractVersion: jest.fn().mockResolvedValue('1.0.0'),
+}));
+
 global.fetch = jest.fn().mockResolvedValue({
   ok: true,
   json: jest.fn().mockResolvedValue({ _embedded: { records: [{ sequence: 123 }] } }),

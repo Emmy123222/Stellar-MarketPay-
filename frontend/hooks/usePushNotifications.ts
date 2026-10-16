@@ -113,7 +113,7 @@ export function usePushNotifications() {
       if (!subscription) {
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(state.vapidPublicKey!).buffer as ArrayBuffer,
+          applicationServerKey: urlBase64ToUint8Array(state.vapidPublicKey!) as unknown as ArrayBuffer,
         });
       }
 

@@ -47,6 +47,8 @@ import { useOnboarding } from "@/hooks/useOnboarding";
 import XlmPriceWidget from "@/components/XlmPriceWidget";
 import BuyXLMModal from "@/components/BuyXLMModal";
 import WithdrawToBankModal from "@/components/WithdrawToBankModal";
+import { useBookmarks } from "@/hooks/useBookmarks";
+import JobCard from "@/components/JobCard";
 
 // Dynamic imports for heavy components
 const ReferralDashboard = dynamic(() => import("@/components/ReferralDashboard"), {
@@ -71,7 +73,7 @@ interface DashboardProps {
   onConnect: (pk: string) => void;
 }
 
-type Tab = "posted" | "applied" | "proposals" | "invitations" | "analytics" | "earnings" | "swap" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals" | "talent_pool";
+type Tab = "posted" | "applied" | "proposals" | "invitations" | "saved" | "analytics" | "earnings" | "swap" | "spending" | "send" | "edit_profile" | "templates" | "price_alerts" | "withdrawals" | "saved_searches" | "referrals" | "talent_pool";
 const REPOST_JOB_PREFILL_STORAGE_KEY = "marketpay_repost_job_prefill";
 
 async function fetchBalances(
@@ -117,7 +119,12 @@ function syncDashboardNavBadge(count: number) {
 }
 
 export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
+  const router = useRouter();
   const toast = useToast();
+  const { xlmPriceUsd } = usePriceContext();
+  const { progress, checklistItems } = useOnboarding(publicKey);
+  const { savedCount, getSavedJobs } = useBookmarks();
+
   const [tab, setTab] = useState<Tab>("posted");
   const [canViewSpending, setCanViewSpending] = useState(true);
   const [myJobs, setMyJobs] = useState<Job[]>([]);
@@ -140,44 +147,53 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
   const [confirmDeleteTemplate, setConfirmDeleteTemplate] = useState<string | null>(null);
   const [confirmDeleteSearch, setConfirmDeleteSearch] = useState<string | null>(null);
 
-  // ── Missing state declarations (referenced throughout component) ──────────
-  const [showWithdraw, setShowWithdraw] = useState(false);
-  const [showBuyXLM, setShowBuyXLM] = useState(false);
-  const [withdrawHistory, setWithdrawHistory] = useState<Array<{ id: string; amount: string; asset: string; fiatCurrency: string }>>([]);
-  const [spendingAnalytics, setSpendingAnalytics] = useState<ClientSpendingAnalytics | null>(null);
-  const [spendingLoading, setSpendingLoading] = useState(false);
-  const [savedSearches, setSavedSearches] = useState<Array<{ id: string; query_params: Record<string, string>; notify_in_app: boolean; notify_email: boolean; created_at: string }>>([]);
-  const [savedSearchesLoading, setSavedSearchesLoading] = useState(false);
-  const [templates, setTemplates] = useState<Array<{ id: string; name: string; content: string }>>([]);
-  const [templateName, setTemplateName] = useState("");
-  const [templateContent, setTemplateContent] = useState("");
-  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
-  const [minPrice, setMinPrice] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
-  const [emailEnabled, setEmailEnabled] = useState(false);
-  const [alertEmail, setAlertEmail] = useState("");
-  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [alertMatchesDismissed, setAlertMatchesDismissed] = useState(false);
-  const [alertMatches, setAlertMatches] = useState<Job[]>([]);
-  const [extendingJob, setExtendingJob] = useState<string | null>(null);
-
-  // ── Destructure onboarding progress ──────────────────────────────────────
-  const { checklistItems, progress } = useOnboarding(publicKey);
-
-  // ── Derived values ────────────────────────────────────────────────────────
-  const { xlmPriceUsd } = usePriceContext();
   const { success } = toast;
-  const router = useRouter();
 
-  // ── Missing local helpers ─────────────────────────────────────────────────
-  function loadWithdrawHistory(): Array<{ id: string; amount: string; asset: string; fiatCurrency: string }> {
+  const [showBuyXLM, setShowBuyXLM] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
+
+  interface WithdrawEntry {
+    id: string;
+    amount: string;
+    asset: string;
+    fiatCurrency: string;
+  }
+  const WITHDRAW_HISTORY_KEY = "withdrawHistory";
+  function loadWithdrawHistory(): WithdrawEntry[] {
+    if (typeof window === "undefined") return [];
     try {
-      const raw = typeof window !== "undefined" ? localStorage.getItem("marketpay_withdraw_history") : null;
-      return raw ? JSON.parse(raw) : [];
+      const raw = localStorage.getItem(WITHDRAW_HISTORY_KEY);
+      return raw ? (JSON.parse(raw) as WithdrawEntry[]) : [];
     } catch {
       return [];
     }
   }
+  const [withdrawHistory, setWithdrawHistory] = useState<WithdrawEntry[]>([]);
+
+  const [templates, setTemplates] = useState<ProposalTemplate[]>([]);
+  const [templateName, setTemplateName] = useState("");
+  const [templateContent, setTemplateContent] = useState("");
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [emailEnabled, setEmailEnabled] = useState(false);
+  const [alertEmail, setAlertEmail] = useState("");
+
+  const [spendingAnalytics, setSpendingAnalytics] = useState<ClientSpendingAnalytics | null>(null);
+  const [spendingLoading, setSpendingLoading] = useState(false);
+
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+  const [savedSearchesLoading, setSavedSearchesLoading] = useState(false);
+
+  const [alertMatches, setAlertMatches] = useState<Job[]>([]);
+  const [alertMatchesDismissed, setAlertMatchesDismissed] = useState(false);
+
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [extendingJob, setExtendingJob] = useState<string | null>(null);
+
+  const [savedJobs, setSavedJobs] = useState<Job[]>([]);
+  const [savedJobsLoading, setSavedJobsLoading] = useState(false);
 
   const refreshBalances = useCallback(async () => {
     if (!publicKey) return;
@@ -193,31 +209,49 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     }
   }, [publicKey]);
 
-  const handleExtendJob = useCallback((jobId: string) => {
-    setExtendingJob(jobId);
-    const job = myJobs.find((j) => j.id === jobId) ?? null;
-    setExtendModalJob(job);
-  }, [myJobs]);
+  const handleResetContractMock = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const keys = Object.keys(localStorage).filter((k) => k.startsWith("contractMock:"));
+    keys.forEach((k) => localStorage.removeItem(k));
+    toast.success("Mock contract state reset.");
+  }, [toast]);
 
   const handleRepost = useCallback((job: Job) => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(REPOST_JOB_PREFILL_STORAGE_KEY, JSON.stringify(job));
-    }
+    if (typeof window === "undefined") return;
+    localStorage.setItem(
+      REPOST_JOB_PREFILL_STORAGE_KEY,
+      JSON.stringify({
+        title: job.title,
+        description: job.description,
+        budget: job.budget,
+        category: job.category,
+        skills: job.skills,
+        deadline: job.deadline,
+      }),
+    );
     router.push("/post-job");
   }, [router]);
 
-  const handleResetContractMock = useCallback(() => {
-    if (typeof window !== "undefined") {
-      Object.keys(localStorage)
-        .filter((k) => k.startsWith("mock_escrow_"))
-        .forEach((k) => localStorage.removeItem(k));
+  const handleExtendJob = useCallback((jobId: string) => {
+    const job = myJobs.find((j) => j.id === jobId);
+    if (job) {
+      setExtendingJob(jobId);
+      setExtendModalJob(job);
     }
-  }, []);
+  }, [myJobs]);
 
+  useEffect(() => {
+    if (tab !== "saved") return;
+    setSavedJobsLoading(true);
+    getSavedJobs()
+      .then((jobs) => setSavedJobs(jobs))
+      .finally(() => setSavedJobsLoading(false));
+  }, [tab, getSavedJobs]);
 
   const handleJobExtended = useCallback((updated: Job) => {
     setMyJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
     setExtendModalJob(null);
+    setExtendingJob(null);
   }, []);
 
   const bulkResult = useCallback(
@@ -254,7 +288,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     } finally {
       setBulkLoading(false);
     }
-  }, [selectedJobIds, bulkResult]);
+  }, [selectedJobIds]);
 
   const handleBulkExtend = useCallback(async () => {
     setBulkLoading(true);
@@ -270,7 +304,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
     } finally {
       setBulkLoading(false);
     }
-  }, [selectedJobIds, bulkResult]);
+  }, [selectedJobIds]);
 
   const handleBulkBoost = useCallback(async () => {
     setBulkLoading(true);
@@ -596,6 +630,19 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
         onCloseExtendModal={() => setExtendModalJob(null)}
       />
     ),
+    saved: savedJobsLoading ? (
+      <div className="card animate-pulse h-24" />
+    ) : savedJobs.length === 0 ? (
+      <div className="card text-center py-12 text-amber-700">
+        No saved jobs yet. Bookmark jobs from the job board to see them here.
+      </div>
+    ) : (
+      <div className="grid gap-4">
+        {savedJobs.map((job) => (
+          <JobCard key={job.id} job={job} />
+        ))}
+      </div>
+    ),
     applied: <AppliedJobsTab myApplications={myApplications} />,
     proposals: (
       <ProposalComparison
@@ -871,6 +918,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           "applied",
           "proposals",
           "invitations",
+          "saved",
           "analytics",
           "earnings",
           "swap",
@@ -888,6 +936,7 @@ export default function Dashboard({ publicKey, onConnect }: DashboardProps) {
           t === "applied" ? `Applications (${myApplications.length})` :
           t === "proposals" ? `Proposals (${totalProposalCount})` :
           t === "invitations" ? `Invitations${myInvitations.length > 0 ? ` (${myInvitations.length})` : ""}` :
+          t === "saved" ? `Saved${savedCount > 0 ? ` (${savedCount})` : ""}` :
           t === "analytics" ? "Job Analytics" :
           t === "earnings" ? "Earnings" :
           t === "swap" ? "Swap earnings" :

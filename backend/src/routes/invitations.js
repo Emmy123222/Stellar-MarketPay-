@@ -178,6 +178,7 @@ router.post("/:id/accept", verifyJWT, async (req, res, next) => {
 
     res.status(201).json({ success: true, data: application });
   } catch (e) {
+    console.error("INV ACCEPT ERROR", e.message, e.stack);
     next(e);
   }
 });

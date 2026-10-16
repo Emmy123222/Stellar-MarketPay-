@@ -52,9 +52,9 @@ jest.mock("../../services/indexerService", () =>
   })),
 );
 
-jest.mock("../../services/priceAlertService", () =>
-  jest.fn().mockImplementation(() => ({ start: jest.fn() })),
-);
+jest.mock("../../services/priceAlertService", () => ({
+  PriceAlertService: jest.fn().mockImplementation(() => ({ start: jest.fn() })),
+}));
 
 jest.mock("../../db/migrate", () => ({
   migrate: jest.fn().mockResolvedValue(undefined),

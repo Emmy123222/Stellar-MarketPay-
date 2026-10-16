@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Verify no duplicate migration versions exist.
 set -euo pipefail
 

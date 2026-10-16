@@ -40,6 +40,13 @@ const faucetWalletLimiter = createRateLimiter(1, 24 * 60, {
     hashRateLimitIdentifier("wallet", req.body?.publicKey || req.params?.publicKey),
   requestPropertyName: "rateLimit_faucet_wallet",
   legacyHeaders: false,
+  handler: (req, res) => {
+    res.set("Retry-After", String(24 * 60 * 60));
+    res.set("Cache-Control", "no-store");
+    return res.status(429).json({
+      message: "Too many requests — please wait before trying again",
+    });
+  },
 });
 
 /**

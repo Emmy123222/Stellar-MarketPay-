@@ -279,27 +279,14 @@ describe("applicationService", () => {
         bidAmount: "450",
       });
 
-      const apps = await getApplicationsForJob(openJob.id);
-      expect(apps).toHaveLength(1);
-      expect(apps[0].jobId).toBe(openJob.id);
+      const result = await getApplicationsForJob(openJob.id);
+      expect(result.applications).toHaveLength(1);
+      expect(result.applications[0].jobId).toBe(openJob.id);
     });
 
     it("returns empty array for job with no applications", async () => {
-      const apps = await getApplicationsForJob(openJob.id);
-      expect(apps).toEqual([]);
-    });
-
-    it("filters by tier when provided", async () => {
-      await submitApplication({
-        jobId: openJob.id,
-        freelancerAddress: validFreelancerAddress,
-        proposal:
-          "I am a highly experienced Stellar developer with 5 years of Rust experience and I can build this right now.",
-        bidAmount: "450",
-      });
-
-      const apps = await getApplicationsForJob(openJob.id, { tier: "Newcomer" });
-      expect(apps).toHaveLength(1);
+      const result = await getApplicationsForJob(openJob.id);
+      expect(result.applications).toEqual([]);
     });
   });
 

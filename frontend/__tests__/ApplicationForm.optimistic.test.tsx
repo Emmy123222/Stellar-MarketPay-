@@ -73,10 +73,13 @@ describe("ApplicationForm optimistic updates", () => {
     const button = screen.getByRole("button", { name: /Submit Proposal|Apply/i });
     expect(button).toBeEnabled();
 
-    // Click submit
+    // Click submit (first click shows confirm step)
     fireEvent.click(button);
+    // Second click confirms and actually submits
+    const confirmButton = screen.getByRole("button", { name: /Confirm/i });
+    fireEvent.click(confirmButton);
 
-    // Immediately after click: text changes to "Application submitted!" and is disabled
+    // Immediately after confirm: text changes to "Application submitted!" and is disabled
     expect(button).toHaveTextContent("Application submitted!");
     expect(button).toBeDisabled();
 
@@ -105,6 +108,7 @@ describe("ApplicationForm optimistic updates", () => {
 
     const button = screen.getByRole("button", { name: /Submit Proposal|Apply/i });
     fireEvent.click(button);
+    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
 
     // Optimistically updated
     expect(button).toHaveTextContent("Application submitted!");
@@ -145,6 +149,7 @@ describe("ApplicationForm optimistic updates", () => {
 
     const button = screen.getByRole("button", { name: /Submit Proposal|Apply/i });
     fireEvent.click(button);
+    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
 
     expect(button).toHaveTextContent("Application submitted!");
     expect(button).toBeDisabled();
@@ -175,8 +180,11 @@ describe("ApplicationForm optimistic updates", () => {
     fireEvent.change(textarea, { target: { value: LONG_PROPOSAL } });
 
     const button = screen.getByRole("button", { name: /Submit Proposal|Apply/i });
+    // First click shows confirm step
     fireEvent.click(button);
-    fireEvent.click(button);
+    // Second click on confirm actually submits
+    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+    // Third click on disabled button is a no-op
     fireEvent.click(button);
 
     await waitFor(() => expect(api.submitApplication).toHaveBeenCalledTimes(1));

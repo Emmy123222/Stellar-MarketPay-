@@ -341,12 +341,12 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
                 width="16"
                 height="16"
                 viewBox="0 0 24 24"
-                fill={isSaved(job.id) ? "currentColor" : "none"}
+                fill={saved ? "currentColor" : "none"}
                 stroke="currentColor"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className={`transition-colors group-hover/bookmark:text-amber-400 ${isSaved(job.id) ? 'text-amber-400' : 'text-amber-700/60 group-hover/bookmark:text-amber-400'}`}
+                className={`transition-colors group-hover/bookmark:text-amber-400 ${saved ? 'text-amber-400' : 'text-amber-700/60 group-hover/bookmark:text-amber-400'}`}
               >
                 <path d="m14 20 4-6H4l4 6z"/>
                 <path d="M18 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0z"/>

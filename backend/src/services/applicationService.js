@@ -37,6 +37,7 @@ function decodeApplicationCursor(cursor) {
 if (process.env.NODE_ENV === 'test') {
   const store = require('./store');
   const crypto = require('crypto');
+  const pool = require('../db/pool');
   const statusHistory = new Map();
 
   function validatePublicKey(key) {
@@ -59,15 +60,18 @@ if (process.env.NODE_ENV === 'test') {
       status: row.status,
       screeningAnswers: row.screeningAnswers || row.screening_answers || {},
       createdAt: row.createdAt || row.created_at || new Date().toISOString(),
+      withdrawnAt: row.withdrawnAt || row.withdrawn_at || null,
+      bidRevealed: row.bidRevealed ?? row.bid_revealed ?? false,
+      revealedBidAmount: row.revealedBidAmount || row.revealed_bid_amount || null,
+      biddingClosedAt: row.biddingClosedAt || row.bidding_closed_at || null,
     };
   }
 
-  async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, currency = 'XLM', screeningAnswers }) {
+  async function submitApplication({ jobId, freelancerAddress, proposal, bidAmount, currency = 'XLM', screeningAnswers, bidCommitment }) {
     validatePublicKey(freelancerAddress);
 
     const { getJob } = require('./jobService');
     const job = await getJob(jobId);
-
     if (job.status !== 'open') {
       const e = new Error('Job is not open for applications');
       e.status = 400;
@@ -82,6 +86,17 @@ if (process.env.NODE_ENV === 'test') {
       const e = new Error('This job is private and cannot receive applications');
       e.status = 403;
       throw e;
+    }
+    if (job.visibility === 'invite_only') {
+      const { rows: inviteRows } = await pool.query(
+        "SELECT 1 FROM job_invitations WHERE job_id = $1 AND freelancer_address = $2",
+        [jobId, freelancerAddress]
+      );
+      if (!inviteRows.length) {
+        const e = new Error('You are not invited to this job');
+        e.status = 403;
+        throw e;
+      }
     }
 
     if (!proposal || proposal.length < 50) {
@@ -104,27 +119,39 @@ if (process.env.NODE_ENV === 'test') {
       }
     }
 
-    const id = crypto.randomUUID();
-    const now = new Date().toISOString();
-    const appRow = {
-      id,
-      jobId,
-      freelancerAddress,
-      proposal: proposal.trim(),
-      bidAmount: parseFloat(bidAmount).toFixed(7),
-      currency,
-      screeningAnswers: screeningAnswers || {},
-      status: 'pending',
-      createdAt: now,
-    };
+    let appRow;
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, currency, screening_answers, bid_commitment, status, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', NOW())
+         RETURNING *`,
+        [
+          jobId,
+          freelancerAddress,
+          proposal.trim(),
+          parseFloat(bidAmount).toFixed(7),
+          currency,
+          JSON.stringify(screeningAnswers || {}),
+          bidCommitment || null,
+        ]
+      );
+      appRow = rows[0];
+    } catch (err) {
+      if (err.code === "23505") {
+        const e = new Error('You have already applied to this job');
+        e.status = 409;
+        throw e;
+      }
+      throw err;
+    }
 
-    store.applications.set(id, appRow);
+    store.applications.set(appRow.id, rowToApp(appRow));
 
-    const jobRow = store.jobs.get(jobId);
-    jobRow.applicantCount = (jobRow.applicantCount || 0) + 1;
+    const jobRow = { ...job, applicantCount: (job.applicantCount || 0) + 1 };
     store.jobs.set(jobId, jobRow);
 
-    return rowToApp(appRow);
+    const result = rowToApp(appRow);
+    return result;
   }
 
   async function acceptApplication(applicationId, clientAddress) {
@@ -182,6 +209,78 @@ if (process.env.NODE_ENV === 'test') {
     return statusHistory.get(applicationId) || [];
   }
 
+  async function withdrawApplication(applicationId, freelancerAddress) {
+    const app = store.applications.get(applicationId);
+    if (!app) { const e = new Error('Application not found'); e.status = 404; throw e; }
+    if (app.freelancerAddress !== freelancerAddress) { const e = new Error('Only the freelancer who submitted can withdraw this application'); e.status = 403; throw e; }
+    if (app.status === 'accepted') { const e = new Error('Cannot withdraw an already-accepted application'); e.status = 400; throw e; }
+    app.status = 'withdrawn';
+    app.withdrawnAt = new Date().toISOString();
+    store.applications.set(applicationId, app);
+    return rowToApp(app);
+  }
+
+  async function closeBiddingForJob(jobId, clientAddress) {
+    const job = store.jobs.get(jobId);
+    if (!job) { const e = new Error('Job not found'); e.status = 404; throw e; }
+    if (job.clientAddress !== clientAddress) { const e = new Error('Only the client can close bidding'); e.status = 403; throw e; }
+    if (job.status !== 'open') { const e = new Error('Bidding can only be closed while job is open'); e.status = 400; throw e; }
+    if (job.biddingClosedAt) { const e = new Error('Bidding is already closed'); e.status = 400; throw e; }
+    job.biddingClosedAt = new Date().toISOString();
+    store.jobs.set(jobId, job);
+    return { jobId, biddingClosedAt: job.biddingClosedAt };
+  }
+
+  async function revealApplicationBid(applicationId, freelancerAddress, bidAmount, nonce) {
+    const app = store.applications.get(applicationId);
+    if (!app) { const e = new Error('Application not found'); e.status = 404; throw e; }
+    if (!/^G[A-Z0-9]{55}$/.test(freelancerAddress)) { const e = new Error('Invalid Stellar public key'); e.status = 400; throw e; }
+    if (app.freelancerAddress !== freelancerAddress) { const e = new Error('Only the freelancer can reveal this bid'); e.status = 403; throw e; }
+    if (!nonce || nonce.trim() === '') { const e = new Error('Reveal nonce is required'); e.status = 400; throw e; }
+    if (!bidAmount || parseFloat(bidAmount) <= 0) { const e = new Error('Reveal bid amount must be positive'); e.status = 400; throw e; }
+    const expectedCommitment = crypto.createHash('sha256').update(`${parseFloat(bidAmount).toFixed(7)}:${nonce}`).digest('hex');
+    if (!app.bidCommitment || app.bidCommitment !== expectedCommitment) { const e = new Error('Commitment verification failed'); e.status = 400; throw e; }
+    app.bidRevealed = true;
+    app.revealedBidAmount = parseFloat(bidAmount).toFixed(7);
+    app.revealedAt = new Date().toISOString();
+    store.applications.set(applicationId, app);
+    return rowToApp(app);
+  }
+
+  async function extendBiddingClose(jobId, clientAddress) {
+    const job = store.jobs.get(jobId);
+    if (!job) { const e = new Error('Job not found'); e.status = 404; throw e; }
+    if (job.clientAddress !== clientAddress) { const e = new Error('Only the job client can extend bidding'); e.status = 403; throw e; }
+    if (!job.biddingClosedAt) { const e = new Error('Bidding has not been closed yet'); e.status = 400; throw e; }
+    const currentClose = new Date(job.biddingClosedAt).getTime();
+    const now = Date.now();
+    const finalWindowMs = 10 * 60 * 1000;
+    if ((currentClose - now) > finalWindowMs) { const e = new Error('Bidding can only be extended in the final 10 minutes'); e.status = 400; throw e; }
+    const extended = new Date(currentClose + 5 * 60 * 1000);
+    job.biddingClosedAt = extended.toISOString();
+    store.jobs.set(jobId, job);
+    return { jobId, biddingClosedAt: job.biddingClosedAt };
+  }
+
+  async function bulkUpdateApplications({ applicationIds, action, clientAddress }) {
+    if (!Array.isArray(applicationIds) || applicationIds.length === 0) { const e = new Error('applicationIds must be a non-empty array'); e.status = 400; throw e; }
+    const validActions = ['reject', 'shortlist', 'accept'];
+    const status = action || 'reject';
+    if (!validActions.includes(status)) { const e = new Error('Invalid action'); e.status = 400; throw e; }
+    const updated = [];
+    for (const id of applicationIds) {
+      const app = store.applications.get(id);
+      if (!app) continue;
+      const job = store.jobs.get(app.jobId);
+      if (!job || job.clientAddress !== clientAddress) { const e = new Error('Only the job client can update applications'); e.status = 403; throw e; }
+      app.status = status;
+      store.applications.set(id, app);
+      updated.push(rowToApp(app));
+    }
+    const jobId = updated.length ? updated[0].jobId : null;
+    return { updatedCount: updated.length, status, applications: updated, jobId };
+  }
+
   module.exports = {
     submitApplication,
     getApplicationsForJob: async (jobId, { limit = 20, cursor = null } = {}) => {
@@ -200,12 +299,19 @@ if (process.env.NODE_ENV === 'test') {
     acceptApplication,
     updateStatus,
     getApplicationStatusHistory,
+    withdrawApplication,
+    closeBiddingForJob,
+    revealApplicationBid,
+    extendBiddingClose,
+    bulkUpdateApplications,
   };
 
 }
 else {
   const pool = require("../db/pool");
+  const crypto = require("crypto");
   const { getJob, assignFreelancer } = require("./jobService");
+  const { isBlocked } = require("./profileService");
 /**
  * Camel-cased application record returned by this service.
  *
@@ -273,6 +379,10 @@ function rowToApp(row) {
     status: row.status,
     screeningAnswers: row.screening_answers || {},
     createdAt: row.created_at,
+    withdrawnAt: row.withdrawn_at || null,
+    bidRevealed: row.bid_revealed ?? false,
+    revealedBidAmount: row.revealed_bid_amount || null,
+    biddingClosedAt: row.bidding_closed_at || null,
   };
 }
 
@@ -307,6 +417,7 @@ async function submitApplication({
   bidAmount,
   currency = "XLM",
   screeningAnswers,
+  bidCommitment,
 }) {
   validatePublicKey(freelancerAddress);
 
@@ -337,6 +448,11 @@ async function submitApplication({
       e.status = 403;
       throw e;
     }
+  }
+  if (await isBlocked(freelancerAddress, job.clientAddress)) {
+    const e = new Error("This job is not available for applications");
+    e.status = 403;
+    throw e;
   }
   if (!proposal || proposal.length < 50) {
     const e = new Error("Proposal must be at least 50 characters");
@@ -370,8 +486,8 @@ async function submitApplication({
   let appRow;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, currency, screening_answers, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())
+      `INSERT INTO applications (job_id, freelancer_address, proposal, bid_amount, currency, screening_answers, bid_commitment, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', NOW())
        RETURNING *`,
       [
         jobId,
@@ -380,6 +496,7 @@ async function submitApplication({
         parseFloat(bidAmount).toFixed(7),
         currency,
         JSON.stringify(safeScreeningAnswers),
+        bidCommitment || null,
       ]
     );
     appRow = rows[0];
@@ -568,39 +685,74 @@ async function getApplicationsForFreelancer(freelancerAddress) {
     return rows;
   }
 
-  async function updateStatus(applicationId, newStatus, changedBy) {
-    if (!['pending', 'shortlisted', 'accepted', 'rejected'].includes(newStatus)) {
-      const e = new Error('Invalid application status'); e.status = 400; throw e;
-    }
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const { rows } = await client.query(
-        'SELECT id, status FROM applications WHERE id = $1 FOR UPDATE', [applicationId],
-      );
-      if (!rows.length) { const e = new Error('Application not found'); e.status = 404; throw e; }
-      const oldStatus = rows[0].status;
-      await client.query('UPDATE applications SET status = $1 WHERE id = $2', [newStatus, applicationId]);
-      await client.query(
-        `INSERT INTO application_status_history (application_id, old_status, new_status, changed_by)
-         VALUES ($1, $2, $3, $4)`, [applicationId, oldStatus, newStatus, changedBy || null],
-      );
-      await client.query('COMMIT');
-      const { rows: updated } = await pool.query('SELECT * FROM applications WHERE id = $1', [applicationId]);
-      return rowToApp(updated[0]);
-    } catch (err) { await client.query('ROLLBACK'); throw err; }
-    finally { client.release(); }
+  async function withdrawApplication(applicationId, freelancerAddress) {
+    validatePublicKey(freelancerAddress);
+    const { rows } = await pool.query('SELECT * FROM applications WHERE id = $1', [applicationId]);
+    if (!rows.length) { const e = new Error('Application not found'); e.status = 404; throw e; }
+    const app = rows[0];
+    if (app.freelancer_address !== freelancerAddress) { const e = new Error('Only the freelancer who submitted can withdraw this application'); e.status = 403; throw e; }
+    if (app.status === 'accepted') { const e = new Error('Cannot withdraw an already-accepted application'); e.status = 400; throw e; }
+    const { rows: updated } = await pool.query('UPDATE applications SET status = $2, withdrawn_at = NOW() WHERE id = $1 RETURNING *', [applicationId, 'withdrawn']);
+    return rowToApp(updated[0]);
   }
 
-  async function getApplicationStatusHistory(applicationId) {
-    const { rows: appRows } = await pool.query('SELECT id FROM applications WHERE id = $1', [applicationId]);
+  async function closeBiddingForJob(jobId, clientAddress) {
+    validatePublicKey(clientAddress);
+    const { rows: jobRows } = await pool.query('SELECT * FROM jobs WHERE id = $1', [jobId]);
+    if (!jobRows.length) { const e = new Error('Job not found'); e.status = 404; throw e; }
+    const job = jobRows[0];
+    if (job.client_address !== clientAddress) { const e = new Error('Only the client can close bidding'); e.status = 403; throw e; }
+    if (job.status !== 'open') { const e = new Error('Bidding can only be closed while job is open'); e.status = 400; throw e; }
+    if (job.bidding_closed_at) { const e = new Error('Bidding is already closed'); e.status = 400; throw e; }
+    const { rows } = await pool.query('UPDATE jobs SET bidding_closed_at = NOW() WHERE id = $1 RETURNING bidding_closed_at', [jobId]);
+    return { jobId, biddingClosedAt: rows[0].bidding_closed_at };
+  }
+
+  async function revealApplicationBid(applicationId, freelancerAddress, bidAmount, nonce) {
+    validatePublicKey(freelancerAddress);
+    if (!nonce || nonce.trim() === '') { const e = new Error('Reveal nonce is required'); e.status = 400; throw e; }
+    if (!bidAmount || parseFloat(bidAmount) <= 0) { const e = new Error('Reveal bid amount must be positive'); e.status = 400; throw e; }
+    const { rows: appRows } = await pool.query('SELECT * FROM applications WHERE id = $1', [applicationId]);
     if (!appRows.length) { const e = new Error('Application not found'); e.status = 404; throw e; }
-    const { rows } = await pool.query(
-      `SELECT id, application_id AS "applicationId", old_status AS "oldStatus",
-              new_status AS "newStatus", changed_by AS "changedBy", changed_at AS "changedAt"
-       FROM application_status_history WHERE application_id = $1 ORDER BY changed_at ASC`, [applicationId],
-    );
-    return rows;
+    const app = appRows[0];
+    if (app.freelancer_address !== freelancerAddress) { const e = new Error('Only the freelancer can reveal this bid'); e.status = 403; throw e; }
+    const expectedCommitment = crypto.createHash('sha256').update(`${parseFloat(bidAmount).toFixed(7)}:${nonce}`).digest('hex');
+    if (!app.bid_commitment || app.bid_commitment !== expectedCommitment) { const e = new Error('Commitment verification failed'); e.status = 400; throw e; }
+    const { rows: updated } = await pool.query('UPDATE applications SET bid_revealed = true, revealed_bid_amount = $2, revealed_at = NOW() WHERE id = $1 RETURNING *', [applicationId, parseFloat(bidAmount).toFixed(7)]);
+    return rowToApp(updated[0]);
+  }
+
+  async function extendBiddingClose(jobId, clientAddress) {
+    validatePublicKey(clientAddress);
+    const { rows: jobRows } = await pool.query('SELECT * FROM jobs WHERE id = $1', [jobId]);
+    if (!jobRows.length) { const e = new Error('Job not found'); e.status = 404; throw e; }
+    const job = jobRows[0];
+    if (job.client_address !== clientAddress) { const e = new Error('Only the job client can extend bidding'); e.status = 403; throw e; }
+    if (!job.bidding_closed_at) { const e = new Error('Bidding has not been closed yet'); e.status = 400; throw e; }
+    const currentClose = new Date(job.bidding_closed_at).getTime();
+    const now = Date.now();
+    if ((currentClose - now) > 10 * 60 * 1000) { const e = new Error('Bidding can only be extended in the final 10 minutes'); e.status = 400; throw e; }
+    const extended = new Date(currentClose + 5 * 60 * 1000);
+    const { rows } = await pool.query('UPDATE jobs SET bidding_closed_at = $1 WHERE id = $2 RETURNING bidding_closed_at', [extended.toISOString(), jobId]);
+    return { jobId, biddingClosedAt: rows[0].bidding_closed_at };
+  }
+
+  async function bulkUpdateApplications({ applicationIds, action, clientAddress }) {
+    validatePublicKey(clientAddress);
+    if (!Array.isArray(applicationIds) || applicationIds.length === 0) { const e = new Error('applicationIds must be a non-empty array'); e.status = 400; throw e; }
+    const actionToStatus = { reject: 'rejected', shortlist: 'shortlisted', accept: 'accepted' };
+    const status = actionToStatus[action] || action;
+    if (!['rejected', 'shortlisted', 'accepted'].includes(status)) { const e = new Error('Invalid action'); e.status = 400; throw e; }
+    const appRows = await pool.query('SELECT a.*, j.client_address FROM applications a JOIN jobs j ON a.job_id = j.id WHERE a.id = ANY($1::uuid[])', [applicationIds]);
+    const rows = appRows.rows;
+    for (const row of rows) {
+      if (row.client_address !== clientAddress) { const e = new Error('Only the job client can update applications'); e.status = 403; throw e; }
+    }
+    const ids = rows.map(r => r.id);
+    const { rows: updated } = await pool.query('UPDATE applications SET status = $1 WHERE id = ANY($2::uuid[]) RETURNING *', [status, ids]);
+    const applications = updated.map(rowToApp);
+    const jobId = applications.length ? applications[0].jobId : null;
+    return { updatedCount: applications.length, status, applications, jobId };
   }
 
   module.exports = {
@@ -610,5 +762,10 @@ async function getApplicationsForFreelancer(freelancerAddress) {
     acceptApplication,
     updateStatus,
     getApplicationStatusHistory,
+    withdrawApplication,
+    closeBiddingForJob,
+    revealApplicationBid,
+    extendBiddingClose,
+    bulkUpdateApplications,
   };
 }

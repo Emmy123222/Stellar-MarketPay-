@@ -1,5 +1,3 @@
-
-Jobs · JS
 /**
  * src/routes/jobs.js
  */

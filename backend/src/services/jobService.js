@@ -1,5 +1,3 @@
-
-Jobservice · JS
 /**
  * src/services/jobService.js
  * Service responsibility: Manages job listings, including creation, retrieval, searching, status updates, freelancer assignment, escrow integration, and visibility boosting.
@@ -209,6 +207,14 @@ function rowToJob(row) {
     expiresAt: row.expires_at,
     extendedCount: row.extended_count || 0,
     extendedUntil: row.extended_until,
+    biddingClosedAt: row.bidding_closed_at || null,
+    viewCount: row.view_count || 0,
+    disputeReason: row.dispute_reason || null,
+    disputeDescription: row.dispute_description || null,
+    disputedBy: row.disputed_by || null,
+    disputedAt: row.disputed_at || null,
+    headlineTitle: row.headline_title || null,
+    headlineDescription: row.headline_description || null,
   };
 }
  
@@ -284,11 +290,7 @@ let createJob = async function ({
   const safeScreeningQuestions = Array.isArray(screeningQuestions)
     ? screeningQuestions.slice(0, 5).filter((q) => q && q.trim().length > 0)
     : [];
- 
-  // RECONSTRUCTED: these four values were not in the pasted file but are used
-  // by the INSERT below. If main computes them differently (e.g. validates
-  // milestones), use main's version of this block.
-  const safeMilestones = Array.isArray(milestones) ? milestones : [];
+  const safeMilestones = validateMilestones(milestones, budget);
   const jobVisibility = visibility;
   const resolvedCategoryName = category;
   let resolvedCategoryId = null;

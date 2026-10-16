@@ -35,6 +35,7 @@ jest.mock("@stellar/stellar-sdk", () => ({
   Keypair: { fromSecret: jest.fn(), fromPublicKey: jest.fn() },
   TransactionBuilder: jest.fn(),
   Account: jest.fn(),
+  Asset: jest.fn(),
   Contract: jest.fn(),
   nativeToScVal: jest.fn(),
   scValToNative: jest.fn(),

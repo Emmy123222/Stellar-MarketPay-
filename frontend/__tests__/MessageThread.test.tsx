@@ -3,6 +3,22 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import MessageThread from "@/components/MessageThread";
 import * as api from "@/lib/api";
 
+// @tanstack/react-virtual relies on DOM element measurement which jsdom does not
+// support. Override useVirtualizer so it renders every item without virtualizing.
+jest.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({ count, getScrollElement }: { count: number; getScrollElement: () => Element | null }) => ({
+    getVirtualItems: () =>
+      Array.from({ length: count }, (_, index) => ({
+        index,
+        key: index,
+        start: index * 80,
+        size: 80,
+      })),
+    getTotalSize: () => count * 80,
+    scrollToIndex: () => {},
+  }),
+}));
+
 jest.mock("@/lib/api", () => ({
   fetchMessages: jest.fn(),
   sendMessage: jest.fn(),

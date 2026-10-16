@@ -56,13 +56,13 @@ describe("useKeyboardShortcuts wiring", () => {
     expect(spies.onToggleBookmark).toHaveBeenCalledTimes(1);
   });
 
-  it("opens the command palette on Cmd/Ctrl+K and the modal on ?", () => {
+  it("opens the command palette on Cmd/Ctrl+Shift+K and the modal on ?", () => {
     const spies = renderShortcuts();
 
-    press({ key: "k", metaKey: true });
+    press({ key: "k", metaKey: true, shiftKey: true });
     expect(spies.onOpenCommandPalette).toHaveBeenCalledTimes(1);
 
-    press({ key: "k", ctrlKey: true });
+    press({ key: "k", ctrlKey: true, shiftKey: true });
     expect(spies.onOpenCommandPalette).toHaveBeenCalledTimes(2);
 
     press({ key: "?" });

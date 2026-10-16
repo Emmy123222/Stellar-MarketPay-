@@ -61,6 +61,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
   const [revealNonce, setRevealNonce] = useState(randomNonceHex());
   const [revealLater, setRevealLater] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "submitting" | "success">("idle");
+  const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submittingRef = useRef(false);
   const isMountedRef = useRef(true);
@@ -88,28 +89,6 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
   const [proposalScore, setProposalScore] = useState<ProposalScore | null>(null);
   const [scoreWarning, setScoreWarning] = useState<string | null>(null);
   const [scoring, setScoring] = useState(false);
-  const [creatingScope, setCreatingScope] = useState(false);
-  const [scopeShareUrl, setScopeShareUrl] = useState("");
-  const [scopeSessionId, setScopeSessionId] = useState("");
-  const [scopeError, setScopeError] = useState<string | null>(null);
-  const [scopeCopied, setScopeCopied] = useState(false);
-  const handleInviteCollaborator = async () => {
-    if (scopeShareUrl) return;
-    setCreatingScope(true);
-    try {
-      const { sessionId, sharePath } = await createScopeSession({
-        jobId: job.id,
-        createdBy: publicKey,
-        initialContent: proposal,
-      });
-      setScopeSessionId(sessionId);
-      setScopeShareUrl(window.location.origin + sharePath);
-    } catch (e) {
-      toast.error("Failed to create collaboration session");
-    } finally {
-      setCreatingScope(false);
-    }
-  };
 
   // Issue #152 — enforce 50-word minimum on the proposal.
   const wordCount = proposal.trim() === "" ? 0 : proposal.trim().split(/\s+/).length;
@@ -189,7 +168,13 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
   const handleSubmit = async () => {
     if (!isFormValid || submittingRef.current || isPending) return;
 
+    if (!showConfirm) {
+      setShowConfirm(true);
+      return;
+    }
+
     submittingRef.current = true;
+    setShowConfirm(false);
     setSubmitStatus("submitting");
     setError(null);
 
@@ -231,9 +216,9 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
     } catch {
       if (isMountedRef.current) {
         setSubmitStatus("idle");
+        setShowConfirm(false);
       }
       onRevert?.();
-      setSubmitted(false);
       toast.error("Failed to submit application. Please try again.");
     } finally {
       submittingRef.current = false;
@@ -481,7 +466,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
               isPending && "opacity-90 cursor-not-allowed"
             )}
           >
-            {isPending ? "Application submitted!" : (submitButtonText || "Submit Proposal")}
+            {isPending ? "Application submitted!" : showConfirm ? "Confirm & Submit" : (submitButtonText || "Submit Proposal")}
           </button>
         </div>
       </div>

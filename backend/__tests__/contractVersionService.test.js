@@ -22,6 +22,12 @@ jest.mock("@stellar/stellar-sdk", () => {
     Contract: jest.fn().mockImplementation(() => ({ call: mockCall })),
     scValToNative: (scVal) => scVal.native,
     Networks: { TESTNET: "Test SDF Network ; September 2015" },
+    SorobanRpc: {
+      Server: jest.fn().mockImplementation(() => ({
+        simulateTransaction: (...args) => mockSimulate(...args),
+      })),
+      Api: { isSimulationError: (sim) => "error" in sim },
+    },
     rpc: {
       Server: jest.fn().mockImplementation(() => ({
         simulateTransaction: (...args) => mockSimulate(...args),

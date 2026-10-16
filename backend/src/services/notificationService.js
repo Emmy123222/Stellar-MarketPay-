@@ -437,8 +437,8 @@ function generateEmailContent(eventType, data) {
     },
     [EVENT_TYPES.USDC_AUTO_CONVERTED]: {
       subject: `Earnings auto-converted to USDC: ${jobTitle}`,
-      text: `Your earnings for "${jobTitle}" were automatically converted to USDC.\n\nSent: ${data.sourceAmountXlm} XLM\nReceived: ${data.receivedUsdc} USDC\nRate: 1 XLM = ${data.exchangeRate} USDC\nTransaction: ${data.txHash}\n\nYou can turn auto-convert off at any time in Settings: ${baseUrl}/settings`,
-      html: `<h2>Earnings converted to USDC</h2><p>Your earnings for "<strong>${jobTitle}</strong>" were automatically converted to USDC.</p><p><strong>Sent:</strong> ${data.sourceAmountXlm} XLM<br/><strong>Received:</strong> ${data.receivedUsdc} USDC<br/><strong>Rate:</strong> 1 XLM = ${data.exchangeRate} USDC<br/><strong>Transaction:</strong> <code>${data.txHash}</code></p><p><a href="${baseUrl}/settings">Manage auto-convert</a></p>`,
+      text: `Your earnings for "${jobTitle}" were automatically converted to USDC.\n\nSent: ${data.sourceAmountXlm} XLM\nReceived: ${data.receivedUsdc} USDC\nRate: 1 XLM = ${data.exchangeRate} USDC\nTransaction: ${data.txHash}\n\nJob: ${jobUrl}\n\nYou can turn auto-convert off at any time in Settings: ${baseUrl}/settings`,
+      html: `<h2>Earnings converted to USDC</h2><p>Your earnings for "<strong>${jobTitle}</strong>" were automatically converted to USDC.</p><p><strong>Sent:</strong> ${data.sourceAmountXlm} XLM<br/><strong>Received:</strong> ${data.receivedUsdc} USDC<br/><strong>Rate:</strong> 1 XLM = ${data.exchangeRate} USDC<br/><strong>Transaction:</strong> <code>${data.txHash}</code></p><p><a href="${jobUrl}">View Job</a></p><p><a href="${baseUrl}/settings">Manage auto-convert</a></p>`,
     },
   };
 

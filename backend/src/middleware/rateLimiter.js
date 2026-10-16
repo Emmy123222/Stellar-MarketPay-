@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("crypto");
 const rateLimit = require("express-rate-limit");
 const pool = require("../db/pool");
 const { getClientIp } = require("../utils/clientIp");
@@ -52,8 +53,8 @@ const createRateLimiter = (maxRequests, windowMinutes, options = {}) => {
     handler: (req, res) => {
       const retryAfter = Math.ceil(windowMinutes * 60);
       res.set("Retry-After", String(retryAfter));
+      res.set("Cache-Control", "no-store");
       rateLimitLogger.warn({
-        endpoint: req.path,
         endpoint: options.name || req.originalUrl,
         ip: getClientIp(req),
         method: req.method,
@@ -70,6 +71,75 @@ const createRateLimiter = (maxRequests, windowMinutes, options = {}) => {
     ...options,
   });
 };
+
+/**
+ * Hash a rate-limit identifier so raw IPs, wallet addresses and API key ids are
+ * never used as (or embedded in) limiter keys.
+ *
+ * @param {string} scope Bucket namespace, e.g. `"faucet"` or `"wallet"`.
+ * @param {unknown} value Raw identifier.
+ * @returns {string} `"<scope>:<32 hex chars>"`.
+ */
+function hashRateLimitIdentifier(scope, value) {
+  const raw = value === undefined || value === null ? "" : String(value);
+  const digest = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 32);
+  return `${scope}:${digest}`;
+}
+
+/**
+ * Build a pair of limiters for abuse-sensitive endpoints: one keyed by client
+ * IP and one keyed by a caller-supplied principal (wallet address, API key,
+ * user id, …). Running both means rotating proxies cannot lift the limit, while
+ * the principal bucket also caps a single account behind many IPs.
+ *
+ * Identifiers are hashed by `hashRateLimitIdentifier`, and a request without a
+ * principal falls back to its IP so missing input never funnels every caller
+ * into one shared bucket.
+ *
+ * @param {object} options
+ * @param {string} options.namespace Bucket namespace used for limiter names.
+ * @param {number} options.windowMinutes Window length in minutes.
+ * @param {number} options.maxRequestsPerIp Per-IP ceiling.
+ * @param {number} options.maxRequestsPerPrincipal Per-principal ceiling.
+ * @param {(req: import("express").Request) => string|undefined} options.principalKeyGenerator
+ * @param {object} [options.store] Optional `express-rate-limit` store (e.g. Redis).
+ * @returns {[import("express").RequestHandler, import("express").RequestHandler]}
+ *          `[ipLimiter, principalLimiter]`.
+ */
+function createSensitiveRateLimiters({
+  namespace,
+  windowMinutes,
+  maxRequestsPerIp,
+  maxRequestsPerPrincipal,
+  principalKeyGenerator,
+  store,
+} = {}) {
+  const ipStore = store ? { store, keyPrefix: `rl:${namespace}:ip:` } : { keyPrefix: `rl:${namespace}:ip:` };
+
+  const ipLimiter = createRateLimiter(maxRequestsPerIp, windowMinutes, {
+    ...ipStore,
+    name: `${namespace}:ip`,
+    keyGenerator: (req) => hashRateLimitIdentifier("ip", getClientIp(req)),
+  });
+
+  const principalStore = store
+    ? { store, keyPrefix: `rl:${namespace}:principal:` }
+    : { keyPrefix: `rl:${namespace}:principal:` };
+
+  const principalLimiter = createRateLimiter(maxRequestsPerPrincipal, windowMinutes, {
+    ...principalStore,
+    name: `${namespace}:principal`,
+    keyGenerator: (req) => {
+      const principal = principalKeyGenerator ? principalKeyGenerator(req) : undefined;
+      if (principal === undefined || principal === null || principal === "") {
+        return hashRateLimitIdentifier("ip", getClientIp(req));
+      }
+      return hashRateLimitIdentifier(namespace, principal);
+    },
+  });
+
+  return [ipLimiter, principalLimiter];
+}
 
 /**
  * Dispute-specific rate limiter.
@@ -129,4 +199,12 @@ async function createDisputeRateLimiter(req, res, next) {
   }
 }
 
-module.exports = { createRateLimiter, createDisputeRateLimiter, getRateLimitScale, scaleMaxRequests, rateLimitLogger };
+module.exports = {
+  createRateLimiter,
+  createDisputeRateLimiter,
+  createSensitiveRateLimiters,
+  getRateLimitScale,
+  scaleMaxRequests,
+  hashRateLimitIdentifier,
+  rateLimitLogger,
+};

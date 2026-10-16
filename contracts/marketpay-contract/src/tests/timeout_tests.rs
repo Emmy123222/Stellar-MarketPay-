@@ -1,6 +1,75 @@
 use crate::*;
 use soroban_sdk::{testutils::Address as _, testutils::Ledger, token, Address, Env, String};
 
+/// Shared test fixture used by the resolve_timeout tests.
+struct EscrowSetup {
+    contract_id: Address,
+    client: Address,
+    freelancer: Address,
+    treasury: Address,
+    token_id: Address,
+    escrow_amount: i128,
+}
+
+impl EscrowSetup {
+    fn token_client<'a>(&self, env: &'a Env) -> token::Client<'a> {
+        token::Client::new(env, &self.token_id)
+    }
+}
+
+/// Creates a fully-initialised contract with a single locked escrow under
+/// job_id `"job1"` and returns all the handles needed by the tests.
+///
+/// Optional overrides (pass `None` to use the defaults):
+/// - `amount_override`   – escrow amount in token stroops (default: 1_000)
+/// - `timeout_override`  – `timeout_ledgers` field in `CreateEscrowParams`
+/// - `referrer_override` – referrer address
+fn setup_escrow(
+    env: &Env,
+    amount_override: Option<i128>,
+    timeout_override: Option<u32>,
+    referrer_override: Option<Address>,
+) -> EscrowSetup {
+    let contract_id = env.register(MarketPayContract, ());
+    let client_contract = MarketPayContractClient::new(env, &contract_id);
+
+    let admin = Address::generate(env);
+    let treasury = Address::generate(env);
+    client_contract.initialize(&admin, &treasury, &String::from_str(env, "1.0.0"));
+
+    let client = Address::generate(env);
+    let freelancer = Address::generate(env);
+
+    let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
+    let token_id = token_contract.address();
+    let token_admin = token::StellarAssetClient::new(env, &token_id);
+    let escrow_amount = amount_override.unwrap_or(1_000);
+    token_admin.mint(&client, &escrow_amount);
+
+    let job_id = String::from_str(env, "job1");
+    client_contract.create_escrow(
+        &job_id,
+        &client,
+        &CreateEscrowParams {
+            freelancer: freelancer.clone(),
+            token: token_id.clone(),
+            amount: escrow_amount,
+            milestones: None,
+            timeout_ledgers: timeout_override,
+            referrer: referrer_override,
+        },
+    );
+
+    EscrowSetup {
+        contract_id,
+        client,
+        freelancer,
+        treasury,
+        token_id,
+        escrow_amount,
+    }
+}
+
 fn setup_contract(
     env: &Env,
 ) -> (
@@ -734,11 +803,10 @@ fn test_resolve_timeout_locked_refunds_client() {
     let setup = setup_escrow(&env, None, None, None);
     let job_id = String::from_str(&env, "job1");
     let contract_client = MarketPayContractClient::new(&env, &setup.contract_id);
-    let attacker = Address::generate(&env);
 
     // Initial balances
-    let client_balance_before = setup.token_client.balance(&setup.client);
-    let contract_balance_before = setup.token_client.balance(&setup.contract_id);
+    let client_balance_before = setup.token_client(&env).balance(&setup.client);
+    let contract_balance_before = setup.token_client(&env).balance(&setup.contract_id);
 
     // Advance beyond timeout (default 7 days)
     env.ledger().set_timestamp(env.ledger().timestamp() + 7 * 24 * 60 * 60 + 1);
@@ -747,8 +815,8 @@ fn test_resolve_timeout_locked_refunds_client() {
     contract_client.resolve_timeout(&job_id);
 
     // Verify refund
-    let client_balance_after = setup.token_client.balance(&setup.client);
-    let contract_balance_after = setup.token_client.balance(&setup.contract_id);
+    let client_balance_after = setup.token_client(&env).balance(&setup.client);
+    let contract_balance_after = setup.token_client(&env).balance(&setup.contract_id);
 
     assert_eq!(client_balance_after, client_balance_before + setup.escrow_amount);
     assert_eq!(contract_balance_after, contract_balance_before - setup.escrow_amount);
@@ -772,8 +840,8 @@ fn test_resolve_timeout_inprogress_pays_freelancer() {
     // Advance beyond timeout (default 7 days)
     env.ledger().set_timestamp(env.ledger().timestamp() + 7 * 24 * 60 * 60 + 1);
 
-    let freelancer_balance_before = setup.token_client.balance(&setup.freelancer);
-    let treasury_balance_before = setup.token_client.balance(&setup.treasury);
+    let freelancer_balance_before = setup.token_client(&env).balance(&setup.freelancer);
+    let treasury_balance_before = setup.token_client(&env).balance(&setup.treasury);
 
     // Any caller can resolve
     contract_client.resolve_timeout(&job_id);
@@ -782,8 +850,8 @@ fn test_resolve_timeout_inprogress_pays_freelancer() {
     let status = contract_client.get_status(&job_id);
     assert_eq!(status, EscrowStatus::Released);
 
-    let freelancer_balance_after = setup.token_client.balance(&setup.freelancer);
-    let treasury_balance_after = setup.token_client.balance(&setup.treasury);
+    let freelancer_balance_after = setup.token_client(&env).balance(&setup.freelancer);
+    let treasury_balance_after = setup.token_client(&env).balance(&setup.treasury);
 
     // Check fee calculation (default 100 bps = 1%)
     let expected_fee = setup.escrow_amount * 100 / 10000;

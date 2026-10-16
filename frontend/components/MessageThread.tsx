@@ -121,12 +121,16 @@ export default function MessageThread({ jobId, currentUserAddress, otherUserAddr
   const [encrypting, setEncrypting] = useState(false);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasMore, setHasMore]     = useState(false);
 
   const messagesEndRef       = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef             = useRef<HTMLInputElement>(null);
   const fileInputRef         = useRef<HTMLInputElement>(null);
   const isMountedRef         = useRef<boolean>(true);
+  const shouldScrollToBottomRef = useRef<boolean>(true);
 
   const rowVirtualizer = useVirtualizer({
     count: messages.length,

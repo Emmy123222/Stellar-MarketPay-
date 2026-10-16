@@ -25,6 +25,7 @@ jest.mock("../services/sorobanEvidence", () => ({
   getOnchainEvidenceCids: jest.fn(),
   recordEvidenceCidOnChain: jest.fn(),
   resolveContractId: jest.fn(),
+  isEvidenceAvailable: jest.fn().mockResolvedValue(true),
   _clearCache: jest.fn(),
 }));
 
