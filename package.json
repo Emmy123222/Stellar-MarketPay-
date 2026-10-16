@@ -10,13 +10,13 @@
   },
   "dependencies": {
     "dotenv": "^17.4.2",
-    "pg": "^8.23.0"
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "eslint": "^8.57.0",
     "husky": "^9.1.6",
     "lint-staged": "^15.2.10",
-    "prettier": "^3.9.9"
+    "prettier": "^3.9.10"
   },
   "lint-staged": {
     "*.{js,ts}": ["eslint --fix"],
