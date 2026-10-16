@@ -65,7 +65,7 @@ export function useRealtimeBids({
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const tabVisibleRef = useRef(!document.hidden);
+  const tabVisibleRef = useRef(typeof document !== "undefined" ? !document.hidden : true);
   const newestCardRef = useRef<HTMLDivElement | null>(null);
   const initialSyncedRef = useRef(false);
 

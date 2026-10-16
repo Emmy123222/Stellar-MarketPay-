@@ -576,6 +576,9 @@ export async function buildPartialReleaseTransaction(
   clientPublicKey: string,
   milestoneIndex: number,
 ) {
+  if (USE_CONTRACT_MOCK) {
+    return { toXDR: () => "mock-prepared-xdr" };
+  }
   const server = sorobanServer;
   const account = await server.getAccount(clientPublicKey);
   const contract = new Contract(contractId);
@@ -610,6 +613,46 @@ export async function submitSignedSorobanTransaction(
   }
   const hash = await signAndSubmitSorobanTx(signedXDR);
   return { hash };
+}
+
+/**
+ * Build → sign → submit a partial (single-milestone) escrow release.
+ * With USE_CONTRACT_MOCK the wallet round-trip is bypassed the same way
+ * `createEscrowOnChain` bypasses it, so local development and the e2e suite
+ * exercise the milestone bookkeeping without a live network (Issue #1894).
+ *
+ * @param amountStroops milestone amount in stroops (XLM × 10^7)
+ */
+export async function releaseMilestoneOnChain(
+  contractId: string,
+  jobId: string,
+  clientPublicKey: string,
+  milestoneIndex: number,
+  amountStroops: string,
+): Promise<{ txHash: string }> {
+  if (USE_CONTRACT_MOCK) {
+    const { mockPartialRelease } = await import("./contractMock");
+    const txHash = await mockPartialRelease({
+      jobId,
+      client: clientPublicKey,
+      milestoneIndex,
+      amount: amountStroops,
+    });
+    return { txHash };
+  }
+
+  const prepared = await buildPartialReleaseTransaction(
+    contractId,
+    jobId,
+    clientPublicKey,
+    milestoneIndex,
+  );
+  const { signedXDR, error } = await signTransactionWithWallet(prepared.toXDR());
+  if (error || !signedXDR) {
+    throw new Error(error || "Signing was cancelled.");
+  }
+  const { hash } = await submitSignedSorobanTransaction(signedXDR);
+  return { txHash: hash };
 }
 
 // ---------------------------------------------------------------------------

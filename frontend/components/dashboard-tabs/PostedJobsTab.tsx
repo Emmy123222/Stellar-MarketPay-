@@ -85,6 +85,21 @@ export default function PostedJobsTab({
             <p className="font-mono font-semibold text-market-400">
               {formatXLM(job.budget)}
             </p>
+            {job.milestones && job.milestones.length > 0 && (
+              <p
+                className="text-xs text-amber-700 mt-1"
+                data-testid={`milestone-progress-${job.id}`}
+              >
+                {formatXLM(
+                  String(
+                    job.milestones
+                      .filter((m) => m.status === "released")
+                      .reduce((sum, m) => sum + Number(m.amount), 0),
+                  ),
+                )}{" "}
+                / {formatXLM(job.budget)} released
+              </p>
+            )}
             <div className="flex gap-1 mt-1 justify-end">
               {job.status === "open" && job.expiresAt && (
                 (() => {
