@@ -20,6 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+            - name: Verify migration version uniqueness
+        run: bash ./scripts/verify-migration-versions.sh
+
       - name: Document workflow requirements
         run: |
           echo "## CI Workflow - Secrets Status"

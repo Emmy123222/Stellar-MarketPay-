@@ -288,6 +288,11 @@ cd backend && npm test && npm run lint
 cd frontend && npm test && npm run lint && npx tsc --noEmit
 ```
 
+- Verify migration version uniqueness locally:
+  ```bash
+  ./scripts/verify-migration-versions.sh
+  ```
+
 ---
 
 ## Adding a new API Endpoint
