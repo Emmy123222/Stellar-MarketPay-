@@ -19,6 +19,10 @@ export interface MockEscrow {
   amount: string; // in stroops
   status: EscrowStatus;
   createdAt: number;
+  /** Milestone indexes already released (Issue #1894). */
+  releasedMilestones?: number[];
+  /** Total amount released so far, in stroops (Issue #1894). */
+  releasedAmount?: string;
 }
 
 // Mock-only browser persistence. These keys are intentionally scoped to
@@ -265,6 +269,67 @@ export async function mockReleaseEscrow(params: {
   const txHash = generateMockTxHash();
   console.log("[CONTRACT MOCK] ✓ Escrow released. Tx hash:", txHash);
   console.log("[CONTRACT MOCK] Funds transferred to:", escrow.freelancer);
+  console.log("[CONTRACT MOCK] Escrow state:", escrow);
+
+  return txHash;
+}
+
+/**
+ * Mock: partial_release
+ * Client releases a single milestone's funds to the freelancer.
+ * Tracks released milestones on the escrow record; once every stroop is
+ * released the escrow moves to Released (Issue #1894).
+ */
+export async function mockPartialRelease(params: {
+  jobId: string;
+  client: string;
+  milestoneIndex: number;
+  amount: string; // in stroops
+}): Promise<string> {
+  console.log("[CONTRACT MOCK] partial_release called:", params);
+
+  await delay(800);
+  hydrateEscrowsFromStorage();
+
+  const escrow = escrows.get(params.jobId);
+  if (!escrow) {
+    throw new Error(`Mock contract error: Escrow not found for job ${params.jobId}`);
+  }
+
+  if (escrow.client !== params.client) {
+    throw new Error("Mock contract error: Only the client can release a milestone");
+  }
+
+  if (escrow.status !== "InProgress" && escrow.status !== "Locked") {
+    throw new Error("Mock contract error: Cannot release a milestone in current status");
+  }
+
+  const releasedMilestones = escrow.releasedMilestones ?? [];
+  if (releasedMilestones.includes(params.milestoneIndex)) {
+    throw new Error(`Mock contract error: Milestone ${params.milestoneIndex} is already released`);
+  }
+
+  if (BigInt(params.amount) <= 0) {
+    throw new Error("Mock contract error: Milestone amount must be positive");
+  }
+
+  const releasedAmount = BigInt(escrow.releasedAmount ?? "0");
+  const totalAmount = BigInt(escrow.amount);
+  const nextReleased = releasedAmount + BigInt(params.amount);
+  if (nextReleased > totalAmount) {
+    throw new Error("Mock contract error: Partial release exceeds escrow balance");
+  }
+
+  escrow.releasedMilestones = [...releasedMilestones, params.milestoneIndex];
+  escrow.releasedAmount = nextReleased.toString();
+  if (nextReleased === totalAmount) {
+    escrow.status = "Released";
+  }
+  escrows.set(params.jobId, escrow);
+  persistEscrow(escrow);
+
+  const txHash = generateMockTxHash();
+  console.log("[CONTRACT MOCK] ✓ Milestone released. Tx hash:", txHash);
   console.log("[CONTRACT MOCK] Escrow state:", escrow);
 
   return txHash;

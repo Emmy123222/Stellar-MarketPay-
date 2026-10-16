@@ -174,4 +174,8 @@ function AppContent({ Component, pageProps }: AppProps) {
   );
 }
 
-export default appWithTranslation(App, nextI18NextConfig);
+// The next-i18next `appWithTranslation(App, …)` export was left behind when
+// i18n moved to the self-contained `@/lib/i18n` module (react-i18next) and
+// the component was renamed `AppContent` — every page failed with
+// `ReferenceError: appWithTranslation is not defined`. Export AppContent.
+export default AppContent;

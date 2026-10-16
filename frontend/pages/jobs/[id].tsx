@@ -21,6 +21,7 @@ import {
   fetchApplicationsPage,
   acceptApplication,
   releaseEscrow,
+  releaseMilestone,
   raiseDispute,
   inviteFreelancer,
   mintCompletionCertificate,
@@ -40,7 +41,7 @@ import {
   buildReleaseEscrowTransaction,
   buildMintCertificateTx,
   submitSignedSorobanTransaction,
-  buildPartialReleaseTransaction,
+  releaseMilestoneOnChain,
 } from "@/lib/stellar";
 import { signTransactionWithWallet } from "@/lib/wallet";
 import { optionalClientEnv } from "@/lib/env";
@@ -209,7 +210,6 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const [pendingTimeoutRefund, setPendingTimeoutRefund] = useState<Transaction | null>(null);
   // Milestone/partial-release state
   const [releasingMilestoneIndex, setReleasingMilestoneIndex] = useState<number | null>(null);
-  const [pendingRelease, setPendingRelease] = useState<{ transaction: Transaction; fnName: string } | null>(null);
   // Invite freelancer state
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteFreelancerAddress, setInviteFreelancerAddress] = useState("");
@@ -373,17 +373,29 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
 
   const handlePartialRelease = async (index: number) => {
     if (!publicKey || !job) return;
+    const milestone = job.milestones?.[index];
+    if (!milestone || milestone.status === "released") return;
+    const contractId =
+      job.escrowContractId || process.env.NEXT_PUBLIC_CONTRACT_ID || "";
     setActionError(null);
     setReleasingMilestoneIndex(index);
-    setReleasingEscrow(true);
     try {
-      const contractId = process.env.NEXT_PUBLIC_CONTRACT_ID;
-      if (!contractId) throw new Error("Contract ID not configured");
-      const tx = await buildPartialReleaseTransaction(contractId, job.id, publicKey, index);
-      setPendingRelease({ transaction: tx, fnName: "release_escrow" });
+      const amountStroops = String(
+        Math.round(Number(milestone.amount) * 10_000_000),
+      );
+      const { txHash } = await releaseMilestoneOnChain(
+        contractId,
+        job.id,
+        publicKey,
+        index,
+        amountStroops,
+      );
+      await releaseMilestone(job.id, publicKey, index, txHash);
+      const refreshedJob = await fetchJob(job.id);
+      setJob(refreshedJob);
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : String(err));
-      setReleasingEscrow(false);
+    } finally {
       setReleasingMilestoneIndex(null);
     }
   };
@@ -827,6 +839,72 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
             <h2 className="font-display text-lg sm:text-xl font-bold text-amber-100 mb-3">
               Escrow
             </h2>
+
+            {job.milestones && job.milestones.length > 0 && (
+              <div className="mb-5" data-testid="milestone-release">
+                <p
+                  className="text-sm text-amber-700 mb-3"
+                  data-testid="milestone-release-summary"
+                >
+                  {job.milestones.filter((m) => m.status === "released").length} of{" "}
+                  {job.milestones.length} milestones released ·{" "}
+                  {formatXLM(
+                    String(
+                      Number(job.budget) -
+                        job.milestones
+                          .filter((m) => m.status === "released")
+                          .reduce((sum, m) => sum + Number(m.amount), 0),
+                    ),
+                  )}{" "}
+                  remaining in escrow
+                </p>
+                <ul className="space-y-2">
+                  {job.milestones.map((milestone, index) => {
+                    const released = milestone.status === "released";
+                    return (
+                      <li
+                        key={`${job.id}-milestone-${index}`}
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-market-500/15 bg-ink-700/40 px-4 py-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm text-amber-100 truncate">
+                            {milestone.description}
+                          </p>
+                          <p className="text-xs text-amber-700">
+                            {milestone.amount} {job.currency}
+                            {released ? (
+                              <span className="text-emerald-400"> · Released</span>
+                            ) : (
+                              " · Pending"
+                            )}
+                          </p>
+                        </div>
+                        {released ? (
+                          <span
+                            className="text-xs text-emerald-400 font-medium flex-shrink-0"
+                            data-testid={`milestone-${index}-released`}
+                          >
+                            ✓ Released
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handlePartialRelease(index)}
+                            disabled={releasingMilestoneIndex !== null}
+                            className="btn-secondary text-xs px-3 py-1.5 flex-shrink-0"
+                            data-testid={`release-milestone-${index}`}
+                          >
+                            {releasingMilestoneIndex === index
+                              ? "Releasing…"
+                              : `Release milestone ${index + 1}`}
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
 
             <button
               onClick={() => setShowReleaseConfirm(true)}
