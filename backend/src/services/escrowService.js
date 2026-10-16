@@ -992,6 +992,7 @@ async function approveEscrowExtension(jobId, approvedBy, contractTxHash) {
 }
 
 module.exports = {
+  releaseEscrow: releaseFunds,
   releaseFunds,
   refundClient,
   timeoutRefund,
