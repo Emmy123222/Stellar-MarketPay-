@@ -1,5 +1,4 @@
 
-Jobservice · JS
 /**
  * src/services/jobService.js
  * Service responsibility: Manages job listings, including creation, retrieval, searching, status updates, freelancer assignment, escrow integration, and visibility boosting.
