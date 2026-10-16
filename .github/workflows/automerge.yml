@@ -52,7 +52,7 @@ jobs:
           # Retry a few times: GitHub may still be computing mergeability
           # right after the PR event fires.
           for attempt in 1 2 3 4 5; do
-            if gh pr merge --merge "$PR_URL"; then
+            if gh pr merge --squash "$PR_URL"; then
               gh pr comment "$PR_URL" --body "🎉 Well done @$AUTHOR — great implementation! Your PR has been merged. Thank you for contributing to **Stellar Wave**! 🚀"
               echo "Merged $PR_URL"
               exit 0
@@ -60,5 +60,5 @@ jobs:
             echo "Attempt $attempt failed; retrying in 20s..."
             sleep 20
           done
-          gh pr comment "$PR_URL" --body "👋 Hey @$AUTHOR, nice work so far! 💪 There's just a merge conflict with \`main\` — please update your branch and resolve it, and this will be merged right away."
+          gh pr comment "$PR_URL" --body "👋 Hey @$AUTHOR, the auto-merge bot could not squash-merge this PR — check the mergeability status and CI checks; a maintainer can also merge it manually. (No branch update is necessarily needed.)"
           exit 1
