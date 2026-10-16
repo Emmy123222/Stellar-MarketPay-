@@ -138,6 +138,22 @@ function badgeText(count: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Active-route helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when `pathname` belongs to the tab at `href`.
+ *
+ * The root tab only matches the exact root path (so "/other" does not mark
+ * Home as current), while nested routes such as "/jobs/123" or the pages
+ * router dynamic segment "/jobs/[id]" correctly mark their parent tab.
+ */
+export function isTabActive(pathname: string, href: string): boolean {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+// ---------------------------------------------------------------------------
 // MobileTabBar component
 // ---------------------------------------------------------------------------
 
@@ -204,7 +220,7 @@ export default function MobileTabBar({
       className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex items-stretch border-t border-amber-900/20 bg-ink-900/95 backdrop-blur-xl"
     >
       {TABS.map((tab) => {
-        const isActive = pathname === tab.href;
+        const isActive = isTabActive(pathname, tab.href);
         const isNotifications = tab.href === "/notifications";
         const showBadge = isNotifications && unreadCount > 0;
 
@@ -217,7 +233,9 @@ export default function MobileTabBar({
             className={`
               relative flex flex-1 flex-col items-center justify-center gap-0.5
               py-2 px-1 text-[10px] font-medium transition-colors duration-150
-              min-h-[56px] min-w-0
+              min-h-[56px] min-w-[44px]
+              focus-visible:outline focus-visible:outline-2
+              focus-visible:outline-market-400 focus-visible:outline-offset-[-2px]
               ${isActive
                 ? "mobile-tab-active text-market-400 border-b-2 border-market-400"
                 : "text-amber-700 hover:text-amber-300"

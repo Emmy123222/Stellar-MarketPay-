@@ -36,6 +36,13 @@ All WCAG 2.1 Level AA accessibility requirements have been successfully implemen
 - ✅ Enhanced focus indicators (2-3px)
 - ✅ No keyboard traps
 
+### 6. **Mobile Navigation (`components/MobileTabBar.tsx`)**
+- ✅ Active route exposed via `aria-current="page"` (including nested routes such as `/jobs/123`)
+- ✅ Accessible names on every tab control; decorative icons marked `aria-hidden="true"`
+- ✅ Touch targets ≥ 44×44 CSS px (`min-h-[56px]` + `min-w-[44px]`)
+- ✅ Visible `focus-visible` outline (market-400, inset) on every tab
+- ✅ Locked in by component tests with a jest-axe pass: `__tests__/MobileTabBar.a11y.test.tsx`
+
 ---
 
 ## 📊 Test Results
@@ -231,7 +238,7 @@ Full compliance requires manual validation with assistive technologies and exper
 
 ---
 
-**Last Updated**: July 29, 2026  
+**Last Updated**: October 16, 2026  
 **Test Status**: ✅ All passing  
 **Contrast Compliance**: ✅ 100%  
 **WCAG Level**: AA  
