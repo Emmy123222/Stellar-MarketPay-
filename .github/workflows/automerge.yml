@@ -49,16 +49,39 @@ jobs:
             echo "Skipping: PR modifies the automerge workflow"
             exit 0
           fi
+          ALLOW_SQUASH_MERGE=$(gh api "repos/$OWNER/$REPO" --jq '.allow_squash_merge')
+          ALLOW_REBASE_MERGE=$(gh api "repos/$OWNER/$REPO" --jq '.allow_rebase_merge')
+          ALLOW_MERGE_COMMIT=$(gh api "repos/$OWNER/$REPO" --jq '.allow_merge_commit')
+          is_true() {
+            case "$1" in
+              true|'"true"'|TRUE|'"TRUE"') return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+          if is_true "$ALLOW_SQUASH_MERGE"; then
+            MERGE_METHOD="squash"
+          elif is_true "$ALLOW_REBASE_MERGE"; then
+            MERGE_METHOD="rebase"
+          elif is_true "$ALLOW_MERGE_COMMIT"; then
+            MERGE_METHOD="merge"
+          else
+            gh pr comment "$PR_URL" --body "I can't merge this PR automatically because the repository disallows all merge methods. A maintainer will need to merge this manually."
+            exit 1
+          fi
           # Retry a few times: GitHub may still be computing mergeability
           # right after the PR event fires.
           for attempt in 1 2 3 4 5; do
-            if gh pr merge --merge "$PR_URL"; then
-              gh pr comment "$PR_URL" --body "🎉 Well done @$AUTHOR — great implementation! Your PR has been merged. Thank you for contributing to **Stellar Wave**! 🚀"
+            if gh pr merge "--$MERGE_METHOD" "$PR_URL"; then
+              if ! gh pr comment "$PR_URL" --body "🎉 Well done @$AUTHOR — great implementation! Your PR has been merged using **$MERGE_METHOD**. Thank you for contributing to **Stellar Wave**! 🚀"; then
+                echo "Warning: PR #$PR_NUMBER merged using $MERGE_METHOD, but the success comment could not be posted." >&2
+              fi
               echo "Merged $PR_URL"
               exit 0
             fi
-            echo "Attempt $attempt failed; retrying in 20s..."
-            sleep 20
+            if [ "$attempt" -lt 5 ]; then
+              echo "Attempt $attempt failed; retrying in 20s..."
+              sleep 20
+            fi
           done
           gh pr comment "$PR_URL" --body "👋 Hey @$AUTHOR, nice work so far! 💪 There's just a merge conflict with \`main\` — please update your branch and resolve it, and this will be merged right away."
           exit 1

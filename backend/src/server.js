@@ -1,5 +1,4 @@
 
-Server · JS
 /* global userAddress, userLastSeen, userClients, setWebsocketConnections, broadcastToUser, createServiceLogger, sendEmail, logError, startEscrowTimeoutChecker, refreshWsMetrics, startNotificationProcessor, startAdminReportScheduler, startWeeklyDigestScheduler, startPurgeDeletedRecords, startRecurringEscrowTicker */
 /* eslint-disable */
 /**
@@ -202,11 +201,37 @@ app.use("/api/nft",           nftRoutes);
 app.use("/api/ai-scorer",     aiScorerRoutes);
 app.use("/api/anchors",       anchorRoutes);
  
-app.get("/api/indexer/health", (req, res) => {
-  res.json({
-    status: "ok",
-    indexer: indexerService.getHealth(),
-  });
+app.get("/api/indexer/health", async (req, res) => {
+  const indexer = indexerService.getHealth();
+  try {
+    let timeout;
+    let latestLedger;
+    try {
+      latestLedger = await Promise.race([
+        indexerService.horizon
+          .ledgers()
+          .order("desc")
+          .limit(1)
+          .call(),
+        new Promise((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error("Current ledger check timed out")),
+            2000,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
+    const currentLedger = Number(latestLedger?.records?.[0]?.sequence);
+    if (!Number.isSafeInteger(currentLedger) || currentLedger < 0) {
+      throw new Error("Current ledger is unavailable");
+    }
+    res.json({ status: "ok", indexer, currentLedger });
+  } catch (error) {
+    console.warn("[Indexer] Failed to read current ledger for health status:", error.message);
+    res.status(503).json({ status: "degraded", indexer, currentLedger: null });
+  }
 });
 app.use("/api/contributors",    contributorRoutes);
 app.use("/api/gas-estimate",    gasEstimatorRoutes);

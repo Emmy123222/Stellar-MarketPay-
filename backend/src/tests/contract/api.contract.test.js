@@ -49,6 +49,13 @@ jest.mock("../../services/indexerService", () =>
   jest.fn().mockImplementation(() => ({
     start: jest.fn(),
     getHealth: jest.fn().mockReturnValue({ running: false, synced: false }),
+    horizon: {
+      ledgers: jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          limit: jest.fn().mockReturnValue({ call: mockLedgerCall }),
+        }),
+      }),
+    },
   })),
 );
 
@@ -88,6 +95,9 @@ const {
   assertContract,
   validateContract,
 } = require("../../testUtils/contractValidator");
+const mockLedgerCall = jest.fn().mockResolvedValue({
+  records: [{ sequence: 12345678 }],
+});
 
 const app = require("../../server");
 const pool = require("../../db/pool");
@@ -236,6 +246,40 @@ describe("GET /health", () => {
     assertContract("/health", "get", 200, res.body);
     expect(res.body.status).toBe("healthy");
     expect(typeof res.body.uptime_seconds).toBe("number");
+  });
+});
+
+describe("GET /api/indexer/health", () => {
+  beforeEach(() => {
+    mockLedgerCall.mockReset();
+    mockLedgerCall.mockResolvedValue({
+      records: [{ sequence: 12345678 }],
+    });
+  });
+
+  it("returns indexer health with the latest ledger", async () => {
+    const res = await request(app).get("/api/indexer/health");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      status: "ok",
+      indexer: { running: false, synced: false },
+      currentLedger: 12345678,
+    });
+  });
+
+  it("returns degraded health when the current ledger cannot be read", async () => {
+    const warning = jest.spyOn(console, "warn").mockImplementation(() => {});
+    mockLedgerCall.mockRejectedValueOnce(new Error("Horizon unavailable"));
+
+    const res = await request(app).get("/api/indexer/health");
+
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({
+      status: "degraded",
+      currentLedger: null,
+    });
+    warning.mockRestore();
   });
 });
 
