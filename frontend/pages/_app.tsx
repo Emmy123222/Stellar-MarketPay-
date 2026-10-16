@@ -82,12 +82,9 @@ function AppContent({ Component, pageProps }: AppProps) {
     onPostJob: () => router.push("/post-job"),
     onFocusSearch: () => window.dispatchEvent(new CustomEvent("shortcut-focus-search")),
     onToggleBookmark: () => window.dispatchEvent(new CustomEvent("shortcut-toggle-bookmark")),
-    onOpenCommandPalette: () => setCommandPaletteOpen(true),
-    onToggleShortcutsModal: handleToggleShortcutsModal,
-    onFocusSearch: () => window.dispatchEvent(new CustomEvent("shortcut-focus-search")),
-    onToggleBookmark: () => window.dispatchEvent(new CustomEvent("shortcut-toggle-bookmark")),
     onToggleTheme: () => window.dispatchEvent(new CustomEvent("shortcut-toggle-theme")),
     onOpenCommandPalette: () => setCommandPaletteOpen(true),
+    onToggleShortcutsModal: handleToggleShortcutsModal,
     shortcutsModalOpen,
   });
 
