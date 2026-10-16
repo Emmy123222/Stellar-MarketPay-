@@ -34,8 +34,20 @@ jest.mock("@/lib/api", () => ({
   fetchHealthStatus: jest.fn().mockResolvedValue({
     status: "healthy",
     database: { status: "ok", latency_ms: 12 },
+    redis: { status: "ok" },
     stellar: { status: "ok", ledger: 123 },
     ipfs: { status: "ok" },
+  }),
+  fetchIndexerHealth: jest.fn().mockResolvedValue({
+    status: "ok",
+    indexer: {
+      running: true,
+      synced: true,
+      lastProcessedLedger: 123,
+      lastTransactionAt: null,
+      lastError: null,
+    },
+    currentLedger: 123,
   }),
   fetchHealthHistory: jest.fn().mockResolvedValue({
     database: [],
