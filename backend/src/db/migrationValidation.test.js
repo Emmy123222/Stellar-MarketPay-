@@ -71,6 +71,18 @@ describe("getExpectedMigrationVersion()", () => {
 });
 
 describe("assertUniqueVersions()", () => {
+  it("provides a rollback migration for every forward migration", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const migrationsDir = path.join(__dirname, "migrations");
+    const upFiles = fs.readdirSync(migrationsDir).filter((name) => name.endsWith(".up.sql"));
+    const missingDownFiles = upFiles
+      .map((name) => name.replace(/\.up\.sql$/, ".down.sql"))
+      .filter((name) => !fs.existsSync(path.join(migrationsDir, name)));
+
+    expect(missingDownFiles).toEqual([]);
+  });
+
   it("does not throw when all versions are unique", () => {
     expect(() =>
       assertUniqueVersions([
