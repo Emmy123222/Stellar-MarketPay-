@@ -12,6 +12,7 @@
 "use strict";
 
 const pool = require("../db/pool");
+const metrics = require("../metrics");
 
 /**
  * Record a state-changing operation in the audit log.
@@ -40,6 +41,54 @@ async function insertAuditLog({ actorAddress, action, entityType, entityId, oldV
     ],
   );
   return rows[0];
+}
+
+/**
+ * Record an escrow on-chain/off-chain reconciliation mismatch.
+ *
+ * Writes an append-only audit entry describing the divergence between the
+ * PostgreSQL copy of escrow state and the authoritative Soroban contract
+ * state, and increments the Prometheus mismatch counter so the event is
+ * alertable. This is called from escrowService before sensitive transitions
+ * (release, refund, dispute open) when the cross-check fails.
+ *
+ * @param {Object} params
+ * @param {string} params.actorAddress - Stellar public key of the actor (or "system").
+ * @param {string} params.escrowId     - Escrow identifier that desynced.
+ * @param {string} params.transition   - Sensitive transition being attempted (e.g. "release").
+ * @param {Object|null} [params.dbState]     - Escrow state as stored in PostgreSQL.
+ * @param {Object|null} [params.chainState]  - Escrow state read from the Soroban contract.
+ * @param {string[]} [params.mismatches]     - List of field names that diverged.
+ * @returns {Promise<Object>} The inserted audit_log row.
+ */
+async function recordEscrowMismatch({
+  actorAddress,
+  escrowId,
+  transition,
+  dbState,
+  chainState,
+  mismatches,
+}) {
+  if (typeof metrics.incrementEscrowMismatch === "function") {
+    metrics.incrementEscrowMismatch({ transition });
+  }
+
+  return insertAuditLog({
+    actorAddress: actorAddress || "system",
+    action: "escrow_state_mismatch",
+    entityType: "escrow",
+    entityId: escrowId,
+    oldValue: dbState != null ? { source: "db", state: dbState } : null,
+    newValue:
+      chainState != null || mismatches != null
+        ? {
+            source: "chain",
+            state: chainState != null ? chainState : null,
+            transition,
+            mismatches: mismatches || [],
+          }
+        : null,
+  });
 }
 
 /**
@@ -122,4 +171,5 @@ async function listAuditLogs({ limit = 50, after, entityType, entityId, action }
 module.exports = {
   insertAuditLog,
   listAuditLogs,
+  recordEscrowMismatch,
 };

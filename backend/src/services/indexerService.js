@@ -358,114 +358,73 @@ class IndexerService {
     this.syncState.running = true;
     this.syncState.lastError = null;
 
-    const cursor = this.syncState.lastProcessedLedger ? String(this.syncState.lastProcessedLedger) : HORIZON_CURSOR_START;
+    try {
+      const cursor = this.syncState.lastProcessedLedger
+        ? String(this.syncState.lastProcessedLedger)
+        : HORIZON_CURSOR_START;
 
-    this.closeStream = this.horizon
-      .transactions()
-      .forAccount(this.platformWallet)
-      .cursor(cursor)
-      .stream({
-        onmessage: async (tx) => {
-          try {
-            await this.processTransaction(tx);
-          } catch (error) {
+      this.closeStream = this.horizon
+        .payments()
+        .forAccount(this.platformWallet)
+        .cursor(cursor)
+        .stream({
+          onmessage: (record) => {
+            this.processTransaction(record).catch((error) => {
+              this.syncState.lastError = error.message;
+              console.error("[Indexer] payment stream error:", error.message);
+            });
+          },
+          onerror: (error) => {
             this.syncState.lastError = error.message;
-            console.error("[Indexer] failed to process transaction:", error.message);
-          }
-        },
-        onerror: (error) => {
-          this.syncState.lastError = error?.message || "stream error";
-          console.error("[Indexer] stream error:", this.syncState.lastError);
-        },
-      });
+            console.error("[Indexer] payment stream error:", error.message);
+          },
+        });
 
-    this.startEventStream();
-    this.startContractTransactionStream();
+      if (this.contractId) {
+        this.closeContractStream = this.horizon
+          .events()
+          .forContract(this.contractId)
+          .cursor(cursor)
+          .stream({
+            onmessage: (event) => {
+              this.processEvent(event).catch((error) => {
+                this.syncState.lastError = error.message;
+                console.error("[Indexer] contract event stream error:", error.message);
+              });
+            },
+            onerror: (error) => {
+              this.syncState.lastError = error.message;
+              console.error("[Indexer] contract event stream error:", error.message);
+            },
+          });
+      }
+    } catch (error) {
+      this.syncState.running = false;
+      this.syncState.lastError = error.message;
+      throw error;
+    }
   }
 
-  startEventStream(retryDelay = 1000) {
-    const MAX_RETRY_DELAY = 60_000;
-    this.closeEventStream = this.horizon
-      .events()
-      .cursor("now")
-      .stream({
-        onmessage: async (event) => {
-          try {
-            await this.processEvent(event);
-          } catch (error) {
-            console.error("[Indexer] failed to process event:", error.message);
-          }
-        },
-        onerror: (error) => {
-          console.error("[Indexer] event stream error:", error?.message);
-          if (typeof this.closeEventStream === "function") {
-            this.closeEventStream();
-            this.closeEventStream = null;
-          }
-          const nextDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
-          setTimeout(() => {
-            if (this.syncState.running) {
-              console.log(`[Indexer] reconnecting event stream in ${retryDelay}ms...`);
-              this.startEventStream(nextDelay);
-            }
-          }, retryDelay);
-        },
-      });
-  }
-
-  startContractTransactionStream(retryDelay = 1000) {
-    if (!this.contractId) return;
-    const MAX_RETRY_DELAY = 60_000;
-    this.closeContractStream = this.horizon
-      .transactions()
-      .forAccount(this.contractId)
-      .cursor("now")
-      .stream({
-        onmessage: async (tx) => {
-          try {
-            await this.processTransaction(tx);
-            this.broadcast("contract:transaction", { txHash: tx.hash, contractId: this.contractId });
-          } catch (error) {
-            console.error("[Indexer] contract tx stream error:", error.message);
-          }
-        },
-        onerror: (error) => {
-          console.error("[Indexer] contract tx stream error:", error?.message);
-          if (typeof this.closeContractStream === "function") {
-            this.closeContractStream();
-            this.closeContractStream = null;
-          }
-          const nextDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY);
-          setTimeout(() => {
-            if (this.syncState.running) {
-              this.startContractTransactionStream(nextDelay);
-            }
-          }, retryDelay);
-        },
-      });
-  }
-
-  async getEventsForJob(jobId) {
-    const { rows } = await pool.query(
-      "SELECT * FROM contract_events WHERE job_id = $1 ORDER BY created_at ASC",
-      [jobId]
-    );
-    return rows;
-  }
-
-  stop() {
-    if (typeof this.closeStream === "function") this.closeStream();
-    if (typeof this.closeEventStream === "function") this.closeEventStream();
-    if (typeof this.closeContractStream === "function") this.closeContractStream();
-    this.closeStream = null;
-    this.closeEventStream = null;
-    this.closeContractStream = null;
+  async stop() {
     this.syncState.running = false;
-  }
-
-  getHealth() {
-    return { ...this.syncState };
+    if (typeof this.closeStream === "function") {
+      this.closeStream();
+      this.closeStream = null;
+    }
+    if (typeof this.closeEventStream === "function") {
+      this.closeEventStream();
+      this.closeEventStream = null;
+    }
+    if (typeof this.closeContractStream === "function") {
+      this.closeContractStream();
+      this.closeContractStream = null;
+    }
   }
 }
 
 module.exports = IndexerService;
+module.exports.parseJobIdFromMemo = parseJobIdFromMemo;
+module.exports.toNumericAmount = toNumericAmount;
+module.exports.normalizeAsset = normalizeAsset;
+module.exports.isEscrowRelease = isEscrowRelease;
+module.exports.isDonation = isDonation;

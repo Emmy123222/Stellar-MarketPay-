@@ -159,6 +159,46 @@ const escrowReleaseErrorsTotal = createMetric(promClient.Counter, {
   labelNames: ["reason"],
 });
 
+// ─── Escrow on-chain reconciliation metrics (Issue #850) ─────────────────────
+/**
+ * Counts escrow state cross-checks against the on-chain Soroban contract,
+ * labeled by the sensitive transition being guarded and the outcome.
+ *
+ * `transition` is bounded to "release" | "refund" | "dispute_open" and
+ * `result` to "match" | "mismatch" | "error" so the series cannot explode in
+ * cardinality (we never label by escrow id or account).
+ */
+const escrowOnChainChecksTotal = createMetric(promClient.Counter, {
+  name: "marketpay_escrow_onchain_checks_total",
+  help: "Total escrow on-chain reconciliation checks by transition and result",
+  labelNames: ["transition", "result"],
+});
+
+/**
+ * Counts escrow state mismatches detected between PostgreSQL and the on-chain
+ * Soroban contract, labeled by the sensitive transition and the field that
+ * diverged (e.g. "status", "amount", "released"). A non-zero rate means the
+ * indexer has fallen behind or the contract was mutated out-of-band, and the
+ * guard is refusing to mutate the DB copy.
+ */
+const escrowOnChainMismatchesTotal = createMetric(promClient.Counter, {
+  name: "marketpay_escrow_onchain_mismatches_total",
+  help: "Total escrow state mismatches between DB and on-chain contract",
+  labelNames: ["transition", "field"],
+});
+
+/**
+ * Counts escrow on-chain reconciliation reads that failed (RPC/network/parse
+ * errors). These are distinct from mismatches: the guard treats them as
+ * fail-closed and refuses the mutation, but the underlying cause is transport
+ * rather than a genuine desync.
+ */
+const escrowOnChainCheckErrorsTotal = createMetric(promClient.Counter, {
+  name: "marketpay_escrow_onchain_check_errors_total",
+  help: "Total escrow on-chain reconciliation read failures",
+  labelNames: ["transition", "reason"],
+});
+
 // ─── Cache metrics (Issue #1512) ─────────────────────────────────────────────
 /** Cache hit counter for Redis-backed caches, labeled by cache name. */
 const cacheHitsTotal = createMetric(promClient.Counter, {
@@ -357,6 +397,40 @@ function recordEscrowRelease(ok, err) {
   if (!ok) escrowReleaseErrorsTotal.inc({ reason: escrowReleaseReason(err) });
 }
 
+// Bounded transition set for on-chain escrow cross-checks.
+const ESCROW_ONCHAIN_TRANSITIONS = ["release", "refund", "dispute_open"];
+
+// Bounded failure-reason set for on-chain reconciliation reads.
+const ESCROW_ONCHAIN_CHECK_REASONS = [
+  ["network", /horizon|network|fetch|timeout|econn|socket|rpc/],
+  ["not_found", /not found|no escrow|missing/],
+  ["parse", /parse|decode|invalid|malformed/],
+];
+
+/**
+ * Classify an on-chain reconciliation read failure into a bounded `reason`.
+ *
+ * @param {Error|*} err error thrown while reading the contract state
+ * @returns {string} network | not_found | parse | contract_error
+ */
+function escrowOnChainCheckReason(err) {
+  const message = String((err && err.message) || "").toLowerCase();
+  for (const [reason, pattern] of ESCROW_ONCHAIN_CHECK_REASONS) {
+    if (pattern.test(message)) return reason;
+  }
+  return "contract_error";
+}
+
+/**
+ * Record one escrow on-chain reconciliation check.
+ *
+ * @param {string} transition "release" | "refund" | "dispute_open"
+ * @param {string} result     "match" | "mismatch" | "error"
+ */
+function recordEscrowOnChainCheck(transition, result) {
+  escrowOnChainChecksTotal.inc({ transition, result });
+}
+
 /**
  * Record a cache hit for the named cache.
  *
@@ -396,6 +470,9 @@ module.exports = {
   poolQueriesTotal,
   escrowReleasesTotal,
   escrowReleaseErrorsTotal,
+  escrowOnChainChecksTotal,
+  escrowOnChainMismatchesTotal,
+  escrowOnChainCheckErrorsTotal,
   // supporting metrics
   dbConnections,
   pgPoolTotal,
@@ -422,6 +499,8 @@ module.exports = {
   setWebsocketConnections,
   recordEscrowRelease,
   escrowReleaseReason,
+  recordEscrowOnChainCheck,
+  escrowOnChainCheckReason,
   recordCacheHit,
   recordCacheMiss,
   renderMetrics,

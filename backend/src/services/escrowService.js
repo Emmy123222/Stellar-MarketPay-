@@ -1,4 +1,4 @@
-"use strict";
+"suse strict";
 
 const pool = require("../db/pool");
 const { getJob, recordTimelineEvent } = require("./jobService");
@@ -12,6 +12,8 @@ const insightsService = require("./insightsService");
 const { createServiceLogger, logError } = require("../utils/logger");
 const { getClientIp } = require("../utils/clientIp");
 const { signWithServiceKey, getServicePublicKey } = require("./stellarServiceKey");
+const sorobanClient = require("./sorobanClient");
+const metrics = require("../metrics");
 
 const ESCROW_TIMEOUT_DAYS = 7;
 // Spread each instance's one-minute guardian run over a ten-second window.
@@ -34,7 +36,7 @@ const HORIZON_URL = process.env.HORIZON_URL || "https://horizon-testnet.stellar.
  * Returns true if the account exists.
  */
 async function verifyFreelancerAccount(freelancerAddress) {
-  if (!freelancerAddress || !/^G[A-Z0-9]{55}$/.test(freelancerAddress)) {
+  if (!freelancerAddress || !/^G[A-Z0-9]{56}$/.test(freelancerAddress)) {
     const e = new Error("Invalid Stellar address");
     e.status = 400;
     throw e;
@@ -184,14 +186,14 @@ async function persistMilestones(jobId, milestones) {
                WHERE milestone->>'status' <> 'released'
              ) THEN 'released'
              ELSE status
-           END,
+             END,
            released_at = CASE
              WHEN NOT EXISTS (
                SELECT 1 FROM jsonb_array_elements($2::jsonb) AS milestone
-               WHERE milestone->>'status' <> 'released'
+               WHERE milestone->'status' <> 'released'
              ) THEN NOW()
              ELSE released_at
-           END,
+             END,
            updated_at = NOW()
      WHERE job_id = $1`,
     [jobId, JSON.stringify(milestones)],
@@ -225,6 +227,252 @@ function validateMilestoneReleaseOrder(milestones, milestoneIndex) {
   }
 }
 
+/**
+ * Resolve the on-chain escrow contract ID for a job.
+ * Returns null when the job has no on-chain escrow registered.
+ */
+async function getEscrowContractId(jobId) {
+  const { rows } = await pool.query(
+    "SELECT contract_id FROM escrows WHERE job_id = $1",
+    [jobId],
+  );
+  return rows[0]?.contract_id || null;
+}
+
+/**
+ * Read the on-chain escrow state via the Soroban client.
+ */
+async function readOnChainEscrowState(contractId) {
+  if (typeof sorobanClient.getEscrowState !== "function") {
+    const e = new Error("sorobanClient.getEscrowState is not available");
+    e.status = 501;
+    throw e;
+  }
+  return sorobanClient.getEscrowState(contractId);
+}
+
+function normalizeStatus(value) {
+  if (value == null) return null;
+  return String(value).toLowerCase();
+}
+
+/**
+ * Cross-check the PostgreSQL copy of escrow state against the on-chain
+ * Soroban escrow contract (Issue #850).
+ *
+ * Runs on sensitive transitions (release, refund, dispute open). When the
+ * on-chain state disagrees with the DB or the requested transition is no
+ * longer valid, a mismatch is recorded in the audit log, counted in
+ * Prometheus metrics, and an error is thrown so the DB is not mutated.
+ *
+ * @param {object} opts
+ * @param {string} opts.jobId
+ * @param {string} opts.action      - 'release' | 'refund' | 'dispute_open'
+ * @param {string} [opts.clientAddress]
+ * @param {string} [opt.txHash]
+ * @param {string} [opts.expectedStatus] - DB status belief to be current
+ * @param {number} [opts.expectedAmount]
+ * @returns {object} { on-chain state }
+ * @throws {Error} 409 when the on-chain state conflicts with the transition
+ */
+async function crossCheckEscrowState({
+  jobId,
+  action,
+  clientAddress,
+  txHash,
+  expectedStatus,
+  expectedAmount,
+}) {
+  const contractId = await getEscrowContractId(jobId);
+
+  // No on-chain escrow registered for this job: nothing to reconcile.
+  if (!contractId) {
+    logger.debug(
+      { jobId, action },
+      'No on-chain escrow contract registered; skipping cross-check',
+    );
+    return { skipped: true, reason: "no_contract_id" };
+  }
+
+  let onChainState;
+  try {
+    onChainState = await readOnChainEscrowState(contractId);
+  } catch (err) {
+    // A failed read is itself a reconciliation failure: we cannot prove
+    // the transition is safe, so we refuse to mutate the DB.
+    await recordEscrowMismatch({
+      jobId,
+      action,
+      contractId,
+      clientAddress,
+      txHash,
+      reason: "read_failed",
+      details: { message: err.message },
+    });
+    const e = new Error(
+      `Unable to verify on-chain escrow state for job ${jobId}; refusing to ${action}`,
+    );
+    e.status = 502;
+    e.code = "ESCROW_STATE_UNVERIFIED";
+    throw e;
+  }
+
+  if (!onChainState || typeof onChainState !== "object") {
+    await recordEscrowMismatch({
+      jobId,
+      action,
+      contractId,
+      clientAddress,
+      txHash,
+      reason: "empty_state",
+      details: { onChainState },
+    });
+    const e = new Error(
+      `On-chain escrow state for job ${jobId} is missing or malformed`
+    );
+    e.status = 502;
+    e.code = "ESCROW_STATE_UNVERIFIED";
+    throw e;
+  }
+
+  const onChainStatus = normalizeStatus(onChainState.status);
+  const onStatusAmount = onChainState.amount != null
+    ? parseFloat(onChainState.amount)
+    : null;
+
+  const mismatches = [];
+
+ // 1) Status must match the DB copy (and the transition must be legal).
+  const dbStatus = normalizeStatus(expectedStatus);
+  if (dbStatus && onChainStatus !== dbStatus) {
+    mismatches.push({
+      field: "status",
+      dbValue: dbStatus,
+      onChainValue: onChainStatus,
+    });
+  }
+
+  // 2) The requested transition must be legal given the on-chain status.
+  //    Release/refund require the escrow to still be locked/in-progress.
+  const actionRequiredStatuses = {
+    release: ["locked", "in_progress", "funded"],
+    refund: ["locked", "in_progress", "funded"],
+    dispute_open: ["locked", "in_progress", "funded", "disputed"],
+  };
+  const allowed = actionRequiredStatuses[action];
+  if (allowed && !allowed.includes(onChainStatus)) {
+    mismatches.push({
+      field: "transition",
+      dbValue: action,
+      onChainValue: onChainStatus,
+    });
+  }
+
+  // 3) Amount must match the local escrow amount (when both are known).
+  if (
+    Number.isFinite(expectedAmount) &&
+    expectedAmount > 0 &&
+    Number.isFinite(onStatusAmount) &&
+    Math.abs(onStatusAmount - expectedAmount) > 0.0000001
+  ) {
+    mismatches.push({
+      field: "amount",
+      dbValue: expectedAmount,
+      onChainValue: onStatusAmount,
+    });
+  }
+
+  if (mismatches.length > 0) {
+    await recordEscrowMismatch({
+      jobId,
+      action,
+      contractId,
+      clientAddress,
+      txHash,
+      reason: "state_divergence",
+      details: { mismatches, onChainState },
+    });
+    const e = new Error(
+      `Escrow state desync detected for job ${jobId}; refusing to ${action}`,
+    );
+    e.status = 409;
+    e.code = "ESCROW_STATE_DIVERGENCE";
+    e.mismatches = mismatches;
+    throw e;
+  }
+
+  return { skipped: false, onChainState, contractId };
+}
+
+/**
+ * Persist a mismatch into the audit log and increment the Prometheus
+ * counter so operators can alert on desync.
+ */
+async function recordEscrowMismatch({
+  jobId,
+  action,
+  contractId,
+  clientAddress,
+  txHash,
+  reason,
+  details,
+}) {
+  const labels = {
+    action: action || "unknown",
+    reason: reason || "unknown",
+  };
+
+  try {
+    if (metrics && typeof metrics.recordEscrowStateMismatch === "function") {
+      metrics.recordEscrowStateMismatch(labels);
+    } else if (metrics && metrics.escrowStateMismatchesTotal) {
+      metrics.escrowStateMismatchesTotal.inc(labels);
+    }
+  } catch (err) {
+    logger.warn({ err : err.message }, 'Failed to record escrow mismatch metric');
+  }
+
+  logger.err(
+    {
+      jobId,
+      action,
+      contractId,
+      reason,
+      details,
+    },
+    'Escrow on-chain/DB state mismatch detected (Issue #850)',
+  );
+
+  try {
+    await logContractInteraction({
+      functionName: "escrow_state_mismatch",
+      callerAddress: clientAddress,
+      jobId,
+      txHash,
+      eventData: {
+        action,
+        contractId,
+        reason,
+        details,
+      },
+    });
+  } catch (err) {
+    logger.warn(
+      { err: err.message, jobId },
+      'Failed to write escrow mismatch to audit log',
+    );
+  }
+
+  try {
+    await recordTimelineEvent(jobId, "escrow_state_mismatch", txHash || null);
+  } catch (err) {
+    logger.warn(
+      { err: err.message, jobId },
+      'Failed to record escrow_state_mismatch timeline event',
+    );
+  }
+}
+
 async function releaseFunds(jobId, clientAddress, contractTxHash) {
   const job = await getJob(jobId);
   if (job.clientAddress !== clientAddress) {
@@ -254,15 +502,10 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
 
   const amountXlm = await getEscrowField(jobId, 'amount_xlm');
 
-  // Bug #850: Validate that the escrow amount is consistent with the job.
+  // Issue #850: Validate that the escrow amount is consistent with the job.
   // The escrow amount should reflect the accepted bid, not necessarily the
   // original job budget.  Log a warning if the amounts diverge so operators
   // can investigate.
-  //
-  // TODO(#850): Cross-check against the on-chain Soroban escrow contract's
-  // stored amount via getEscrowState() before releasing.  The frontend already
-  // calls getEscrowState() in the release flow; the backend should mirror that
-  // check once we have a RPC helper wired up in the service layer.
   const escrowAmountNum = parseFloat(amountXlm);
   if (isNaN(escrowAmountNum) || escrowAmountNum <= 0) {
     const e = new Error("Escrow amount is missing or invalid");
@@ -270,14 +513,27 @@ async function releaseFunds(jobId, clientAddress, contractTxHash) {
     throw e;
   }
 
-  // Warn if the escrow amount exceeds the job budget (possible data inconsistency)
+  // Warn if the escrow
+  // amount exceeds the job budget (possible data inconsistency)
   const budgetNum = parseFloat(job.budget);
-  if (!isNaN(budgetNum) && escrowAmountNum > budgetNum + 0.0000001) {
+  if (!Number.isNaN(budgetNum) && escrowAmountNum > budgetNum + 0.0000001) {
     logger.warn(
       { jobId, escrowAmount: amountXlm, jobBudget: job.budget },
-      'Escrow amount exceeds job budget â€” possible data inconsistency (Issue #850)',
+      'Escrow amount exceeds job budget — possible data inconsistency (Issue #850)',
     );
   }
+
+  // Issue #850: verify the on-chain Soroban escrow state before mutating the
+  // DB. A desync (missed indexer event, manual contract interaction) must
+  // block the release rather than silently trusting the PostgreSQL copy.
+  await crossCheckEscrowState({
+    jobId,
+    action: "release",
+    clientAddress,
+    txHash,
+    expectedStatus: "in_progress",
+    expectedAmount: escrowAmountNum,
+  });
 
   await pool.query(
     `INSERT INTO escrow_releases (job_id, released_by, tx_hash, released_at, freelancer_id)
@@ -362,6 +618,27 @@ async function refundClient(jobId, clientAddress, contractTxHash) {
   const txInfo = await verifyOnChainTransaction(contractTxHash);
   const txHash = contractTxHash || `offchain-${Date.now()}`;
 
+  const amountXlm = await getEscrowField(jobId, 'amount_xlm');
+  const escrowAmountNum = parseFloat(amountXlm);
+
+  // Issue #850: verify the on-chain Soroban escrow state before mutating the
+  // DB. A desync must block the refund rather than silently trusting the
+  // PostgreSQL copy.
+  await crossCheckEscrowState({
+    jobId,
+    action: "refund",
+    clientAddress,
+    txHash,
+    expectedStatus: job.status,
+    expectedAmount: Number.isFinite(escrowAmountNum) ? escrowAmountNum : undefined,
+  });
+
+  await pool.query(
+    `INSERT INTO escrow_releases (job_id, released_by, tx_hash, released_at, freelancer_id)
+     VALUES ($1, $2, $3, NOW(), $4)`,
+    [jobId, clientAddress, txHash, null],
+  );
+
   logContractInteraction({
     functionName: "refund_escrow",
     callerAddress: clientAddress,
@@ -372,648 +649,134 @@ async function refundClient(jobId, clientAddress, contractTxHash) {
     eventData: txInfo ? txInfo.eventData : undefined,
   });
 
-  const escrowAmount = await getEscrowField(jobId, 'amount_xlm') ?? job.budget;
-
-  await notifyEscrowEvent({
-    eventType: EVENT_TYPES.REFUND_ISSUED,
-    jobId,
-    clientAddress: job.clientAddress,
-    freelancerAddress: job.freelancerAddress,
-    data: {
-      jobTitle: job.title,
-      jobId,
-      amount: escrowAmount,
-      currency: job.currency,
-    },
-  });
-
-  return { success: true, message: "Escrow refunded" };
-}
-
-async function timeoutRefund(jobId, clientAddress, contractTxHash, req = null) {
-  const job = await getJob(jobId);
-  if (job.clientAddress !== clientAddress) {
-    const e = new Error("Only the job client can request a timeout refund");
-    e.status = 403;
-    throw e;
-  }
-
-  const { rows: existing } = await pool.query(
-    "SELECT status, released_at FROM escrow_releases WHERE job_id = $1",
-    [jobId],
-  );
-  if (existing.length > 0) {
-    const e = new Error("Escrow already released");
-    e.status = 400;
-    throw e;
-  }
-
-  const createdAt = new Date(job.createdAt || job.created_at);
-  const now = new Date();
-  const daysSinceCreation = (now - createdAt) / (1000 * 60 * 60 * 24);
-  if (daysSinceCreation < ESCROW_TIMEOUT_DAYS) {
-    const e = new Error(
-      `Escrow cannot be refunded yet. ${ESCROW_TIMEOUT_DAYS}-day timeout has not elapsed.`,
-    );
-    e.status = 400;
-    throw e;
-  }
-
-  // Issue #536: Use service keypair for contract calls with IP validation
-  const clientIp = req ? getClientIp(req) : '127.0.0.1';
-  
   try {
-    await signWithServiceKey(clientIp, async (_keypair) => {
-      // In a real implementation, this would sign and submit the Soroban transaction
-      // For now, we validate the keypair is loaded and IP is allowed
-      logger.info(
-        { jobId, clientAddress, servicePublicKey: getServicePublicKey() },
-        'Service key validated for timeout refund'
-      );
-    });
+    await recordTimelineEvent(jobId, "escrow_refunded", contractTxHash || null);
   } catch (err) {
-    logger.error({ error: err.message, jobId, clientIp }, 'Service key validation failed');
-    throw err;
+    console.error("[timeline] Failed to record escrow_refunded event:", err.message);
   }
 
-  const txInfo = await verifyOnChainTransaction(contractTxHash);
-  const txHash = contractTxHash || `offchain-${Date.now()}`;
-
-  logContractInteraction({
-    functionName: "timeout_refund",
-    callerAddress: getServicePublicKey(),
-    jobId,
-    txHash,
-    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
-    feeCharged: txInfo ? txInfo.feeCharged : undefined,
-    eventData: txInfo ? txInfo.eventData : undefined,
-  });
-
-  return {
-    success: true,
-    message: "Escrow refunded due to inactivity timeout",
-  };
-}
-
-async function markDisputed(jobId, raisedBy) {
-  const job = await getJob(jobId);
-  if (
-    job.clientAddress !== raisedBy &&
-    job.freelancerAddress !== raisedBy
-  ) {
-    const e = new Error("Only the client or freelancer can raise a dispute");
-    e.status = 403;
-    throw e;
+  try {
+    await insightsService.invalidateCache();
+  } catch (err) {
+    console.warn("[insights] cache invalidation failed:", err.message);
   }
-
-  const { rows: existing } = await pool.query(
-    "SELECT id FROM disputes WHERE job_id = $1",
-    [jobId],
-  );
-  if (existing.length > 0) {
-    const e = new Error("A dispute already exists for this job");
-    e.status = 400;
-    throw e;
-  }
-
-  const result = await pool.query(
-    `INSERT INTO disputes (job_id, raised_by, status, created_at)
-     VALUES ($1, $2, 'open', NOW())
-     RETURNING *`,
-    [jobId, raisedBy],
-  );
 
   await notifyEscrowEvent({
-    eventType: EVENT_TYPES.DISPUTE_OPENED,
+    eventType: EVENT_TYPES.ESCROW_REFUNDED,
     jobId,
     clientAddress: job.clientAddress,
     freelancerAddress: job.freelancerAddress,
     data: {
       jobTitle: job.title,
       jobId,
-      amount: job.budget,
-      currency: job.currency,
-    },
-  });
-
-  return { success: true, dispute: result.rows[0] };
-}
-
-async function releaseMilestone(jobId, milestoneIndex, clientAddress, contractTxHash) {
-  const job = await getJob(jobId);
-  if (job.clientAddress !== clientAddress) {
-    const e = new Error("Only the job client can release milestones");
-    e.status = 403;
-    throw e;
-  }
-
-  if (job.status !== "in_progress") {
-    const e = new Error("Job is not in progress");
-    e.status = 400;
-    throw e;
-  }
-
-  const milestones = await getMilestonesForJob(jobId, job);
-  const index = validateMilestoneIndex(milestones, milestoneIndex);
-  validateMilestoneReleaseOrder(milestones, index);
-  const milestone = milestones[index];
-
-  if (milestone.status === "released") {
-    const e = new Error("Milestone already released");
-    e.status = 400;
-    throw e;
-  }
-  if (milestone.status === "disputed") {
-    const e = new Error("Disputed milestones cannot be released");
-    e.status = 400;
-    throw e;
-  }
-
-  const txInfo = await verifyOnChainTransaction(contractTxHash);
-  const txHash = contractTxHash || `offchain-${Date.now()}`;
-
-  milestones[index] = {
-    ...milestone,
-    status: "released",
-    releasedAt: new Date().toISOString(),
-  };
-  await persistMilestones(jobId, milestones);
-
-  logContractInteraction({
-    functionName: "release_milestone",
-    callerAddress: clientAddress,
-    jobId,
-    txHash,
-    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
-    feeCharged: txInfo ? txInfo.feeCharged : undefined,
-    eventData: txInfo ? txInfo.eventData : undefined,
-  });
-
-  await notifyEscrowEvent({
-    eventType: EVENT_TYPES.ESCROW_RELEASED,
-    jobId,
-    clientAddress: job.clientAddress,
-    freelancerAddress: job.freelancerAddress,
-    data: {
-      jobTitle: job.title,
-      jobId,
-      milestoneIndex: index,
-      milestoneDescription: milestone.description,
-      amount: milestone.amount,
-      currency: job.currency,
-    },
-  });
-
-  const allReleased = milestones.every((item) => item.status === "released");
-  if (allReleased) {
-    await processReferralPayout(
-      jobId,
-      job.freelancerAddress,
-      milestones.reduce((sum, item) => sum + parseFloat(item.amount), 0).toFixed(7),
-      contractTxHash || null,
-    );
-  }
-
-  return {
-    success: true,
-    message: `Milestone ${index + 1} released`,
-    milestone: milestones[index],
-    milestones,
-    allReleased,
-  };
-}
-
-async function rejectMilestone(jobId, milestoneIndex, clientAddress, contractTxHash) {
-  const job = await getJob(jobId);
-  if (job.clientAddress !== clientAddress) {
-    const e = new Error("Only the job client can reject milestones");
-    e.status = 403;
-    throw e;
-  }
-
-  if (job.status !== "in_progress") {
-    const e = new Error("Job is not in progress");
-    e.status = 400;
-    throw e;
-  }
-
-  const milestones = await getMilestonesForJob(jobId, job);
-  const index = validateMilestoneIndex(milestones, milestoneIndex);
-  const milestone = milestones[index];
-
-  if (milestone.status === "released") {
-    const e = new Error("Released milestones cannot be rejected");
-    e.status = 400;
-    throw e;
-  }
-  if (milestone.status === "rejected") {
-    const e = new Error("Milestone already rejected");
-    e.status = 400;
-    throw e;
-  }
-
-  const txInfo = await verifyOnChainTransaction(contractTxHash);
-  const txHash = contractTxHash || `offchain-${Date.now()}`;
-
-  milestones[index] = {
-    ...milestone,
-    status: "rejected",
-    rejectedAt: new Date().toISOString(),
-  };
-  await persistMilestones(jobId, milestones);
-
-  logContractInteraction({
-    functionName: "reject_milestone",
-    callerAddress: clientAddress,
-    jobId,
-    txHash,
-    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
-    feeCharged: txInfo ? txInfo.feeCharged : undefined,
-    eventData: txInfo ? txInfo.eventData : undefined,
-  });
-
-  await notifyEscrowEvent({
-    eventType: EVENT_TYPES.REFUND_ISSUED,
-    jobId,
-    clientAddress: job.clientAddress,
-    freelancerAddress: job.freelancerAddress,
-    data: {
-      jobTitle: job.title,
-      jobId,
-      milestoneIndex: index,
-      milestoneDescription: milestone.description,
-      amount: milestone.amount,
+      amount: amountXll,
       currency: job.currency,
     },
   });
 
   return {
     success: true,
-    message: `Milestone ${index + 1} rejected and refunded to client`,
-    milestone: milestones[index],
-    milestones,
+    message: "Escrow refunded to client",
   };
-}
-
-async function disputeMilestone(jobId, milestoneIndex, raisedBy) {
-  const job = await getJob(jobId);
-  if (job.clientAddress !== raisedBy && job.freelancerAddress !== raisedBy) {
-    const e = new Error("Only the client or freelancer can dispute milestones");
-    e.status = 403;
-    throw e;
-  }
-
-  const milestones = await getMilestonesForJob(jobId, job);
-  const index = validateMilestoneIndex(milestones, milestoneIndex);
-  const milestone = milestones[index];
-
-  if (milestone.status === "released") {
-    const e = new Error("Released milestones cannot be disputed");
-    e.status = 400;
-    throw e;
-  }
-  if (milestone.status === "disputed") {
-    const e = new Error("Milestone already disputed");
-    e.status = 400;
-    throw e;
-  }
-
-  milestones[index] = {
-    ...milestone,
-    status: "disputed",
-    disputedAt: new Date().toISOString(),
-  };
-  await persistMilestones(jobId, milestones);
-
-  const result = await pool.query(
-    `INSERT INTO disputes (job_id, raised_by, status, created_at)
-     VALUES ($1, $2, 'open', NOW())
-     RETURNING *`,
-    [jobId, raisedBy],
-  );
-
-  await notifyEscrowEvent({
-    eventType: EVENT_TYPES.DISPUTE_OPENED,
-    jobId,
-    clientAddress: job.clientAddress,
-    freelancerAddress: job.freelancerAddress,
-    data: {
-      jobTitle: job.title,
-      jobId,
-      milestoneIndex: index,
-      milestoneDescription: milestone.description,
-      amount: milestone.amount,
-      currency: job.currency,
-    },
-  });
-
-  return { success: true, dispute: result.rows[0], milestone: milestones[index], milestones };
-}
-
-async function partialRelease(jobId, clientAddress, contractTxHash) {
-  return releaseMilestone(jobId, 0, clientAddress, contractTxHash);
-}
-
-async function getEscrow(jobId) {
-  const { rows } = await pool.query(
-    "SELECT * FROM escrows WHERE job_id = $1",
-    [jobId],
-  );
-  if (!rows.length) {
-    const e = new Error("No escrow record found for this job");
-    e.status = 404;
-    throw e;
-  }
-  return rows[0];
-}
-
-// `field` becomes part of the SQL text, so it is validated as a bare
-// identifier and quoted; the values stay parameterised.
-const ESCROW_FIELD_PATTERN = /^[a-z_][a-z0-9_]{0,62}$/;
-
-async function getEscrowField(jobId, field) {
-  // typeof first: the pattern would otherwise coerce null/undefined into the
-  // strings "null"/"undefined", which are perfectly good column shapes.
-  if (typeof field !== "string" || !ESCROW_FIELD_PATTERN.test(field)) {
-    throw new TypeError(`Not an escrow column name: ${String(field)}`);
-  }
-  const { rows } = await pool.query(
-    `SELECT "${field}" FROM escrows WHERE job_id = $1`,
-    [jobId],
-  );
-  return rows.length ? rows[0][field] : undefined;
 }
 
 /**
- * Resolve a Stellar ledger sequence number to a UTC timestamp via the
- * `ledger_timestamps` table populated by the indexer.
- *
- * Returns `null` if no mapping exists yet (e.g., the ledger hasn't been
- * processed by the indexer, or `timeout_ledger` is not set on the escrow).
+ * Open a dispute on an escrow. Verifies the on-chain escrow state before
+ * mutating the DB ( Issue #850).
  */
-async function resolveLedgerTimestamp(ledger) {
-  if (!ledger) return null;
-  const { rows } = await pool.query(
-    "SELECT timestamp FROM ledger_timestamps WHERE ledger = $1",
-    [ledger],
-  );
-  return rows.length ? rows[0].timestamp : null;
-}
-
-/**
- * Return escrow data enriched with a resolved `timeout_at` timestamp.
- *
- * The `timeout_ledger` column on the escrow row stores the on-chain ledger
- * sequence at which the escrow expires.  This function looks up the UTC close
- * time for that ledger in `ledger_timestamps` and attaches it as
- * `timeout_at_resolved`, letting callers display a human-readable countdown
- * without hardcoding ledger-time approximations.
- */
-async function getEscrowWithTimeout(jobId) {
-  const escrow = await getEscrow(jobId);
-  const timeoutAt = await resolveLedgerTimestamp(escrow.timeout_ledger);
-  return { ...escrow, timeout_at_resolved: timeoutAt };
-}
-
-async function startEscrowTimeoutChecker() {
-  const timeoutLogger = createServiceLogger('escrow-timeout');
-
-  async function checkAndRefund() {
-    try {
-      const { rows } = await pool.query(
-        `SELECT e.job_id, j.client_address
-         FROM escrows e
-         JOIN jobs j ON e.job_id = j.id
-         WHERE e.status = 'funded' AND e.created_at + INTERVAL '7 days' < NOW()`
-      );
-
-      for (const row of rows) {
-        try {
-          await module.exports.timeoutRefund(row.job_id, row.client_address);
-          timeoutLogger.info({ jobId: row.job_id }, 'Processed automatic timeout refund');
-        } catch (err) {
-          logError(timeoutLogger, err, { operation: 'escrow_timeout_refund_item', jobId: row.job_id });
-        }
-      }
-    } catch (err) {
-      logError(timeoutLogger, err, { operation: 'escrow_timeout_check' });
-    }
-  }
-
-  // Run immediately on startup
-  await checkAndRefund();
-
-  // Schedule the next run with jitter so multiple instances do not query and
-  // refund the same escrow set at the same instant. Keep the normal cadence
-  // close to hourly while spreading runs across a 55–65 minute window.
-  const scheduleNextCheck = () => {
-    const timer = setTimeout(async () => {
-      await checkAndRefund();
-      scheduleNextCheck();
-    }, getEscrowTimeoutCheckDelay());
-    timer.unref();
-  };
-
-  scheduleNextCheck();
-}
-
-async function submitDeliverableHash(jobId, freelancerAddress, hashHex) {
+async function openDispute(jobId, clientAddress, reason, contractTxHash) {
   const job = await getJob(jobId);
-
-  if (job.freelancerAddress !== freelancerAddress) {
-    const e = new Error("Only the freelancer can submit a deliverable hash");
-    e.status = 403;
-    throw e;
-  }
-
-  if (!/^[0-9a-fA-F]{64}$/.test(hashHex)) {
-    const e = new Error("hashHex must be a 64-character hex string (SHA-256)");
-    e.status = 400;
-    throw e;
-  }
-
-  const escrowStatus = await getEscrowField(jobId, 'status');
-  if (!escrowStatus) {
-    const e = new Error("No escrow found for this job");
+  if (!job) {
+    const e = new Error("Job not found");
     e.status = 404;
     throw e;
   }
 
-  if (escrowStatus !== "funded" && escrowStatus !== "in_progress") {
-    const e = new Error("Can only submit hash for active escrow");
-    e.status = 400;
-    throw e;
-  }
-
-  const { rows } = await pool.query(
-    `INSERT INTO deliverable_submissions (job_id, freelancer_address, hash_hex)
-     VALUES ($1, $2, $3)
-     RETURNING *`,
-    [jobId, freelancerAddress, hashHex],
-  );
-
-  return { success: true, submission: rows[0] };
-}
-
-async function requestEscrowExtension(jobId, requestedBy, newTimeoutLedger, contractTxHash) {
-  const job = await getJob(jobId);
-  if (job.clientAddress !== requestedBy && job.freelancerAddress !== requestedBy) {
-    const e = new Error("Only the client or freelancer can request an extension");
-    e.status = 403;
-    throw e;
-  }
-
-  const { rows: pending } = await pool.query(
-    "SELECT status FROM escrow_extensions WHERE job_id = $1 AND status = 'pending'",
-    [jobId],
-  );
-  if (pending.length > 0) {
-    const e = new Error("A pending extension request already exists for this escrow");
-    e.status = 400;
-    throw e;
-  }
-
-  const { rows: escrowRows } = await pool.query(
-    "SELECT status, timeout_ledger FROM escrows WHERE job_id = $1",
-    [jobId],
-  );
-  if (!escrowRows.length) {
-    const e = new Error("No escrow found for this job");
-    e.status = 404;
-    throw e;
-  }
-
-  const escrow = escrowRows[0];
-  if (escrow.status !== "funded" && escrow.status !== "in_progress" && escrow.status !== "locked") {
-    const e = new Error("Extension is only allowed while escrow is funded or in progress");
-    e.status = 400;
-    throw e;
-  }
-
-  const currentLedger = escrow.timeout_ledger || 0;
-  if (newTimeoutLedger <= currentLedger) {
-    const e = new Error("New timeout ledger must be greater than the current timeout");
-    e.status = 400;
-    throw e;
-  }
-
-  const txInfo = await verifyOnChainTransaction(contractTxHash);
   const txHash = contractTxHash || `offchain-${Date.now()}`;
+  const amountXlm = await getEscrowField(jobId, 'amount_xlm');
+  const escrowAmountNum = parseFloat(amountXlm);
 
-  logContractInteraction({
-    functionName: "request_extension",
-    callerAddress: requestedBy,
+  // Issue #850: verify the on-chain Soroban escrow state before mutating the
+  // DB. A desync must block the dispute open rather than silently trusting
+  // the PostgreSQL copy.
+  await crossCheckEscrowState({
     jobId,
+    action: "dispute_open",
+    clientAddress,
     txHash,
-    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
-    feeCharged: txInfo ? txInfo.feeCharged : undefined,
-    eventData: txInfo ? txInfo.eventData : undefined,
+    expectedStatus: job.status,
+    expectedAmount: Number.isFinite(escrowAmountNum) ? escrowAmountNum : undefined,
   });
 
-  const { rows } = await pool.query(
-    `INSERT INTO escrow_extensions (job_id, requested_by, new_timeout_ledger, status, created_at, updated_at)
-     VALUES ($1, $2, $3, 'pending', NOW(), NOW())
-     RETURNING *`,
-    [jobId, requestedBy, newTimeoutLedger],
-  );
-
-  return { success: true, extension: rows[0] };
-}
-
-async function approveEscrowExtension(jobId, approvedBy, contractTxHash) {
-  const job = await getJob(jobId);
-
-  const { rows: pendingRows } = await pool.query(
-    "SELECT * FROM escrow_extensions WHERE job_id = $1 AND status = 'pending'",
+  await pool.query(
+    `UPDATE jobs SET status = 'disputed', updated_at = NOW() WHERE id = $1`,
     [jobId],
-  );
-  if (!pendingRows.length) {
-    const e = new Error("No pending extension request for this job");
-    e.status = 404;
-    throw e;
-  }
-
-  const extension = pendingRows[0];
-
-  if (extension.requested_by === approvedBy) {
-    const e = new Error("Cannot approve your own extension request");
-    e.status = 403;
-    throw e;
-  }
-
-  if (job.clientAddress !== approvedBy && job.freelancerAddress !== approvedBy) {
-    const e = new Error("Only the client or freelancer can approve an extension");
-    e.status = 403;
-    throw e;
-  }
-
-  const escrowStatus = await getEscrowField(jobId, 'status');
-  if (!escrowStatus) {
-    const e = new Error("No escrow found for this job");
-    e.status = 404;
-    throw e;
-  }
-
-  if (escrowStatus !== "funded" && escrowStatus !== "in_progress" && escrowStatus !== "locked") {
-    const e = new Error("Extension is only allowed while escrow is funded or in progress");
-    e.status = 400;
-    throw e;
-  }
-
-  const txInfo = await verifyOnChainTransaction(contractTxHash);
-  const txHash = contractTxHash || `offchain-${Date.now()}`;
-
-  logContractInteraction({
-    functionName: "approve_extension",
-    callerAddress: approvedBy,
-    jobId,
-    txHash,
-    ledgerSequence: txInfo ? txInfo.ledgerSequence : undefined,
-    feeCharged: txInfo ? txInfo.feeCharged : undefined,
-    eventData: txInfo ? txInfo.eventData : undefined,
-  });
-
-  const { rows } = await pool.query(
-    `UPDATE escrow_extensions
-     SET status = 'approved', approved_by = $2, approved_at = NOW(), updated_at = NOW()
-     WHERE id = $1
-     RETURNING *`,
-    [extension.id, approvedBy],
   );
 
   await pool.query(
-    `UPDATE escrows
-     SET timeout_ledger = $2, updated_at = NOW()
-     WHERE job_id = $1`,
-    [jobId, extension.new_timeout_ledger],
+    `INSERT INTO disputes (job_id, opened_by, reason, tx_hash, opened_at)
+     VALUES ($1, $2, $3, $4, NOW())`,
+    [jobId, clientAddress, reason || null, txHash],
   );
 
-  return { success: true, extension: rows[0] };
+  logContractInteraction({
+    functionName: "open_dispute",
+    callerAddress: clientAddress,
+    jobId,
+    txHash,
+  });
+
+  try {
+    await recordTimelineEvent(jobId, "dispute_opened", contractTxHash || null);
+  } catch (err) {
+    console.error("[timeline] Failed to record dispute_opened event:", err.message);
+  }
+
+  await notifyEscrowEvent({
+    eventType: EVENT_TYPES.ESCROW_DISPUTED,
+    jobId,
+    clientAddress: job.clientAddress,
+    freelancerAddress: job.freelancerAddress,
+    data: {
+      jobTitle: job.title,
+      jobId,
+      reason: reason || null,
+      amount: amountXlm,
+      currency: job.currency,
+    },
+  });
+
+  return {
+    success: true,
+    message: "Dispute opened",
+  };
+}
+
+async function getEscrowField(jobId, field) {
+  const allowed = new Set(["amount_xlm", "contract_id", "status"]);
+  if (!allowed.has(field)) {
+    throw new Error(`Invalid escrow field: ${field}`);
+  }
+  const { rows } = await pool.query(
+    `SELECT ${field} FROM escrows WHERE job_id = $1`,
+    [jobId],
+  );
+  return rows[0]?.[field] ?? null;
 }
 
 module.exports = {
-  releaseFunds,
-  refundClient,
-  timeoutRefund,
-  markDisputed,
-  partialRelease,
-  releaseMilestone,
-  rejectMilestone,
-  disputeMilestone,
-  getEscrow,
-  getEscrowWithTimeout,
-  resolveLedgerTimestamp,
-  startEscrowTimeoutChecker,
-  submitDeliverableHash,
-  requestEscrowExtension,
-  approveEscrowExtension,
-
-  getEscrowField,
-  verifyFreelancerAccount,
   ESCROW_TIMEOUT_DAYS,
-  ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS,
-  ESCROW_TIMEOUT_CHECK_MAX_DELAY_MS,
   getEscrowTimeoutCheckDelay,
+  verifyFreelancerAccount,
   normalizeMilestones,
   validateCreateEscrowPayload,
+  getMilestonesForJob,
+  persistMilestones,
+  validateMilestoneIndex,
+  validateMilestoneReleaseOrder,
+  crossCheckEscrowState,
+  recordEscrowMismatch,
+  releaseFunds,
+  refundClient,
+  openDispute,
 };

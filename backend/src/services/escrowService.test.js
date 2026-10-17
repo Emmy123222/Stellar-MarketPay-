@@ -2,6 +2,8 @@
 
 const mockQuery = jest.fn().mockResolvedValue({ rows: [] });
 
+const mockGetEscrowOnChain = jest.fn();
+
 jest.mock("../db/pool", () => ({
   query: mockQuery,
 }));
@@ -9,6 +11,10 @@ jest.mock("../db/pool", () => ({
 jest.mock("./jobService", () => ({
   getJob: jest.fn(),
   recordTimelineEvent: jest.fn(),
+}));
+
+jest.mock("./sorobanClient", () => ({
+  getEscrowOnChain: (...args) => mockGetEscrowOnChain(...args),
 }));
 
 jest.mock("./contractAuditService", () => ({
@@ -29,6 +35,10 @@ jest.mock("./referralService", () => ({
   processReferralPayout: jest.fn(),
 }));
 
+jest.mock("../metrics", () => ({
+  escrowReconciliationMismatches: { inc: jest.fn() },
+}));
+
 jest.mock("./stellarServiceKey", () => ({
   signWithServiceKey: jest.fn(async (_ip, fn) => fn({})),
   getServicePublicKey: jest.fn(() => "GSERVICEPUBLICKEY0000000000000000000000000000000000000000"),
@@ -37,6 +47,8 @@ jest.mock("./stellarServiceKey", () => ({
 const { getJob } = require("./jobService");
 const { processReferralPayout } = require("./referralService");
 const { notifyEscrowEvent } = require("./notificationService");
+const { logContractInteraction } = require("./contractAuditService");
+const { escrowReconciliationMismatches } = require("../metrics");
 const {
   releaseFunds,
   refundClient,
@@ -99,12 +111,15 @@ describe("escrowService", () => {
   beforeEach(() => {
     mockQuery.mockReset();
     mockQuery.mockResolvedValue({ rows: [] });
+    mockGetEscrowOnChain.mockReset();
+    mockGetEscrowOnChain.mockResolvedValue({ status: "funded", amount: "500" });
     jest.clearAllMocks();
   });
 
   describe("releaseFunds", () => {
     it("releases funds to freelancer on approval", async () => {
       getJob.mockResolvedValue(makeJob());
+      mockGetEscrowOnChain.mockResolvedValue({ status: "funded", amount: "500" });
       mockQuery
         .mockReset()
         .mockResolvedValueOnce({ rows: [] })
@@ -149,6 +164,26 @@ describe("escrowService", () => {
         releaseFunds(JOB_ID, CLIENT_ADDRESS, TX_HASH),
       ).rejects.toMatchObject({ message: "Job is not in progress", status: 400 });
     });
+
+    it("blocks release when on-chain escrow is already released (desync)", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockGetEscrowOnChain.mockResolvedValue({ status: "released", amount: "500" });
+
+      await expect(
+        releaseFunds(JOB_ID, CLIENT_ADDRESS, TX_HASH),
+      ).rejects.toThrow("Escrow state mismatch");
+
+      expect(escrowReconciliationMismatches.inc).toHaveBeenCalledWith({
+        operation: "release",
+      });
+      expect(logContractInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "escrow_reconciliation_mismatch",
+          jobId: JOB_ID,
+        }),
+      );
+      expect(processReferralPayout).not.toHaveBeenCalled();
+    });
   });
 
   describe("refundClient", () => {
@@ -178,6 +213,25 @@ describe("escrowService", () => {
       await expect(
         refundClient(JOB_ID, CLIENT_ADDRESS, TX_HASH),
       ).rejects.toThrow("Escrow already released");
+    });
+
+    it("blocks refund when on-chain escrow is already released (desync)", async () => {
+      getJob.mockResolvedValue(makeJob({ status: "open" }));
+      mockGetEscrowOnChain.mockResolvedValue({ status: "released", amount: "500" });
+
+      await expect(
+        refundClient(JOB_ID, CLIENT_ADDRESS, TX_HASH),
+      ).rejects.toThrow("Escrow state mismatch");
+
+      expect(escrowReconciliationMismatches.inc).toHaveBeenCalledWith({
+        operation: "refund",
+      });
+      expect(logContractInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "escrow_reconciliation_mismatch",
+          jobId: JOB_ID,
+        }),
+      );
     });
   });
 
@@ -213,6 +267,23 @@ describe("escrowService", () => {
       await expect(
         timeoutRefund(JOB_ID, OTHER_ADDRESS, TX_HASH),
       ).rejects.toThrow("Only the job client can request a timeout refund");
+    });
+
+    it("blocks timeout refund when on-chain escrow is already released (desync)", async () => {
+      const oldDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+      getJob.mockResolvedValue(makeJob({
+        createdAt: oldDate.toISOString(),
+        created_at: oldDate.toISOString(),
+      }));
+      mockGetEscrowOnChain.mockResolvedValue({ status: "released", amount: "500" });
+
+      await expect(
+        timeoutRefund(JOB_ID, CLIENT_ADDRESS, TX_HASH),
+      ).rejects.toThrow("Escrow state mismatch");
+
+      expect(escrowReconciliationMismatches.inc).toHaveBeenCalledWith({
+        operation: "timeout_refund",
+      });
     });
   });
 
@@ -258,6 +329,25 @@ describe("escrowService", () => {
         markDisputed(JOB_ID, FREELANCER_ADDRESS),
       ).rejects.toThrow("A dispute already exists for this job");
     });
+
+    it("blocks dispute open when on-chain escrow is already released (desync)", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockGetEscrowOnChain.mockResolvedValue({ status: "released", amount: "500" });
+
+      await expect(
+        markDisputed(JOB_ID, FREELANCER_ADDRESS),
+      ).rejects.toThrow("Escrow state mismatch");
+
+      expect(escrowReconciliationMismatches.inc).toHaveBeenCalledWith({
+        operation: "dispute",
+      });
+      expect(logContractInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "escrow_reconciliation_mismatch",
+          jobId: JOB_ID,
+        }),
+      );
+    });
   });
 
   describe("partialRelease", () => {
@@ -287,6 +377,25 @@ describe("escrowService", () => {
       await expect(
         partialRelease(JOB_ID, CLIENT_ADDRESS, TX_HASH),
       ).rejects.toThrow("Milestone already released");
+    });
+
+    it("blocks partial release when on-chain escrow is already released (desync)", async () => {
+      getJob.mockResolvedValue(makeJob());
+      mockGetEscrowOnChain.mockResolvedValue({ status: "released", amount: "500" });
+
+      await expect(
+        partialRelease(JOB_ID, CLIENT_ADDRESS, TX_HASH),
+      ).rejects.toThrow("Escrow state mismatch");
+
+      expect(escrowReconciliationMismatches.inc).toHaveBeenCalledWith({
+        operation: "partial_release",
+      });
+      expect(logContractInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "escrow_reconciliation_mismatch",
+          jobId: JOB_ID,
+        }),
+      );
     });
 
     it("rejects releasing a later milestone before the prior one is released", async () => {
