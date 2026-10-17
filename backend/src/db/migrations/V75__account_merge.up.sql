@@ -1,4 +1,4 @@
--- V57: Stellar account merge support (identity migration) — Issue #885
+-- V75: Stellar account merge support (identity migration) — Issue #885
 -- The old address is retained and redirected to the replacement account.
 
 ALTER TABLE profiles
