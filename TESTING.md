@@ -6,7 +6,8 @@ locally. If you are a new contributor, start here instead of reverse-engineering
 
 - **Contributing workflow:** [CONTRIBUTING.md](./CONTRIBUTING.md)
 - **What CI runs:** [.github/workflows/ci.yml](./.github/workflows/ci.yml)
-- **Load-test details:** [k6/README.md](./k6/README.md)
+- **Load-testing guide:** [docs/load-testing.md](./docs/load-testing.md)
+- **k6 suite details:** [k6/README.md](./k6/README.md)
 
 ---
 
@@ -27,12 +28,12 @@ locally. If you are a new contributor, start here instead of reverse-engineering
 
 ## 1. Prerequisites
 
-| Tool | Version | Needed for |
-| ---- | ------- | ---------- |
-| [Node.js](https://nodejs.org) | **20.x** (minimum 18) | Frontend + backend |
-| npm | 10.x | Included with Node |
-| [Docker](https://docs.docker.com/get-docker/) + Compose | v2 | Integration DB/Redis + load tests |
-| [Rust](https://rustup.rs) + Cargo | stable | Soroban contracts |
+| Tool                                                    | Version               | Needed for                        |
+| ------------------------------------------------------- | --------------------- | --------------------------------- |
+| [Node.js](https://nodejs.org)                           | **20.x** (minimum 18) | Frontend + backend                |
+| npm                                                     | 10.x                  | Included with Node                |
+| [Docker](https://docs.docker.com/get-docker/) + Compose | v2                    | Integration DB/Redis + load tests |
+| [Rust](https://rustup.rs) + Cargo                       | stable                | Soroban contracts                 |
 
 Install the extra Rust target and Playwright browser once:
 
@@ -297,43 +298,68 @@ Notes:
 ## 8. Running load tests
 
 Load tests use [k6](https://k6.io/) and enforce the API's SLA (p(95) latency and
-error rate). They require a seeded, production-like stack. The full reference is
-[k6/README.md](./k6/README.md); the shortest path uses Docker:
+error rate). They run against a dedicated, production-like stack configured in
+`docker-compose.loadtest.yml`. For the complete end-to-end architecture and operational guide, see **[docs/load-testing.md](./docs/load-testing.md)** and **[k6/README.md](./k6/README.md)**.
+
+### Complete end-to-end workflow:
 
 ```bash
-# 1. Bring up Postgres + Redis + backend (tuned for load)
+# 1. Bring up Postgres (tmpfs) + Redis + backend (tuned for load)
 docker compose -f docker-compose.loadtest.yml up -d --build
 
-# 2. Seed deterministic fixtures (writes k6/test-fixtures.json)
+# 2. Seed database phase 1 (idempotent schema & base records)
+DATABASE_URL=postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork npm run seed-db
+
+# 3. Seed synthetic load volume phase 2 (writes k6/test-fixtures.json)
 JWT_SECRET=loadtest-jwt-secret-with-sufficient-length-for-signing \
 K6_BASE_URL=http://localhost:4000 \
   node k6/seed-data.js
 
-# 3. Run a scenario
-docker compose -f docker-compose.loadtest.yml run --rm k6 run scripts/jobs-listing.js
+# 4. Run load scenarios (using the bundled k6 service in compose)
+docker compose -f docker-compose.loadtest.yml run --rm k6 run get-jobs.js
+docker compose -f docker-compose.loadtest.yml run --rm k6 run get-profiles.js
+docker compose -f docker-compose.loadtest.yml run --rm k6 run post-applications.js
+docker compose -f docker-compose.loadtest.yml run --rm k6 run scripts/authenticated-flow.js
+docker compose -f docker-compose.loadtest.yml run --rm k6 run scripts/create-escrow.js
 
-# 4. Tear down
+# 5. Generate trend report & compare against baseline (k6/previous-results/)
+node k6/lib/trend-report.js --current k6/results --previous k6/previous-results
+
+# 6. Generate infrastructure cost & rightsizing report
+./scripts/infrastructure-cost-report.sh
+
+# 7. Tear down stack
 docker compose -f docker-compose.loadtest.yml down -v
 ```
 
-Available scenarios (run them the same way, replacing the path):
+### SLA gates enforced by `k6/config.js`:
 
-| Script | Endpoint |
-| ------ | -------- |
-| `scripts/jobs-listing.js` | `GET /api/jobs` |
-| `get-profiles.js` | `GET /api/profiles/:publicKey` |
-| `scripts/apply-to-job.js` | `POST /api/applications` |
-| `scripts/create-escrow.js` | `PATCH /api/jobs/:id/escrow` |
+| Gate            | SLA Target                 | Concurrency | Enforced Threshold       |
+| --------------- | -------------------------- | ----------- | ------------------------ |
+| **Latency**     | p(95) < 200 ms             | 100 VUs     | `p(95) < 200`            |
+| **Reliability** | 0 % error rate             | 50 VUs      | `rate < 0.001` (< 0.1 %) |
+| **Integrity**   | > 99 % assertion pass rate | All stages  | `rate > 0.99`            |
 
-If you have a local `k6` binary, run against an already-running backend instead:
+### Available scenarios:
+
+| Script                          | Method & Endpoint              | Focus Area                                                   |
+| ------------------------------- | ------------------------------ | ------------------------------------------------------------ |
+| `get-jobs.js`                   | `GET /api/jobs`                | Job filtering, pagination, and SQL read throughput           |
+| `get-profiles.js`               | `GET /api/profiles/:publicKey` | Redis profile cache hit rate & latency                       |
+| `post-applications.js`          | `POST /api/applications`       | Unique application write throughput under load               |
+| `scripts/authenticated-flow.js` | Full write path                | Authenticated job creation, application, acceptance, release |
+| `scripts/create-escrow.js`      | `PATCH /api/jobs/:id/escrow`   | 50-way concurrent escrow creation burst (#1488)              |
+
+If you have a local `k6` binary, you can run directly from the host:
 
 ```bash
-K6_BASE_URL=http://localhost:4000 JWT_SECRET=<same-as-backend> node k6/seed-data.js
-cd k6 && K6_BASE_URL=http://localhost:4000 k6 run scripts/jobs-listing.js
+cd k6 && K6_BASE_URL=http://localhost:4000 \
+  JWT_SECRET=loadtest-jwt-secret-with-sufficient-length-for-signing \
+  k6 run get-jobs.js
 ```
 
-> k6 must run with its working directory set to `k6/` so the relative fixture
-> and result paths resolve.
+> **Note:** k6 must run with its working directory set to `k6/` so relative fixture
+> and result paths resolve properly.
 
 ---
 
@@ -365,31 +391,31 @@ cargo test
 cargo test --features proptest milestone_pct_proptests
 ```
 
-| Suite | Location | Command |
-| ----- | -------- | ------- |
-| Frontend unit | `frontend/__tests__/` | `cd frontend && npm test` |
-| Backend unit | `backend/src/**/*.test.js` | `cd backend && npx jest --selectProjects unit` |
-| Backend integration | `backend/src/tests/integration/` | `cd backend && npm run test:integration` |
-| Frontend e2e | `frontend/tests/e2e/` | `cd frontend && npm run test:e2e` |
-| Contracts | `contracts/*` | `cd contracts/marketpay-contract && cargo test` |
-| Mutation | `backend/src/services/` | `cd backend && npx stryker run` |
-| Load | `k6/` | `docker compose -f docker-compose.loadtest.yml run --rm k6 run scripts/jobs-listing.js` |
+| Suite               | Location                         | Command                                                                                 |
+| ------------------- | -------------------------------- | --------------------------------------------------------------------------------------- |
+| Frontend unit       | `frontend/__tests__/`            | `cd frontend && npm test`                                                               |
+| Backend unit        | `backend/src/**/*.test.js`       | `cd backend && npx jest --selectProjects unit`                                          |
+| Backend integration | `backend/src/tests/integration/` | `cd backend && npm run test:integration`                                                |
+| Frontend e2e        | `frontend/tests/e2e/`            | `cd frontend && npm run test:e2e`                                                       |
+| Contracts           | `contracts/*`                    | `cd contracts/marketpay-contract && cargo test`                                         |
+| Mutation            | `backend/src/services/`          | `cd backend && npx stryker run`                                                         |
+| Load                | `k6/`                            | `docker compose -f docker-compose.loadtest.yml run --rm k6 run scripts/jobs-listing.js` |
 
 ---
 
 ## 10. Troubleshooting
 
-| Symptom | Fix |
-| ------- | --- |
-| `Cannot find module` in backend/frontend tests | Run `npm ci` inside the affected package. |
-| Integration tests hang or time out | Postgres/Redis are not reachable — re-run `docker compose up postgres redis -d` and check `DATABASE_URL` / `REDIS_URL`. |
-| `relation "..." does not exist` | Migrations were not applied — `cd backend && npm run migrate`. |
-| Playwright: `Executable doesn't exist` | `cd frontend && npx playwright install --with-deps chromium`. |
-| Playwright port already in use | Stop any running dev server on port 3100, or set `reuseExistingServer`. |
-| `cargo: command not found` | Install Rust via [rustup.rs](https://rustup.rs) and add `wasm32v1-none`. |
-| Contract tests very slow on first run | Expected — the Soroban crate compiles from scratch; later runs use the cache. |
-| k6 script fails on fixtures | Run `node k6/seed-data.js` first; scripts load `k6/test-fixtures.json`. |
-| Snapshot mismatch in frontend | Intended change → `npm run test:update-snapshots`; otherwise fix the component. |
+| Symptom                                        | Fix                                                                                                                     |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `Cannot find module` in backend/frontend tests | Run `npm ci` inside the affected package.                                                                               |
+| Integration tests hang or time out             | Postgres/Redis are not reachable — re-run `docker compose up postgres redis -d` and check `DATABASE_URL` / `REDIS_URL`. |
+| `relation "..." does not exist`                | Migrations were not applied — `cd backend && npm run migrate`.                                                          |
+| Playwright: `Executable doesn't exist`         | `cd frontend && npx playwright install --with-deps chromium`.                                                           |
+| Playwright port already in use                 | Stop any running dev server on port 3100, or set `reuseExistingServer`.                                                 |
+| `cargo: command not found`                     | Install Rust via [rustup.rs](https://rustup.rs) and add `wasm32v1-none`.                                                |
+| Contract tests very slow on first run          | Expected — the Soroban crate compiles from scratch; later runs use the cache.                                           |
+| k6 script fails on fixtures                    | Run `node k6/seed-data.js` first; scripts load `k6/test-fixtures.json`.                                                 |
+| Snapshot mismatch in frontend                  | Intended change → `npm run test:update-snapshots`; otherwise fix the component.                                         |
 
 Found a gap in this guide? Open a PR that edits `TESTING.md` — keeping it accurate
 is itself a contribution.

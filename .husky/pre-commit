@@ -82,8 +82,12 @@ if ! command -v gitleaks >/dev/null 2>&1; then
   fi
 fi
 
-# Run gitleaks on staged files (modern command; `protect --staged` was deprecated in v8.19)
-gitleaks git --pre-commit --redact --staged --verbose --config .gitleaks.toml
+# Run gitleaks on staged files (supports both older `protect --staged` and newer `git --pre-commit`)
+if gitleaks protect --help >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --verbose --config .gitleaks.toml
+else
+  gitleaks git --pre-commit --redact --staged --verbose --config .gitleaks.toml
+fi
 gitleaks_status=$?
 
 # Distinguish "tool ran and found leaks" (1) from "tool could not run" (other).

@@ -31,6 +31,7 @@ Welcome to Stellar MarketPay documentation. This index helps you find what you n
 - **[Soroban Contract Deployment](./contract-deployment.md)** - Build, deploy, and configure the escrow contract
 - **[Smart Contract API Reference](./contract-api-reference.md)** - Complete function reference for the MarketPay Soroban contract
 - **[Environment Variables](./environment-variables.md)** - Single source of truth for runtime config
+- **[Load Testing Guide](./load-testing.md)** - End-to-end k6 load testing, SLA thresholds, trend reports, and cost optimization
 
 ### API Documentation
 
@@ -271,7 +272,7 @@ stellar-marketpay/
 4. [ADR-001: Escrow Design](./adr/adr-001-soroban-escrow-design.md)
 5. [ADR-002: Horizon API](./adr/adr-002-horizon-api-indexing.md)
 6. [ADR-003: Database Schema](./adr/adr-003-database-schema-escrow.md)
-9. [Deployment Guide](./deployment.md)
+7. [Deployment Guide](./deployment.md)
 
 ### For DevOps/Infrastructure
 
@@ -279,6 +280,7 @@ stellar-marketpay/
 2. [Architecture Overview](./architecture.md)
 3. [ADR-002: Horizon API](./adr/adr-002-horizon-api-indexing.md)
 4. [ADR-003: Database Schema](./adr/adr-003-database-schema-escrow.md)
+5. [Load Testing Guide](./load-testing.md)
 
 ---
 
@@ -373,4 +375,3 @@ stellar-marketpay/
 **Happy learning! 🚀**
 
 For the latest updates, visit [stellar-marketpay.com](https://stellar-marketpay.com)
-

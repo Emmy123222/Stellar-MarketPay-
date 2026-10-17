@@ -37,6 +37,7 @@ title = "Stellar MarketPay Gitleaks Configuration"
     '''S[A-Z2-7]{55}testmock.*''',
     '''postgresql://test:test@localhost:\d+/\w+''',
     '''postgresql://postgres:postgres@localhost:\d+/\w+''',
+    '''postgresql://stellarwork:stellarwork_dev@localhost:\d+/\w+''',
     '''ci-test-[a-z-]*(secret|key)[a-z0-9-]*''',
     '''test-[a-z-]*(secret|key)-with-[a-z-]*''',
     '''process\.env\.SERVER_PRIVATE_KEY\s*\|\|\s*Keypair\.random\(\)\.secret\(\)''',

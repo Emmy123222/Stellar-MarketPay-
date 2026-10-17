@@ -1,23 +1,45 @@
 # docker-compose.loadtest.yml
 #
-# Self-contained, production-like stack used by the weekly k6 load-test
-# workflow (.github/workflows/load-test.yml) and by local runs.
+# Self-contained, production-like stack used for end-to-end load testing
+# and SLA benchmarking. Detailed guide: docs/load-testing.md
 #
-# Spin everything up, seed data, then drive the API with k6:
+# Complete workflow:
+#   1. Spin up stack:
+#      docker compose -f docker-compose.loadtest.yml up -d --build
 #
-#   docker compose -f docker-compose.loadtest.yml up -d
-#   node k6/seed-data.js                       # populates test-fixtures.json
-#   docker run --rm --network host \
-#     -v "$PWD":/work -w /work \
-#     grafana/k6 run /work/k6/get-jobs.js
-#   docker compose -f docker-compose.loadtest.yml down -v
+#   2. Seed database (phase 1: schema + base records):
+#      DATABASE_URL=postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork npm run seed-db
+#
+#   3. Seed synthetic volume (phase 2: writes k6/test-fixtures.json):
+#      JWT_SECRET=loadtest-jwt-secret-with-sufficient-length-for-signing \
+#      K6_BASE_URL=http://localhost:4000 \
+#        node k6/seed-data.js
+#
+#   4. Run scenarios using the bundled k6 service:
+#      docker compose -f docker-compose.loadtest.yml run --rm k6 run get-jobs.js
+#      docker compose -f docker-compose.loadtest.yml run --rm k6 run get-profiles.js
+#      docker compose -f docker-compose.loadtest.yml run --rm k6 run post-applications.js
+#      docker compose -f docker-compose.loadtest.yml run --rm k6 run scripts/authenticated-flow.js
+#      docker compose -f docker-compose.loadtest.yml run --rm k6 run scripts/create-escrow.js
+#
+#   5. Compare against baseline & generate trend report:
+#      node k6/lib/trend-report.js --current k6/results --previous k6/previous-results
+#
+#   6. Generate infrastructure cost & right-sizing report:
+#      ./scripts/infrastructure-cost-report.sh
+#
+#   7. Clean up stack:
+#      docker compose -f docker-compose.loadtest.yml down -v
 #
 # Notable tuning vs. docker-compose.yml:
 #   • RATE_LIMIT_SCALE=1000 — relaxes per-IP rate limits so synthetic load is
 #     not throttled (production keeps strict limits; default scale = 1).
 #   • DB_POOL_MAX=50         — wider PG pool so 100 concurrent VUs do not queue.
 #   • ALLOWED_ORIGINS=*      — the k6 runner is not a browser origin.
-#   • backend runs `npm start` (production mode), not `npm run dev`.
+#   • tmpfs PostgreSQL data  — runs in memory for maximum I/O throughput and zero leftover state.
+#   • backend runs `node src/server.js` (production start) with NODE_ENV=development
+#     to disable TLS certificate requirements against local containerized Postgres.
+#   • k6 runner service      — bundled Grafana k6 image with ./k6 mounted at /work.
 
 version: "3.9"
 
