@@ -75,7 +75,8 @@ npm run dev
 Access the App
 - Frontend: http://localhost:3000
 
-- Backend API: http://localhost:3001
+- Backend API: http://localhost:4000
+- Backend health check: `curl http://localhost:4000/health`
 
 ## 3. Getting Testnet XLM
 You need test tokens to use the app.
@@ -154,7 +155,7 @@ Once the job is completed:
 - Refresh the page
 
 #### App Not Loading
-- Ensure backend is running on port 3001
+- Ensure backend is running on port 4000
 - Ensure frontend is running on port 3000
 - Check browser console for errors
 
