@@ -2,11 +2,11 @@
 
 This roadmap reflects the current state of the codebase on `main`. Features that are already merged are marked as shipped so new contributors do not pick up work that has already been completed.
 
-> **Tracking:** Roadmap work is organised with GitHub Milestones and every item links to the corresponding [GitHub Issue](https://github.com/Emmy123222/Stellar-MarketPay-/issues). The v2.0 scope is tracked by the [v2.0 — Multi-Currency & Milestones](https://github.com/Seunfunmi-319509/Stellar-MarketPay-/milestone/3) milestone.
+> **Tracking:** Roadmap work is organised with GitHub Milestones and every item links to the corresponding [GitHub Issue](https://github.com/Emmy123222/Stellar-MarketPay-/issues). The v2.0 scope is tracked in the [repository milestones](https://github.com/Emmy123222/Stellar-MarketPay-/milestones).
 >
 > | Milestone | Target date | Status |
 > | --- | --- | --- |
-> | [v2.0 — Multi-Currency & Milestones](https://github.com/Seunfunmi-319509/Stellar-MarketPay-/milestone/3) | 2026-09-30 | Shipped |
+> | [v2.0 — Multi-Currency & Milestones](https://github.com/Emmy123222/Stellar-MarketPay-/milestones) | 2026-09-30 | Shipped |
 
 ---
 
@@ -65,7 +65,7 @@ The platform already includes the core foundation and a substantial set of produ
 
 ## 💰 v2.0 — Multi-Currency & Milestones (Shipped)
 
-> **Milestone:** [v2.0 — Multi-Currency & Milestones](https://github.com/Seunfunmi-319509/Stellar-MarketPay-/milestone/3) (target date: 2026-09-30)
+> **Milestone:** [v2.0 — Multi-Currency & Milestones](https://github.com/Emmy123222/Stellar-MarketPay-/milestones) (target date: 2026-09-30)
 
 - [x] USDC support alongside XLM ([#947](https://github.com/Emmy123222/Stellar-MarketPay-/issues/947))
 - [x] Milestone-based escrow releases and tracking ([#790](https://github.com/Emmy123222/Stellar-MarketPay-/issues/790))
