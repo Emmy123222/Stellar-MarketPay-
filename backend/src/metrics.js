@@ -88,6 +88,13 @@ const activeWebsocketConnections = createMetric(promClient.Gauge, {
   labelNames: ["channel"],
 });
 
+/** Total WebSocket upgrades rejected by admission controls. */
+const websocketRejectedUpgradesTotal = createMetric(promClient.Counter, {
+  name: "websocket_rejected_upgrades_total",
+  help: "Total WebSocket upgrades rejected by admission controls",
+  labelNames: ["channel", "reason"],
+});
+
 // Legacy unlabelled gauge (realtime channel only).
 const legacyWsConnectionsActive = createMetric(promClient.Gauge, {
   name: "ws_connections_active",
@@ -392,6 +399,7 @@ module.exports = {
   httpRequestsTotal,
   httpRequestDurationMs,
   activeWebsocketConnections,
+  websocketRejectedUpgradesTotal,
   poolQueryDurationMs,
   poolQueriesTotal,
   escrowReleasesTotal,
@@ -420,6 +428,9 @@ module.exports = {
   observeHttpRequest,
   observePoolQuery,
   setWebsocketConnections,
+  recordRejectedWebsocketUpgrade(channel, reason) {
+    websocketRejectedUpgradesTotal.inc({ channel, reason });
+  },
   recordEscrowRelease,
   escrowReleaseReason,
   recordCacheHit,
