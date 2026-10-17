@@ -15,6 +15,7 @@
     "generate-openapi": "node scripts/generate-openapi.js",
     "build": "npm run generate-openapi && npm run lint",
     "migrate": "node src/db/migrate.js",
+    "migrate:status": "node src/db/migrate.js status",
     "migrate:rollback": "node src/db/migrate.js down",
     "db:seed": "node ../scripts/seed-db.js",
     "stryker": "stryker run"
