@@ -7,6 +7,21 @@ const pool = require("./pool");
 
 const migrationsDir = path.join(__dirname, "migrations");
 
+// Preserve already-recorded names while replacing colliding migration files.
+const LEGACY_MIGRATION_NAME_ALIASES = Object.freeze({
+  "V50__developer_api_keys_and_audit_trail": "V50__developer_api_keys_and_audit_trail_legacy_duplicate",
+  "V22__talent_pool": "V83__talent_pool",
+  "V57__account_merge": "V75__account_merge",
+  "V57__application_status_history": "V60__application_status_history",
+  "V57__ratings_unique_per_pair": "V76__ratings_unique_per_pair",
+  "V58__messages_pagination_idx": "V77__messages_pagination_idx",
+  "V58__recurring_escrow_dst": "V78__recurring_escrow_dst",
+  "V58__sponsorship_credits": "V79__sponsorship_credits",
+  "V59__idx_payments_created_at": "V80__idx_payments_created_at",
+  "V59__job_templates": "V81__job_templates",
+  "V59__stats_indexes_and_mv": "V82__stats_indexes_and_mv",
+});
+
 function parseVersion(name) {
   const m = name.match(/^V(\d+)__/i);
   return m ? Number(m[1]) : null;
@@ -32,6 +47,7 @@ function loadMigrationPairs() {
     .sort((a, b) => a.version - b.version || a.name.localeCompare(b.name));
 
   assertUniqueVersions(migrations);
+  assertUniqueMigrationSlugs(migrations);
   return migrations;
 }
 
@@ -52,6 +68,25 @@ function assertUniqueVersions(migrations) {
       );
     }
     versionToName.set(migration.version, migration.name);
+  }
+}
+
+/**
+ * Ensure no two migrations share the same description slug.
+ * @param {Array<{name: string}>} migrations
+ */
+function assertUniqueMigrationSlugs(migrations) {
+  const slugToName = new Map();
+  for (const migration of migrations) {
+    const match = migration.name.match(/^V\d+__(.+)$/i);
+    const slug = match ? match[1] : migration.name;
+    const existing = slugToName.get(slug);
+    if (existing) {
+      throw new Error(
+        `Duplicate migration description "${slug}": "${existing}" and "${migration.name}"`
+      );
+    }
+    slugToName.set(slug, migration.name);
   }
 }
 
@@ -118,7 +153,33 @@ async function migrate() {
     const applied = await getAppliedMigrations(client);
 
     for (const migration of migrations) {
-      if (applied.has(migration.name)) continue;
+      const legacyNames = Object.entries(LEGACY_MIGRATION_NAME_ALIASES)
+        .filter(([, canonicalName]) => canonicalName === migration.name)
+        .map(([legacyName]) => legacyName)
+        .filter((legacyName) => applied.has(legacyName));
+
+      if (applied.has(migration.name)) {
+        for (const legacyName of legacyNames) {
+          await client.query("DELETE FROM schema_migrations WHERE name = $1", [legacyName]);
+          applied.delete(legacyName);
+        }
+        continue;
+      }
+
+      if (legacyNames.length > 0) {
+        const [legacyName] = legacyNames;
+        await client.query(
+          "UPDATE schema_migrations SET name = $1, version = $2 WHERE name = $3",
+          [migration.name, migration.version, legacyName]
+        );
+        applied.delete(legacyName);
+        applied.add(migration.name);
+        for (const duplicateLegacyName of legacyNames.slice(1)) {
+          await client.query("DELETE FROM schema_migrations WHERE name = $1", [duplicateLegacyName]);
+          applied.delete(duplicateLegacyName);
+        }
+        continue;
+      }
 
       await client.query("BEGIN");
       try {
@@ -148,7 +209,8 @@ async function rollbackLastMigration() {
 
     if (!rows.length) return null;
     const last = rows[0];
-    const downPath = path.join(migrationsDir, `${last.name}.down.sql`);
+    const migrationName = LEGACY_MIGRATION_NAME_ALIASES[last.name] || last.name;
+    const downPath = path.join(migrationsDir, `${migrationName}.down.sql`);
 
     if (!fs.existsSync(downPath)) {
       throw new Error(`Rollback file missing for migration ${last.name}`);
@@ -191,4 +253,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { migrate, rollbackLastMigration, loadMigrationPairs, assertUniqueVersions, ensureMigrationsTable, getAppliedMigrations, getCurrentMigrationVersion, getExpectedMigrationVersion, validateMigrationVersion };
+module.exports = { migrate, rollbackLastMigration, loadMigrationPairs, assertUniqueVersions, assertUniqueMigrationSlugs, ensureMigrationsTable, getAppliedMigrations, getCurrentMigrationVersion, getExpectedMigrationVersion, validateMigrationVersion };

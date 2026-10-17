@@ -1,4 +1,4 @@
--- V57 down: remove account-merge columns and index.
+-- V75 down: remove account-merge columns and index.
 
 DROP INDEX IF EXISTS profiles_migrated_to_idx;
 

@@ -8,7 +8,7 @@
 --   applications_job_id_idx             (job_id)                V1__initial_schema, schema.sql
 --   applications_freelancer_address_idx (freelancer_address)     V1__initial_schema, schema.sql
 --   applications_job_created_idx        (job_id, created_at)     V16__query_optimization_indexes
---   idx_applications_status             (status)                 V57__stats_indexes_and_mv
+--   idx_applications_status             (status)                 V82__stats_indexes_and_mv
 --
 -- `GET /api/jobs/:id/applications` filters on job_id and sorts by created_at,
 -- so it is already served by applications_job_created_idx — the seq scan the
