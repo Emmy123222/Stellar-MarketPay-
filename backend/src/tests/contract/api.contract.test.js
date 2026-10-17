@@ -239,6 +239,15 @@ describe("GET /health", () => {
   });
 });
 
+describe("GET /api/disputes/:jobId/evidence — server mount", () => {
+  it("reaches the dispute route authentication instead of the server 404 handler", async () => {
+    const res = await request(app).get(`/api/disputes/${FAKE_JOB_ID}/evidence`);
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/unauthorized/i);
+  });
+});
+
 // ─── GET /api/rate-limit — tested via dedicated mini app (route not mounted in server) ──
 
 describe("GET /api/rate-limit", () => {
