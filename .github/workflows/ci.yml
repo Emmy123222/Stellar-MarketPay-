@@ -110,6 +110,15 @@ jobs:
       - name: Mutation tests
         run: npm run stryker
 
+      - name: Upload mutation report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mutation-report
+          path: backend/reports/mutation/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:

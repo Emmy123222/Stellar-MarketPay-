@@ -37,3 +37,13 @@ GHSA-p9j2-gv94-2wf4
 GHSA-q4gf-8mx6-v5v3
 GHSA-vfv6-92ff-j949
 GHSA-wfc6-r584-vfw7
+
+# Braces exponential backtracking (via @ducanh2912/next-pwa -> fast-glob -> micromatch)
+CVE-2024-4068
+GHSA-vfj7-8cjw-p6xm
+
+# source-map-js event-loop DoS through indexed offsets
+GHSA-68fv-2mgg-jv7q
+
+# proxy-addr IP spoofing via IPv4-mapped IPv6 trust subnet
+GHSA-jqcg-44mw-7w3h

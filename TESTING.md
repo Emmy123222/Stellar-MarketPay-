@@ -268,29 +268,83 @@ cargo build --target wasm32v1-none --release
 ## 7. Running mutation tests
 
 Mutation testing (via [Stryker Mutator](https://stryker-mutator.io/)) checks
-that the backend test suite actually **catches bugs**: it rewrites the source
-and fails when a mutation survives. The configuration lives in
-[backend/stryker.config.json](./backend/stryker.config.json) and currently
-mutates `escrowService.js` and `disputeService.js` using the Jest runner.
+that the backend test suite actually **catches bugs**: it injects synthetic
+faults (mutations) into your source code and verifies that existing tests fail
+when a mutant is introduced. The configuration lives in
+[backend/stryker.config.json](./backend/stryker.config.json) and targets
+critical service layer components (`escrowService.js` and `disputeService.js`)
+using the custom Jest runner ([backend/jest.stryker.config.js](./backend/jest.stryker.config.js)).
+
+### Mutation score thresholds & CI enforcement
+
+CI enforces a mutation score threshold on pull requests:
+
+| Threshold | Score | Status | Description |
+| --------- | ----- | ------ | ----------- |
+| `high` | **80%** | Green | Target score indicating a strong, comprehensive test suite. |
+| `low` | **60%** | Amber | Warning score indicating test assertions require attention. |
+| `break` | **60%** | Red / Fail | **Hard floor.** CI builds will fail if the mutation score drops below 60%. |
+
+If the mutation score falls below `break` (60%), Stryker exits with code `1`, causing the `Mutation tests` CI step to fail.
+
+### Running locally
+
+Run Stryker from the `backend/` directory:
 
 ```bash
 cd backend
-npm ci
-npx stryker run
+npm run stryker
 ```
 
-The HTML report is written to `backend/reports/mutation/mutation-report.html`.
-Open it in a browser to see exactly which mutants survived.
+Useful execution flags:
 
-Notes:
+- **Incremental run (default)**: The configuration specifies `since.target = "main"`, so on a feature branch Stryker only mutates code changed relative to `main`. This keeps local runs fast.
+- **Full run (all files)**: To mutate all targeted services regardless of git diff:
+  ```bash
+  npx stryker run --since false
+  ```
+- **Scoped run (single service)**: To focus on a specific service while writing tests:
+  ```bash
+  npx stryker run --mutate src/services/escrowService.js
+  ```
 
-- The config sets `since.target = "main"`, so a run only mutates source files
-  changed relative to the `main` branch. On a feature branch this keeps the run
-  short; on `main` it may mutate everything.
-- Thresholds are defined but non-blocking (`"break": null`). Use the report to
-  improve tests rather than as a hard gate.
-- Mutation runs are slow (each mutant re-runs the related Jest tests). Run them
-  before asking for review on changes to the services above, not on every save.
+> Mutation testing re-runs the related Jest test suite for each mutant, which takes several minutes. Run it before opening or updating a PR that touches covered services, rather than on every file save.
+
+### Accessing mutation reports
+
+- **Locally**: Stryker generates an HTML report at `backend/reports/mutation/mutation-report.html`. Open it in any web browser to view an interactive line-by-line inspection of your source code and mutants.
+- **In CI**: On every CI run, GitHub Actions automatically uploads the complete HTML report directory as an artifact named `mutation-report` (retained for 7 days). This artifact is published even if the mutation test step fails (`if: always()`). To view it:
+  1. Open the GitHub Actions run summary for your commit or PR.
+  2. Scroll down to the **Artifacts** section.
+  3. Download and extract `mutation-report.zip`.
+  4. Open `mutation-report.html` in your browser.
+
+### Interpreting mutation results
+
+Stryker calculates the mutation score as:
+
+$$\text{Mutation Score} = \frac{\text{Killed} + \text{Timeout}}{\text{Total Detected Mutants}} \times 100\%$$
+
+Each generated mutant receives one of the following statuses:
+
+- **Killed** (Green): A test failed when the mutant was applied. The test suite successfully detected the bug.
+- **Survived** (Red): All tests passed even though the code logic was altered. This indicates a gap in test assertions or untested edge cases.
+- **Timeout** (Green): The mutation caused an infinite loop or execution timeout; treated as detected.
+- **No Coverage** (Red): No test executed the line containing the mutation.
+
+### How contributors improve mutation scores
+
+When your mutation score is below 80% (or failing CI below 60%), follow these steps to kill surviving mutants:
+
+1. **Locate surviving mutants**: Open `mutation-report.html` and click into the file with surviving mutants (highlighted in red).
+2. **Inspect the mutant diff**: Click on a red mutant marker in the report to see the exact code replacement Stryker applied. Common examples include:
+   - *Equality operator swap*: `if (status === 'ACTIVE')` mutated to `if (status !== 'ACTIVE')`
+   - *Boundary condition change*: `if (amount > 0)` mutated to `if (amount >= 0)`
+   - *Return value substitution*: `return result;` mutated to `return undefined;`
+   - *Block/statement removal*: Deletion of an error throw or state validation branch.
+3. **Identify the missing assertion**: Check your existing test in `backend/src/services/<service>.test.js`. Why did it pass? Often tests assert that a function completed without throwing, but don't assert the exact return value, database update, or edge-case error.
+4. **Write a targeted test**: Add a unit test specifically asserting the behavior that the mutant broke (e.g., asserting that zero amount throws an error, or asserting exact escrow balance updates).
+5. **Verify the fix**: Re-run `npm run stryker`. Check that the previously surviving mutant is now **Killed** and that your overall mutation score meets the threshold.
 
 ---
 
@@ -390,6 +444,7 @@ cargo test --features proptest milestone_pct_proptests
 | Contract tests very slow on first run | Expected — the Soroban crate compiles from scratch; later runs use the cache. |
 | k6 script fails on fixtures | Run `node k6/seed-data.js` first; scripts load `k6/test-fixtures.json`. |
 | Snapshot mismatch in frontend | Intended change → `npm run test:update-snapshots`; otherwise fix the component. |
+| Mutation score drops below 60% in CI | Download the `mutation-report` artifact from the CI run summary, open `mutation-report.html` to identify surviving mutants (in red), and add targeted unit tests in `backend/src/services/`. |
 
 Found a gap in this guide? Open a PR that edits `TESTING.md` — keeping it accurate
 is itself a contribution.

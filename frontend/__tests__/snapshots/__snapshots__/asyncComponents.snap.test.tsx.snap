@@ -563,7 +563,7 @@ exports[`async component snapshots JobAnalyticsPanel loading: JobAnalyticsPanel 
         <p
           class="font-mono text-sm text-amber-400"
         >
-          12/01/2026
+          1/12/2026
         </p>
       </div>
       <div>
@@ -724,7 +724,7 @@ exports[`async component snapshots JobAnalyticsPanel populated: JobAnalyticsPane
         <p
           class="font-mono text-sm text-amber-400"
         >
-          12/01/2026
+          1/12/2026
         </p>
       </div>
       <div>
@@ -803,7 +803,7 @@ exports[`async component snapshots JobAnalyticsPanel populated: JobAnalyticsPane
             <span
               class="text-[10px] text-amber-700 whitespace-nowrap"
             >
-              10 Jan
+              Jan 10
             </span>
           </div>
         </div>
@@ -811,10 +811,10 @@ exports[`async component snapshots JobAnalyticsPanel populated: JobAnalyticsPane
           class="flex justify-between text-[10px] text-amber-800 px-1"
         >
           <span>
-            10 Jan
+            Jan 10
           </span>
           <span>
-            10 Jan
+            Jan 10
           </span>
         </div>
       </div>
