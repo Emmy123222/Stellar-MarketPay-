@@ -62,8 +62,10 @@ async function mockApis(page: Page) {
   );
 }
 
-async function stabilize(page: Page) {
-  await page.waitForLoadState("networkidle");
+async function stabilize(page: Page, { waitForIdle = true } = {}) {
+  // Pages that poll (balances, notifications) never reach network idle; callers
+  // pass waitForIdle: false and wait on a concrete element instead.
+  if (waitForIdle) await page.waitForLoadState("networkidle");
   await page.evaluate(() => document.fonts.ready);
   // Freeze all CSS animations and transitions so screenshots are pixel-stable
   await page.addStyleTag({
@@ -219,7 +221,7 @@ for (const theme of ["dark", "light"] as const) {
     test("post-job escrow funding step", async ({ page }) => {
       await page.goto("/dev/visual-harness?surface=escrow-funding");
       await page.getByLabel("Budget").waitFor();
-      await stabilize(page);
+      await stabilize(page, { waitForIdle: false });
       await expect(page).toHaveScreenshot(`escrow-funding-${theme}.png`);
     });
 
@@ -227,21 +229,21 @@ for (const theme of ["dark", "light"] as const) {
       await page.goto("/dev/visual-harness?surface=fee-estimation");
       // The modal debounces the estimate by 500ms before simulating.
       await page.getByText("Estimated fee").waitFor();
-      await stabilize(page);
+      await stabilize(page, { waitForIdle: false });
       await expect(page).toHaveScreenshot(`fee-estimation-${theme}.png`);
     });
 
     test("withdraw to bank modal", async ({ page }) => {
       await page.goto("/dev/visual-harness?surface=withdraw-to-bank");
       await page.getByRole("dialog").waitFor();
-      await stabilize(page);
+      await stabilize(page, { waitForIdle: false });
       await expect(page).toHaveScreenshot(`withdraw-to-bank-${theme}.png`);
     });
 
     test("transactions dashboard", async ({ page }) => {
       await page.goto("/dev/visual-harness?surface=transactions");
       await page.getByText(/Ledger #51234567/).waitFor();
-      await stabilize(page);
+      await stabilize(page, { waitForIdle: false });
       await expect(page).toHaveScreenshot(`transactions-${theme}.png`);
     });
   });
