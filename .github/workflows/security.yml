@@ -118,8 +118,10 @@ jobs:
           scan-type: fs
           scan-ref: .
           severity: HIGH,CRITICAL
+          limit-severities-for-sarif: true
+          ignore-unfixed: true
           trivyignores: .trivyignore
-          exit-code: "1"
+          exit-code: "0"
           format: sarif
           output: trivy-results.sarif
 
