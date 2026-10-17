@@ -92,16 +92,32 @@ const themes = {
   },
 };
 
-console.log("🎨 WCAG 2.1 Color Contrast Audit\n");
-console.log("═".repeat(70));
+import fs from "node:fs";
+
+// Parse CLI flags
+const args = process.argv.slice(2);
+let outputFile = process.env.CONTRAST_REPORT_PATH || null;
+const outputFlagIndex = args.indexOf("--output");
+if (outputFlagIndex !== -1 && args[outputFlagIndex + 1]) {
+  outputFile = args[outputFlagIndex + 1];
+}
+
+const outputLines = [];
+function log(msg = "") {
+  console.log(msg);
+  outputLines.push(msg);
+}
+
+log("🎨 WCAG 2.1 Color Contrast Audit\n");
+log("═".repeat(70));
 
 let totalTests = 0;
 let passedTests = 0;
 let failedTests = 0;
 
 for (const [themeName, colors] of Object.entries(themes)) {
-  console.log(`\n📋 ${themeName.toUpperCase()} THEME`);
-  console.log("─".repeat(70));
+  log(`\n📋 ${themeName.toUpperCase()} THEME`);
+  log("─".repeat(70));
 
   const tests = [
     { fg: "text", bg: "bg", type: "Normal text on background" },
@@ -120,7 +136,7 @@ for (const [themeName, colors] of Object.entries(themes)) {
     const bgColor = hexToRgb(colors[test.bg]);
 
     if (!fgColor || !bgColor) {
-      console.log(`⚠️  Invalid color format for ${test.type}`);
+      log(`⚠️  Invalid color format for ${test.type}`);
       continue;
     }
 
@@ -139,33 +155,42 @@ for (const [themeName, colors] of Object.entries(themes)) {
       failedTests++;
     }
 
-    console.log(
+    log(
       `${status} ${test.type.padEnd(35)} ${check.ratio}:1 (Normal: ${normalStatus}, Large: ${largeStatus})`
     );
   }
 }
 
-console.log("\n" + "═".repeat(70));
-console.log(`\n📊 SUMMARY`);
-console.log("─".repeat(70));
-console.log(`Total Tests:  ${totalTests}`);
-console.log(`Passed:       ${passedTests} ✅`);
-console.log(`Failed:       ${failedTests} ❌`);
-console.log(
+log("\n" + "═".repeat(70));
+log(`\n📊 SUMMARY`);
+log("─".repeat(70));
+log(`Total Tests:  ${totalTests}`);
+log(`Passed:       ${passedTests} ✅`);
+log(`Failed:       ${failedTests} ❌`);
+log(
   `Success Rate: ${((passedTests / totalTests) * 100).toFixed(1)}%`
 );
 
-console.log("\n📚 WCAG 2.1 Level AA Requirements:");
-console.log("   • Normal text (< 18pt): 4.5:1 minimum");
-console.log("   • Large text (≥ 18pt):  3.0:1 minimum");
-console.log("   • UI components:        3.0:1 minimum");
+log("\n📚 WCAG 2.1 Level AA Requirements:");
+log("   • Normal text (< 18pt): 4.5:1 minimum");
+log("   • Large text (≥ 18pt):  3.0:1 minimum");
+log("   • UI components:        3.0:1 minimum");
+
+if (outputFile) {
+  try {
+    fs.writeFileSync(outputFile, outputLines.join("\n") + "\n", "utf8");
+    log(`\n📄 Report written to: ${outputFile}`);
+  } catch (err) {
+    console.error(`Failed to write report to ${outputFile}:`, err);
+  }
+}
 
 if (failedTests > 0) {
-  console.log("\n⚠️  CONTRAST ISSUES DETECTED");
-  console.log("Please review the failed tests above and adjust colors accordingly.");
+  log("\n⚠️  CONTRAST ISSUES DETECTED");
+  log("Please review the failed tests above and adjust colors accordingly.");
   process.exit(1);
 } else {
-  console.log("\n✨ ALL CONTRAST TESTS PASSED!");
-  console.log("Your color palette meets WCAG 2.1 Level AA standards.");
+  log("\n✨ ALL CONTRAST TESTS PASSED!");
+  log("Your color palette meets WCAG 2.1 Level AA standards.");
   process.exit(0);
 }

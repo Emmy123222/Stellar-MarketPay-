@@ -222,6 +222,17 @@ jobs:
       - name: Unit and accessibility tests
         run: npm test
 
+      - name: Color contrast audit
+        run: npm run audit:contrast -- --output contrast-audit-report.txt
+
+      - name: Upload contrast audit report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: contrast-audit-report
+          path: frontend/contrast-audit-report.txt
+          retention-days: 7
+
       - name: Translation completeness
         run: npm run i18n:check
         continue-on-error: true
