@@ -196,6 +196,113 @@ const xlmPriceFetchErrorsTotal = createMetric(promClient.Counter, {
   help: "Total XLM/USD price fetch failures across all providers",
 });
 
+// ─── Indexer metrics (Issue #1827) ──────────────────────────────────────────
+/** Current lag in seconds of the Horizon indexer compared to wall-clock time. */
+const indexerLagSeconds = createMetric(promClient.Gauge, {
+  name: "indexer_lag_seconds",
+  help: "Lag in seconds between wall-clock time and the last processed Horizon transaction/event timestamp",
+});
+
+const legacyIndexerLagSeconds = createMetric(promClient.Gauge, {
+  name: "marketpay_indexer_lag_seconds",
+  help: "Lag in seconds between wall-clock time and the last processed Horizon transaction/event timestamp (legacy name)",
+});
+
+/** Last processed Stellar ledger sequence number. */
+const indexerLastLedger = createMetric(promClient.Gauge, {
+  name: "indexer_last_ledger",
+  help: "Last processed Stellar ledger sequence number",
+});
+
+const legacyIndexerLastLedger = createMetric(promClient.Gauge, {
+  name: "marketpay_indexer_last_ledger",
+  help: "Last processed Stellar ledger sequence number (legacy name)",
+});
+
+/** Horizon indexer synchronization status (1 = synced/healthy, 0 = stalled/error/stopped). */
+const indexerSyncStatus = createMetric(promClient.Gauge, {
+  name: "indexer_sync_status",
+  help: "Horizon indexer synchronization status (1 = synced and running, 0 = stalled/stopped/error)",
+});
+
+const legacyIndexerSyncStatus = createMetric(promClient.Gauge, {
+  name: "marketpay_indexer_sync_status",
+  help: "Horizon indexer synchronization status (legacy name)",
+});
+
+/** Horizon indexer errors counter, labeled by error category. */
+const indexerErrorsTotal = createMetric(promClient.Counter, {
+  name: "indexer_errors_total",
+  help: "Total errors encountered by the Horizon indexer",
+  labelNames: ["type"],
+});
+
+const legacyIndexerErrorsTotal = createMetric(promClient.Counter, {
+  name: "marketpay_indexer_errors_total",
+  help: "Total errors encountered by the Horizon indexer (legacy name)",
+  labelNames: ["type"],
+});
+
+// ─── Scheduler metrics (Issue #1827) ─────────────────────────────────────────
+/** Unix epoch timestamp of the last successful escrow timeout checker execution. */
+const escrowTimeoutCheckerLastRunTimestampSeconds = createMetric(promClient.Gauge, {
+  name: "escrow_timeout_checker_last_run_timestamp_seconds",
+  help: "Unix timestamp in seconds of the last execution of the escrow timeout checker",
+});
+
+const legacyEscrowTimeoutCheckerLastRunTimestampSeconds = createMetric(promClient.Gauge, {
+  name: "marketpay_escrow_timeout_checker_last_run_timestamp_seconds",
+  help: "Unix timestamp in seconds of the last execution of the escrow timeout checker (legacy name)",
+});
+
+/** Execution counter for the escrow timeout checker. */
+const escrowTimeoutCheckerRunsTotal = createMetric(promClient.Counter, {
+  name: "escrow_timeout_checker_runs_total",
+  help: "Total runs of the escrow timeout checker",
+  labelNames: ["status"],
+});
+
+const legacyEscrowTimeoutCheckerRunsTotal = createMetric(promClient.Counter, {
+  name: "marketpay_escrow_timeout_checker_runs_total",
+  help: "Total runs of the escrow timeout checker (legacy name)",
+  labelNames: ["status"],
+});
+
+/** Duration of escrow timeout checker runs in seconds. */
+const escrowTimeoutCheckerDurationSeconds = createMetric(promClient.Histogram, {
+  name: "escrow_timeout_checker_duration_seconds",
+  help: "Duration of escrow timeout checker execution in seconds",
+  buckets: [0.05, 0.1, 0.5, 1, 2.5, 5, 10, 30],
+});
+
+const legacyEscrowTimeoutCheckerDurationSeconds = createMetric(promClient.Histogram, {
+  name: "marketpay_escrow_timeout_checker_duration_seconds",
+  help: "Duration of escrow timeout checker execution in seconds (legacy name)",
+  buckets: [0.05, 0.1, 0.5, 1, 2.5, 5, 10, 30],
+});
+
+// ─── Database migration metrics (Issue #1827) ────────────────────────────────
+/** Database migration status (1 = up to date with disk, 0 = pending or error). */
+const dbMigrationStatus = createMetric(promClient.Gauge, {
+  name: "db_migration_status",
+  help: "Database migration status (1 = current matches expected, 0 = mismatch/failed)",
+});
+
+const legacyDbMigrationStatus = createMetric(promClient.Gauge, {
+  name: "marketpay_db_migration_status",
+  help: "Database migration status (legacy name)",
+});
+
+const dbMigrationCurrentVersion = createMetric(promClient.Gauge, {
+  name: "db_migration_current_version",
+  help: "Current applied database migration version number",
+});
+
+const dbMigrationExpectedVersion = createMetric(promClient.Gauge, {
+  name: "db_migration_expected_version",
+  help: "Expected database migration version number found in migration files",
+});
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const SQL_VERB = /^[\s(]*(select|insert|update|delete|with|begin|commit|rollback|create|alter|drop|truncate|copy|explain|set|listen|notify)\b/i;
@@ -376,6 +483,89 @@ function recordCacheMiss(cache) {
 }
 
 /**
+ * Record indexer checkpoint, progress and lag state.
+ *
+ * @param {object} params
+ * @param {number|null} [params.ledger]
+ * @param {string|Date|null} [params.lastTransactionAt]
+ * @param {boolean} [params.synced]
+ * @param {boolean} [params.running]
+ */
+function recordIndexerCheckpoint({ ledger, lastTransactionAt, synced, running = true }) {
+  if (typeof ledger === "number" && !Number.isNaN(ledger)) {
+    indexerLastLedger.set(ledger);
+    legacyIndexerLastLedger.set(ledger);
+  }
+  const isHealthy = Boolean(running && synced);
+  indexerSyncStatus.set(isHealthy ? 1 : 0);
+  legacyIndexerSyncStatus.set(isHealthy ? 1 : 0);
+
+  if (lastTransactionAt) {
+    const txTime = new Date(lastTransactionAt).getTime();
+    if (!Number.isNaN(txTime)) {
+      const lagSec = Math.max(0, (Date.now() - txTime) / 1000);
+      indexerLagSeconds.set(lagSec);
+      legacyIndexerLagSeconds.set(lagSec);
+    }
+  }
+}
+
+/**
+ * Record an indexer processing or stream error.
+ *
+ * @param {"transaction"|"event"|"contract_tx"|"checkpoint"|string} type
+ */
+function recordIndexerError(type) {
+  const bounded = ["transaction", "event", "contract_tx", "checkpoint"].includes(type)
+    ? type
+    : "other";
+  indexerErrorsTotal.inc({ type: bounded });
+  legacyIndexerErrorsTotal.inc({ type: bounded });
+}
+
+/**
+ * Record an execution of the escrow timeout checker scheduler.
+ *
+ * @param {object} params
+ * @param {number} [params.durationMs] duration in milliseconds
+ * @param {boolean} [params.ok=true] whether check succeeded
+ */
+function recordEscrowTimeoutCheck({ durationMs, ok = true }) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  escrowTimeoutCheckerLastRunTimestampSeconds.set(nowSec);
+  legacyEscrowTimeoutCheckerLastRunTimestampSeconds.set(nowSec);
+
+  const status = ok ? "success" : "error";
+  escrowTimeoutCheckerRunsTotal.inc({ status });
+  legacyEscrowTimeoutCheckerRunsTotal.inc({ status });
+
+  if (typeof durationMs === "number" && durationMs >= 0) {
+    const sec = durationMs / 1000;
+    escrowTimeoutCheckerDurationSeconds.observe(sec);
+    legacyEscrowTimeoutCheckerDurationSeconds.observe(sec);
+  }
+}
+
+/**
+ * Record database migration versions and health.
+ *
+ * @param {number|null} current
+ * @param {number|null} expected
+ * @param {boolean} [ok]
+ */
+function recordMigrationStatus(current, expected, ok) {
+  if (typeof current === "number" && !Number.isNaN(current)) {
+    dbMigrationCurrentVersion.set(current);
+  }
+  if (typeof expected === "number" && !Number.isNaN(expected)) {
+    dbMigrationExpectedVersion.set(expected);
+  }
+  const isOk = ok !== undefined ? Boolean(ok) : (current !== null && expected !== null && current === expected);
+  dbMigrationStatus.set(isOk ? 1 : 0);
+  legacyDbMigrationStatus.set(isOk ? 1 : 0);
+}
+
+/**
  * Render the registry in Prometheus text exposition format.
  *
  * @returns {Promise<string>} metrics payload
@@ -396,6 +586,19 @@ module.exports = {
   poolQueriesTotal,
   escrowReleasesTotal,
   escrowReleaseErrorsTotal,
+  // indexer metrics
+  indexerLagSeconds,
+  indexerLastLedger,
+  indexerSyncStatus,
+  indexerErrorsTotal,
+  // scheduler metrics
+  escrowTimeoutCheckerLastRunTimestampSeconds,
+  escrowTimeoutCheckerRunsTotal,
+  escrowTimeoutCheckerDurationSeconds,
+  // migration metrics
+  dbMigrationStatus,
+  dbMigrationCurrentVersion,
+  dbMigrationExpectedVersion,
   // supporting metrics
   dbConnections,
   pgPoolTotal,
@@ -413,6 +616,14 @@ module.exports = {
   legacyHttpRequestsTotal,
   legacyHttpRequestDurationSeconds,
   legacyWsConnectionsActive,
+  legacyIndexerLagSeconds,
+  legacyIndexerLastLedger,
+  legacyIndexerSyncStatus,
+  legacyIndexerErrorsTotal,
+  legacyEscrowTimeoutCheckerLastRunTimestampSeconds,
+  legacyEscrowTimeoutCheckerRunsTotal,
+  legacyEscrowTimeoutCheckerDurationSeconds,
+  legacyDbMigrationStatus,
   // helpers
   normalizeRoutePath,
   resolveRouteLabel,
@@ -424,5 +635,9 @@ module.exports = {
   escrowReleaseReason,
   recordCacheHit,
   recordCacheMiss,
+  recordIndexerCheckpoint,
+  recordIndexerError,
+  recordEscrowTimeoutCheck,
+  recordMigrationStatus,
   renderMetrics,
 };

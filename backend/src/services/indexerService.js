@@ -4,6 +4,7 @@ const { Horizon } = require("@stellar/stellar-sdk");
 const pool = require("../db/pool");
 const { requireEnv } = require("../config/env");
 const horizonClient = require("../utils/horizonClient");
+const { recordIndexerCheckpoint, recordIndexerError } = require("../metrics");
 
 const HORIZON_CURSOR_START = "now";
 
@@ -63,10 +64,17 @@ class IndexerService {
       this.syncState.synced = Boolean(rows[0].synced);
       this.syncState.lastProcessedLedger = rows[0].last_processed_ledger;
       this.syncState.lastTransactionAt = rows[0].last_transaction_at;
+      recordIndexerCheckpoint({
+        ledger: this.syncState.lastProcessedLedger,
+        lastTransactionAt: this.syncState.lastTransactionAt,
+        synced: this.syncState.synced,
+        running: this.syncState.running,
+      });
       return rows[0].last_processed_ledger;
     } catch (error) {
       console.warn("[Indexer] Failed to load checkpoint, falling back to HORIZON_CURSOR_START:", error.message);
       this.syncState.lastProcessedLedger = null;
+      recordIndexerError("checkpoint");
       return null;
     }
   }
@@ -84,6 +92,12 @@ class IndexerService {
     this.syncState.synced = synced;
     this.syncState.lastProcessedLedger = ledger || null;
     this.syncState.lastTransactionAt = txTimestamp || null;
+    recordIndexerCheckpoint({
+      ledger: this.syncState.lastProcessedLedger,
+      lastTransactionAt: this.syncState.lastTransactionAt,
+      synced,
+      running: this.syncState.running,
+    });
   }
 
   async processTransaction(tx) {
@@ -191,6 +205,12 @@ class IndexerService {
       this.syncState.synced = true;
       this.syncState.lastProcessedLedger = ledgerNumber;
       this.syncState.lastTransactionAt = tx.created_at || null;
+      recordIndexerCheckpoint({
+        ledger: ledgerNumber,
+        lastTransactionAt: this.syncState.lastTransactionAt,
+        synced: true,
+        running: true,
+      });
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -256,6 +276,13 @@ class IndexerService {
         event.ledger_closed_at
       ]
     );
+
+    recordIndexerCheckpoint({
+      ledger: event.ledger,
+      lastTransactionAt: event.ledger_closed_at,
+      synced: true,
+      running: true,
+    });
 
     const client = await pool.connect();
     try {
@@ -370,11 +397,13 @@ class IndexerService {
             await this.processTransaction(tx);
           } catch (error) {
             this.syncState.lastError = error.message;
+            recordIndexerError("transaction");
             console.error("[Indexer] failed to process transaction:", error.message);
           }
         },
         onerror: (error) => {
           this.syncState.lastError = error?.message || "stream error";
+          recordIndexerError("transaction");
           console.error("[Indexer] stream error:", this.syncState.lastError);
         },
       });
@@ -393,10 +422,12 @@ class IndexerService {
           try {
             await this.processEvent(event);
           } catch (error) {
+            recordIndexerError("event");
             console.error("[Indexer] failed to process event:", error.message);
           }
         },
         onerror: (error) => {
+          recordIndexerError("event");
           console.error("[Indexer] event stream error:", error?.message);
           if (typeof this.closeEventStream === "function") {
             this.closeEventStream();
@@ -426,10 +457,12 @@ class IndexerService {
             await this.processTransaction(tx);
             this.broadcast("contract:transaction", { txHash: tx.hash, contractId: this.contractId });
           } catch (error) {
+            recordIndexerError("contract_tx");
             console.error("[Indexer] contract tx stream error:", error.message);
           }
         },
         onerror: (error) => {
+          recordIndexerError("contract_tx");
           console.error("[Indexer] contract tx stream error:", error?.message);
           if (typeof this.closeContractStream === "function") {
             this.closeContractStream();
@@ -461,10 +494,17 @@ class IndexerService {
     this.closeEventStream = null;
     this.closeContractStream = null;
     this.syncState.running = false;
+    recordIndexerCheckpoint({ synced: false, running: false });
   }
 
   getHealth() {
-    return { ...this.syncState };
+    const lagSeconds = this.syncState.lastTransactionAt
+      ? Math.max(0, Math.floor((Date.now() - new Date(this.syncState.lastTransactionAt).getTime()) / 1000))
+      : null;
+    return {
+      ...this.syncState,
+      lagSeconds,
+    };
   }
 }
 
