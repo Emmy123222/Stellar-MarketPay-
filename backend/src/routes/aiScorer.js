@@ -13,7 +13,7 @@ const scoringRateLimiter = createRateLimiter(20, 1); // 20 requests per minute
 
 /**
  * @swagger
- * /api/ai/score-job:
+ * /api/ai-scorer/score-job:
  *   post:
  *     summary: Score a job description using AI
  *     tags: [AI Scorer]

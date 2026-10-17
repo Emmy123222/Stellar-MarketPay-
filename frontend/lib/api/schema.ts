@@ -7448,7 +7448,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/ai/score-job": {
+    "/api/ai-scorer/score-job": {
         parameters: {
             query?: never;
             header?: never;

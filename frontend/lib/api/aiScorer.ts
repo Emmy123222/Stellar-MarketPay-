@@ -17,7 +17,7 @@ export async function scoreJobDescription(description: string): Promise<JobDescr
   const { data } = await api.post<{
     success: boolean;
     data: JobDescriptionScore;
-  }>("/api/ai/score-job", { description });
+  }>("/api/ai-scorer/score-job", { description });
   return data.data;
 }
 

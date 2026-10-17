@@ -309,7 +309,7 @@ On-chain proof-of-work completion certificates.
 
 ---
 
-## 14. AI Scorer (`/api/ai-scorer` & `/api/ai`)
+## 14. AI Scorer (`/api/ai-scorer`)
 
 AI-assisted scoring for jobs and proposals.
 
@@ -319,7 +319,9 @@ AI-assisted scoring for jobs and proposals.
 | POST | `/api/ai-scorer/score-proposal` | Evaluate relevance and fit of a proposal |
 | POST | `/api/ai-scorer/score` | General text scoring endpoint |
 
-*(Also mounted at `/api/ai/*` for convenience.)*
+The `/api/ai/*` alias is deprecated and responds with HTTP 308 redirects to
+the matching `/api/ai-scorer/*` endpoint. Update clients to use the canonical
+`/api/ai-scorer` prefix.
 
 ---
 

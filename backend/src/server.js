@@ -200,6 +200,10 @@ app.use("/api/contributors",  contributorRoutes);
 app.use("/api/verification",  verificationRoutes);
 app.use("/api/nft",           nftRoutes);
 app.use("/api/ai-scorer",     aiScorerRoutes);
+app.use("/api/ai", (req, res) => {
+  const canonicalUrl = `/api/ai-scorer${req.originalUrl.slice("/api/ai".length)}`;
+  res.redirect(308, canonicalUrl);
+});
 app.use("/api/anchors",       anchorRoutes);
  
 app.get("/api/indexer/health", (req, res) => {
@@ -214,7 +218,6 @@ app.use("/api/transactions",   transactionRoutes);
 app.use("/api/dao",            daoRoutes);
 app.use("/api/proposal-templates", proposalTemplateRoutes);
 app.use("/api/price-alerts",      priceAlertRoutes);
-app.use("/api/ai",                aiScorerRoutes);
 app.use("/api/scope",             scopeRoutes);
 app.use("/api/turrets",           turretRoutes);
 app.use("/api/referrals",         referralRoutes);
