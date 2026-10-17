@@ -12,7 +12,7 @@ codebase is listed, along with its type, default, required status, and example.
 
 | Variable | Type | Default | Description | Validation | Example |
 |---|---|---|---|---|---|
-| `DATABASE_URL` | `string` | — | PostgreSQL connection string used by the API and migrations. | Must be a valid PostgreSQL URL. Startup crashes if unset (`requireEnv`). | `postgresql://user:pass@localhost:5432/marketpay` |
+| `DATABASE_URL` | `string` | — | PostgreSQL connection string used by the API and migrations. | Must be a valid PostgreSQL URL. Startup crashes if unset (`requireEnv`). | `postgresql://stellarwork:stellarwork_dev@localhost:5432/stellarwork` |
 | `JWT_SECRET` | `string` | — | Signing key for auth tokens. | Must be a non-empty string. Startup crashes if unset (`process.exit(1)` in `auth.js`). | `4c9d0f7d6f4f4c0f8d1b3b...` |
 | `CSRF_SECRET` | `string` | `JWT_SECRET` (dev) / — (prod) | HMAC secret for signing `csrf-token` double-submit cookies. | **Required in production** — startup crashes if unset (`process.exit(1)` in `csrf.js`). Falls back to `JWT_SECRET` in dev/CI only. | `random-hmac-secret` |
 
@@ -87,6 +87,7 @@ codebase is listed, along with its type, default, required status, and example.
 | `SMTP_USER` | `string` | — | SMTP username. | Required when email features are enabled. | `postmaster@example.com` |
 | `SMTP_PASS` | `string` | — | SMTP password. | Required when email features are enabled. | `secret` |
 | `SMTP_FROM` | `string` | `SMTP_USER` | Sender address for outbound mail. | — | `noreply@example.com` |
+| `EMAIL_FROM` | `string` | `SMTP_USER` | Sender address used by notification email utilities. | — | `noreply@example.com` |
 
 ### URLs & Base URLs
 
