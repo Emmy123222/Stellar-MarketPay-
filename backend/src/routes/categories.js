@@ -40,6 +40,7 @@ const pool = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const listRateLimiter = createRateLimiter(120, 1);
+const CATEGORY_CACHE_MAX_AGE_SECONDS = 3600;
 
 router.get("/", listRateLimiter, async (req, res, next) => {
   try {
@@ -63,6 +64,7 @@ router.get("/", listRateLimiter, async (req, res, next) => {
       }
     }
 
+    res.set("Cache-Control", `public, max-age=${CATEGORY_CACHE_MAX_AGE_SECONDS}`);
     res.json({ success: true, data: roots });
   } catch (err) {
     next(err);
