@@ -86,6 +86,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Verify migration versions
+        run: bash scripts/verify-migration-versions.sh
+        working-directory: ${{ github.workspace }}
+
       - uses: actions/setup-node@v7
         with:
           node-version: 20

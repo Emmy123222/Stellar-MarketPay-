@@ -600,6 +600,9 @@ yourself). CI will still enforce the same rules.
 
 ## Submitting a Pull Request
 
+Before opening a pull request, run `bash scripts/verify-migration-versions.sh`
+from the repository root. It checks that migration version prefixes are unique.
+
 1. Branch from `main` using the naming convention above
 2. Make your changes and write/update tests
 3. Run the full test suite locally
