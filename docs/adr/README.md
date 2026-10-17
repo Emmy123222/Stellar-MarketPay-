@@ -25,6 +25,7 @@ An Architecture Decision Record (ADR) is a document that captures an important a
 | [ADR-008](./adr-008-redis-session-cache.md) | Redis for Session and Cache Management | Accepted | 2026-05-28 |
 | [ADR-009](./adr-009-websocket-vs-sse.md) | WebSocket vs SSE for Real-Time Updates | Accepted | 2026-05-28 |
 | [ADR-010](./adr-010-cursor-pagination.md) | Cursor-Based Pagination | Accepted | 2026-05-28 |
+| [ADR-011](./adr-011-ci-consolidation.md) | CI/CD Workflow Consolidation | Accepted | 2026-08-25 |
 
 ## ADR Categories
 
@@ -45,6 +46,9 @@ An Architecture Decision Record (ADR) is a document that captures an important a
 ### Real-Time & API Design
 - **ADR-009**: WebSocket for real-time updates
 - **ADR-010**: Cursor-based pagination strategy
+
+### CI/CD & DevOps
+- **ADR-011**: CI/CD workflow consolidation
 
 ## ADR Template
 
