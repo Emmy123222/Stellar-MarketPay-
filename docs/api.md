@@ -1,563 +1,535 @@
 # API Reference — Stellar MarketPay
 
-Base URL: `http://localhost:4000`
+Comprehensive REST API and WebSocket reference for the Stellar MarketPay backend.
 
-All responses: `{ "success": true, "data": {...} }` or `{ "success": false, "error": "..." }`
+All routes documented here match the active routes mounted in [`backend/src/server.js`](../backend/src/server.js).
 
-Interactive reference: **`/api/docs`** (Swagger UI, generated from the OpenAPI 3.0 spec in [`backend/docs/openapi.yaml`](../backend/docs/openapi.yaml)). Regenerate with `npm run generate-openapi` in `backend/`.
+---
+
+## Overview & Interactive Documentation
+
+The Stellar MarketPay API provides OpenAPI 3.0 specification support with Swagger UI for interactive testing and exploration:
+
+- **Interactive Swagger UI**: `http://localhost:4000/api/docs`
+- **OpenAPI JSON Spec**: `http://localhost:4000/api/docs/json`
+- **OpenAPI Spec File**: Located at [`backend/docs/openapi.yaml`](../backend/docs/openapi.yaml)
+- **Regenerate Spec**: Run `npm run generate-openapi` within the `backend/` directory.
+
+### Base URL
+- **Local Development**: `http://localhost:4000`
+- **Production**: `https://api.stellarmarketpay.com`
+
+### Standard Response Envelope
+All API endpoints return standard JSON envelopes:
+
+```json
+// Success Response (2xx)
+{
+  "success": true,
+  "data": { ... }
+}
+
+// Error Response (4xx, 5xx)
+{
+  "success": false,
+  "error": "Error message explanation",
+  "code": "OPTIONAL_ERROR_CODE"
+}
+```
+
+### Rate Limiting & Headers
+Standard global rate limits apply (150 requests per 15-minute window per IP, unless stricter route limits apply). Responses include standard rate-limiting headers:
+- `X-RateLimit-Limit`: Maximum allowed requests within the active window.
+- `X-RateLimit-Remaining`: Remaining request allowance in the current window.
+- `X-RateLimit-Reset`: Timestamp when the window resets.
+
+---
 
 ## Authentication Schemes
-| Scheme | How | Used by |
-|--------|-----|---------|
-| JWT Bearer | `Authorization: Bearer <token>` or `jwt` cookie, obtained via `/api/auth` challenge-response | Most endpoints |
-| Developer API Key | `x-api-key` header | `/api/public/*` |
+
+| Scheme | Format / Header | Description |
+|---|---|---|
+| **JWT Bearer Token** | `Authorization: Bearer <token>` or `jwt` HTTP cookie | Obtained via `/api/auth` wallet challenge-response. Used for authenticated client and freelancer actions. |
+| **CSRF Token** | `x-csrf-token` header | Issued by `/api/auth/csrf-token` for double-submit cookie CSRF mitigation. |
 
 ---
 
-## Health & Utility
+## 1. Health & System Status
+
+System health checks and indexer status monitoring.
+
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/health` | Server status check (Postgres, Redis, Horizon; 503 when any is down) |
-| GET | `/api/health/db` | Connection pool stats for monitoring |
-| GET | `/api/rate-limit` | Get current rate limit usage |
+|---|---|---|
+| GET | `/health` | Server and dependency status check (Postgres, Redis, Horizon; returns 503 if unhealthy) |
+| GET | `/health/db` | Database connection pool statistics for health monitoring |
+| GET | `/api/indexer/health` | Status and sync health of the background Stellar contract event indexer service |
 
 ---
 
-## Authentication
-Stellar wallet-based challenge/response (SEP-10 style).
+## 2. Authentication (`/api/auth`)
+
+Stellar wallet challenge-response authentication (SEP-10 style).
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/auth` | Get authentication challenge transaction |
-| POST | `/api/auth` | Authenticate with signed challenge transaction |
-| GET | `/api/auth/csrf-token` | Issue a CSRF token for double-submit protection |
+|---|---|---|
+| GET | `/api/auth/csrf-token` | Issue a CSRF token for request protection |
+| GET | `/api/auth` | Request a SEP-10 style challenge transaction for wallet signing |
+| POST | `/api/auth` | Authenticate using signed challenge transaction; issues JWT token |
+| POST | `/api/auth/refresh` | Refresh access token using active session |
+| POST | `/api/auth/logout` | Clear authenticated session and cookies |
 
 ---
 
-## Jobs
+## 3. Jobs (`/api/jobs`)
+
+Job management, search, lifecycle, drafts, and bulk actions.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
+|---|---|---|
 | GET | `/api/jobs` | List jobs (`?status=open&category=...&limit=50&include_expired=false`) |
-| GET | `/api/jobs/:id` | Get single job |
-| GET | `/api/jobs/client/:publicKey` | Jobs posted by a client |
-| POST | `/api/jobs` | Create a new job |
-| POST | `/api/jobs/:id/view` | Increment view count for a job |
-| PATCH | `/api/jobs/:id/extend` | Extend job deadline (Client only) |
+| GET | `/api/jobs/:id` | Retrieve single job by ID |
+| GET | `/api/jobs/client/:publicKey` | Retrieve jobs posted by a specific client |
+| GET | `/api/jobs/recommended/:publicKey` | Get recommended jobs for a freelancer |
+| GET | `/api/jobs/:id/timeline` | Get job lifecycle history and timeline events |
+| GET | `/api/jobs/:id/invoice` | Generate invoice for completed job |
+| POST | `/api/jobs` | Create a new job posting |
+| PATCH | `/api/jobs/:id` | Update job details (Client only) |
+| DELETE | `/api/jobs/:id` | Soft-delete a job (Client only) |
+| POST | `/api/jobs/:id/view` | Increment view counter for a job |
+| POST | `/api/jobs/:id/invite` | Send invitation to a freelancer |
+| GET | `/api/jobs/:id/invitations` | List all invitations sent for a job |
+| PATCH | `/api/jobs/:id/escrow` | Link on-chain Soroban escrow contract ID |
+| POST | `/api/jobs/:id/boost` | Boost job ranking with promotional placement |
+| GET | `/api/jobs/:id/analytics` | View analytics for a job posting |
+| PATCH | `/api/jobs/:id/extend` | Extend job application deadline |
+| POST | `/api/jobs/:id/referral` | Attach referral attribution to job |
+| POST | `/api/jobs/:id/report` | Report job for moderation |
+| POST | `/api/jobs/:id/dispute` | Escalate job to dispute resolution |
+| POST | `/api/jobs/:id/resolve` | Resolve job dispute |
+| GET | `/api/jobs/feed.rss` | RSS 2.0 job feed for syndication |
+| GET | `/api/jobs/feed.atom` | Atom job feed for syndication |
+| GET | `/api/jobs/drafts` | List saved job drafts for authenticated client |
+| POST | `/api/jobs/drafts` | Save a job posting draft |
+| GET | `/api/jobs/drafts/:id` | Retrieve single job draft |
+| PUT | `/api/jobs/drafts/:id` | Update job draft |
+| DELETE | `/api/jobs/drafts/:id` | Delete job draft |
+| GET | `/api/jobs/suggest` | Search keyword and skill suggestions autocomplete |
+| POST | `/api/jobs/batch` | Batch create multiple job postings |
+| POST | `/api/jobs/bulk-cancel` | Bulk cancel multiple active jobs |
+| POST | `/api/jobs/bulk-extend` | Bulk extend deadlines across jobs |
+| POST | `/api/jobs/bulk-boost` | Bulk boost visibility for multiple jobs |
 
-### POST /api/jobs
+### POST /api/jobs Payload Example
 ```json
 {
   "title": "Build a Soroban escrow contract",
-  "description": "We need a Rust developer...",
+  "description": "We need an experienced Rust/Soroban developer...",
   "budget": "500.0000000",
   "category": "Smart Contracts",
   "skills": ["Rust", "Soroban", "Stellar"],
   "clientAddress": "GABC...XYZ",
-  "deadline": "2025-12-31"
+  "deadline": "2026-12-31"
 }
 ```
 
 ---
 
-## Applications
+## 4. Applications (`/api/applications`)
+
+Proposals, bids, and hiring workflows.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/applications/job/:jobId` | All applications for a job |
-| GET | `/api/applications/freelancer/:publicKey` | A freelancer's applications |
-| POST | `/api/applications` | Submit a proposal |
-| POST | `/api/applications/:id/accept` | Client accepts a proposal |
+|---|---|---|
+| GET | `/api/applications/job/:jobId` | Retrieve all proposals submitted for a job |
+| GET | `/api/applications/freelancer/:publicKey` | Retrieve applications submitted by a freelancer |
+| POST | `/api/applications` | Submit a proposal / bid for a job |
+| POST | `/api/applications/job/:jobId/close-bidding` | Close bidding period on a job |
+| POST | `/api/applications/:id/reveal` | Reveal sealed bid proposal |
+| POST | `/api/applications/:id/accept` | Client accepts proposal and awards job |
+| GET | `/api/applications/:id/history` | Proposal edit and review history |
+| DELETE | `/api/applications/:id` | Withdraw proposal (Freelancer only) |
+| POST | `/api/applications/bulk-update` | Bulk update proposal statuses |
 
-### POST /api/applications
+### POST /api/applications Payload Example
 ```json
 {
-  "jobId": "uuid-here",
+  "jobId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "freelancerAddress": "GXYZ...ABC",
-  "proposal": "I have 5 years of Rust experience...",
+  "proposal": "I have 4 years of Rust and Soroban smart contract development experience...",
   "bidAmount": "450.0000000"
 }
 ```
 
 ---
 
-## Profiles
+## 5. Profiles (`/api/profiles`)
 
-`/api/freelancers/*` is an alias of this router.
+Freelancer and client profile management.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/profiles` | List profiles |
-| GET | `/api/profiles/:publicKey` | Get a user profile |
-| POST | `/api/profiles` | Create or update a profile |
-| PUT | `/api/profiles/:publicKey` | Update own profile |
-| GET | `/api/profiles/:publicKey/stats` | Profile statistics |
+|---|---|---|
+| GET | `/api/profiles` | List public profiles with pagination and search |
+| GET | `/api/profiles/:publicKey` | Get profile details for a Stellar public key |
+| POST | `/api/profiles` | Create a new user profile |
+| PUT | `/api/profiles/:publicKey` | Update existing profile details |
+| PATCH | `/api/profiles/:publicKey` | Partially update profile |
+| GET | `/api/profiles/:publicKey/stats` | Profile statistics (jobs completed, ratings) |
+| GET | `/api/profiles/:publicKey/response-time` | Average response time metrics |
+| GET | `/api/profiles/:publicKey/notifications` | Profile notifications |
+| POST | `/api/profiles/:publicKey/notifications` | Trigger notification to user |
+| PATCH | `/api/profiles/:publicKey/notificationPreferences` | Update notification preferences |
+| POST | `/api/profiles/:publicKey/availability` | Update freelancer availability status |
+| GET | `/api/profiles/:publicKey/price-alerts` | Retrieve user price alert settings |
+| POST | `/api/profiles/:publicKey/price-alerts` | Update user price alert settings |
+| GET | `/api/profiles/:publicKey/endorsements` | Skill endorsements received by user |
+| POST | `/api/profiles/:publicKey/endorse` | Endorse a skill for a freelancer |
+| GET | `/api/profiles/:publicKey/spending` | Client total spend and history analytics |
+| GET | `/api/profiles/:publicKey/client-reputation` | Client reputation metrics |
+| POST | `/api/profiles/:publicKey/block` | Block communication from another user |
+| DELETE | `/api/profiles/:publicKey/block/:address` | Unblock a user address |
 | GET | `/api/profiles/:publicKey/earnings` | Freelancer earnings history |
-| GET | `/api/profiles/:publicKey/spending` | Client spending analytics |
-| GET | `/api/profiles/:publicKey/client-reputation` | Client reputation |
-| GET | `/api/profiles/:publicKey/response-time` | Freelancer response time |
-| GET | `/api/profiles/:publicKey/endorsements` | Skill endorsements |
-| POST | `/api/profiles/:publicKey/endorse` | Endorse a skill |
-| POST | `/api/profiles/:publicKey/availability` | Update availability status |
-| GET | `/api/profiles/:publicKey/encryption-key` | NaCl encryption public key (public lookup) |
-| PUT | `/api/profiles/:publicKey/encryption-key` | Store X25519 encryption public key |
-| GET | `/api/profiles/:publicKey/price-alerts` | Price alert preferences |
-| POST | `/api/profiles/:publicKey/price-alerts` | Update price alert preferences |
-| DELETE | `/api/profiles/:publicKey/data` | GDPR deletion request (30-day grace period) |
+| POST | `/api/profiles/:publicKey/portfolio` | Add portfolio showcase item |
+| POST | `/api/profiles/:publicKey/portfolio-files` | Upload media files for portfolio |
+| DELETE | `/api/profiles/:publicKey/portfolio/:itemId` | Remove portfolio item |
+| GET | `/api/profiles/:publicKey/encryption-key` | Lookup user X25519 public encryption key |
+| PUT | `/api/profiles/:publicKey/encryption-key` | Register or update X25519 public key |
+| POST | `/api/profiles/migrate` | Migrate legacy profile data |
+| DELETE | `/api/profiles/:publicKey/data` | GDPR account data deletion request |
 
 ---
 
-## Onboarding
+## 6. Escrow & Milestones (`/api/escrow`)
+
+Soroban smart contract escrow operations and milestone management.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/onboarding/:publicKey` | Get onboarding progress for a user |
-| PATCH | `/api/onboarding` | Update onboarding progress |
+|---|---|---|
+| POST | `/api/escrow/create` | Record initialization of on-chain escrow |
+| GET | `/api/escrow/:jobId` | Retrieve escrow state and locked balance for a job |
+| POST | `/api/escrow/:jobId/release` | Client releases full escrow balance to freelancer |
+| POST | `/api/escrow/:jobId/partial_release` | Release partial amount of escrow |
+| POST | `/api/escrow/:jobId/release-milestone` | Release payment for an approved milestone |
+| POST | `/api/escrow/:jobId/reject-milestone` | Reject submitted milestone deliverable |
+| POST | `/api/escrow/:jobId/dispute-milestone` | Open dispute on milestone |
+| POST | `/api/escrow/:jobId/refund` | Refund escrow balance back to client |
+| POST | `/api/escrow/:jobId/timeout-refund` | Trigger refund when milestone or deadline expires |
+| POST | `/api/escrow/:jobId/recurring` | Configure recurring escrow disbursement |
+| GET | `/api/escrow/:jobId/recurring` | Check recurring escrow schedule |
+| POST | `/api/escrow/:jobId/recurring/cancel` | Cancel recurring escrow |
+| POST | `/api/escrow/verify-freelancer` | Verify freelancer wallet signature |
+| POST | `/api/escrow/:jobId/extend` | Propose escrow deadline extension |
+| POST | `/api/escrow/:jobId/extend/approve` | Accept proposed escrow deadline extension |
+| POST | `/api/escrow/:jobId/deliverable-hash` | Record SHA-256 deliverable hash in escrow |
+| POST | `/api/escrow/:jobId/milestones/:milestoneIndex/proof` | Submit milestone completion deliverable proof |
+| POST | `/api/escrow/:jobId/milestones/:milestoneIndex/proof/anchor` | Anchor deliverable proof to Stellar ledger |
 
 ---
 
-## Escrow
+## 7. Ratings & Reviews (`/api/ratings`)
+
+Feedback submitted following completed jobs.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/escrow/:jobId/release` | Client releases payment to freelancer |
-| POST | `/api/escrow/:jobId/partial_release` | Release part of the funded amount |
-| POST | `/api/escrow/:jobId/release-milestone` | Release an approved milestone |
-| POST | `/api/escrow/:jobId/reject-milestone` | Reject a milestone deliverable |
-| POST | `/api/escrow/:jobId/dispute-milestone` | Open a dispute over a milestone |
-| POST | `/api/escrow/:jobId/refund` | Refund the client |
-| POST | `/api/escrow/:jobId/timeout-refund` | Automatic refund after timeout |
-| GET | `/api/escrow/:jobId` | Get escrow state for a job |
-| POST | `/api/escrow/:jobId/recurring` | Set up a recurring escrow |
-| GET | `/api/escrow/:jobId/recurring` | Get recurring escrow schedule |
-| POST | `/api/escrow/:jobId/recurring/cancel` | Cancel a recurring escrow |
-| POST | `/api/escrow/verify-freelancer` | Verify freelancer funding signature |
-
-### POST /api/escrow/:jobId/release
-```json
-{ "clientAddress": "GABC...XYZ" }
-```
+|---|---|---|
+| GET | `/api/ratings/:publicKey` | Retrieve reviews and ratings received by a user |
+| POST | `/api/ratings` | Submit rating and feedback for completed job |
 
 ---
 
-## Ratings
+## 8. Progress Updates (`/api/progress`)
+
+Deliverable status checkpoints during active contracts.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/ratings/:publicKey` | List ratings for a user |
-| POST | `/api/ratings` | Submit a rating for a completed job |
+|---|---|---|
+| GET | `/api/progress/:jobId` | Retrieve progress update logs for a job |
+| POST | `/api/progress` | Submit a progress milestone update |
 
 ---
 
-## Progress
+## 9. Contract Events (`/api/events`)
+
+Indexed on-chain events from the Soroban contract.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/progress/:jobId` | Get progress updates for a job |
-| POST | `/api/progress` | Add a progress update |
+|---|---|---|
+| GET | `/api/events/:jobId` | Retrieve indexed Soroban contract events for a job |
 
 ---
 
-## Messages
+## 10. Statistics & Price History (`/api/stats`)
 
-Message bodies are end-to-end encrypted; see [messaging-encryption.md](messaging-encryption.md).
+Platform metrics and market data.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/messages/job/:jobId` | Get messages for a job thread |
-| POST | `/api/messages/job/:jobId` | Send a message in a job thread |
-| POST | `/api/messages/job/:jobId/attachments` | Upload an encrypted file attachment |
-| GET | `/api/messages/unread-count` | Total unread message count |
-| PATCH | `/api/messages/:messageId/tx-hash` | Attach on-chain tx hash to a message |
+|---|---|---|
+| GET | `/api/stats` | Platform-wide summary statistics |
+| GET | `/api/stats/trends/jobs` | Historical job posting trend metrics |
+| GET | `/api/stats/trends/escrow` | Escrow volume transaction trends |
+| GET | `/api/stats/categories` | Distribution of jobs across categories |
+| GET | `/api/stats/xlm-price-history` | 7-day XLM/USD price history from feed |
 
 ---
 
-## Insights
+## 11. Contributors (`/api/contributors`)
+
+Repository and ecosystem contributor recognition.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/insights` | Platform-wide analytics summary |
-| GET | `/api/insights/categories` | Category insights |
-| GET | `/api/insights/skills` | Skill demand insights |
-| GET | `/api/insights/trends/pay` | Pay trends over time |
-| GET | `/api/insights/competitive` | Competitive job listings |
+|---|---|---|
+| GET | `/api/contributors` | List top open-source contributors |
+| POST | `/api/contributors/refresh` | Force-refresh contributor GitHub statistics |
 
 ---
 
-## Stats
+## 12. Verification (`/api/verification`)
+
+Identity, email, and phone validation.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/stats` | Platform-wide metrics |
-| GET | `/api/stats/categories` | Top job categories |
-| GET | `/api/stats/trends/jobs` | Job posting trends |
-| GET | `/api/stats/trends/escrow` | Escrow volume trends |
-| GET | `/api/stats/xlm-price-history` | 7-day XLM/USD price history |
+|---|---|---|
+| GET | `/api/verification/:publicKey` | Check user verification tier and status |
+| POST | `/api/verification/email` | Send email verification token |
+| POST | `/api/verification/email/confirm` | Confirm email verification token |
+| POST | `/api/verification/phone` | Send SMS verification code |
+| POST | `/api/verification/phone/confirm` | Verify phone SMS code |
+| POST | `/api/verification/id/submit` | Submit identity documents for verification review |
 
 ---
 
-## Notifications
+## 13. NFT Certificates (`/api/nft`)
 
-Push notifications use VAPID web push; see the notification endpoints below.
+On-chain proof-of-work completion certificates.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/notifications` | List in-app notifications |
-| PATCH | `/api/notifications/:id/read` | Mark a notification as read |
-| PATCH | `/api/notifications/read-all` | Mark all notifications as read |
-| GET | `/api/notifications/preferences` | Get notification preferences |
-| PATCH | `/api/notifications/preferences` | Update notification preferences |
-| GET | `/api/notifications/vapid-public-key` | VAPID public key for push subscriptions |
-| POST | `/api/notifications/push-subscribe` | Save a push subscription |
-| POST | `/api/notifications/push-unsubscribe` | Remove a push subscription |
-| GET | `/api/notifications/unsubscribe` | Unsubscribe from weekly digest (HTML page, no auth) |
-| GET | `/api/notifications/failed-webhooks` | List failed webhooks (admin only) |
-| POST | `/api/notifications/failed-webhooks/:id/retry` | Retry a failed webhook (admin only) |
+|---|---|---|
+| GET | `/api/nft/job/:jobId` | Get completion certificate metadata for a job |
+| GET | `/api/nft/freelancer/:publicKey` | List certificates earned by a freelancer |
+| POST | `/api/nft/mint-completion-certificate` | Record a newly minted job certificate |
 
 ---
 
-## WebAuthn (Passkeys)
+## 14. AI Scorer (`/api/ai-scorer` & `/api/ai`)
+
+AI-assisted scoring for jobs and proposals.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/webauthn/register-options` | Get registration options |
-| POST | `/api/webauthn/register-verify` | Verify and store a credential |
-| POST | `/api/webauthn/login-options` | Get login options |
-| POST | `/api/webauthn/login-verify` | Verify authentication, issue JWT |
-| GET | `/api/webauthn/credentials` | List registered passkeys |
-| DELETE | `/api/webauthn/credentials/:id` | Remove a passkey |
-| GET | `/api/webauthn/admin/credentials` | Admin: list credentials for any user |
-| DELETE | `/api/webauthn/admin/credentials/:id` | Admin: revoke a passkey |
+|---|---|---|
+| POST | `/api/ai-scorer/score-job` | Evaluate quality and clarity of a job post |
+| POST | `/api/ai-scorer/score-proposal` | Evaluate relevance and fit of a proposal |
+| POST | `/api/ai-scorer/score` | General text scoring endpoint |
+
+*(Also mounted at `/api/ai/*` for convenience.)*
 
 ---
 
-## Disputes
+## 15. Anchors (`/api/anchors`)
 
-Evidence files are stored on IPFS; see ADR-006 if present or [dispute_resolution_logic.md](dispute_resolution_logic.md).
+Stellar SEP-24 / SEP-31 anchor integrations.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/disputes/:jobId` | Dispute details and evidence list |
-| GET | `/api/disputes/:jobId/evidence` | List dispute evidence (client, freelancer, or arbitrator) |
-| POST | `/api/disputes/:jobId/evidence` | Upload dispute evidence file |
-| GET | `/api/disputes/:jobId/evidence/:id/url` | Generate signed URL for evidence access |
-| GET | `/api/disputes/:jobId/onchain-cids` | Chain-attested evidence CID list |
+|---|---|---|
+| GET | `/api/anchors` | List supported deposit/withdrawal Stellar anchors |
 
 ---
 
-## Verification
+## 16. Gas & Fee Estimator (`/api/gas-estimate`)
 
-Email, phone, and ID verification.
+Soroban transaction resource fee estimation.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/verification/:publicKey` | Verification status for a user |
-| POST | `/api/verification/email` | Send email verification link |
-| POST | `/api/verification/email/confirm` | Confirm email verification with token |
-| POST | `/api/verification/phone` | Send phone verification OTP |
-| POST | `/api/verification/phone/confirm` | Confirm phone verification with OTP |
-| POST | `/api/verification/id/submit` | Submit ID verification for admin review |
+|---|---|---|
+| GET | `/api/gas-estimate` | Current fee estimation tiers for contract calls |
+| POST | `/api/gas-estimate/refresh` | Refresh cached Soroban network fee metrics |
 
 ---
 
-## Saved Searches
+## 17. Transactions (`/api/transactions`)
+
+Transaction exports and logs.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/saved-searches` | List saved searches (max 10) |
-| POST | `/api/saved-searches` | Save a new search |
-| PATCH | `/api/saved-searches/:id` | Update notification preferences |
-| DELETE | `/api/saved-searches/:id` | Delete a saved search |
+|---|---|---|
+| GET | `/api/transactions/export` | Export wallet transaction history as CSV |
 
 ---
 
-## Price Alerts
+## 18. DAO Governance (`/api/dao`)
 
-XLM price alerts (rate limited to 10 req/min).
+Community proposals, voting, and arbitration.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/price-alerts` | List active alerts for authenticated user |
-| POST | `/api/price-alerts` | Create an alert (`{ condition: "above"\|"below", threshold, oneTime? }`) |
-| DELETE | `/api/price-alerts/:id` | Delete an alert |
+|---|---|---|
+| GET | `/api/dao/proposals` | List DAO governance proposals |
+| GET | `/api/dao/proposals/:id` | Get details and vote counts for a proposal |
+| POST | `/api/dao/proposals` | Create a new governance proposal |
+| POST | `/api/dao/proposals/:id/vote` | Cast vote on an active proposal |
+| POST | `/api/dao/proposals/:id/execute` | Execute a approved passed proposal |
+| GET | `/api/dao/treasury` | Treasury balance and allocation summary |
+| GET | `/api/dao/arbitrators` | List approved community dispute arbitrators |
+| GET | `/api/dao/arbitrators/:publicKey` | Retrieve arbitrator profile and resolution records |
+| POST | `/api/dao/arbitrators` | Apply for arbitrator role |
+| POST | `/api/dao/arbitrators/:publicKey/vote` | Vote for an arbitrator candidate |
 
 ---
 
-## DAO Governance
+## 19. Proposal Templates (`/api/proposal-templates`)
+
+Freelancer proposal reusable templates.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/dao/proposals` | List DAO proposals |
-| GET | `/api/dao/proposals/:id` | Proposal details |
-| POST | `/api/dao/proposals` | Create a proposal (`funding`, `parameter_change`, `arbitrator_election`) |
-| POST | `/api/dao/proposals/:id/vote` | Cast a vote |
-| POST | `/api/dao/proposals/:id/execute` | Execute a passed proposal (admin only) |
-| GET | `/api/dao/arbitrators` | List arbitrators and top panel |
-| GET | `/api/dao/arbitrators/:publicKey` | Arbitrator profile |
-| POST | `/api/dao/arbitrators` | Register as an arbitrator |
-| POST | `/api/dao/arbitrators/:publicKey/vote` | Vote for an arbitrator |
-| GET | `/api/dao/treasury` | Treasury summary |
+|---|---|---|
+| GET | `/api/proposal-templates` | List proposal templates for authenticated user |
+| POST | `/api/proposal-templates` | Create a proposal template |
+| PATCH | `/api/proposal-templates/:id` | Update proposal template |
+| DELETE | `/api/proposal-templates/:id` | Delete proposal template |
 
 ---
 
-## Proposal Templates
+## 20. Price Alerts (`/api/price-alerts`)
+
+XLM/USD price threshold triggers.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/proposal-templates` | List templates for authenticated freelancer |
-| POST | `/api/proposal-templates` | Create a template |
-| PATCH | `/api/proposal-templates/:id` | Update a template |
-| DELETE | `/api/proposal-templates/:id` | Delete a template |
+|---|---|---|
+| GET | `/api/price-alerts` | List active price alerts for authenticated user |
+| POST | `/api/price-alerts` | Create new price alert (`condition: "above"\|"below"`, `threshold`) |
+| DELETE | `/api/price-alerts/:id` | Remove price alert |
 
 ---
 
-## NFT Certificates
+## 21. Collaborative Scope Sessions (`/api/scope`)
 
-Proof-of-work certificates minted on job completion.
+Project scoping collaborative session management.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/nft/job/:jobId` | Certificate for a job |
-| GET | `/api/nft/freelancer/:publicKey` | Certificates earned by a freelancer |
-| POST | `/api/nft/mint-completion-certificate` | Record a minted certificate |
+|---|---|---|
+| GET | `/api/scope/:sessionId` | Retrieve current scope document state |
+| POST | `/api/scope` | Create a new scope session |
+| PUT | `/api/scope` | Update session content |
+| POST | `/api/scope/:sessionId` | Update specific session content |
+| PUT | `/api/scope/:sessionId` | Update specific session content |
+| POST | `/api/scope/:sessionId/renew` | Extend session expiration by 24 hours |
 
 ---
 
-## Certificates & Assessments
+## 22. Stellar Turrets (`/api/turrets`)
+
+Smart contract orchestration via Stellar Turrets.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/certificates/:id` | Certificate by ID |
-| GET | `/api/certificates/user/:publicKey` | All certificates for a user |
-| GET | `/api/assessments/:skill` | Assessment questions for a skill |
-| POST | `/api/assessments/:skill/submit` | Submit assessment answers |
-| GET | `/api/assessments/results/:publicKey` | Assessment results (public) |
+|---|---|---|
+| GET | `/api/turrets/config` | Retrieve active turret configuration |
+| GET | `/api/turrets/status` | Check turret network availability |
+| POST | `/api/turrets/estimate` | Estimate execution fee for turret tx |
+| POST | `/api/turrets/sign` | Request turret signature on transaction |
+| POST | `/api/turrets/submit` | Submit transaction through turret network |
 
 ---
 
-## AI Scorer
+## 23. Referrals (`/api/referrals`)
+
+Referral program tracking and bonus points.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/ai/score-job` | Score a job description using AI |
+|---|---|---|
+| GET | `/api/referrals/info` | Referral program bonus rules and terms |
+| GET | `/api/referrals/my-stats` | Authenticated user referral statistics |
+| GET | `/api/referrals/stats` | Platform-wide referral aggregate statistics |
+| GET | `/api/referrals/:publicKey` | Referral points and invitees for a user |
+| POST | `/api/referrals/register` | Register attribution for a referral |
 
 ---
 
-## Time Entries & Invoices
+## 24. Reputation (`/api/reputation`)
+
+Composite on-chain and platform reputation.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/time-entries/job/:jobId` | Time entries for a job |
-| POST | `/api/time-entries` | Log a time entry |
-| POST | `/api/time-entries/invoice` | Generate invoice from time entries |
-| GET | `/api/time-entries/job/:jobId/invoices` | Invoices for a job |
-| PATCH | `/api/time-entries/invoice/:invoiceId/review` | Client approves or rejects an invoice |
+|---|---|---|
+| GET | `/api/reputation/:userId` | Get composite reputation score and breakdown |
 
 ---
 
-## Invitations
+## 25. Auto-Convert (`/api/auto-convert`)
+
+Automated token conversions into preferred assets.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/invitations` | Pending invitations for authenticated freelancer |
-| POST | `/api/invitations/:id/accept` | Accept (auto-creates application) |
-| PATCH | `/api/invitations/:id/decline` | Decline |
+|---|---|---|
+| GET | `/api/auto-convert/settings` | Get user auto-conversion rules |
+| PATCH | `/api/auto-convert/settings` | Update auto-conversion rules |
+| GET | `/api/auto-convert/pending` | List pending conversion operations |
+| GET | `/api/auto-convert/history` | List completed conversion records |
+| POST | `/api/auto-convert/quote` | Request conversion rate quote |
+| POST | `/api/auto-convert/manual` | Trigger immediate conversion |
+| POST | `/api/auto-convert/:id/complete` | Mark conversion order completed |
+| POST | `/api/auto-convert/:id/dismiss` | Dismiss conversion error notification |
 
 ---
 
-## Referrals
+## 26. Talent Pools (`/api/talent-pools`)
+
+Client curated freelancer rosters.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/referrals/info` | Referral bonus info (public) |
-| GET | `/api/referrals/:publicKey` | Referral stats and history |
-| POST | `/api/referrals/register` | Register a referral |
+|---|---|---|
+| GET | `/api/talent-pools` | List client talent pools |
+| POST | `/api/talent-pools` | Create a talent pool |
+| DELETE | `/api/talent-pools/:id` | Remove a talent pool |
+| POST | `/api/talent-pools/:id/invite` | Add freelancer to talent pool |
 
 ---
 
-## Contract Events
+## 27. Invitations (`/api/invitations`)
+
+Freelancer direct job invitations.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/events/:jobId` | Indexed contract events for a job |
+|---|---|---|
+| GET | `/api/invitations` | List pending invitations for authenticated user |
+| POST | `/api/invitations/:id/accept` | Accept invitation and create draft proposal |
+| PATCH | `/api/invitations/:id/decline` | Decline invitation |
+| DELETE | `/api/invitations/:token/revoke` | Revoke invitation by token |
 
 ---
 
-## Transactions
+## 28. Analytics (`/api/analytics`)
+
+Platform-level category and overview metrics.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/transactions/export` | Export transaction history as CSV |
+|---|---|---|
+| GET | `/api/analytics/categories` | Category volume and growth analytics |
+| GET | `/api/analytics/overview` | High-level platform KPIs |
 
 ---
 
-## Gas Estimate
+## 29. Global Search (`/api/search`)
+
+Multi-entity search across jobs, profiles, and skills.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/gas-estimate` | Current Soroban fee estimate tiers |
-| POST | `/api/gas-estimate/refresh` | Force-refresh cached estimates |
+|---|---|---|
+| GET | `/api/search` | Query jobs, freelancers, and skills (`?q=...&category=...`) |
 
 ---
 
-## Tokens
+## 30. WebSocket Realtime Protocols
 
-Stellar token (SAC) registry and balances.
+The server runs WebSocket endpoints on the same port:
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/tokens` | List supported tokens (cached 1h) |
-| GET | `/api/tokens/popular` | Popular tokens |
-| GET | `/api/tokens/search` | Search tokens by name or symbol |
-| GET | `/api/tokens/:contractId/metadata` | Token metadata |
-| GET | `/api/tokens/:contractId/balance/:publicKey` | Token balance for an account |
-| POST | `/api/tokens/validate` | Validate a token contract ID |
+### Realtime Notifications & Events (`/ws/realtime`)
+- **URL**: `ws://localhost:4000/ws/realtime?token=<JWT>&room=job:<jobId>`
+- **Subscribing to Rooms**:
+  ```json
+  { "type": "subscribe", "rooms": ["job:<jobId>", "user:<address>"] }
+  ```
+- **Events Emitted**:
+  - `connected`: Handshake acknowledgement
+  - `notification:created`: Direct user notification payload
+  - `job:expiry-warning`: Broadcast when a deadline nears expiration
 
----
-
-## Categories & Skills
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/categories` | Full category tree |
-| GET | `/api/skills` | Skill autocomplete search |
-
----
-
-## Faucet
-
-Testnet XLM funding.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/faucet/status` | Faucet status and configuration |
-| GET | `/api/faucet/check/:publicKey` | Check if an account needs funding |
-| POST | `/api/faucet/fund` | Fund a testnet wallet |
-
----
-
-## Turrets
-
-Stellar Turrets for serverless contract execution.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/turrets/config` | Turret configuration |
-| GET | `/api/turrets/status` | Turret service status |
-| POST | `/api/turrets/estimate` | Estimate transaction fees |
-| POST | `/api/turrets/submit` | Submit transaction via Turret |
-
----
-
-## Contributors
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/contributors` | Top GitHub contributors (cached 24h) |
-| POST | `/api/contributors/refresh` | Refresh contributor cache |
-
----
-
-## Scope Sessions
-
-Collaborative scope session management.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/scope` | Create a collaborative scope session (returns `sessionId` + `sharePath`) |
-| POST | `/api/scope/:sessionId/finalize` | Lock a scope session when its proposal is submitted |
-| POST | `/api/scope/:sessionId/renew` | Extend a scope session by 24 hours |
-
----
-
-## Audit Logs
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/audit` | List audit logs (admin only, cursor pagination) |
-| GET | `/api/audit/:jobId` | Audit logs for a specific job |
-
----
-
-## Developer API Keys
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/developer/keys` | List API keys |
-| POST | `/api/developer/keys` | Create a new API key |
-| POST | `/api/developer/keys/:id/rotate` | Rotate an API key |
-| DELETE | `/api/developer/keys/:id` | Revoke an API key |
-
----
-
-## Public API
-
-Requires `x-api-key` developer key unless noted.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/public/jobs` | List public jobs (API key required) |
-| GET | `/api/public/jobs/:id` | Get public job by ID (API key required) |
-| GET | `/api/public/freelancers/:publicKey` | Public freelancer profile (API key required) |
-| GET | `/api/v1/public/jobs` | List public job listings (**no auth required**) |
-
----
-
-## GraphQL
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/graphql` | GraphQL endpoint (queries/mutations over the same domain models) |
-
----
-
-## Admin
-
-All admin routes require admin role + 2FA (`requireAdminRole`, `requireAdmin2FA`). This list is illustrative; see `backend/src/routes/admin.js` for the authoritative set.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/admin/2fa/setup` | Generate TOTP secret and QR code |
-| POST | `/api/admin/2fa/verify` | Verify TOTP, enable 2FA, upgrade JWT |
-| GET | `/api/admin/users` | List users |
-| POST | `/api/admin/users/:address/ban` | Ban a wallet address |
-| POST | `/api/admin/users/:address/unban` | Unban a wallet address |
-| POST | `/api/admin/wallets/:address/freeze` | Freeze a wallet |
-| DELETE | `/api/admin/wallets/:address/freeze` | Unfreeze a wallet |
-| GET | `/api/admin/wallets/frozen` | List frozen wallets |
-| GET | `/api/admin/jobs` | Browse jobs |
-| GET | `/api/admin/jobs/expired` | Expired jobs |
-| POST | `/api/admin/jobs/:id/remove` | Remove a job |
-| PATCH | `/api/admin/jobs/:jobId/cancel` | Cancel a job |
-| POST | `/api/admin/jobs/:jobId/reactivate` | Reactivate a job |
-| GET | `/api/admin/disputes` | All disputes |
-| PATCH | `/api/admin/disputes/:jobId/resolve` | Resolve a dispute |
-| GET | `/api/admin/reported-wallets` | Reported wallets |
-| GET | `/api/admin/logs` | Admin action logs |
-| GET | `/api/admin/audit-log` | Audit log |
-| GET | `/api/admin/metrics` | Platform metrics |
-| GET | `/api/admin/metrics/time-series` | Metrics time series |
-| GET | `/api/admin/reports/latest` | Latest generated report |
-| POST | `/api/admin/reports/generate` | Generate a report |
-| GET | `/api/admin/cost-report` | Infrastructure cost report |
-| POST | `/api/admin/cost-report/generate` | Generate cost report |
-
----
-
-## Job Statuses
-
-| Status | Meaning |
-|--------|---------|
-| `open` | Accepting applications |
-| `in_progress` | Freelancer hired, work underway |
-| `completed` | Escrow released, job done |
-| `cancelled` | Cancelled by client |
-| `expired` | Deadline passed without hiring |
-
----
-
-## Rate Limit Headers
-All API responses include the following headers:
-- `X-RateLimit-Limit`: Maximum requests allowed in the window.
-- `X-RateLimit-Remaining`: Remaining requests in the current window.
-- `X-RateLimit-Reset`: Time when the limit resets (ISO 8601 format).
+### Collaborative Scoping Sessions (`/ws/scope/:sessionId`)
+- **URL**: `ws://localhost:4000/ws/scope/:sessionId?participantId=<id>`
+- Synchronizes shared markdown documents, cursor coordinates, and finalization locks across participants.
