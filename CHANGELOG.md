@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Mobile Design**: Improved responsiveness across dashboard views on mobile screens. (#894)
+- **Repository Hygiene**: Promoted the mobile tab bar and XLM price chart specs from `.kiro/specs/` into `docs/`, stopped tracking `.kiro/` tool state, and documented the policy for editor- and AI-tool directories. (#1849)
 
 ### Fixed
 - **WebSocket Double-Connect**: Fixed an issue causing duplicate WebSocket connection attempts. (#894)
