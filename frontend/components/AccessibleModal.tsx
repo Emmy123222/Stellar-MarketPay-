@@ -18,6 +18,13 @@ interface AccessibleModalProps {
   className?: string;
   panelClassName?: string;
   labelledBy?: string;
+  /** id of the sr-only description node; override when two modals can be mounted at once. */
+  descriptionId?: string;
+  /**
+   * When false the dialog ignores Escape and backdrop clicks (for flows that
+   * must be completed, e.g. mandatory admin 2FA). Focus is still trapped.
+   */
+  dismissible?: boolean;
 }
 
 export default function AccessibleModal({
@@ -28,9 +35,18 @@ export default function AccessibleModal({
   className,
   panelClassName,
   labelledBy = titleId,
+  descriptionId = "modal-description",
+  dismissible = true,
 }: AccessibleModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  // Keep the latest callbacks in refs so the trap is set up once per mount.
+  // An inline `onClose` would otherwise re-run the effect on every parent
+  // render, stealing focus back to the first control and losing the trigger.
+  const onCloseRef = useRef(onClose);
+  const dismissibleRef = useRef(dismissible);
+  onCloseRef.current = onClose;
+  dismissibleRef.current = dismissible;
 
   useEffect(() => {
     previouslyFocusedRef.current =
@@ -51,8 +67,9 @@ export default function AccessibleModal({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (!dismissibleRef.current) return;
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -80,7 +97,7 @@ export default function AccessibleModal({
       document.removeEventListener("keydown", handleKeyDown);
       previouslyFocusedRef.current?.focus?.();
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div
@@ -89,22 +106,30 @@ export default function AccessibleModal({
         className,
       )}
     >
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        aria-label="Close dialog"
-        onClick={onClose}
-      />
+      {dismissible ? (
+        <button
+          type="button"
+          tabIndex={-1}
+          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          aria-label="Close dialog"
+          onClick={onClose}
+        />
+      ) : (
+        <div
+          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          aria-hidden="true"
+        />
+      )}
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        aria-describedby="modal-description"
+        aria-describedby={descriptionId}
         tabIndex={-1}
         className={clsx("relative", panelClassName)}
       >
-        <p id="modal-description" className="sr-only">
+        <p id={descriptionId} className="sr-only">
           {description}
         </p>
         {children}

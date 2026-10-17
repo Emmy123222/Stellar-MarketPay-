@@ -8,6 +8,7 @@
  * disconnected Freighter fall back to the SEP-0024 anchor flow.
  */
 import { useEffect, useRef, useState } from "react"
+import AccessibleModal from "@/components/AccessibleModal";
 import {
   ANCHOR_HOME_DOMAIN,
   fetchAnchorEndpoints,
@@ -165,22 +166,29 @@ export default function BuyXLMModal({ publicKey, onClose, onComplete }: BuyXLMMo
       ? `≈ $${(parseFloat(transaction.amount_out) * xlmPriceUsd).toFixed(2)} USD`
       : null;
 
+  const handleClose = () => {
+    cancelRef.current = true;
+    popupRef.current?.close();
+    onClose();
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-      <div className="card max-w-md w-full bg-ink-900 border border-market-500/20 relative">
+    <AccessibleModal
+      titleId="buy-xlm-title"
+      description="Buy XLM with fiat through a payment provider and track the transaction."
+      onClose={handleClose}
+      panelClassName="card max-w-md w-full bg-ink-900 border border-market-500/20"
+    >
+      <div>
         <button
-          onClick={() => {
-            cancelRef.current = true;
-            popupRef.current?.close();
-            onClose();
-          }}
+          onClick={handleClose}
           className="absolute top-3 right-3 text-amber-700 hover:text-amber-300"
           aria-label="Close"
         >
           ✕
         </button>
 
-        <h2 className="font-display text-xl font-bold text-amber-100 mb-1">Buy XLM with Fiat</h2>
+        <h2 id="buy-xlm-title" className="font-display text-xl font-bold text-amber-100 mb-1">Buy XLM with Fiat</h2>
 
         {/* Freighter on-ramp path */}
         {canUseFreighterOnRamp === true && phase === "idle" && (
@@ -314,6 +322,6 @@ export default function BuyXLMModal({ publicKey, onClose, onComplete }: BuyXLMMo
           </div>
         )}
       </div>
-    </div>
+    </AccessibleModal>
   );
 }

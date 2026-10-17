@@ -286,10 +286,10 @@ export default function Navbar({
             >
               {t(l.labelKey)}
               {l.href === "/dashboard" && hasNotification && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-emerald-400 rounded-full border border-ink-900" />
+                <span className="absolute top-1.5 end-1.5 w-2 h-2 bg-emerald-400 rounded-full border border-ink-900" />
               )}
               {l.href === "/jobs" && hasJobAlertBadge && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-market-400 rounded-full border border-ink-900" />
+                <span className="absolute top-1.5 end-1.5 w-2 h-2 bg-market-400 rounded-full border border-ink-900" />
               )}
             </Link>
           ))}
@@ -495,10 +495,10 @@ export default function Navbar({
               >
                 {t(l.labelKey)}
                 {l.href === "/dashboard" && hasNotification && (
-                  <span className="absolute top-3 right-3 w-2 h-2 bg-emerald-400 rounded-full border border-ink-900" />
+                  <span className="absolute top-3 end-3 w-2 h-2 bg-emerald-400 rounded-full border border-ink-900" />
                 )}
                 {l.href === "/jobs" && hasJobAlertBadge && (
-                  <span className="absolute top-3 right-3 w-2 h-2 bg-market-400 rounded-full border border-ink-900" />
+                  <span className="absolute top-3 end-3 w-2 h-2 bg-market-400 rounded-full border border-ink-900" />
                 )}
               </Link>
             ))}
@@ -542,14 +542,14 @@ export default function Navbar({
                 <Link
                   href="/referrals"
                   onClick={() => setMobileMenuOpen(false)}
-                  className="w-full text-left text-xs text-amber-200 hover:text-market-400 transition-colors px-3 py-2.5 rounded-lg hover:bg-market-500/8 flex items-center gap-2"
+                  className="w-full text-start text-xs text-amber-200 hover:text-market-400 transition-colors px-3 py-2.5 rounded-lg hover:bg-market-500/8 flex items-center gap-2"
                 >
                   Referrals &amp; Pipeline
                 </Link>
                 <Link
                   href="/settings"
                   onClick={() => setMobileMenuOpen(false)}
-                  className="w-full text-left text-xs text-amber-200 hover:text-market-400 transition-colors px-3 py-2.5 rounded-lg hover:bg-market-500/8 flex items-center gap-2"
+                  className="w-full text-start text-xs text-amber-200 hover:text-market-400 transition-colors px-3 py-2.5 rounded-lg hover:bg-market-500/8 flex items-center gap-2"
                 >
                   Settings &amp; Auto-Convert
                 </Link>
@@ -563,7 +563,7 @@ export default function Navbar({
                   onDisconnect();
                   setMobileMenuOpen(false);
                 }}
-                className="w-full text-left text-xs text-amber-800 hover:text-amber-500 transition-colors px-3 py-3 rounded-lg hover:bg-market-500/8 min-h-[44px] flex items-center"
+                className="w-full text-start text-xs text-amber-800 hover:text-amber-500 transition-colors px-3 py-3 rounded-lg hover:bg-market-500/8 min-h-[44px] flex items-center"
               >
                 {t("nav.disconnect")}
               </button>
@@ -631,7 +631,7 @@ function GlobalSearchDropdown({
     <div
       id="global-search-results"
       role="listbox"
-      className="absolute right-0 top-full mt-2 w-80 overflow-hidden rounded-xl border border-market-500/20 bg-ink-900 shadow-2xl"
+      className="absolute end-0 top-full mt-2 w-80 overflow-hidden rounded-xl border border-market-500/20 bg-ink-900 shadow-2xl"
     >
       {loading && (
         <div className="px-4 py-3 text-sm text-amber-700">Searching…</div>
@@ -669,7 +669,7 @@ function GlobalSearchDropdown({
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => onSelect(result)}
                     className={clsx(
-                      "block w-full px-4 py-3 text-left text-sm transition-colors",
+                      "block w-full px-4 py-3 text-start text-sm transition-colors",
                       active
                         ? "bg-market-500/15 text-market-300"
                         : "text-amber-100 hover:bg-market-500/8",

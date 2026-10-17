@@ -1,5 +1,6 @@
 import Document, { Html, Head, Main, NextScript, DocumentContext, DocumentInitialProps } from "next/document";
 import SanitizedHtml from "@/components/SanitizedHtml";
+import { getDirection } from "@/lib/direction";
 
 // Inline script applied before hydration to prevent flash of wrong theme.
 // Must remain synchronous and inline — do NOT move to next/script.
@@ -30,11 +31,14 @@ const themeScript = `
 
 type MarketPayDocumentProps = DocumentInitialProps & {
   nonce?: string;
+  locale?: string;
 };
 
-export default function MarketPayDocument({ nonce }: MarketPayDocumentProps) {
+export default function MarketPayDocument({ nonce, locale }: MarketPayDocumentProps) {
+  const lang = locale ?? "en";
   return (
-    <Html lang="en">
+    // dir comes from the active locale so RTL languages mirror from first paint.
+    <Html lang={lang} dir={getDirection(lang)}>
       <Head nonce={nonce}>
         <SanitizedHtml as="script" nonce={nonce} html={themeScript} />
       </Head>
@@ -54,5 +58,6 @@ MarketPayDocument.getInitialProps = async (ctx: DocumentContext): Promise<Market
   return {
     ...initialProps,
     nonce,
+    locale: ctx.locale,
   };
 };
