@@ -1,4 +1,4 @@
--- V59__job_templates.up.sql
+-- V81__job_templates.up.sql
 CREATE TABLE IF NOT EXISTS job_templates (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   client_address VARCHAR(64) NOT NULL,

@@ -16,6 +16,7 @@ const {
   migrate,
   loadMigrationPairs,
   assertUniqueVersions,
+  assertUniqueMigrationSlugs,
   ensureMigrationsTable,
   getCurrentMigrationVersion,
   getExpectedMigrationVersion,
@@ -70,6 +71,18 @@ describe("getExpectedMigrationVersion()", () => {
 });
 
 describe("assertUniqueVersions()", () => {
+  it("provides a rollback migration for every forward migration", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const migrationsDir = path.join(__dirname, "migrations");
+    const upFiles = fs.readdirSync(migrationsDir).filter((name) => name.endsWith(".up.sql"));
+    const missingDownFiles = upFiles
+      .map((name) => name.replace(/\.up\.sql$/, ".down.sql"))
+      .filter((name) => !fs.existsSync(path.join(migrationsDir, name)));
+
+    expect(missingDownFiles).toEqual([]);
+  });
+
   it("does not throw when all versions are unique", () => {
     expect(() =>
       assertUniqueVersions([
@@ -100,6 +113,56 @@ describe("assertUniqueVersions()", () => {
     const v10 = migrations.filter((m) => m.version === 10);
     expect(v10).toHaveLength(1);
     expect(v10[0].name).toBe("V10__saved_searches");
+  });
+});
+
+describe("assertUniqueMigrationSlugs()", () => {
+  it("throws when two migration versions share the same description slug", () => {
+    expect(() =>
+      assertUniqueMigrationSlugs([
+        { name: "V57__application_status_history" },
+        { name: "V60__application_status_history" },
+      ])
+    ).toThrow(/Duplicate migration description "application_status_history"/);
+  });
+
+  it("keeps the application status history migration canonical at V60", () => {
+    const matching = loadMigrationPairs().filter((migration) =>
+      migration.name.endsWith("__application_status_history")
+    );
+    expect(matching).toHaveLength(1);
+    expect(matching[0].name).toBe("V60__application_status_history");
+  });
+});
+
+describe("migrate() legacy migration names", () => {
+  it("renames an already-applied colliding migration without rerunning it", async () => {
+    const client = {
+      query: jest.fn(async (sql) => {
+        if (sql === "SELECT name FROM schema_migrations") {
+          return { rows: [{ name: "V57__account_merge" }] };
+        }
+        return { rows: [] };
+      }),
+      release: jest.fn(),
+    };
+    const connect = jest.spyOn(pool, "connect").mockResolvedValue(client);
+
+    try {
+      await migrate();
+    } finally {
+      connect.mockRestore();
+    }
+
+    expect(client.query).toHaveBeenCalledWith(
+      "UPDATE schema_migrations SET name = $1, version = $2 WHERE name = $3",
+      ["V75__account_merge", 75, "V57__account_merge"],
+    );
+    expect(client.query).not.toHaveBeenCalledWith(
+      "INSERT INTO schema_migrations (name, version) VALUES ($1, $2)",
+      ["V75__account_merge", 75],
+    );
+    expect(client.release).toHaveBeenCalledTimes(1);
   });
 });
 

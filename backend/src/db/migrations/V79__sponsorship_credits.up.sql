@@ -1,4 +1,4 @@
--- V58__sponsorship_credits.up.sql
+-- V79__sponsorship_credits.up.sql
 CREATE TABLE IF NOT EXISTS sponsorship_credits (
   freelancer_id VARCHAR(64) PRIMARY KEY,
   credits_remaining INTEGER NOT NULL DEFAULT 5 CHECK (credits_remaining >= 0),
