@@ -432,18 +432,6 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "EligibleVoterCount"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u32": 2
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
                             "symbol": "Escrow"
                           },
                           {
@@ -643,6 +631,18 @@
                       },
                       "val": {
                         "u32": 1
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "ExecutionDelaySeconds"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "172800"
                       }
                     },
                     {

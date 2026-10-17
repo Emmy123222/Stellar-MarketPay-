@@ -53,7 +53,6 @@ const createRateLimiter = (maxRequests, windowMinutes, options = {}) => {
       const retryAfter = Math.ceil(windowMinutes * 60);
       res.set("Retry-After", String(retryAfter));
       rateLimitLogger.warn({
-        endpoint: req.path,
         endpoint: options.name || req.originalUrl,
         ip: getClientIp(req),
         method: req.method,
@@ -62,6 +61,7 @@ const createRateLimiter = (maxRequests, windowMinutes, options = {}) => {
         retryAfter,
         requestId: req.requestId,
       }, "Rate limit exceeded");
+      res.setHeader("Cache-Control", "no-store");
       return res.status(429).json({
         error: "Too many requests — please wait before trying again",
         message: "Too many requests — please wait before trying again",
@@ -108,6 +108,7 @@ async function createDisputeRateLimiter(req, res, next) {
 
     if (openCount >= MAX_OPEN_DISPUTES) {
       res.set("Retry-After", "3600");
+      res.setHeader("Cache-Control", "no-store");
       return res.status(429).json({
         error: `You already have ${openCount} open ${openCount === 1 ? "dispute" : "disputes"}. Maximum is ${MAX_OPEN_DISPUTES}. Resolve existing disputes before opening new ones.`,
         code: "RATE_LIMITED",
@@ -116,6 +117,7 @@ async function createDisputeRateLimiter(req, res, next) {
 
     if (recentCount >= MAX_DISPUTES_30_DAYS) {
       res.set("Retry-After", "86400");
+      res.setHeader("Cache-Control", "no-store");
       return res.status(429).json({
         error: `You have opened ${recentCount} ${recentCount === 1 ? "dispute" : "disputes"} in the last 30 days. Maximum is ${MAX_DISPUTES_30_DAYS}. Please wait before opening more.`,
         code: "RATE_LIMITED",
@@ -129,4 +131,44 @@ async function createDisputeRateLimiter(req, res, next) {
   }
 }
 
-module.exports = { createRateLimiter, createDisputeRateLimiter, getRateLimitScale, scaleMaxRequests, rateLimitLogger };
+
+const crypto = require("crypto");
+
+function hashRateLimitIdentifier(prefix, value) {
+  if (!value) return `${prefix}:anonymous`;
+  const hash = crypto.createHash("sha256").update(String(value)).digest("hex").slice(0, 16);
+  return `${prefix}:${hash}`;
+}
+
+function createSensitiveRateLimiters({
+  namespace = "sensitive",
+  windowMinutes = 60,
+  maxRequestsPerIp = 10,
+  maxRequestsPerPrincipal = 10,
+  principalKeyGenerator = (req) => req.body?.publicKey || req.params?.publicKey,
+} = {}) {
+  const ipLimiter = createRateLimiter(maxRequestsPerIp, windowMinutes, {
+    keyGenerator: (req) => `${namespace}:ip:${getClientIp(req)}`,
+    requestPropertyName: `rateLimit_${namespace}_ip`,
+  });
+
+  const principalLimiter = createRateLimiter(maxRequestsPerPrincipal, windowMinutes, {
+    keyGenerator: (req) => {
+      const principal = principalKeyGenerator(req);
+      return hashRateLimitIdentifier(`${namespace}:principal`, principal || getClientIp(req));
+    },
+    requestPropertyName: `rateLimit_${namespace}_principal`,
+  });
+
+  return [ipLimiter, principalLimiter];
+}
+
+module.exports = {
+  createRateLimiter,
+  createDisputeRateLimiter,
+  createSensitiveRateLimiters,
+  hashRateLimitIdentifier,
+  getRateLimitScale,
+  scaleMaxRequests,
+  rateLimitLogger,
+};

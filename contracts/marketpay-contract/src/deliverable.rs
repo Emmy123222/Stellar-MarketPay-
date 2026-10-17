@@ -262,7 +262,7 @@ pub(crate) fn update_deliverable_proof_hash(env: Env, job_id: String, freelancer
         .instance()
         .set(&DataKey::DeliverableProofHash(job_id.clone()), &hash);
     env.events()
-        .publish((symbol_short!("proof"), caller), (job_id, hash));
+        .publish((symbol_short!("proof"), freelancer), (job_id, hash));
 }
 
 pub(crate) fn get_deliverable_proof_hash(env: Env, job_id: String) -> Option<String> {

@@ -1,5 +1,4 @@
 
-Server · JS
 /* global userAddress, userLastSeen, userClients, setWebsocketConnections, broadcastToUser, createServiceLogger, sendEmail, logError, startEscrowTimeoutChecker, refreshWsMetrics, startNotificationProcessor, startAdminReportScheduler, startWeeklyDigestScheduler, startPurgeDeletedRecords, startRecurringEscrowTicker */
 /* eslint-disable */
 /**
@@ -56,6 +55,31 @@ const anchorRoutes        = require("./routes/anchors");
 const scopeRoutes        = require("./routes/scope");
 const analyticsRoutes    = require("./routes/analytics");
 const searchRoutes       = require("./routes/search");
+const adminRoutes        = require("./routes/admin");
+const admin2faRoutes     = require("./routes/admin2fa");
+const assessmentRoutes   = require("./routes/assessments");
+const auditRoutes        = require("./routes/audit");
+const categoryRoutes     = require("./routes/categories");
+const certificateRoutes  = require("./routes/certificates");
+const developerRoutes    = require("./routes/developer");
+const disputeRoutes      = require("./routes/disputes");
+const faucetRoutes       = require("./routes/faucet");
+const insightRoutes      = require("./routes/insights");
+const jobTemplateRoutes  = require("./routes/jobTemplates");
+const messageRoutes      = require("./routes/messageRoutes");
+const notificationRoutes = require("./routes/notifications");
+const onboardingRoutes   = require("./routes/onboarding");
+const pingRoutes         = require("./routes/ping");
+const publicRoutes       = require("./routes/public");
+const publicJobBoardRoutes = require("./routes/publicJobBoard");
+const rateLimitRoutes    = require("./routes/rateLimit");
+const savedSearchRoutes  = require("./routes/savedSearches");
+const skillRoutes        = require("./routes/skills");
+const sponsorshipRoutes  = require("./routes/sponsorship");
+const timeEntryRoutes    = require("./routes/timeEntries");
+const tokenRoutes        = require("./routes/tokens");
+const webauthnRoutes     = require("./routes/webauthn");
+const webhookRoutes      = require("./routes/webhooks");
  
 const { setWebsocketConnections } = require("./metrics");
 const { startEscrowTimeoutChecker } = require("./services/escrowService");
@@ -224,6 +248,32 @@ app.use("/api/talent-pools",      talentPoolRoutes);
 app.use("/api/invitations",       rateLimit({ windowMs: 60_000, max: 20 }), invitationRoutes);
 app.use("/api/analytics",         analyticsRoutes);
 app.use("/api/search",            searchRoutes);
+app.use("/ping",                  pingRoutes);
+app.use("/api/ping",              pingRoutes);
+app.use("/api/admin/2fa",         admin2faRoutes);
+app.use("/api/admin",             adminRoutes);
+app.use("/api/assessments",       assessmentRoutes);
+app.use("/api/audit",             auditRoutes);
+app.use("/api/categories",        categoryRoutes);
+app.use("/api/certificates",      certificateRoutes);
+app.use("/api/developer",         developerRoutes);
+app.use("/api/disputes",          disputeRoutes);
+app.use("/api/faucet",            faucetRoutes);
+app.use("/api/insights",          insightRoutes);
+app.use("/api/job-templates",     jobTemplateRoutes);
+app.use("/api/messages",          messageRoutes);
+app.use("/api/notifications",     notificationRoutes);
+app.use("/api/onboarding",        onboardingRoutes);
+app.use("/api/public",            publicRoutes);
+app.use("/api/v1/public",         publicJobBoardRoutes);
+app.use("/api/rate-limit",        rateLimitRoutes);
+app.use("/api/saved-searches",    savedSearchRoutes);
+app.use("/api/skills",            skillRoutes);
+app.use("/api/sponsorship",       sponsorshipRoutes);
+app.use("/api/time-entries",      timeEntryRoutes);
+app.use("/api/tokens",            tokenRoutes);
+app.use("/api/webauthn",          webauthnRoutes);
+app.use("/api/webhooks",          webhookRoutes);
  
 // 404 handler — must come after all routes
 app.use((req, res) => {
