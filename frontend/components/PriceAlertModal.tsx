@@ -4,6 +4,7 @@
  * Issue #887
  */
 import { useState, useEffect } from "react";
+import AccessibleModal from "@/components/AccessibleModal";
 import { useToast } from "./Toast";
 import { createPriceAlert, fetchPriceAlerts, deletePriceAlert, getApiErrorMessage } from "@/lib/api";
 import type { PriceAlert } from "@/utils/types";
@@ -89,21 +90,17 @@ export default function PriceAlertModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <button
-        type="button"
-        aria-label="Close dialog"
-        className="absolute inset-0 w-full bg-black/60 backdrop-blur-sm cursor-default"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div className="relative w-full max-w-md rounded-2xl border border-market-500/20 bg-gradient-to-b from-ink-800 to-ink-900 shadow-2xl shadow-black/40 overflow-hidden">
+    <AccessibleModal
+      titleId="price-alert-title"
+      description="Create an XLM price alert and manage your existing alerts."
+      onClose={onClose}
+      panelClassName="w-full max-w-md rounded-2xl border border-market-500/20 bg-gradient-to-b from-ink-800 to-ink-900 shadow-2xl shadow-black/40 overflow-hidden"
+    >
+      <div>
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-market-500/15">
           <div>
-            <h2 className="text-lg font-bold text-amber-100">⚡ XLM Price Alert</h2>
+            <h2 id="price-alert-title" className="text-lg font-bold text-amber-100">⚡ XLM Price Alert</h2>
             <p className="text-xs text-amber-700 mt-0.5">
               {currentPriceUsd !== null
                 ? `Current price: $${currentPriceUsd.toFixed(4)} USD`
@@ -279,6 +276,6 @@ export default function PriceAlertModal({
           )}
         </div>
       </div>
-    </div>
+    </AccessibleModal>
   );
 }

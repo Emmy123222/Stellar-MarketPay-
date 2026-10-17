@@ -119,7 +119,7 @@ function CountdownTimer({ deadline }: { deadline: string }) {
       aria-live="polite"
       role="timer"
     >
-      {isCritical && <span className="mr-1">Closing Soon:</span>}
+      {isCritical && <span className="me-1">Closing Soon:</span>}
       Closes in {timeLeft.hours}h {timeLeft.minutes}m
     </div>
   );
@@ -243,7 +243,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
                 className={`group/rep relative inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${clientRepBadge.className}`}
               >
                 ★ {clientRepBadge.label}
-                <span className="pointer-events-none absolute bottom-full right-0 mb-1 hidden whitespace-nowrap rounded-md border border-market-500/20 bg-ink-900 px-2 py-1 text-[10px] text-amber-200 shadow-lg group-hover/rep:block">
+                <span className="pointer-events-none absolute bottom-full end-0 mb-1 hidden whitespace-nowrap rounded-md border border-market-500/20 bg-ink-900 px-2 py-1 text-[10px] text-amber-200 shadow-lg group-hover/rep:block">
                   {clientRepBadge.hint}
                 </span>
               </span>
@@ -295,10 +295,10 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
               </p>
             )}
             {priceLoading && (
-              <span className="inline-block ml-1 w-3 h-3 border border-market-400/40 border-t-transparent rounded-full animate-spin align-middle" />
+              <span className="inline-block ms-1 w-3 h-3 border border-market-400/40 border-t-transparent rounded-full animate-spin align-middle" />
             )}
           </div>
-          <div className="text-right flex items-center gap-2">
+          <div className="text-end flex items-center gap-2">
             {job.status === "completed" && (
               <button
                 type="button"
@@ -352,7 +352,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
                 <path d="M18 8a4 4 0 1 0-8 0 4 4 0 0 0 8 0z"/>
               </svg>
             </button>
-            <div className="text-right">
+            <div className="text-end">
               <p className="text-xs text-amber-800 mb-0.5">
                 {job.applicantCount} applicant
                 {job.applicantCount !== 1 ? "s" : ""}
@@ -394,7 +394,7 @@ export default function JobCard({ job, isFocused = false, onFocus }: JobCardProp
 
         {/* ── ISSUE #78: Floating Hover Preview Card ── */}
         {showPreview && (
-          <div className="absolute z-50 left-0 top-full mt-2 w-full md:left-full md:top-0 md:mt-0 md:ml-4 md:w-80 animate-in fade-in zoom-in duration-200">
+          <div className="absolute z-50 start-0 top-full mt-2 w-full md:start-full md:top-0 md:mt-0 md:ms-4 md:w-80 animate-in fade-in zoom-in duration-200">
             <div className="bg-ink-900 border border-market-500/40 p-4 rounded-xl shadow-2xl backdrop-blur-lg">
               <h4 className="text-market-300 font-semibold text-sm mb-2">Job Preview</h4>
               <p className="text-amber-100/90 text-xs leading-relaxed mb-3">

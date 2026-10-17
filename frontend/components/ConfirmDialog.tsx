@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import AccessibleModal from "@/components/AccessibleModal";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -39,15 +40,6 @@ export default function ConfirmDialog({
     }
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onCancel]);
-
   if (!open) return null;
 
   const canConfirm = requireTypedConfirm
@@ -66,22 +58,19 @@ export default function ConfirmDialog({
       : "bg-amber-600 hover:bg-amber-500";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <button
-        type="button"
-        aria-label="Close dialog"
-        className="absolute inset-0 w-full bg-black/60 cursor-default"
-        onClick={onCancel}
-      />
-      <div
-        className={`relative w-full max-w-md mx-4 rounded-xl border ${borderColor} bg-market-900 shadow-2xl`}
-      >
+    <AccessibleModal
+      titleId="confirm-dialog-title"
+      description="Confirm or cancel this action."
+      onClose={onCancel}
+      panelClassName={`w-full max-w-md rounded-xl border ${borderColor} bg-market-900 shadow-2xl`}
+    >
+      <div>
         <div className={`rounded-t-xl px-6 py-4 ${headerBg}`}>
           <div className="flex items-center gap-3">
             <span className={`text-xl ${iconColor}`}>
               {variant === "danger" ? "⚠" : "!"}
             </span>
-            <h3 className="font-display text-lg font-bold text-amber-100">
+            <h3 id="confirm-dialog-title" className="font-display text-lg font-bold text-amber-100">
               {title}
             </h3>
           </div>
@@ -135,6 +124,6 @@ export default function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </AccessibleModal>
   );
 }

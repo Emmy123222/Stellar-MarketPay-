@@ -2,8 +2,11 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  snapshotDir: "./test-results/snapshots",
-  snapshotPathTemplate: "{snapshotDir}/{arg}{ext}",
+  // Visual baselines are committed under tests/e2e/snapshots/ (one folder per
+  // spec, one file per snapshot x project x platform). Diffs fail the run.
+  // See TESTING.md > "Visual regression baselines" for the update procedure.
+  snapshotPathTemplate:
+    "{testDir}/snapshots/{testFileName}-snapshots/{arg}-{projectName}-{platform}{ext}",
   timeout: 240_000, // Increased from 60_000 (4 min for E2E tests)
   expect: {
     timeout: 15_000, // Increased from 10_000 (15s)
@@ -35,6 +38,8 @@ export default defineConfig({
       NEXT_PUBLIC_HORIZON_URL: "https://horizon-testnet.stellar.org",
       NEXT_PUBLIC_CONTRACT_ID: "CMOCKCONTRACTID",
       SKIP_API_CALLS: "true",
+      // Enables pages/dev/visual-harness.tsx (money-critical surface snapshots).
+      VISUAL_HARNESS: "1",
     },
   },
   projects: [

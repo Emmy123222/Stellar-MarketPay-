@@ -1,4 +1,5 @@
 import type { AppProps } from "next/app";
+import { appWithTranslation } from "next-i18next";
 import { useState, useEffect, useCallback } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
@@ -23,6 +24,9 @@ import OfflineBanner from "@/components/OfflineBanner";
 import RateLimitWatcher from "@/components/RateLimitWatcher";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useTranslation } from "@/lib/i18n";
+import { getDirection } from "@/lib/direction";
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const nextI18NextConfig = require("../next-i18next.config.js");
 
 const LOCALE_STORAGE_KEY = "stellar-marketpay:locale";
 const SUPPORTED_LOCALES = new Set(["en", "es", "fr", "pt"]);
@@ -59,6 +63,15 @@ function AppContent({ Component, pageProps }: AppProps) {
       void i18n.changeLanguage(initialLocale);
     }
   }, [i18n, initialLocale]);
+
+  // The document is rendered with the locale's direction, but the language can
+  // also change on the client (LanguageSwitcher) without a navigation.
+  const activeLanguage = i18n?.language;
+  useEffect(() => {
+    if (!activeLanguage) return;
+    document.documentElement.lang = activeLanguage;
+    document.documentElement.dir = getDirection(activeLanguage);
+  }, [activeLanguage]);
 
   const isJobDetailPage = router.pathname === "/jobs/[id]";
 
@@ -174,4 +187,4 @@ function AppContent({ Component, pageProps }: AppProps) {
   );
 }
 
-export default appWithTranslation(App, nextI18NextConfig);
+export default appWithTranslation(AppContent, nextI18NextConfig);

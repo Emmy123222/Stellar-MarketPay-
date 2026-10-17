@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Image from "next/image";
+import AccessibleModal from "@/components/AccessibleModal";
 import { setupAdmin2FA, verifyAdmin2FA } from "@/lib/api";
 import { setJwtToken } from "@/lib/api";
 
@@ -53,10 +54,16 @@ export default function Admin2FAModal({ mode, onComplete }: Admin2FAModalProps) 
 
   if (backupCodes) {
     return (
-      <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-ink-950/90 backdrop-blur-sm" />
-        <div className="relative w-full max-w-md rounded-2xl border border-market-500/20 bg-ink-900 p-6 shadow-2xl">
-          <h2 className="font-display text-xl font-bold text-amber-100 mb-2">Save your backup codes</h2>
+      <AccessibleModal
+        titleId="admin-2fa-backup-title"
+        description="Your one-time backup codes. Save them before continuing."
+        onClose={onComplete}
+        dismissible={false}
+        className="z-[80] bg-ink-950/60"
+        panelClassName="w-full max-w-md rounded-2xl border border-market-500/20 bg-ink-900 p-6 shadow-2xl"
+      >
+        <div>
+          <h2 id="admin-2fa-backup-title" className="font-display text-xl font-bold text-amber-100 mb-2">Save your backup codes</h2>
           <p className="text-sm text-amber-800 mb-4">
             These codes are shown once. Store them securely — each code works only once.
           </p>
@@ -71,15 +78,25 @@ export default function Admin2FAModal({ mode, onComplete }: Admin2FAModalProps) 
             I have saved my backup codes
           </button>
         </div>
-      </div>
+      </AccessibleModal>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-ink-950/90 backdrop-blur-sm" />
-      <div className="relative w-full max-w-md rounded-2xl border border-market-500/20 bg-ink-900 p-6 shadow-2xl">
-        <h2 className="font-display text-xl font-bold text-amber-100 mb-2">
+    <AccessibleModal
+      titleId="admin-2fa-title"
+      description={
+        mode === "setup"
+          ? "Set up two-factor authentication for your admin account."
+          : "Enter your authenticator code to continue as admin."
+      }
+      onClose={onComplete}
+      dismissible={false}
+      className="z-[80] bg-ink-950/60"
+      panelClassName="w-full max-w-md rounded-2xl border border-market-500/20 bg-ink-900 p-6 shadow-2xl"
+    >
+      <div>
+        <h2 id="admin-2fa-title" className="font-display text-xl font-bold text-amber-100 mb-2">
           {mode === "setup" ? "Set up two-factor authentication" : "Admin 2FA required"}
         </h2>
         <p className="text-sm text-amber-800 mb-4">
@@ -128,6 +145,6 @@ export default function Admin2FAModal({ mode, onComplete }: Admin2FAModalProps) 
           </form>
         )}
       </div>
-    </div>
+    </AccessibleModal>
   );
 }

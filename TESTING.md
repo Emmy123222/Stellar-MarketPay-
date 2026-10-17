@@ -222,6 +222,37 @@ npx playwright test --headed --debug
 npx playwright show-report
 ```
 
+### Visual regression baselines
+
+`frontend/tests/e2e/visual-regression.spec.ts` snapshots each surface in **light and dark**
+(the theme is forced through `localStorage`, and both Playwright projects run it):
+
+- landing, job listing, job detail, dashboard (disconnected)
+- **money-critical surfaces** — post-job escrow funding step, fee-estimation modal,
+  withdraw-to-bank modal, transactions dashboard. These render through the dev-only
+  `/dev/visual-harness?surface=…` page (404 unless the server runs with `VISUAL_HARNESS=1`,
+  which `playwright.config.ts` sets), with Horizon / Soroban RPC / price calls stubbed and the
+  clock frozen, so they need no wallet or network.
+
+Baselines are committed under `frontend/tests/e2e/snapshots/visual-regression.spec.ts-snapshots/`
+as `<name>-<theme>-<project>-linux.png`. They are **Linux** renders (fonts differ on
+macOS/Windows), so never commit baselines generated locally on another OS.
+
+The **Visual Regression** workflow (`.github/workflows/visual-regression.yml`) runs nightly at
+03:30 UTC and on demand. Any pixel diff beyond `maxDiffPixelRatio` fails the job and uploads the
+expected/actual/diff images as the `visual-regression-report` artifact.
+
+**Updating baselines after an intentional UI change**
+
+1. Actions → *Visual Regression* → *Run workflow* on your branch, tick **update_snapshots**.
+2. Download the `visual-baselines` artifact and copy its PNGs into
+   `frontend/tests/e2e/snapshots/visual-regression.spec.ts-snapshots/`.
+3. Review every changed image in the PR diff (the diff is the review), then commit them.
+
+Locally you can check for regressions with `npm run test:visual` (Linux or the official
+`mcr.microsoft.com/playwright` container); do not commit locally generated baselines unless
+they came from that Linux environment.
+
 ---
 
 ## 6. Running contract tests
