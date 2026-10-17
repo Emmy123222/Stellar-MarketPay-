@@ -50,9 +50,6 @@ export function EditProfileForm({ onSubmit }: { onSubmit?: (file: File) => void 
         <label htmlFor="profile-avatar" className="block text-sm font-medium text-gray-700 mb-2">Profile Avatar</label>
         <input
           id="profile-avatar"
-        <label htmlFor="avatar" className="block text-sm font-medium text-gray-700 mb-2">Profile Avatar</label>
-        <input
-          id="avatar"
           type="file"
           accept="image/jpeg,image/png,image/webp"
           onChange={handleFileChange}

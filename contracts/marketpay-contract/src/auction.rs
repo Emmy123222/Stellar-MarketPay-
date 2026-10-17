@@ -255,9 +255,15 @@ pub(crate) fn place_bid(env: Env, job_id: String, bidder: Address, amount: i128)
         .storage()
         .instance()
         .get(&DataKey::LiveAuction(job_id.clone()));
+    let min_increment: i128 = env
+        .storage()
+        .instance()
+        .get(&DataKey::MinBidIncrement(job_id.clone()))
+        .unwrap_or(DEFAULT_MIN_BID_INCREMENT);
+
     if let Some(ref auction) = existing {
-        if amount <= auction.highest_bid {
-            panic!("Bid must exceed the current highest bid");
+        if amount < auction.highest_bid.saturating_add(min_increment) {
+            panic!("Bid does not meet the minimum increment requirement");
         }
     }
 
@@ -316,4 +322,52 @@ pub(crate) fn refund_bid(env: Env, job_id: String, bidder: Address) {
     env.storage().instance().remove(&key);
     env.events()
         .publish((symbol_short!("refund"), job_id), (bidder, bid.amount));
+}
+
+/// Create or configure auction parameters for an escrow job.
+pub(crate) fn create_auction(
+    env: Env,
+    job_id: String,
+    client: Address,
+    min_increment: Option<i128>,
+) {
+    client.require_auth();
+    check_not_frozen(&env, &job_id);
+
+    let escrow: Escrow = env
+        .storage()
+        .instance()
+        .get(&DataKey::Escrow(job_id.clone()))
+        .expect("Escrow not found");
+
+    if escrow.client != client {
+        panic!("Only the client can create an auction");
+    }
+
+    let increment = min_increment.unwrap_or(DEFAULT_MIN_BID_INCREMENT);
+    if increment <= 0 {
+        panic!("Minimum increment must be positive");
+    }
+
+    env.storage()
+        .instance()
+        .set(&DataKey::MinBidIncrement(job_id.clone()), &increment);
+}
+
+/// Configure a custom minimum bid increment for an auction.
+pub(crate) fn set_min_bid_increment(
+    env: Env,
+    job_id: String,
+    client: Address,
+    min_increment: i128,
+) {
+    create_auction(env, job_id, client, Some(min_increment));
+}
+
+/// Read the effective minimum bid increment for a job.
+pub(crate) fn get_min_bid_increment(env: Env, job_id: String) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MinBidIncrement(job_id))
+        .unwrap_or(DEFAULT_MIN_BID_INCREMENT)
 }
