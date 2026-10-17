@@ -727,7 +727,7 @@ fn test_timeout_refund_after_complete_refund_and_recreate() {
 
 
 struct EscrowTestSetup<'a> {
-    contract_client: MarketPayContractClient<'a>,
+    _contract_client: MarketPayContractClient<'a>,
     client: Address,
     freelancer: Address,
     treasury: Address,
@@ -760,7 +760,7 @@ fn setup_escrow<'a>(
     let contract_id = contract_client.address.clone();
     EscrowTestSetup {
         contract_id,
-        contract_client,
+        _contract_client: contract_client,
         client,
         freelancer,
         treasury,
