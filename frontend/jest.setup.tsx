@@ -85,3 +85,9 @@ jest.mock("@react-pdf/renderer", () => ({
 if (typeof HTMLCanvasElement !== "undefined") {
   HTMLCanvasElement.prototype.getContext = jest.fn() as any;
 }
+
+// Ensure consistent locale date formatting across environments (matches snapshots recorded under en-GB)
+const origToLocaleDateString = Date.prototype.toLocaleDateString;
+Date.prototype.toLocaleDateString = function (locale?: string | string[], options?: Intl.DateTimeFormatOptions) {
+  return origToLocaleDateString.call(this, locale || "en-GB", options);
+};
