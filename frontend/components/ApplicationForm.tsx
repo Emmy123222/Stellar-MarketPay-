@@ -88,11 +88,7 @@ export default function ApplicationForm({ job, publicKey, biddingPhase = "commit
   const [proposalScore, setProposalScore] = useState<ProposalScore | null>(null);
   const [scoreWarning, setScoreWarning] = useState<string | null>(null);
   const [scoring, setScoring] = useState(false);
-  const [creatingScope, setCreatingScope] = useState(false);
-  const [scopeShareUrl, setScopeShareUrl] = useState("");
-  const [scopeSessionId, setScopeSessionId] = useState("");
-  const [scopeError, setScopeError] = useState<string | null>(null);
-  const [scopeCopied, setScopeCopied] = useState(false);
+
   const handleInviteCollaborator = async () => {
     if (scopeShareUrl) return;
     setCreatingScope(true);
