@@ -1,376 +1,293 @@
 # Documentation Index
 
-Welcome to Stellar MarketPay documentation. This index helps you find what you need.
+Welcome to Stellar MarketPay documentation. This index is the entry point to the `docs/` tree and is organized by audience so you can jump straight to what you need.
+
+Every entry below resolves to an existing file. Files that are intentionally not indexed (duplicates, stubs, or non-reference assets) are listed under [Intentionally excluded](#-intentionally-excluded) with a note.
 
 ---
 
-## 🚀 Getting Started
+## 👥 Choose your audience
 
-**New to Stellar MarketPay?** Start here:
-
-- **[Getting Started](./getting-started.md)** - Initial setup and installation
-- **[README](../README.md)** - Project overview and features
+| Audience | Who | Start here |
+|----------|-----|------------|
+| **Contributor** | Anyone building, modifying, or reviewing the platform (backend, frontend, contracts, CI) | [For Contributors](#-for-contributors) |
+| **Operator** | Anyone deploying, running, or on-calling the platform in production | [For Operators](#-for-operators) |
+| **Integrator** | Anyone integrating with the MarketPay API, WebSocket, or SDKs | [For Integrators](#-for-integrators) |
 
 ---
 
-## 📚 Core Documentation
+## 👩‍💻 For Contributors
 
-### Security
+Building and changing Stellar MarketPay.
+
+### Get started
+
+- **[Getting Started](./getting-started.md)** - Clone, install, and run the platform locally
+- **[Quickstart Checklist](./quickstart-checklist.md)** - Get up and running in under 5 minutes
+- **[Architecture Overview](./architecture.md)** - High-level system design ⚠️ brief stub; see the ADRs below for detailed decisions
+- **[Data Model & ER Diagram](./data-model.md)** - Complete PostgreSQL entity relationship diagram and data dictionary
+
+### Architecture Decision Records (ADRs)
+
+Full list: [docs/adr/README.md](./adr/README.md)
+
+- **[ADR-001: Soroban Escrow Design](./adr/adr-001-soroban-escrow-design.md)** - Trustless escrow management on Soroban
+- **[ADR-002: Horizon API Indexing](./adr/adr-002-horizon-api-indexing.md)** - Horizon REST API as primary transaction data source
+- **[ADR-003: Database Schema for Escrow](./adr/adr-003-database-schema-escrow.md)** - Off-chain escrow state in PostgreSQL
+- **[ADR-004: SEP-10 vs OAuth](./adr/adr-004-sep10-authentication.md)** - SEP-10 wallet-based authentication
+- **[ADR-005: NaCl Message Encryption](./adr/adr-005-nacl-message-encryption.md)** - End-to-end encrypted private messages
+- **[ADR-006: IPFS Dispute Evidence](./adr/adr-006-ipfs-dispute-evidence.md)** - IPFS storage for dispute evidence
+- **[ADR-007: WebAuthn Secondary Auth](./adr/adr-007-webauthn-secondary-auth.md)** - WebAuthn as a second authentication factor
+- **[ADR-008: Redis Session Cache](./adr/adr-008-redis-session-cache.md)** - Redis for sessions and caching
+- **[ADR-009: WebSocket vs SSE](./adr/adr-009-websocket-vs-sse.md)** - Real-time update transport choice
+- **[ADR-010: Cursor Pagination](./adr/adr-010-cursor-pagination.md)** - Cursor-based pagination strategy
+- **[ADR-011: CI Consolidation](./adr/adr-011-ci-consolidation.md)** - Consolidated CI pipelines
+
+### Contracts & backend
+
+- **[Smart Contract API Reference](./contract-api-reference.md)** - Public functions, events, and errors of the MarketPay Soroban contract
+- **[Soroban Contract Deployment](./contract-deployment.md)** - Build, deploy, and configure the escrow contract
+- **[Contract Errors](./contract-errors.md)** - Contract error codes and handling
+- **[Milestone-Based Escrow Specification](./milestone_escrow_contract.md)** - Milestone release schedules, proof submission, buyer approval
+- **[Dispute Resolution Logic](./dispute_resolution_logic.md)** - 2-of-3 multi-sig arbitration flow
+- **[Backend Contract Audit Service](./backend_audit_service.md)** - Automated WASM verification hooks
+- **[Formal Verification with Certora](./formal-verification.md)** - Proving escrow contract safety properties with Certora
+
+### Security & configuration
 
 - **[Security Header Policy](./security.md)** - HTTP security headers, verification, and CI checks
-
-### Architecture & Design
-
-- **[Architecture Overview](./architecture.md)** - System design and components
-- **[Deployment Guide](./deployment.md)** - How to deploy Stellar MarketPay
-- **[Data Archiving Strategy](./data-archiving.md)** - Archiving old completed jobs for database performance
-- **[Database Data Model & ER Diagram](./data-model.md)** - Complete PostgreSQL entity relationship diagram and data dictionary
-- **[Database Schema & ERD](./database-schema.md)** - Detailed PostgreSQL table definitions and index tuning
 - **[Authentication Flow (SEP-10)](./auth-flow.md)** - Complete SEP-10 auth flow with sequence diagrams
-- **[Freelancer Onboarding Flow](./onboarding-flow.md)** - Multi-step freelancer onboarding walkthrough and UX architecture
-- **[Soroban Contract Deployment](./contract-deployment.md)** - Build, deploy, and configure the escrow contract
-- **[Smart Contract API Reference](./contract-api-reference.md)** - Complete function reference for the MarketPay Soroban contract
+- **[Encryption Protocol](./encryption.md)** - NaCl box (X25519-XSalsa20-Poly1305) end-to-end encryption
+- **[Messaging Encryption](./messaging-encryption.md)** - Client-side encryption contract for private job messages
+- **[Subresource Integrity (SRI)](./sri.md)** - SRI for CDN-loaded scripts
+- **[CI Secrets](./ci-secrets.md)** - Managing secrets in CI/CD
 - **[Environment Variables](./environment-variables.md)** - Single source of truth for runtime config
 
-### API Documentation
+### Project & process
 
-- **[API Reference](./api.md)** - Detailed API reference
-- **[Smart Contract API Reference](./contract-api-reference.md)** - Every public function, event, and error in the Soroban contract
-- **[Scope WebSocket Protocol](./websocket-scope-protocol.md)** - Realtime session protocol and client schema
-
----
-
-## 🏗️ Architecture Decision Records (ADRs)
-
-Decisions that shaped Stellar MarketPay's architecture:
-
-### ADR-001: Soroban Smart Contract for Escrow Management
-
-**File**: [ADR-001-soroban-escrow-design.md](./adr/adr-001-soroban-escrow-design.md)
-
-**Decision**: Use Soroban smart contracts for trustless escrow management
-
-**Key Points**:
-
-- Why Soroban was chosen over alternatives
-- Contract design and state machine
-- Key features (atomic operations, access control, timeouts)
-- Implementation details
-
-**Status**: ✅ Accepted
+- **[README](../README.md)** - Project overview and features
+- **[CONTRIBUTING](../CONTRIBUTING.md)** - Contribution guidelines
+- **[ROADMAP](../ROADMAP.md)** - Feature roadmap
+- **[FAQ](./FAQ.md)** - Frequently asked questions (50+ questions across 10 categories)
 
 ---
 
-### ADR-002: Horizon API for Transaction Indexing
+## 🚀 For Operators
 
-**File**: [ADR-002-horizon-api-indexing.md](./adr/adr-002-horizon-api-indexing.md)
+Deploying, running, and on-calling Stellar MarketPay in production.
 
-**Decision**: Use Horizon REST API as primary transaction data source
+### Deployment
 
-**Key Points**:
+- **[Deployment Guide](./deployment.md)** - How to deploy Stellar MarketPay
+- **[Deployment Production](./deployment-production.md)** - Production deployment notes
+- **[Soroban Deployment Guide](./soroban_deployment_guide.md)** - Contract deployment guide for operators
 
-- Why Horizon API was chosen
-- Architecture (Frontend → Backend → Horizon → Stellar)
-- Implementation approach
-- Caching strategy
-- Error handling
+### Databases & performance
 
-**Status**: ✅ Accepted
+- **[Database Schema & ERD](./database-schema.md)** - Detailed PostgreSQL table definitions and index tuning
+- **[Database Backup & Restore](./database-backup-restore.md)** - Backup and restore procedures
+- **[Database Pool Tuning](./database-pool-tuning.md)** - Connection pool tuning
+- **[Data Archiving](./data-archiving.md)** - Archiving old completed jobs for database performance
+- **[Query Optimization](./query-optimization.md)** - Query performance tuning
 
----
+### Runbooks & incident response
 
-### ADR-003: Database Schema for Escrow State Management
+- **[Runbook: IPFS Gateway Failure](./runbooks/ipfs-gateway-failure.md)** - SEV-2 runbook for Pinata gateway outages affecting dispute evidence
 
-**File**: [ADR-003-database-schema-escrow.md](./adr/adr-003-database-schema-escrow.md)
+### Infrastructure & operations
 
-**Decision**: Maintain off-chain escrow state in PostgreSQL
-
-**Key Points**:
-
-- PostgreSQL schema design
-- Tables: escrows, escrow_events, escrow_disputes
-- State transitions and lifecycle
-- Sync strategy with smart contracts
-- Timeout handling
-
-**Status**: ✅ Accepted
+- **[CDN Setup](./cdn-setup.md)** - CDN configuration
+- **[Service Key Setup](./service-key-setup.md)** - Service account keys
+- **[Web Push Setup](./web-push-setup.md)** - VAPID web push configuration
+- **[Environment Variables](./environment-variables.md)** - Runtime configuration reference
+- **[CI Secrets](./ci-secrets.md)** - CI/CD secret management
+- **[Troubleshooting](./troubleshooting.md)** - Common issues and solutions
 
 ---
 
-## ❓ FAQ & Help
+## 🔌 For Integrators
 
-### Frequently Asked Questions
+Integrating with the MarketPay API, real-time protocol, and SDKs.
 
-**File**: [FAQ.md](./FAQ.md)
+### API reference
 
-**Coverage**: 50+ questions across 10 categories
+- **[API Reference](./api.md)** - Detailed REST API reference (endpoints, auth, rate limits, schemas)
+- **[API Client SDK](./api-client-sdk.md)** - Auto-generated TypeScript, Python, and Go SDKs
+- **[Contract API Reference](./contract-api-reference.md)** - Soroban contract functions, events, and errors
+- **[Contract Errors](./contract-errors.md)** - Contract error codes (shared with contributors)
 
-**Categories**:
+### Real-time & events
 
-1. General Questions - What is MarketPay, how is it different?
-2. Getting Started - Sign up, fund account, install Freighter
-3. For Clients - Post jobs, manage funds, approve work
-4. For Freelancers - Find jobs, submit proposals, get paid
-5. Transactions & Payments - View history, understand fees
-6. Disputes & Refunds - Open disputes, provide evidence
-7. Technical Questions - Smart contracts, IPFS, wallets
-8. Troubleshooting - Common issues and solutions
-9. Support & Community - Contact support, contribute
-10. Legal & Compliance - Regulations, taxes, privacy
+- **[WebSocket Scope Protocol](./websocket-scope-protocol.md)** - Realtime scope session protocol and client schema
+- **[WebSocket Events API](./websocket-events.md)** - Real-time WebSocket events (bids, notifications, job state)
 
-**Quick Links**:
+### Integration guides
 
-- [How do I post a job?](./FAQ.md#how-do-i-post-a-job)
-- [When do I get paid?](./FAQ.md#when-do-i-get-paid)
-- [Is it safe?](./FAQ.md#is-stellar-marketpay-safe)
-- [What are transaction fees?](./FAQ.md#what-are-transaction-fees)
+- **[Authentication Flow (SEP-10)](./auth-flow.md)** - Wallet-based authentication for API clients
+- **[IPFS Setup](./ipfs-setup.md)** - Pinata IPFS setup for evidence and attachments
+- **[Dispute Resolution](./dispute-resolution.md)** - On-chain arbitration and evidence management
+- **[Onboarding Flow](./onboarding-flow.md)** - Multi-step freelancer onboarding walkthrough
+- **[Environment Variables](./environment-variables.md)** - Runtime config needed to connect
+- **[FAQ](./FAQ.md)** - Frequently asked questions
 
 ---
 
-## 📦 Setup Guides
+## 📖 Project documentation (repo root)
 
----
-
-### Private Message Encryption
-
-**File**: [messaging-encryption.md](./messaging-encryption.md)
-
-**Purpose**: Documents the client-side encryption contract for private job messages and the nonce uniqueness requirement.
-
----
-
-## 🎯 Feature Documentation
-
-### Transaction History Page
-
-**Location**: `/dashboard/transactions`
-
-**Features**:
-
-- Real-time transaction fetching from Stellar Horizon API
-- Advanced filtering (all, sent, received, escrow)
-- Cursor-based pagination
-- Transaction type detection with icons
-- Direct links to Stellar Expert explorer
-- Responsive design with loading states
-
-**Code**:
-
-- `frontend/lib/stellar.ts` - Transaction functions
-- `frontend/pages/dashboard/transactions.tsx` - Page component
-
-**Related**:
-
-- [ADR-002: Horizon API Indexing](./adr/adr-002-horizon-api-indexing.md)
-- [FAQ: Transaction History](./FAQ.md#how-do-i-view-my-transaction-history)
-
----
-
-### Multi-Step Freelancer Onboarding Flow
-
-**Location**: `/dashboard` & Modal Wizard
-
-**Features**:
-
-- 5-step guided setup: Profile → Skills → Portfolio → Verification → Wallet
-- Resilient client-side checkpoint caching and database synchronization
-- Dynamic profile completeness score calculation (0–100%)
-- Interactive dashboard checklist and collapsible completeness widget with snooze support
-
-**Code**:
-
-- `frontend/components/Onboarding/OnboardingWizard.tsx` - Step wizard modal
-- `frontend/hooks/useOnboarding.tsx` - State management hook
-- `frontend/components/Onboarding/ProfileChecklist.tsx` - Dashboard checklist
-- `frontend/components/ProfileCompletenessWidget.tsx` - Completeness widget
-
-**Related**:
-
-- [Freelancer Onboarding Walkthrough](./onboarding-flow.md)
-- [Onboarding Components README](../frontend/components/Onboarding/README.md)
-
----
-
-## 📋 Implementation Guides
-
-### Implementation Summary
-
-**File**: ../IMPLEMENTATION_SUMMARY.md
-
-**Contents**:
-
-- Overview of all 4 features
-- Detailed implementation for each feature
-- Integration checklist
-- File structure
-- Next steps and roadmap
-- References and support
-
----
-
-## 🔗 Related Documentation
-
-### Project Documentation
+Referenced from the index but lives outside `docs/`:
 
 - **[README](../README.md)** - Project overview
-- **[ROADMAP](../ROADMAP.md)** - Feature roadmap
 - **[CONTRIBUTING](../CONTRIBUTING.md)** - Contribution guidelines
-
-### External Resources
-
-- **[Stellar Documentation](https://developers.stellar.org)** - Official Stellar docs
-- **[Soroban Smart Contracts](https://soroban.stellar.org)** - Soroban documentation
-- **[Horizon API](https://developers.stellar.org/api)** - Horizon API reference
-- **[Pinata Documentation](https://docs.pinata.cloud)** - Pinata docs
-- **[IPFS Documentation](https://docs.ipfs.io)** - IPFS docs
+- **[ROADMAP](../ROADMAP.md)** - Feature roadmap
 
 ---
 
-## 📁 Documentation Structure
+## ⚠️ Intentionally excluded
+
+The following files exist under `docs/` but are deliberately not indexed as reference documentation:
+
+| File | Reason |
+|------|--------|
+| `docs/adr/001-sep10-authentication.md` | Duplicate SEP-10 ADR (misnumbered `001`, collides with ADR-001). Superseded by [ADR-004](./adr/adr-004-sep10-authentication.md). |
+| `docs/API_DOCUMENTATION.md` | 3-line stub; duplicate of API docs. Use [API Reference](./api.md). |
+| `docs/api-documentation.md` | Describes OpenAPI/Swagger setup; overlaps [API Reference](./api.md). Use `api.md` for the endpoint reference. |
+| `docs/pr-description-1425.md` | A committed pull-request description, not a reference document. |
+| `docs/demo-walkthrough-captions.srt` | Media captions/subtitles asset, not a documentation page. |
+| `docs/video-walkthrough-script.md` | Production media script, not a reference document. |
+| `IMPLEMENTATION_SUMMARY.md` | Previously referenced at repo root (`../IMPLEMENTATION_SUMMARY.md`) but does not exist; entry removed. |
+
+---
+
+## 📁 Documentation tree
 
 ```
-stellar-marketpay/
-├── docs/
-│   ├── INDEX.md (this file)
-│   ├── ADR-001-soroban-escrow-design.md
-│   ├── ADR-002-horizon-api-indexing.md
-│   ├── ADR-003-database-schema-escrow.md
-│   ├── FAQ.md
-│   ├── architecture.md
-│   ├── api.md
-│   ├── deployment.md
-│   └── getting-started.md
-├── README.md
-├── ROADMAP.md
-├── CONTRIBUTING.md
+docs/
+├── INDEX.md              (this file)
+├── README.md             (docs landing page)
+├── FAQ.md
+├── api.md
+├── api-client-sdk.md
+├── architecture.md
+├── auth-flow.md
+├── backend_audit_service.md
+├── cdn-setup.md
+├── ci-secrets.md
+├── contract-api-reference.md
+├── contract-deployment.md
+├── contract-errors.md
+├── data-archiving.md
+├── data-model.md
+├── database-backup-restore.md
+├── database-pool-tuning.md
+├── database-schema.md
+├── deployment.md
+├── deployment-production.md
+├── dispute_resolution_logic.md
+├── dispute-resolution.md
+├── encryption.md
+├── environment-variables.md
+├── formal-verification.md
+├── getting-started.md
+├── ipfs-setup.md
+├── messaging-encryption.md
+├── milestone_escrow_contract.md
+├── onboarding-flow.md
+├── pr-description-1425.md        (excluded: PR description)
+├── query-optimization.md
+├── quickstart-checklist.md
+├── security.md
+├── service-key-setup.md
+├── soroban_deployment_guide.md
+├── sri.md
+├── troubleshooting.md
+├── video-walkthrough-script.md   (excluded: media script)
+├── web-push-setup.md
+├── websocket-events.md
+├── websocket-scope-protocol.md
+├── adr/
+│   ├── README.md
+│   ├── 001-sep10-authentication.md   (excluded: duplicate SEP-10 ADR)
+│   ├── adr-001-soroban-escrow-design.md
+│   ├── adr-002-horizon-api-indexing.md
+│   ├── adr-003-database-schema-escrow.md
+│   ├── adr-004-sep10-authentication.md
+│   ├── adr-005-nacl-message-encryption.md
+│   ├── adr-006-ipfs-dispute-evidence.md
+│   ├── adr-007-webauthn-secondary-auth.md
+│   ├── adr-008-redis-session-cache.md
+│   ├── adr-009-websocket-vs-sse.md
+│   ├── adr-010-cursor-pagination.md
+│   └── adr-011-ci-consolidation.md
+├── API_DOCUMENTATION.md          (excluded: stub duplicate)
+├── api-documentation.md          (excluded: duplicate)
+└── runbooks/
+    └── ipfs-gateway-failure.md
 ```
 
 ---
 
-## 🎓 Learning Paths
+## 🔍 Quick search by topic
 
-### For Clients
-
-1. [Getting Started](./getting-started.md)
-2. [FAQ: For Clients](./FAQ.md#for-clients)
-3. [FAQ: Transactions & Payments](./FAQ.md#transactions--payments)
-4. [FAQ: Disputes & Refunds](./FAQ.md#disputes--refunds)
-
-### For Freelancers
-
-1. [Getting Started](./getting-started.md)
-2. [FAQ: For Freelancers](./FAQ.md#for-freelancers)
-3. [FAQ: Transactions & Payments](./FAQ.md#transactions--payments)
-4. [FAQ: Disputes & Refunds](./FAQ.md#disputes--refunds)
-
-### For Developers
-
-1. [Architecture Overview](./architecture.md)
-2. [Contributing Guide](../CONTRIBUTING.md)
-3. [Database Schema & ERD](./database-schema.md)
-4. [ADR-001: Escrow Design](./adr/adr-001-soroban-escrow-design.md)
-5. [ADR-002: Horizon API](./adr/adr-002-horizon-api-indexing.md)
-6. [ADR-003: Database Schema](./adr/adr-003-database-schema-escrow.md)
-9. [Deployment Guide](./deployment.md)
-
-### For DevOps/Infrastructure
-
-1. [Deployment Guide](./deployment.md)
-2. [Architecture Overview](./architecture.md)
-3. [ADR-002: Horizon API](./adr/adr-002-horizon-api-indexing.md)
-4. [ADR-003: Database Schema](./adr/adr-003-database-schema-escrow.md)
-
----
-
-## 🔍 Quick Search
-
-### By Topic
-
-**Blockchain & Stellar**
+**Blockchain & Smart Contracts**
 
 - [ADR-001: Soroban Escrow](./adr/adr-001-soroban-escrow-design.md)
-- [ADR-002: Horizon API](./adr/adr-002-horizon-api-indexing.md)
-- [FAQ: Technical Questions](./FAQ.md#technical-questions)
+- [Contract API Reference](./contract-api-reference.md)
+- [Contract Deployment](./contract-deployment.md)
+- [Milestone Escrow Spec](./milestone_escrow_contract.md)
+- [Formal Verification](./formal-verification.md)
+
+**Authentication & Security**
+
+- [ADR-004: SEP-10](./adr/adr-004-sep10-authentication.md)
+- [Auth Flow (SEP-10)](./auth-flow.md)
+- [Encryption Protocol](./encryption.md)
+- [Messaging Encryption](./messaging-encryption.md)
+- [Security Header Policy](./security.md)
+- [SRI for CDN Scripts](./sri.md)
 
 **Database & Backend**
 
 - [Database Schema & ERD](./database-schema.md)
-- [ADR-003: Database Schema](./adr/adr-003-database-schema-escrow.md)
+- [Data Model & ER Diagram](./data-model.md)
+- [Database Backup & Restore](./database-backup-restore.md)
+- [Database Pool Tuning](./database-pool-tuning.md)
+- [Data Archiving](./data-archiving.md)
+- [Query Optimization](./query-optimization.md)
+- [Backend Audit Service](./backend_audit_service.md)
+
+**API & Integration**
+
+- [API Reference](./api.md)
+- [API Client SDK](./api-client-sdk.md)
+- [WebSocket Scope Protocol](./websocket-scope-protocol.md)
+- [WebSocket Events API](./websocket-events.md)
+- [IPFS Setup](./ipfs-setup.md)
+- [Environment Variables](./environment-variables.md)
+
+**Operations**
+
 - [Deployment Guide](./deployment.md)
-
-**Frontend & UI**
-
-- [Transaction History](./FAQ.md#how-do-i-view-my-transaction-history)
-- [Architecture Overview](./architecture.md)
+- [Deployment Production](./deployment-production.md)
+- [Runbook: IPFS Gateway Failure](./runbooks/ipfs-gateway-failure.md)
+- [Troubleshooting](./troubleshooting.md)
+- [CI Secrets](./ci-secrets.md)
 
 **User Guides**
 
 - [FAQ](./FAQ.md)
 - [Getting Started](./getting-started.md)
-
-**Disputes & Evidence**
-
+- [Quickstart Checklist](./quickstart-checklist.md)
+- [Onboarding Flow](./onboarding-flow.md)
 - [Dispute Resolution](./dispute-resolution.md)
-- [Pinata IPFS Setup](./ipfs-setup.md)
-- [FAQ: Disputes & Refunds](./FAQ.md#disputes--refunds)
-- [ADR-003: Database Schema](./adr/adr-003-database-schema-escrow.md)
 
 ---
 
 ## 📞 Support & Contact
 
-### Getting Help
-
-- **GitHub Issues**: [stellar-marketpay/issues](https://github.com/stellar-marketpay/issues)
-- **Discord**: [Stellar MarketPay Community](https://discord.gg/stellar-marketpay)
-- **Email**: support@stellar-marketpay.com
-- **Twitter**: [@StellarMarketPay](https://twitter.com/StellarMarketPay)
-
-### Contributing
-
-- See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines
-- Review [ROADMAP.md](../ROADMAP.md) for planned features
+- **GitHub Issues**: [stellar-marketpay/issues](https://github.com/DevFaster/Stellar-MarketPay-/issues)
+- **Contributing**: See [CONTRIBUTING.md](../CONTRIBUTING.md)
+- **Roadmap**: See [ROADMAP.md](../ROADMAP.md)
 
 ---
 
-## 📝 Document Maintenance
-
-### Last Updated
-
-- **Date**: May 28, 2026
-- **Version**: 1.0
-- **Status**: ✅ Complete
-
-### Recent Additions
-
-- ✅ ADR-001: Soroban Escrow Design
-- ✅ ADR-002: Horizon API Indexing
-- ✅ ADR-003: Database Schema
-- ✅ FAQ: 50+ Questions
-- ✅ Pinata IPFS Setup Guide
-- ✅ Implementation Summary
-
-### Planned Updates
-
-- [ ] Video tutorials
-- [ ] Interactive examples
-- [ ] Multi-language translations
-- [ ] Community contributions guide
-- [ ] Advanced topics section
-
----
-
-## 🎯 Next Steps
-
-1. **Choose your role**: Client, Freelancer, or Developer
-2. **Follow the learning path** for your role
-3. **Read the FAQ** for common questions
-4. **Check the guides** for specific tasks
-5. **Contact support** if you need help
-
----
-
-**Happy learning! 🚀**
-
-For the latest updates, visit [stellar-marketpay.com](https://stellar-marketpay.com)
-
+> **Maintained.** This index is audited against the `docs/` tree on every change. If you add, rename, or remove a document, update `INDEX.md` in the same pull request.
