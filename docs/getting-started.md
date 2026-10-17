@@ -46,7 +46,7 @@ cd Stellar-MarketPay-
 If the project includes a setup script:
 ```bash
 chmod +x setup-dev.sh
-./setup-dev.sh
+./scripts/setup-dev.sh
 ```
 
 If not, install dependencies manually:
