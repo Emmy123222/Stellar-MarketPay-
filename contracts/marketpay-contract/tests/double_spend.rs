@@ -3,7 +3,6 @@
 mod tests {
     use marketpay_contract::{
         CreateEscrowParams, EscrowStatus, MarketPayContract, MarketPayContractClient,
-        ContractError,
     };
     use soroban_sdk::{testutils::Address as _, token, Address, Env, String};
 

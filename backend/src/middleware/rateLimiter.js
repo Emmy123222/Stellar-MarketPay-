@@ -53,7 +53,6 @@ const createRateLimiter = (maxRequests, windowMinutes, options = {}) => {
       const retryAfter = Math.ceil(windowMinutes * 60);
       res.set("Retry-After", String(retryAfter));
       rateLimitLogger.warn({
-        endpoint: req.path,
         endpoint: options.name || req.originalUrl,
         ip: getClientIp(req),
         method: req.method,

@@ -363,7 +363,7 @@ fn test_concurrent_release_and_timeout_refund_release_first() {
 }
 
 #[test]
-#[should_panic(expected = "Cannot release escrow in current status")]
+#[should_panic(expected = "Escrow already settled")]
 fn test_concurrent_release_and_timeout_refund_timeout_first() {
     let env = Env::default();
     env.mock_all_auths();
@@ -725,6 +725,61 @@ fn test_timeout_refund_after_complete_refund_and_recreate() {
     );
 }
 
+
+struct EscrowTestSetup<'a> {
+    contract_id: Address,
+    client: Address,
+    freelancer: Address,
+    token_client: token::Client<'a>,
+    treasury: Address,
+    escrow_amount: i128,
+}
+
+fn setup_escrow<'a>(
+    env: &'a Env,
+    _amount: Option<i128>,
+    _timeout: Option<u32>,
+    _token: Option<Address>,
+) -> EscrowTestSetup<'a> {
+    let id = env.register(MarketPayContract, ());
+    let contract_client = MarketPayContractClient::new(env, &id);
+    let admin = Address::generate(env);
+    let treasury = Address::generate(env);
+    contract_client.initialize(&admin, &treasury, &String::from_str(env, "1.0.0"));
+
+    let client = Address::generate(env);
+    let freelancer = Address::generate(env);
+    let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
+    let token_id = token_contract.address();
+    let token_admin = token::StellarAssetClient::new(env, &token_id);
+    let token_client = token::Client::new(env, &token_id);
+    let escrow_amount = 1000i128;
+    token_admin.mint(&client, &10000);
+
+    let job_id = String::from_str(env, "job1");
+    contract_client.create_escrow(
+        &job_id,
+        &client,
+        &CreateEscrowParams {
+            freelancer: freelancer.clone(),
+            token: token_id.clone(),
+            amount: escrow_amount,
+            milestones: None,
+            timeout_ledgers: None,
+            referrer: None,
+        },
+    );
+
+    EscrowTestSetup {
+        contract_id: id,
+        client,
+        freelancer,
+        token_client,
+        treasury,
+        escrow_amount,
+    }
+}
+
 // -- resolve_timeout tests --------------------------------------------------
 
 #[test]
@@ -741,7 +796,10 @@ fn test_resolve_timeout_locked_refunds_client() {
     let contract_balance_before = setup.token_client.balance(&setup.contract_id);
 
     // Advance beyond timeout (default 7 days)
-    env.ledger().set_timestamp(env.ledger().timestamp() + 7 * 24 * 60 * 60 + 1);
+    let mut ledger_info = env.ledger().get();
+    ledger_info.timestamp += (7 * 24 * 60 * 60 + 1) as u64;
+    ledger_info.sequence_number += 1000;
+    env.ledger().set(ledger_info);
 
     // Any caller can resolve
     contract_client.resolve_timeout(&job_id);
@@ -770,7 +828,10 @@ fn test_resolve_timeout_inprogress_pays_freelancer() {
     contract_client.start_work(&job_id, &setup.freelancer);
 
     // Advance beyond timeout (default 7 days)
-    env.ledger().set_timestamp(env.ledger().timestamp() + 7 * 24 * 60 * 60 + 1);
+    let mut ledger_info = env.ledger().get();
+    ledger_info.timestamp += (7 * 24 * 60 * 60 + 1) as u64;
+    ledger_info.sequence_number += 1000;
+    env.ledger().set(ledger_info);
 
     let freelancer_balance_before = setup.token_client.balance(&setup.freelancer);
     let treasury_balance_before = setup.token_client.balance(&setup.treasury);

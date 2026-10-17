@@ -1,5 +1,3 @@
-
-Server · JS
 /* global userAddress, userLastSeen, userClients, setWebsocketConnections, broadcastToUser, createServiceLogger, sendEmail, logError, startEscrowTimeoutChecker, refreshWsMetrics, startNotificationProcessor, startAdminReportScheduler, startWeeklyDigestScheduler, startPurgeDeletedRecords, startRecurringEscrowTicker */
 /* eslint-disable */
 /**
@@ -20,7 +18,6 @@ const { WebSocketServer } = require("ws");
 const nodemailer = require("nodemailer");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("./middleware/auth");
-
 const jobRoutes = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
 const profileRoutes     = require("./routes/profiles");
@@ -63,10 +60,8 @@ const { startEscrowTimeoutChecker } = require("./services/escrowService");
 const { scheduleStatsRefresh } = require("./services/statsService");
 const { startPushSubscriptionPurge } = require("./services/pushSubscriptionService");
 const { startLinkVerificationScheduler } = require("./services/linkVerificationScheduler");
-const { startEscrowTimeoutChecker } = require("./services/escrowService");
-const { setWebsocketConnections } = require("./metrics");
+// Start audit worker
 
-// Start workers
 require("./workers/auditWorker");
  
 const app  = express();
@@ -113,16 +108,18 @@ function eventRooms(payload) {
  
 function broadcastRealtime(event, payload) {
   const message = JSON.stringify({ event, payload, timestamp: Date.now() });
-  for (const ws of realtimeClients) {
+  const roomIds = eventRooms(payload);
+  const recipients = roomIds.length
+    ? new Set(roomIds.flatMap((roomId) => [...(realtimeRooms.get(roomId) || [])]))
+    : realtimeClients;
+  for (const ws of recipients) {
     if (ws.readyState === WS_OPEN) ws.send(message);
   }
 }
 
 function broadcastToUser(userAddress, event, payload) {
-  const sockets = userClients.get(userAddress);
-  if (!sockets) return;
   const message = JSON.stringify({ event, payload, timestamp: Date.now() });
-  for (const ws of sockets) {
+  for (const ws of userClients.get(userAddress) || []) {
     if (ws.readyState === WS_OPEN) ws.send(message);
   }
 }
@@ -140,7 +137,6 @@ function broadcastToRoom(room, event, payload, timestamp) {
     if (ws.readyState === WS_OPEN) ws.send(message);
   }
 }
-
 const {
   upsertScopeSession,
   loadScopeSession,
@@ -299,18 +295,6 @@ wsServer.on("connection", async (ws, request) => {
       } catch {
         // Anonymous realtime subscriptions remain supported.
       }
-    }
-    ws.realtimeRooms = new Set();
-    realtimeClients.add(ws);
-    if (userAddress) {
-      const existing = userClients.get(userAddress);
-      if (existing && existing.size >= MAX_WS_CONNECTIONS_PER_USER) {
-        sendJson(ws, "error", {
-          error: `Connection limit of ${MAX_WS_CONNECTIONS_PER_USER} reached for this account`,
-        });
-        ws.close(1008, "Too many connections");
-        return;
-      }
       let sockets = userClients.get(userAddress);
       if (!sockets) {
         sockets = new Set();
@@ -319,43 +303,59 @@ wsServer.on("connection", async (ws, request) => {
       sockets.add(ws);
       ws.userAddress = userAddress;
     }
+    ws.realtimeRooms = new Set();
+    realtimeClients.add(ws);
+    if (userAddress) {
+      if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
+      userClients.get(userAddress).add(ws);
+    }
     const requestedRooms = [
       ...url.searchParams.getAll("room"),
       ...(url.searchParams.get("rooms") || "").split(","),
     ].map((roomId) => roomId.trim()).filter(Boolean);
     requestedRooms.forEach((roomId) => subscribeRealtime(ws, roomId));
     sendJson(ws, "connected", { channel: "realtime" });
-
     ws.on("message", (raw) => {
       try {
         const msg = JSON.parse(String(raw));
         if (!msg || typeof msg !== "object") return;
 
         const type = msg.type || msg.event || msg.action;
-        if (type === "subscribe" && msg.room) {
-          const room = String(msg.room);
-          let roomSockets = realtimeRooms.get(room);
-          if (!roomSockets) {
-            roomSockets = new Set();
-            realtimeRooms.set(room, roomSockets);
+
+        if (type === "subscribe") {
+          if (Array.isArray(msg.rooms)) {
+            msg.rooms.forEach((roomId) => subscribeRealtime(ws, roomId));
+            sendJson(ws, "subscribed", { rooms: [...ws.realtimeRooms] });
+            return;
           }
-          roomSockets.add(ws);
-          if (!ws.rooms) ws.rooms = new Set();
-          ws.rooms.add(room);
-          sendJson(ws, "subscribed", { room });
-          return;
+          if (msg.room) {
+            subscribeRealtime(ws, String(msg.room));
+            sendJson(ws, "subscribed", { room: msg.room });
+            return;
+          }
         }
 
-        if (type === "unsubscribe" && msg.room) {
-          const room = String(msg.room);
-          const roomSockets = realtimeRooms.get(room);
-          if (roomSockets) {
-            roomSockets.delete(ws);
-            if (!roomSockets.size) realtimeRooms.delete(room);
+        if (type === "unsubscribe") {
+          if (Array.isArray(msg.rooms)) {
+            for (const roomId of msg.rooms) {
+              if (typeof roomId !== "string") continue;
+              ws.realtimeRooms.delete(roomId);
+              const room = realtimeRooms.get(roomId);
+              room?.delete(ws);
+              if (room && room.size === 0) realtimeRooms.delete(roomId);
+            }
+            sendJson(ws, "subscribed", { rooms: [...ws.realtimeRooms] });
+            return;
           }
-          if (ws.rooms) ws.rooms.delete(room);
-          sendJson(ws, "unsubscribed", { room });
-          return;
+          if (msg.room) {
+            const room = String(msg.room);
+            ws.realtimeRooms.delete(room);
+            const roomSockets = realtimeRooms.get(room);
+            roomSockets?.delete(ws);
+            if (roomSockets && roomSockets.size === 0) realtimeRooms.delete(room);
+            sendJson(ws, "unsubscribed", { room });
+            return;
+          }
         }
 
         if (type === "ping") {
@@ -374,7 +374,6 @@ wsServer.on("connection", async (ws, request) => {
         /* ignore invalid JSON */
       }
     });
-
     // Replay notifications missed while the user was disconnected
     if (userAddress) {
       try {
@@ -849,7 +848,6 @@ app._ws.broadcastToUser = broadcastToUser;
 app._ws.broadcastToRoom = broadcastToRoom;
 app.locals.broadcastToRoom = broadcastToRoom;
 
-app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
-
+app.startEscrowTimeoutChecker = startEscrowTimeoutChecker || (() => {});
 module.exports = app;
  
