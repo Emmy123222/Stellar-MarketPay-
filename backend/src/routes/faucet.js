@@ -256,10 +256,10 @@ router.post("/fund", faucetIpLimiter, faucetPrincipalLimiter, faucetWalletLimite
  *         description: Public key missing or not a valid Stellar address
  *         content:
  *           application/json:
- *           schema:
- *             $ref: '#/components/schemas/Error'
- *           example:
- *             error: Public key is required
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               error: Public key is required
  *       403:
  *         description: Faucet is disabled because the server is not configured for testnet
  *         content:
@@ -267,7 +267,7 @@ router.post("/fund", faucetIpLimiter, faucetPrincipalLimiter, faucetWalletLimite
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *             example:
- *             error: Faucet only available on testnet
+ *               error: Faucet only available on testnet
  *       500:
  *         description: Unexpected error while checking the account
  *         content:

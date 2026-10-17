@@ -96,6 +96,18 @@ List endpoints support cursor-based pagination via the \`after\` query parameter
           description: 'Developer API key for public API endpoints'
         }
       },
+      responses: {
+        TooManyRequests: {
+          description: 'Too many requests — rate limit exceeded',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/Error'
+              }
+            }
+          }
+        }
+      },
       schemas: {
         Error: {
           type: 'object',

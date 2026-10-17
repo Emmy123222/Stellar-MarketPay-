@@ -219,6 +219,9 @@ jobs:
         run: npm run type-check
         continue-on-error: true
 
+      - name: Check OpenAPI type drift
+        run: npm run api:check-drift
+
       - name: Unit and accessibility tests
         run: npm test
 

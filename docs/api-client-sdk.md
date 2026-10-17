@@ -555,9 +555,39 @@ if err != nil {
 
 ## SDK Generation
 
-The SDKs are auto-generated from the OpenAPI specification (`backend/docs/openapi.json`).
+The SDKs and typed clients are auto-generated from the OpenAPI specification (`backend/docs/openapi.json`).
 
-### Regenerate TypeScript Client
+### Frontend Typed Client & OpenAPI Types
+
+The frontend uses `openapi-typescript` to generate end-to-end typed definitions directly from `backend/docs/openapi.json`:
+
+```bash
+# 1. Regenerate backend OpenAPI specification
+cd backend
+npm run generate-openapi
+
+# 2. Regenerate frontend TypeScript schema definitions (lib/api/schema.ts)
+cd ../frontend
+npm run api:generate
+```
+
+#### Drift Detection in CI
+
+To prevent API contract drift between backend route definitions and frontend API calls, CI runs:
+
+```bash
+npm run api:check-drift
+```
+
+If `backend/docs/openapi.json` has changed without updating `frontend/lib/api/schema.ts`, the check fails with an actionable error prompting regeneration.
+
+#### Consuming Typed Clients
+
+- **`frontend/lib/api/typedClient.ts`**: Provides type-safe `typedClient.get` and `typedClient.post` with compile-time checked path parameters, query params, request bodies, and responses.
+- **`frontend/hooks/useApi.ts`**: Provides `useTypedApi` for SWR-cached, type-safe GET queries.
+- **`packages/client`**: Standalone consumer package (`@stellar-marketpay/client`) for external consumers and microservices.
+
+### Regenerate TypeScript Client (Legacy SDK)
 
 ```bash
 cd backend

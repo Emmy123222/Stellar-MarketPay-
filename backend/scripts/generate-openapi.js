@@ -107,6 +107,18 @@ List endpoints support cursor-based pagination via the \`after\` query parameter
           description: 'Developer API key for public API endpoints'
         }
       },
+      responses: {
+        TooManyRequests: {
+          description: 'Too many requests — rate limit exceeded',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/Error'
+              }
+            }
+          }
+        }
+      },
       schemas: {
         Error: {
           type: 'object',
@@ -139,6 +151,19 @@ List endpoints support cursor-based pagination via the \`after\` query parameter
             visibility: { type: 'string', enum: ['public', 'private'], default: 'public' },
             createdAt: { type: 'string', format: 'date-time' },
             expiresAt: { type: 'string', format: 'date-time' }
+          }
+        },
+        PublicJob: {
+          type: 'object',
+          description: 'Syndication-safe job listing (no client address or applicant details)',
+          properties: {
+            id: { type: 'string', format: 'uuid', description: 'Job ID' },
+            title: { type: 'string', description: 'Job title' },
+            category: { type: 'string', description: 'Job category' },
+            budget: { type: 'number', description: 'Job budget' },
+            currency: { type: 'string', description: 'Payment currency' },
+            skills: { type: 'array', items: { type: 'string' }, description: 'Required skills' },
+            createdAt: { type: 'string', format: 'date-time', description: 'Creation timestamp' }
           }
         },
         Application: {

@@ -44,3 +44,5 @@ export * from "./autoConvert";
 export * from "./reputation";
 export * from "./talentPool";
 export * from "./search";
+export * from "./schema";
+export * from "./typedClient";

@@ -19,7 +19,9 @@
     "analyze": "ANALYZE=true next build",
     "storybook": "storybook dev -p 6006",
     "storybook:build": "storybook build -o storybook-static",
-    "i18n:check": "node scripts/check-translations.mjs --strict"
+    "i18n:check": "node scripts/check-translations.mjs --strict",
+    "api:generate": "node scripts/generate-api-types.mjs",
+    "api:check-drift": "node scripts/generate-api-types.mjs --check"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",
@@ -82,7 +84,8 @@
     "storybook": "^9.1.20",
     "tailwindcss": "^3.4.17",
     "typescript": "^5",
-    "vite": "^6.4.3"
+    "vite": "^6.4.3",
+    "openapi-typescript": "^7.13.0"
   },
   "overrides": {
     "js-yaml": "^4.1.0",

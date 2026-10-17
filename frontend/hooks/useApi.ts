@@ -11,6 +11,8 @@
  *   the UI show a subtle "Refreshing…" indicator without hiding stale data.
  */
 import useSWR, { type SWRConfiguration } from "swr";
+import type { paths } from "@/lib/api/schema";
+import { typedClient, type QueryParams, type ResponseData } from "@/lib/api/typedClient";
 
 export interface UseApiResult<T> {
   data: T | undefined;
@@ -44,4 +46,31 @@ export function useApi<T>(
     isLoading,
     isValidating,
   };
+}
+
+/**
+ * Strongly typed hook for OpenAPI GET endpoints (Issue #1888).
+ */
+export function useTypedApi<P extends keyof paths>(
+  path: P | null,
+  options?: {
+    params?: QueryParams<P, "get">;
+    config?: SWRConfiguration<ResponseData<P, "get", 200>>;
+  },
+): UseApiResult<ResponseData<P, "get", 200>> {
+  const key = path
+    ? options?.params
+      ? `${path}?${new URLSearchParams(
+          Object.entries(options.params as Record<string, unknown>).flatMap(([k, v]) =>
+            v !== undefined && v !== null ? [[k, String(v)]] : [],
+          ),
+        ).toString()}`
+      : path
+    : null;
+
+  return useApi<ResponseData<P, "get", 200>>(
+    key,
+    () => typedClient.get(path as P, options?.params),
+    options?.config,
+  );
 }

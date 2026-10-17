@@ -1,0 +1,16 @@
+{
+  "name": "@stellar-marketpay/client",
+  "version": "1.0.0",
+  "description": "Typed API client for Stellar MarketPay generated from OpenAPI specification",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "generate": "npx openapi-typescript ../../backend/docs/openapi.json -o src/schema.ts"
+  },
+  "dependencies": {
+    "axios": "^1.20.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
