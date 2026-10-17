@@ -14,7 +14,6 @@ const http = require("http");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
-const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
 const { WebSocketServer } = require("ws");
 const nodemailer = require("nodemailer");
@@ -61,6 +60,7 @@ const { setWebsocketConnections } = require("./metrics");
 const { startEscrowTimeoutChecker } = require("./services/escrowService");
 const { scheduleStatsRefresh } = require("./services/statsService");
 const { startPushSubscriptionPurge } = require("./services/pushSubscriptionService");
+const { xRequestIdMiddleware, requestLoggerMiddleware } = require("./utils/logger");
  
 // Start audit worker — processes fire-and-forget audit log writes
 require("./workers/auditWorker");
@@ -171,8 +171,9 @@ app.locals.indexerService = indexerService;
 app.locals.broadcastRealtime = broadcastRealtime;
  
 // Middleware
+app.use(xRequestIdMiddleware);
+app.use(requestLoggerMiddleware);
 app.use(helmet());
-app.use(morgan("dev"));
 app.use(express.json({ limit: "20kb" }));
  
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").split(",").map(o => o.trim());

@@ -13,9 +13,9 @@
  *   4. Calls `enterRequestContext({ requestId, ... })` so every
  *      downstream async call sees the trace via AsyncLocalStorage.
  *   Must be mounted BEFORE every downstream middleware that logs.
- *   - `requestLoggerMiddleware` runs immediately after and produces the
- *     `Request started` / `Request completed` log lines that bracket
- *     each request, attaching the requestId via the child logger.
+ *   - `requestLoggerMiddleware` runs immediately after and emits a
+ *     structured completion record with the requestId, method, path,
+ *     status code, and duration.
  *   - `createServiceLogger(name)` returns a Pino child logger that
  *     lazily captures the current AsyncLocalStorage store at LOG TIME
  *     — so background work without a request scope is not tagged with
@@ -32,6 +32,7 @@ const { randomUUID } = require("crypto");
 
 const {
   enterRequestContext,
+  getRequestId,
   isValidRequestId,
   pickLoggableContext,
 } = require("./requestContext");
@@ -122,10 +123,8 @@ function xRequestIdMiddleware(req, res, next) {
 }
 
 /**
- * Second-pass middleware: produce the bracketing log lines for the
- * request. The child logger here is the one most callers already
- * plumbed via `req.logger`; the AsyncLocalStorage path lets services
- * skip needing `req` entirely.
+ * Second-pass middleware: attach a request logger and emit a structured
+ * access record when the response completes.
  */
 function requestLoggerMiddleware(req, res, next) {
   // Skip access logging for health checks — they're noisy and uninteresting
@@ -141,21 +140,13 @@ function requestLoggerMiddleware(req, res, next) {
 
   req.logger = baseLogger;
 
-  baseLogger.info({
-    msg: "Request started",
-    query: req.query,
-    body:
-      req.method === "POST" ||
-      req.method === "PUT" ||
-      req.method === "PATCH"
-        ? sanitizeBody(req.body)
-        : undefined,
-  });
-
   res.on("finish", () => {
     const durationMs = Date.now() - startTime;
     baseLogger.info({
-      msg: "Request completed",
+      msg: "HTTP request completed",
+      requestId: getRequestId() || req.requestId,
+      method: req.method,
+      path: req.path,
       statusCode: res.statusCode,
       durationMs,
     });
