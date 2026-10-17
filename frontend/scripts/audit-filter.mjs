@@ -37,6 +37,7 @@ const KNOWN_UNFIXABLE = new Set([
   "GHSA-q4gf-8mx6-v5v3",
   "GHSA-vfv6-92ff-j949",
   "GHSA-wfc6-r584-vfw7",
+  "GHSA-vfj7-8cjw-p6xm",
 ]);
 
 let raw;
