@@ -1,4 +1,4 @@
-/**
+/*
  * __tests__/apiKeyRateLimiter.test.js
  *
  * Unit tests for the per-endpoint Redis sliding-window rate limiter
@@ -20,7 +20,7 @@ jest.mock("../src/services/cacheService", () => {
   const buckets = new Map();
   return {
     __esModule: true,
-    incrWithExpiry: jest.fn(async (key, ttl) => {
+    incrExpiry: jest.fn(async (key, ttl) => {
       const cur = Number(buckets.get(key) || 0) + 1;
       buckets.set(key, cur);
       return { count: cur, ttlSeconds: ttl };
@@ -74,7 +74,7 @@ function mockNext() {
 }
 
 beforeEach(() => {
-  cache.incrWithExpiry.mockClear();
+  cache.incrExpiry.mockClear();
   cache.rateLimitKey.mockClear();
   cache.get.mockClear();
   if (typeof cache.__resetBuckets === "function") cache.__resetBuckets();
@@ -141,8 +141,8 @@ describe("apiKeyRateLimiter — sliding window", () => {
   });
 
   test("fails open if Redis throws (graceful degradation)", async () => {
-    const original = cache.incrWithExpiry.getMockImplementation();
-    cache.incrWithExpiry.mockImplementationOnce(async () => {
+    const original = cache.incrExpiry.getMockImplementation();
+    cache.incrExpiry.mockImplementationOnce(async () => {
       throw new Error("redis down");
     });
 
@@ -154,7 +154,7 @@ describe("apiKeyRateLimiter — sliding window", () => {
     expect(next.calls.count).toBe(1);
     expect(res.statusCode).toBe(200);
 
-    cache.incrWithExpiry.mockImplementation(original);
+    cache.incrExpiry.mockImplementation(original);
   });
 
   test("rateLimitKey pattern matches the AC: rl:{api_key}:{endpoint}:{minute_bucket}", () => {

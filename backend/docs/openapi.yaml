@@ -40,7 +40,7 @@ tags:
   - name: Progress
     description: Job progress tracking
   - name: Messages
-    description: In-app messaging between users
+    description: In-app messaging between users (mounted at /api/messages)
   - name: Insights
     description: Platform analytics and insights
   - name: Notifications
@@ -294,7 +294,7 @@ components:
           type: string
         content:
           type: string
-          description: Message content (encrypted)
+          description: Message content (NaCl-encrypted payload; see messageService.js)
         contractTxHash:
           type: string
           nullable: true
