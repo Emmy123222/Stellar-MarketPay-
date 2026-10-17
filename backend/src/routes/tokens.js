@@ -21,6 +21,7 @@ const {
 
 // Rate limiting: 30 requests per minute
 const tokenRateLimiter = createRateLimiter(30, 1);
+const TOKEN_LIST_CACHE_MAX_AGE_SECONDS = 3600;
 
 /**
  * @swagger
@@ -35,6 +36,7 @@ const tokenRateLimiter = createRateLimiter(30, 1);
 router.get("/", tokenRateLimiter, async (_req, res, next) => {
   try {
     const tokens = getPopularTokens();
+    res.set("Cache-Control", `public, max-age=${TOKEN_LIST_CACHE_MAX_AGE_SECONDS}`);
     res.json({
       success: true,
       data: tokens,
@@ -57,6 +59,7 @@ router.get("/", tokenRateLimiter, async (_req, res, next) => {
 router.get("/popular", tokenRateLimiter, async (req, res, next) => {
   try {
     const tokens = getPopularTokens();
+    res.set("Cache-Control", `public, max-age=${TOKEN_LIST_CACHE_MAX_AGE_SECONDS}`);
     res.json({
       success: true,
       data: tokens
