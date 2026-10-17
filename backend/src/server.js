@@ -9,6 +9,16 @@ Server · JS
 "use strict";
  
 require("dotenv").config();
+
+const { getMissingRequiredEnv } = require("./config/env");
+const missingRequiredEnv = getMissingRequiredEnv();
+if (missingRequiredEnv.length) {
+  console.error(
+    `[startup] Missing required environment variables: ${missingRequiredEnv.join(", ")}. ` +
+      "Set them in backend/.env or the deployment environment before starting the backend.",
+  );
+  process.exit(1);
+}
  
 const http = require("http");
 const express = require("express");

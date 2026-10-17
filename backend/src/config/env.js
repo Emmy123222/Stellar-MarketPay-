@@ -1,5 +1,14 @@
 "use strict";
 
+const REQUIRED_ENV_VARS = ["JWT_SECRET", "DATABASE_URL"];
+
+function getMissingRequiredEnv(env = process.env) {
+  if (env.NODE_ENV === "test") return [];
+  return REQUIRED_ENV_VARS.filter(
+    (name) => typeof env[name] !== "string" || !env[name].trim(),
+  );
+}
+
 function requireEnv(name, { fallback } = {}) {
   const value = process.env[name] ?? fallback;
   if (typeof value !== "string" || !value.trim()) {
@@ -18,4 +27,4 @@ function requireChoice(name, allowedValues, { fallback } = {}) {
   return value;
 }
 
-module.exports = { requireEnv, requireChoice };
+module.exports = { getMissingRequiredEnv, requireEnv, requireChoice };

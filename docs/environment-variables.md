@@ -12,8 +12,8 @@ codebase is listed, along with its type, default, required status, and example.
 
 | Variable | Type | Default | Description | Validation | Example |
 |---|---|---|---|---|---|
-| `DATABASE_URL` | `string` | — | PostgreSQL connection string used by the API and migrations. | Must be a valid PostgreSQL URL. Startup crashes if unset (`requireEnv`). | `postgresql://user:pass@localhost:5432/marketpay` |
-| `JWT_SECRET` | `string` | — | Signing key for auth tokens. | Must be a non-empty string. Startup crashes if unset (`process.exit(1)` in `auth.js`). | `4c9d0f7d6f4f4c0f8d1b3b...` |
+| `DATABASE_URL` | `string` | — | PostgreSQL connection string used by the API and migrations. | Must be a valid PostgreSQL URL. Startup reports it with any other missing required variables. | `postgresql://user:pass@localhost:5432/marketpay` |
+| `JWT_SECRET` | `string` | — | Signing key for auth tokens. | Must be a non-empty string. Startup reports it with any other missing required variables. | `4c9d0f7d6f4f4c0f8d1b3b...` |
 | `CSRF_SECRET` | `string` | `JWT_SECRET` (dev) / — (prod) | HMAC secret for signing `csrf-token` double-submit cookies. | **Required in production** — startup crashes if unset (`process.exit(1)` in `csrf.js`). Falls back to `JWT_SECRET` in dev/CI only. | `random-hmac-secret` |
 
 ### Network & Stellar
@@ -201,7 +201,7 @@ These variables are only read in test files and are not required at runtime:
 
 | Rule | Location |
 |---|---|
-| Backend startup fails fast when `DATABASE_URL` or `JWT_SECRET` are missing. | `backend/src/db/pool.js`, `backend/src/middleware/auth.js` |
+| Backend startup fails fast with one message listing any missing `DATABASE_URL` or `JWT_SECRET`. Validation is skipped in `NODE_ENV=test` for Jest. | `backend/src/server.js` (via `backend/src/config/env.js`) |
 | `STELLAR_NETWORK` must be `testnet` or `mainnet`; startup fails if set to an invalid value. | `backend/src/server.js` (via `requireChoice`) |
 | `CSRF_SECRET` is required in `NODE_ENV=production`; startup crashes if unset. | `backend/src/middleware/csrf.js` |
 | `DATABASE_ENCRYPTION_KEY` must be at least 16 characters when used; runtime error otherwise. | `backend/src/services/encryptionService.js` |
