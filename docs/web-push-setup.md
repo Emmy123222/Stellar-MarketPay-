@@ -10,6 +10,7 @@ Web Push notifications allow users to receive notifications even when the browse
 - Dispute notifications
 - Job invitations
 - Direct messages
+- Price alerts (when target XLM thresholds are reached)
 
 ## Backend Setup
 
@@ -175,6 +176,15 @@ The notification service automatically sends push notifications for important ev
 - `DISPUTE_OPENED`: Dispute was opened
 - `JOB_INVITED`: Invited to a job
 - `NEW_MESSAGE`: New message received
+- `price_alert`: Price alert triggered when XLM crosses target threshold
+
+### Multi-Channel Notification Semantics (Push, WebSocket, Email)
+
+Web Push operates alongside other notification channels in Stellar MarketPay:
+- **In-App Notifications**: Stored in PostgreSQL (`notifications` table) and shown in the UI notification bell.
+- **WebSocket Broadcasts**: Pushed in real-time to active browser sessions (e.g., `price:alert` events).
+- **Web Push (VAPID)**: Delivers OS-level notifications even when the browser tab is closed (configured in this document).
+- **Email (SMTP)**: Dispatches notification emails for price alerts, weekly digests, and account updates. Configured via `SMTP_HOST`, `SMTP_USER`, and `SMTP_PASS` in `backend/.env` (see [environment-variables.md](environment-variables.md#email-smtp--notifications)). When SMTP credentials are unset, email delivery silently no-ops, while Web Push, WebSocket, and in-app notifications continue to function normally.
 
 ### Example: Sending a Push Notification
 

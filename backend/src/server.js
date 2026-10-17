@@ -159,7 +159,7 @@ const priceAlertService = new PriceAlertService({
   sendEmail: async ({ to, subject, text }) => {
     if (!smtpTransport || !to) return;
     await smtpTransport.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      from: process.env.SMTP_FROM || process.env.EMAIL_FROM || process.env.SMTP_USER,
       to,
       subject,
       text,

@@ -78,15 +78,48 @@ codebase is listed, along with its type, default, required status, and example.
 | `WEBAUTHN_RP_NAME` | `string` | `Stellar MarketPay` | WebAuthn Relying Party display name. | — | `Stellar MarketPay` |
 | `WEBAUTHN_ORIGIN` | `string` | `http://localhost:3000` | WebAuthn allowed origin. | — | `https://app.marketpay.io` |
 
-### Email (SMTP)
+### Email (SMTP) & Notifications
 
 | Variable | Type | Default | Description | Validation | Example |
 |---|---|---|---|---|---|
-| `SMTP_HOST` | `string` | — | SMTP host for email notifications (weekly digest, job alerts, verification). | Required when email features are enabled. | `smtp.mailgun.org` |
-| `SMTP_PORT` | `number` | `587` | SMTP port. | — | `587` |
-| `SMTP_USER` | `string` | — | SMTP username. | Required when email features are enabled. | `postmaster@example.com` |
-| `SMTP_PASS` | `string` | — | SMTP password. | Required when email features are enabled. | `secret` |
-| `SMTP_FROM` | `string` | `SMTP_USER` | Sender address for outbound mail. | — | `noreply@example.com` |
+| `SMTP_HOST` | `string` | — | SMTP host for outbound emails (weekly digest, price alerts, job notifications, verification). | Required to enable SMTP transport. When unset, all email operations silently no-op. | `smtp.mailgun.org` |
+| `SMTP_PORT` | `number` | `587` | SMTP port (587 for STARTTLS, 465 for SSL/TLS). | Numerical port. | `587` |
+| `SMTP_USER` | `string` | — | SMTP authentication username. | Required to enable SMTP transport. Also acts as fallback for `SMTP_FROM`. | `postmaster@example.com` |
+| `SMTP_PASS` | `string` | — | SMTP authentication password or API key. | Required to enable SMTP transport. | `secret` |
+| `SMTP_FROM` | `string` | `SMTP_USER` | Outbound sender address (display name and email). Falls back to `EMAIL_FROM`, then `SMTP_USER`. | Must be formatted as an email or `Name <email>`. | `MarketPay <notifications@marketpay.io>` |
+| `EMAIL_FROM` | `string` | `SMTP_FROM` | Alias for `SMTP_FROM` supported for backward compatibility in mailers. | — | `notifications@marketpay.io` |
+
+#### Silent Degradation & No-Op Semantics
+
+Email delivery in Stellar MarketPay is optional and conditionally initialized at startup (`backend/src/server.js`, `backend/src/utils/email.js`, and `backend/src/services/weeklyDigestService.js`):
+
+```javascript
+const smtpEnabled = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+```
+
+- **When all three credentials (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`) are present**:
+  `smtpTransport` is created via `nodemailer.createTransport` and active mail delivery is enabled.
+- **When any credential is unset or empty**:
+  `smtpEnabled` evaluates to `false` and `smtpTransport` is set to `null`.
+- **Silent Degradation Behavior (No Crash)**:
+  Backend startup **does not fail** when SMTP variables are missing. All services gracefully degrade without throwing errors or interrupting other operations:
+  - **Price Alert Service (`PriceAlertService`)**: When a user's price threshold is crossed, email dispatch is skipped (`if (!smtpTransport || !to) return`). Real-time WebSocket events (`price:alert`), in-app notifications, and browser Web Push notifications continue to trigger without disruption.
+  - **Weekly Digest (`weeklyDigestService`)**: Logs `SMTP credentials are not configured; skipping digest email send` and cleanly exits without throwing.
+  - **Notification Worker (`emailWorker.js`)**: Queue jobs encountering an unconfigured transport log a warning and mark jobs as skipped or completed without failing Bull queue execution.
+  - **Admin Weekly Reports (`adminReportService`)**: Persists PDF reports to S3 if configured, but skips the email transmission to `ADMIN_EMAIL`.
+
+#### Price Alert Configuration & Tuning
+
+The `PriceAlertService` (`backend/src/services/priceAlertService.js`) monitors Stellar (XLM) USD price movements and triggers alerts when thresholds are reached. While alerts use the SMTP configuration above for optional email alerts, the service operates with the following built-in tuning parameters:
+
+| Parameter | Setting / Default | Implementation | Operational Semantics |
+|---|---|---|---|
+| Price Source | CoinGecko Simple Price API | `https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd` | Fetches the current XLM/USD exchange rate. |
+| Polling Interval | `5 minutes` | `POLL_INTERVAL_MS = 5 * 60 * 1000` | Background interval that polls price data and checks active user thresholds. |
+| Alert Cooldown | `1 hour` | `ALERT_COOLDOWN_SQL = "INTERVAL '1 hour'"` | Cooldown window preventing repeated notifications if the price stays above/below a threshold. |
+| User Alert Limit | `20 active alerts` | `COUNT(*) FROM price_alerts WHERE user_address = $1 AND triggered = FALSE` | Maximum active (untriggered) alerts allowed per Stellar public key to prevent database bloat. |
+| Auto-Cleanup | `1 hour` post-trigger | `DELETE FROM price_alerts WHERE triggered = TRUE AND one_time = TRUE AND triggered_at < NOW() - INTERVAL '1 hour'` | Triggered one-time alerts are removed immediately upon firing or cleaned up after 1 hour. |
+| Notification Channels | Multi-channel | In-App + WebSocket + Web Push + Email | Emits real-time WebSocket events (`price:alert`), creates in-app database notifications, dispatches Web Push notifications, and sends email (if SMTP is configured and user enabled email notifications). |
 
 ### URLs & Base URLs
 
@@ -209,6 +242,7 @@ These variables are only read in test files and are not required at runtime:
 | `CLAUDE_API_KEY` is checked at runtime — API endpoints return 500 when unset and called. | `backend/src/routes/aiScorer.js`, `backend/src/services/aiService.js` |
 | Frontend contract calls fail fast when `NEXT_PUBLIC_CONTRACT_ID` is missing and mock mode is disabled. | `frontend/lib/stellar.ts` |
 | `CONTRACT_ID` is required by the indexer; falls back to `ESCROW_CONTRACT_ID`, then `NEXT_PUBLIC_CONTRACT_ID`. | `backend/src/services/indexerService.js`, `backend/src/services/sorobanEvidence.js` |
+| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` are optional; if omitted, email delivery silently no-ops without failing startup. | `backend/src/server.js`, `backend/src/utils/email.js`, `backend/src/services/weeklyDigestService.js` |
 
 ## Migration from Legacy Variables
 
@@ -219,3 +253,4 @@ The following renames are in progress. Old names still work but will be removed 
 | `ESCROW_CONTRACT_ID` | `CONTRACT_ID` | `indexerService.js`, `sorobanEvidence.js` |
 | `DATABASE_POOL_SIZE` | `DATABASE_POOL_MAX` | `routes/health.js` |
 | `STELLAR_RPC_URL` | `SOROBAN_RPC_URL` | `sorobanEvidence.js` |
+| `EMAIL_FROM` | `SMTP_FROM` | `backend/src/utils/email.js`, `backend/src/services/weeklyDigestService.js`, `backend/src/server.js` |

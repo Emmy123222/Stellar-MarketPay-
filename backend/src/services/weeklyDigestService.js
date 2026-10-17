@@ -321,7 +321,7 @@ async function sendDigestMessage(payload, sendEmailFn) {
   });
 
   return transport.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    from: process.env.SMTP_FROM || process.env.EMAIL_FROM || process.env.SMTP_USER,
     ...payload,
   });
 }
