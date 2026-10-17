@@ -16,6 +16,7 @@
  * middleware of its own, so there are no 401/403 cases to cover here.
  */
 
+// Mock the database pool before requiring any module that depends on it
 jest.mock("../db/pool", () => {
   const { createPgMock } = require("../testUtils/pgMock");
   return createPgMock();
@@ -24,23 +25,14 @@ jest.mock("../db/pool", () => {
 const pool = require("../db/pool");
 const { defaultOnboardingRow } = require("../testUtils/pgMock");
 
-const express = require("express");
+// Exercise the router through the real application instance so that mounting
+// in src/server.js is covered by these integration tests.
 const request = require("supertest");
-const onboardingRoutes = require("./onboarding");
+const app = require("../server");
 
-// Setup minimal Express test application
-const app = express();
-app.use(express.json());
-app.use("/api/onboarding", onboardingRoutes);
 
-// Structured error handler
-app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
-  const status = err.statusCode || err.status || 500;
-  res.status(status).json({
-    error: err.message,
-    code: err.code || "INTERNAL_ERROR",
-  });
-});
+// The onboarding router is mounted at /api/onboarding in src/server.js.
+// These tests exercise it through the real app instance.
 
 // Test Stellar Public Key (valid 56-char G... address generated synthetically)
 const VALID_PUBLIC_KEY = "G" + "A".repeat(55);
