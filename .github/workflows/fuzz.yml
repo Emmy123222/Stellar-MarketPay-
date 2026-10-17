@@ -35,6 +35,7 @@ jobs:
           - fuzz_create_escrow
           - fuzz_release_escrow
           - fuzz_timeout_refund
+          - fuzz_milestone_release
     defaults:
       run:
         working-directory: contracts/marketpay-contract/fuzz

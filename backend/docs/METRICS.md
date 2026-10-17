@@ -13,6 +13,10 @@ The table below lists all custom application metrics exported by the backend API
 | `http_requests_total`                                | Counter   | `method`, `route`, `status_code` | Total HTTP requests handled by the API                                          |
 | `http_request_duration_ms`                           | Histogram | `method`, `route`, `status_code` | HTTP request duration in **milliseconds**                                       |
 | `active_websocket_connections`                       | Gauge     | `channel`                        | Currently open WebSocket connections per channel                                |
+| `active_websocket_rooms`                             | Gauge     | `channel`                        | Currently active WebSocket rooms or scoped sessions per channel                 |
+| `websocket_replayed_messages_total`                  | Counter   | _None_                           | Total missed notifications replayed to reconnecting WebSocket clients           |
+| `queue_depth`                                        | Gauge     | `queue`, `status`                | Current Bull queue depth by queue and status (`waiting`, `active`, `delayed`, `failed`) |
+| `queue_jobs_total`                                   | Counter   | `queue`, `status`                | Total processed Bull queue jobs by queue and terminal status (`completed`, `failed`) |
 | `pool_queries_total`                                 | Counter   | `operation`, `status`            | Total PostgreSQL queries executed through the shared pool                       |
 | `pool_query_duration_ms`                             | Histogram | `operation`, `status`            | PostgreSQL pool query latency in **milliseconds**                               |
 | `marketpay_db_connections`                           | Gauge     | `state`                          | Current PostgreSQL pool connection counts by state (`total`, `idle`, `waiting`) |
@@ -104,6 +108,33 @@ The table below lists all custom application metrics exported by the backend API
   - **Connection rate of change (derivative over 5m)**:
     ```promql
     sum(deriv(active_websocket_connections{job="marketpay-backend"}[5m]))
+    ```
+
+#### `active_websocket_rooms`
+
+- **Type**: `Gauge`
+- **Description**: Number of active dynamic rooms (e.g. topic rooms on realtime channel) and scoped collaboration sessions on `/ws/scope/:id`.
+- **Labels**:
+  - `channel`: Channel namespace (`realtime`, `scope`).
+- **Example PromQL Queries**:
+  - **Active rooms by channel**:
+    ```promql
+    active_websocket_rooms{job="marketpay-backend"}
+    ```
+  - **Total active rooms across all channels**:
+    ```promql
+    sum(active_websocket_rooms{job="marketpay-backend"})
+    ```
+
+#### `websocket_replayed_messages_total`
+
+- **Type**: `Counter`
+- **Description**: Total number of historical notifications replayed to reconnecting clients when they reconnect with a valid user session.
+- **Labels**: _None_
+- **Example PromQL Queries**:
+  - **Replay delivery rate (msgs/sec over 5m)**:
+    ```promql
+    sum(rate(websocket_replayed_messages_total{job="marketpay-backend"}[5m]))
     ```
 
 ---
@@ -229,6 +260,40 @@ Database metrics are instrumented through the shared PostgreSQL connection pool 
   - **Backlog growth rate (derivative over 5m)**:
     ```promql
     deriv(notification_queue_pending{job="marketpay-backend"}[5m])
+    ```
+
+#### `queue_depth`
+
+- **Type**: `Gauge`
+- **Description**: Real-time count of jobs residing in Bull queues (`emailQueue`, `auditQueue`, `linkVerificationQueue`), partitioned by status.
+- **Labels**:
+  - `queue`: Queue identifier (`email`, `audit`, `linkVerification`).
+  - `status`: Job status (`waiting`, `active`, `delayed`, `failed`).
+- **Example PromQL Queries**:
+  - **Total actionable backlog (waiting + active jobs)**:
+    ```promql
+    sum(queue_depth{job="marketpay-backend",status=~"waiting|active"})
+    ```
+  - **Failed jobs by queue**:
+    ```promql
+    queue_depth{job="marketpay-backend",status="failed"}
+    ```
+
+#### `queue_jobs_total`
+
+- **Type**: `Counter`
+- **Description**: Cumulative number of Bull queue jobs that reached a terminal status (`completed` or `failed`).
+- **Labels**:
+  - `queue`: Queue identifier (`email`, `audit`, `linkVerification`).
+  - `status`: Terminal result (`completed`, `failed`).
+- **Example PromQL Queries**:
+  - **Job processing rate across all queues (jobs/sec)**:
+    ```promql
+    sum(rate(queue_jobs_total{job="marketpay-backend"}[5m]))
+    ```
+  - **Queue failure rate percentage**:
+    ```promql
+    100 * sum(rate(queue_jobs_total{job="marketpay-backend",status="failed"}[5m])) / clamp_min(sum(rate(queue_jobs_total{job="marketpay-backend"}[5m])), 0.001)
     ```
 
 ---
@@ -401,10 +466,22 @@ The repository includes ready-to-use Prometheus scrape jobs, alerting rules, and
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `monitoring/prometheus/prometheus.yml`                         | Scrape job configuration targeting `backend:4000/metrics` every 15s                    |
 | `monitoring/prometheus/rules/alerts.yml`                       | Prometheus alert definitions (p99 latency, 5xx error rate, pool exhaustion, WS spikes) |
-| `monitoring/grafana/dashboards/marketpay-backend-metrics.json` | Comprehensive Grafana dashboard (uid `marketpay-backend-metrics`)                      |
-| `monitoring/grafana/dashboards/marketpay-overview.json`        | High-level system overview dashboard                                                   |
+| `monitoring/grafana/dashboards/marketpay-backend-metrics.json`        | Comprehensive Grafana dashboard (uid `marketpay-backend-metrics`)                      |
+| `monitoring/grafana/dashboards/marketpay-websocket-queue-metrics.json` | Dedicated dashboard for realtime WebSockets, rooms, replay volume and Bull queues (uid `marketpay-websocket-queue-metrics`) |
+| `monitoring/grafana/dashboards/marketpay-overview.json`               | High-level system overview dashboard                                                   |
 
 Grafana automatically provisions dashboards placed in `monitoring/grafana/dashboards`.
+
+### WebSocket & Queue Metrics Dashboard Preview
+
+![MarketPay WebSocket & Queue Metrics Dashboard](./images/grafana-ws-queue-dashboard.jpg)
+
+**Dashboard Panels & Covered Signals:**
+- **Realtime & Scope Connection Counts**: Gauges and timeseries for active sockets on `/ws/realtime` and `/ws/scope/:id`.
+- **Active WebSocket Rooms**: Room counts for dynamic topic subscriptions and scope sessions.
+- **Replay Message Rate & Volume**: Measures missed notification replays upon client reconnect.
+- **Bull Queue Depth**: Breakdown of jobs across `email`, `audit`, and `linkVerification` queues by status (`waiting`, `active`, `delayed`, `failed`).
+- **Queue Throughput & Failure Rate**: Job process rates, failure rate percentage stat, and failure spikes by queue.
 
 ---
 

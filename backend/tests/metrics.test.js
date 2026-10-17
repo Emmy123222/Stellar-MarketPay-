@@ -264,6 +264,42 @@ describe("Prometheus metrics", () => {
       const legacy = await metrics.legacyWsConnectionsActive.get();
       expect(legacy.values[0].value).toBe(11);
     });
+
+    describe("setWebsocketRooms", () => {
+      it("sets the room gauge per channel", async () => {
+        metrics.setWebsocketRooms("realtime", 4);
+        metrics.setWebsocketRooms("scope", 7);
+        const data = await metrics.activeWebsocketRooms.get();
+        const realtime = data.values.find((v) => v.labels.channel === "realtime");
+        const scope = data.values.find((v) => v.labels.channel === "scope");
+        expect(realtime.value).toBe(4);
+        expect(scope.value).toBe(7);
+      });
+    });
+
+    describe("recordWebsocketReplay", () => {
+      it("increments the replayed messages counter", async () => {
+        const before = (await metrics.websocketReplayedMessagesTotal.get()).values[0]?.value || 0;
+        metrics.recordWebsocketReplay(3);
+        const after = (await metrics.websocketReplayedMessagesTotal.get()).values[0]?.value || 0;
+        expect(after).toBe(before + 3);
+      });
+    });
+
+    describe("queue metrics helpers", () => {
+      it("sets queue depth and records processed jobs", async () => {
+        metrics.setQueueDepth("email", "waiting", 12);
+        metrics.setQueueDepth("email", "failed", 2);
+        const depth = await metrics.queueDepth.get();
+        const waiting = depth.values.find((v) => v.labels.queue === "email" && v.labels.status === "waiting");
+        expect(waiting.value).toBe(12);
+
+        metrics.recordQueueJob("email", "completed");
+        const jobs = await metrics.queueJobsTotal.get();
+        const completed = jobs.values.find((v) => v.labels.queue === "email" && v.labels.status === "completed");
+        expect(completed.value).toBeGreaterThanOrEqual(1);
+      });
+    });
   });
 });
 
@@ -476,6 +512,48 @@ describe("monitoring configuration", () => {
     });
   });
 
+  describe("Grafana WebSocket & queue metrics dashboard", () => {
+    const file = path.join(
+      MONITORING,
+      "grafana",
+      "dashboards",
+      "marketpay-websocket-queue-metrics.json",
+    );
+
+    it("exists and is valid JSON", () => {
+      expect(fs.existsSync(file)).toBe(true);
+      expect(() => JSON.parse(fs.readFileSync(file, "utf8"))).not.toThrow();
+    });
+
+    it("has the required dashboard fields", () => {
+      const dash = JSON.parse(fs.readFileSync(file, "utf8"));
+      expect(dash.uid).toBe("marketpay-websocket-queue-metrics");
+      expect(typeof dash.title).toBe("string");
+      expect(Array.isArray(dash.panels)).toBe(true);
+      expect(dash.panels.length).toBeGreaterThan(0);
+      expect(typeof dash.schemaVersion).toBe("number");
+    });
+
+    it("gives every panel a unique id and a grid position", () => {
+      const dash = JSON.parse(fs.readFileSync(file, "utf8"));
+      const ids = dash.panels.map((p) => p.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      for (const panel of dash.panels) {
+        expect(panel.gridPos).toBeDefined();
+        expect(typeof panel.gridPos.w).toBe("number");
+      }
+    });
+
+    it("charts connection counts, room counts, replay volume, and queue depth", () => {
+      const raw = fs.readFileSync(file, "utf8");
+      expect(raw).toContain("active_websocket_connections");
+      expect(raw).toContain("active_websocket_rooms");
+      expect(raw).toContain("websocket_replayed_messages_total");
+      expect(raw).toContain("queue_depth");
+      expect(raw).toContain("queue_jobs_total");
+    });
+  });
+
   describe("METRICS.md documentation", () => {
     const metricsDoc = path.join(__dirname, "..", "docs", "METRICS.md");
     const readmeFile = path.join(REPO_ROOT, "README.md");
@@ -506,6 +584,10 @@ describe("monitoring configuration", () => {
         "marketpay_http_requests_total",
         "marketpay_http_request_duration_seconds",
         "ws_connections_active",
+        "active_websocket_rooms",
+        "websocket_replayed_messages_total",
+        "queue_depth",
+        "queue_jobs_total",
       ];
       for (const name of expectedMetrics) {
         expect(content).toContain(`\`${name}\``);
