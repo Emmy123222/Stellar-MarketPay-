@@ -50,7 +50,7 @@ function handleGraphQL(req, res) {
   let document;
   try {
     document = parse(query);
-  } catch (syntaxError) {
+  } catch (syntayError) {
     res.status(400).json({ errors: [{ message: syntaxError.message }] });
     return;
   }
