@@ -198,7 +198,7 @@ Message bodies are end-to-end encrypted; see [messaging-encryption.md](messaging
 
 ## Notifications
 
-Push notifications use VAPID web push; see [web-push-setup.md](web-push-setup.md).
+Push notifications use VAPID web push; see the notification endpoints below.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -464,6 +464,8 @@ Collaborative scope session management.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| POST | `/api/scope` | Create a collaborative scope session (returns `sessionId` + `sharePath`) |
+| POST | `/api/scope/:sessionId/finalize` | Lock a scope session when its proposal is submitted |
 | POST | `/api/scope/:sessionId/renew` | Extend a scope session by 24 hours |
 
 ---

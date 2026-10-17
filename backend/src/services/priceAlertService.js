@@ -6,6 +6,16 @@ const { createInAppNotification } = require("./notificationService");
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 const ALERT_COOLDOWN_SQL = "INTERVAL '1 hour'";
 
+function crossedThreshold(previousPrice, currentPrice, condition, threshold) {
+  const previous = previousPrice == null ? null : Number(previousPrice);
+  const current = Number(currentPrice);
+  const limit = Number(threshold);
+  if (!Number.isFinite(current) || !Number.isFinite(limit)) return false;
+  if (condition === "above") return current > limit && (previous === null || previous <= limit);
+  if (condition === "below") return current < limit && (previous === null || previous >= limit);
+  return false;
+}
+
 function validatePublicKey(key) {
   if (!key || !/^G[A-Z0-9]{55}$/.test(key)) {
     const e = new Error("Invalid Stellar public key");
@@ -154,6 +164,7 @@ class PriceAlertService {
     this.broadcast = broadcast;
     this.sendEmail = sendEmail;
     this.interval = null;
+    this.previousPriceUsd = null;
   }
 
   async fetchXlmPriceUsd() {
@@ -195,14 +206,19 @@ class PriceAlertService {
       "SELECT * FROM price_alerts WHERE triggered = FALSE"
     );
     for (const alert of activeAlerts) {
-      const shouldTrigger =
-        (alert.condition === 'above' && currentPriceUsd > Number(alert.threshold)) ||
-        (alert.condition === 'below' && currentPriceUsd < Number(alert.threshold));
+      const shouldTrigger = crossedThreshold(
+        this.previousPriceUsd,
+        currentPriceUsd,
+        alert.condition,
+        alert.threshold,
+      );
 
       if (shouldTrigger) {
         await this.handleNewAlertTrigger(alert, currentPriceUsd);
       }
     }
+
+    this.previousPriceUsd = currentPriceUsd;
 
     // Clean up any triggered one-time alerts that weren't deleted
     try {
@@ -265,7 +281,11 @@ class PriceAlertService {
   }
 
   async handleTrigger(pref, kind, currentPriceUsd, threshold) {
+    const allowedFields = new Set(["last_min_alert_at", "last_max_alert_at"]);
     const field = kind === "min" ? "last_min_alert_at" : "last_max_alert_at";
+    if (!allowedFields.has(field)) {
+      throw new Error("Invalid alert field");
+    }
     await pool.query(`UPDATE price_alert_preferences SET ${field} = NOW(), updated_at = NOW() WHERE freelancer_address = $1`, [
       pref.freelancer_address,
     ]);
@@ -315,6 +335,7 @@ class PriceAlertService {
 module.exports = {
   POLL_INTERVAL_MS,
   ALERT_COOLDOWN_SQL,
+  crossedThreshold,
   upsertPriceAlertPreference,
   getPriceAlertPreference,
   createPriceAlert,

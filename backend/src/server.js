@@ -1,12 +1,15 @@
+
+Server · JS
+/* global userAddress, userLastSeen, userClients, setWebsocketConnections, broadcastToUser, createServiceLogger, sendEmail, logError, startEscrowTimeoutChecker, refreshWsMetrics, startNotificationProcessor, startAdminReportScheduler, startWeeklyDigestScheduler, startPurgeDeletedRecords, startRecurringEscrowTicker */
 /* eslint-disable */
 /**
  * src/server.js
  * Stellar MarketPay — Express API server
  */
 "use strict";
-
+ 
 require("dotenv").config();
-
+ 
 const http = require("http");
 const express = require("express");
 const cors = require("cors");
@@ -23,7 +26,6 @@ const applicationRoutes = require("./routes/applications");
 const profileRoutes     = require("./routes/profiles");
 const escrowRoutes      = require("./routes/escrow");
 const healthRoutes      = require("./routes/health");
-const pingRoutes        = require("./routes/ping");
 const authRoutes        = require("./routes/auth");
 const ratingRoutes      = require("./routes/ratings");
 const progressRoutes    = require("./routes/progress");
@@ -31,24 +33,33 @@ const eventRoutes       = require("./routes/events");
 const statsRoutes       = require("./routes/stats");
 const contributorRoutes = require("./routes/contributors");
 const verificationRoutes = require("./routes/verification");
-const nftRoutes          = require("./routes/nft");
-const aiScorerRoutes     = require("./routes/aiScorer");
+const nftRoutes         = require("./routes/nft");
+const aiScorerRoutes    = require("./routes/aiScorer");
+ 
 const gasEstimatorRoutes = require("./routes/gasEstimator");
 const transactionRoutes  = require("./routes/transactions");
 const daoRoutes          = require("./routes/dao");
 const proposalTemplateRoutes = require("./routes/proposalTemplates");
-const priceAlertRoutes   = require("./routes/priceAlerts");
-const turretRoutes       = require("./routes/turrets");
-const referralRoutes     = require("./routes/referrals");
-const reputationRoutes   = require("./routes/reputation");
-const autoConvertRoutes  = require("./routes/autoConvert");
+const priceAlertRoutes     = require("./routes/priceAlerts");
+ 
+const turretRoutes         = require("./routes/turrets");
+const referralRoutes       = require("./routes/referrals");
+const reputationRoutes     = require("./routes/reputation");
+const autoConvertRoutes    = require("./routes/autoConvert");
+const talentPoolRoutes     = require("./routes/talentPool");
+const invitationRoutes     = require("./routes/invitations");
+ 
+const migrate           = require("./db/migrate");
+const IndexerService    = require("./services/indexerService");
+const { PriceAlertService } = require("./services/priceAlertService");
+const pool              = require("./db/pool");
+const anchorRoutes        = require("./routes/anchors");
 const scopeRoutes        = require("./routes/scope");
 const analyticsRoutes    = require("./routes/analytics");
-
-const migrate               = require("./db/migrate");
-const IndexerService        = require("./services/indexerService");
-const { PriceAlertService } = require("./services/priceAlertService");
-const pool                  = require("./db/pool");
+const searchRoutes       = require("./routes/search");
+ 
+const { setWebsocketConnections } = require("./metrics");
+const { startEscrowTimeoutChecker } = require("./services/escrowService");
 const { scheduleStatsRefresh } = require("./services/statsService");
 const { startPushSubscriptionPurge } = require("./services/pushSubscriptionService");
 const { startLinkVerificationScheduler } = require("./services/linkVerificationScheduler");
@@ -57,10 +68,8 @@ const { setWebsocketConnections } = require("./metrics");
 
 // Start workers
 require("./workers/auditWorker");
-require("./workers/linkVerificationWorker");
-
+ 
 const app  = express();
-app.set("trust proxy", 1);
 const PORT = process.env.PORT || 4000;
 const server = http.createServer(app);
 const WS_OPEN = 1;
@@ -71,7 +80,37 @@ const userClients = new Map();
 const userLastSeen = new Map();
 const realtimeRooms = new Map();
 const scopeSessionClients = new Map();
-
+ 
+function subscribeRealtime(ws, roomId) {
+  if (typeof roomId !== "string" || !/^(job|user):[^\s:]+$/.test(roomId)) return;
+  if (!realtimeRooms.has(roomId)) realtimeRooms.set(roomId, new Set());
+  realtimeRooms.get(roomId).add(ws);
+  ws.realtimeRooms.add(roomId);
+}
+ 
+function unsubscribeRealtime(ws) {
+  for (const roomId of ws.realtimeRooms || []) {
+    const room = realtimeRooms.get(roomId);
+    room?.delete(ws);
+    if (room && room.size === 0) realtimeRooms.delete(roomId);
+  }
+  ws.realtimeRooms?.clear();
+}
+ 
+function eventRooms(payload) {
+  if (!payload || typeof payload !== "object") return [];
+  const rooms = new Set();
+  const jobId = payload.jobId ?? payload.job_id;
+  const userAddress = payload.userAddress ?? payload.user_address ?? payload.userId;
+  if (jobId !== undefined && jobId !== null) rooms.add(`job:${jobId}`);
+  if (typeof userAddress === "string" && userAddress) rooms.add(`user:${userAddress}`);
+  if (Array.isArray(payload.rooms)) {
+    for (const roomId of payload.rooms) if (typeof roomId === "string") rooms.add(roomId);
+  }
+  if (typeof payload.roomId === "string") rooms.add(payload.roomId);
+  return [...rooms];
+}
+ 
 function broadcastRealtime(event, payload) {
   const message = JSON.stringify({ event, payload, timestamp: Date.now() });
   for (const ws of realtimeClients) {
@@ -108,13 +147,13 @@ const {
   cleanupExpiredScopeSessions,
   MAX_CONTENT_LENGTH,
 } = require("./routes/scope");
-
+ 
 setInterval(() => {
   cleanupExpiredScopeSessions().catch((err) => {
     console.error("[scope] cleanup failed:", err.message);
   });
 }, 60 * 60 * 1000).unref();
-
+ 
 const indexerService = new IndexerService({
   platformWallet: process.env.PLATFORM_WALLET_ADDRESS,
   horizonUrl: process.env.HORIZON_URL,
@@ -144,15 +183,15 @@ const priceAlertService = new PriceAlertService({
     });
   },
 });
-
+ 
 app.locals.indexerService = indexerService;
 app.locals.broadcastRealtime = broadcastRealtime;
-
+ 
 // Middleware
 app.use(helmet());
 app.use(morgan("dev"));
 app.use(express.json({ limit: "20kb" }));
-
+ 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").split(",").map(o => o.trim());
 app.use(cors({
   origin: (origin, cb) => (!origin || allowedOrigins.includes(origin)) ? cb(null, true) : cb(new Error("CORS blocked")),
@@ -160,12 +199,11 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
 }));
-
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 150, standardHeaders: true, legacyHeaders: true, keyGenerator: (req) => req.ip }));
-
+ 
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 150, standardHeaders: true, legacyHeaders: true }));
+ 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use("/health",            healthRoutes);
-app.use("/ping",              pingRoutes);
 app.use("/api/auth",          authRoutes);
 app.use("/api/jobs",          jobRoutes);
 app.use("/api/applications",  applicationRoutes);
@@ -179,73 +217,65 @@ app.use("/api/contributors",  contributorRoutes);
 app.use("/api/verification",  verificationRoutes);
 app.use("/api/nft",           nftRoutes);
 app.use("/api/ai-scorer",     aiScorerRoutes);
-
+app.use("/api/anchors",       anchorRoutes);
+ 
 app.get("/api/indexer/health", (req, res) => {
   res.json({
     status: "ok",
     indexer: indexerService.getHealth(),
   });
 });
-app.use("/api/scope",             scopeRoutes);
-app.use("/api/gas-estimate",      gasEstimatorRoutes);
-app.use("/api/transactions",      transactionRoutes);
-app.use("/api/dao",               daoRoutes);
+app.use("/api/contributors",    contributorRoutes);
+app.use("/api/gas-estimate",    gasEstimatorRoutes);
+app.use("/api/transactions",   transactionRoutes);
+app.use("/api/dao",            daoRoutes);
 app.use("/api/proposal-templates", proposalTemplateRoutes);
 app.use("/api/price-alerts",      priceAlertRoutes);
+app.use("/api/ai",                aiScorerRoutes);
+app.use("/api/scope",             scopeRoutes);
 app.use("/api/turrets",           turretRoutes);
 app.use("/api/referrals",         referralRoutes);
 app.use("/api/reputation",        reputationRoutes);
 app.use("/api/auto-convert",      autoConvertRoutes);
+app.use("/api/talent-pools",      talentPoolRoutes);
+app.use("/api/invitations",       rateLimit({ windowMs: 60_000, max: 20 }), invitationRoutes);
 app.use("/api/analytics",         analyticsRoutes);
-
+app.use("/api/search",            searchRoutes);
+ 
 // 404 handler — must come after all routes
 app.use((req, res) => {
   res.status(404).json({ error: "Not found", code: "NOT_FOUND" });
 });
-
+ 
 app.use((err, req, res, _next) => {
   console.error("[Error]", err.message);
-
+ 
   res.status(err.status || 500).json({
     error: err.message || "Internal server error",
   });
 });
-
-function parseWsCookies(cookieHeader) {
-  return String(cookieHeader || "")
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .reduce((cookies, part) => {
-      const separatorIndex = part.indexOf("=");
-      if (separatorIndex === -1) return cookies;
-      const name = part.slice(0, separatorIndex);
-      const value = part.slice(separatorIndex + 1);
-      cookies[name] = decodeURIComponent(value);
-      return cookies;
-    }, {});
-}
-
-function getWsToken(request) {
-  const cookies = parseWsCookies(request.headers.cookie);
-  if (cookies.token) return cookies.token;
-  const url = new URL(request.url, `http://${request.headers.host}`);
-  return url.searchParams.get("token") || null;
-}
-
+ 
 const wsServer = new WebSocketServer({ noServer: true });
-
+ 
 function sendJson(ws, event, payload) {
   if (ws.readyState === WS_OPEN) {
     ws.send(JSON.stringify({ event, payload }));
   }
 }
-
+ 
 function getScopeSessionSet(sessionId) {
   if (!scopeSessionClients.has(sessionId)) scopeSessionClients.set(sessionId, new Set());
   return scopeSessionClients.get(sessionId);
 }
-
+ 
+/** Publish current WebSocket connection counts to the metrics registry. */
+function refreshWsMetrics() {
+  let scopeConnections = 0;
+  for (const clients of scopeSessionClients.values()) scopeConnections += clients.size;
+  setWebsocketConnections("scope", scopeConnections);
+  setWebsocketConnections("realtime", realtimeClients.size);
+}
+ 
 server.on("upgrade", (request, socket, head) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
   if (url.pathname === "/ws/realtime" || url.pathname.startsWith("/ws/scope/")) {
@@ -256,23 +286,22 @@ server.on("upgrade", (request, socket, head) => {
   }
   socket.destroy();
 });
-
+ 
 wsServer.on("connection", async (ws, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
-
+ 
   if (url.pathname === "/ws/realtime") {
-    const token = getWsToken(request);
+    const token = url.searchParams.get("token");
     let userAddress = null;
     if (token) {
       try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        userAddress = decoded.publicKey;
-        ws.user = decoded;
+        userAddress = jwt.verify(token, process.env.JWT_SECRET).publicKey || null;
       } catch {
-        ws.close(4001, "Unauthorized: Invalid or expired token");
-        return;
+        // Anonymous realtime subscriptions remain supported.
       }
     }
+    ws.realtimeRooms = new Set();
+    realtimeClients.add(ws);
     if (userAddress) {
       const existing = userClients.get(userAddress);
       if (existing && existing.size >= MAX_WS_CONNECTIONS_PER_USER) {
@@ -290,7 +319,11 @@ wsServer.on("connection", async (ws, request) => {
       sockets.add(ws);
       ws.userAddress = userAddress;
     }
-    realtimeClients.add(ws);
+    const requestedRooms = [
+      ...url.searchParams.getAll("room"),
+      ...(url.searchParams.get("rooms") || "").split(","),
+    ].map((roomId) => roomId.trim()).filter(Boolean);
+    requestedRooms.forEach((roomId) => subscribeRealtime(ws, roomId));
     sendJson(ws, "connected", { channel: "realtime" });
 
     ws.on("message", (raw) => {
@@ -368,9 +401,10 @@ wsServer.on("connection", async (ws, request) => {
         }
       } catch { /* non-fatal */ }
     }
-
+ 
     ws.on("close", () => {
       realtimeClients.delete(ws);
+      unsubscribeRealtime(ws);
       setWebsocketConnections("realtime", realtimeClients.size);
       if (ws.rooms) {
         for (const room of ws.rooms) {
@@ -383,6 +417,9 @@ wsServer.on("connection", async (ws, request) => {
       }
       if (userAddress) {
         userLastSeen.set(userAddress, new Date());
+      }
+ 
+      if (userAddress) {
         const sockets = userClients.get(userAddress);
         if (sockets) {
           sockets.delete(ws);
@@ -392,7 +429,7 @@ wsServer.on("connection", async (ws, request) => {
     });
     return;
   }
-
+ 
   if (url.pathname.startsWith("/ws/scope/")) {
     const sessionId = decodeURIComponent(url.pathname.replace("/ws/scope/", "")).trim();
     const participantId = (url.searchParams.get("participantId") || `anon-${Date.now()}`).slice(0, 64);
@@ -400,15 +437,16 @@ wsServer.on("connection", async (ws, request) => {
       ws.close(1008, "Invalid session id");
       return;
     }
-
+ 
     const clients = getScopeSessionSet(sessionId);
     clients.add(ws);
-
+    refreshWsMetrics();
+ 
     let session = await loadScopeSession(sessionId);
     if (!session) {
       session = await upsertScopeSession(sessionId, { content: "", cursors: {}, finalized: false });
     }
-
+ 
     sendJson(ws, "scope:init", {
       sessionId,
       participantId,
@@ -418,27 +456,17 @@ wsServer.on("connection", async (ws, request) => {
       finalizedPayload: session.finalized_payload || null,
       expiresAt: session.expires_at,
     });
-
+ 
     ws.on("message", async (raw) => {
       try {
         const message = JSON.parse(String(raw));
         if (!message || typeof message !== "object") return;
         if (message.type === "scope:update") {
-          if (
-            typeof message.content === "string" &&
-            message.content.length > MAX_CONTENT_LENGTH
-          ) {
-            sendJson(ws, "scope:error", {
-              error: `Payload Too Large: content length ${message.content.length} exceeds maximum limit of ${MAX_CONTENT_LENGTH} characters`,
-            });
-            return;
-          }
           const nextCursors = { ...(session.cursors || {}), ...(message.cursors || {}) };
           session = await upsertScopeSession(sessionId, {
             content: typeof message.content === "string" ? message.content : session.content,
             cursors: nextCursors,
             finalized: false,
-            finalizedHash: session.finalized_hash || null,
             finalizedPayload: session.finalized_payload || null,
           });
           for (const client of clients) {
@@ -446,13 +474,12 @@ wsServer.on("connection", async (ws, request) => {
               sessionId,
               content: session.content,
               cursors: session.cursors || {},
-              finalizedHash: session.finalized_hash || null,
               updatedAt: session.updated_at,
             });
           }
           return;
         }
-
+ 
         if (message.type === "scope:finalize") {
           const finalContent =
             typeof message.content === "string"
@@ -469,29 +496,27 @@ wsServer.on("connection", async (ws, request) => {
             .createHash("sha256")
             .update(finalContent)
             .digest("hex");
-
+ 
           session = await upsertScopeSession(sessionId, {
-            content: finalContent,
+            content: typeof message.content === "string" ? message.content : session.content,
             cursors: session.cursors || {},
             finalized: true,
-            finalizedHash: contentHash,
             finalizedPayload: message.payload || null,
           });
           for (const client of clients) {
             sendJson(client, "scope:finalized", {
               sessionId,
               content: session.content,
-              finalizedHash: contentHash,
               payload: session.finalized_payload || null,
               updatedAt: session.updated_at,
             });
           }
         }
       } catch (error) {
-        sendJson(ws, "scope:error", { error: error.message || "Invalid message payload" });
+        sendJson(ws, "scope:error", { error: "Invalid message payload" });
       }
     });
-
+ 
     ws.on("close", async () => {
       clients.delete(ws);
       if (!clients.size) scopeSessionClients.delete(sessionId);
@@ -514,26 +539,26 @@ wsServer.on("connection", async (ws, request) => {
     });
   }
 });
-
+ 
 async function bootstrap() {
   try {
   await migrate();
   await cleanupExpiredScopeSessions();
   await indexerService.start();
   priceAlertService.start();
-
-  // Issue #232 perf: start the 5-minute stats MV refresh cycle after migrations
-  scheduleStatsRefresh();
-
+ 
   // Start job expiry checker - run every hour
   startJobExpiryChecker();
-
+ 
+  // Start invitation cleanup job (purge expired / accepted / declined invitations)
+  const { startInvitationCleanup } = require("./services/invitationCleanupService");
+  startInvitationCleanup();
+  // Issue #232 perf: start the 5-minute stats MV refresh cycle after migrations
+  scheduleStatsRefresh();
+ 
   // Start daily purge of push subscriptions marked invalid (Issue #1438)
   startPushSubscriptionPurge();
-
-  // Start portfolio link verification scheduler - daily re-verify stale items
-  startLinkVerificationScheduler();
-
+ 
   server.listen(PORT, () => {
     console.log(`
   🏪 Stellar MarketPay API
@@ -546,14 +571,14 @@ async function bootstrap() {
     process.exit(1);
   }
 }
-
+ 
 /**
  * Periodically check for and expire old jobs (runs every hour).
  * Also sends warning notifications for jobs expiring within 3 days.
  */
 async function startJobExpiryChecker() {
   const { expireOldJobs, getExpiringJobs } = require("./services/jobService");
-
+ 
   // Run immediately on startup
   try {
     const expiredCount = await expireOldJobs();
@@ -563,7 +588,7 @@ async function startJobExpiryChecker() {
   } catch (err) {
     console.error("[job-expiry] Error on initial expiry check:", err.message);
   }
-
+ 
   // Schedule hourly checks
   setInterval(async () => {
     try {
@@ -571,7 +596,7 @@ async function startJobExpiryChecker() {
       if (expiredCount > 0) {
         console.log(`[job-expiry] Auto-expired ${expiredCount} old job(s)`);
       }
-
+ 
       // Check for expiring jobs within 3 days and broadcast warnings
       const expiringJobs = await getExpiringJobs(3);
       if (expiringJobs.length > 0) {
@@ -601,7 +626,7 @@ async function startNotificationProcessor() {
   const sendEmailFn = async ({ to, subject, text, html }) => {
     await sendEmail({ to, subject, text, html });
   };
-
+ 
   // Run immediately on startup
   try {
     const stats = await processPendingNotifications(sendEmailFn);
@@ -615,7 +640,7 @@ async function startNotificationProcessor() {
   } catch (err) {
     logError(notificationLogger, err, { operation: 'initial_notification_processing' });
   }
-
+ 
   // Schedule checks every 2 minutes
   setInterval(async () => {
     try {
@@ -632,7 +657,7 @@ async function startNotificationProcessor() {
     }
   }, 2 * 60 * 1000).unref();
 }
-
+ 
 /**
  * Periodically finalize expired API key rotations (runs every hour).
  * Keys in rotating state for more than 24 hours get their rotating_key_hash
@@ -641,7 +666,7 @@ async function startNotificationProcessor() {
 function startApiKeyRotationFinalizer() {
   const { finalizeExpiredRotations } = require("./services/developerService");
   const rotationLogger = createServiceLogger('api-key-rotation');
-
+ 
   async function checkAndFinalize() {
     try {
       const finalized = await finalizeExpiredRotations();
@@ -652,10 +677,10 @@ function startApiKeyRotationFinalizer() {
       logError(rotationLogger, err, { operation: 'api_key_rotation_finalizer' });
     }
   }
-
+ 
   setInterval(checkAndFinalize, 60 * 60 * 1000).unref();
 }
-
+ 
 /**
  * Schedule the weekly job-digest email for every Monday at 09:00 UTC.
  *
@@ -668,12 +693,12 @@ function startApiKeyRotationFinalizer() {
 function startWeeklyDigestScheduler() {
   const weeklyDigestService = require("./services/weeklyDigestService");
   const digestLogger = createServiceLogger("weekly-digest-scheduler");
-
+ 
   // Reuse the same sendEmail transport already wired for notifications
   const sendEmailFn = async ({ to, subject, text, html }) => {
     await sendEmail({ to, subject, text, html });
   };
-
+ 
   /**
    * Returns the number of milliseconds from now until the next
    * Monday at 09:00:00.000 UTC.  If today is already Monday and
@@ -682,21 +707,21 @@ function startWeeklyDigestScheduler() {
   function msUntilNextMonday9amUTC() {
     const now = new Date();
     const target = new Date(now);
-
+ 
     // getUTCDay(): 0=Sun, 1=Mon … 6=Sat
     const currentDay = now.getUTCDay();
     const daysUntilMonday = currentDay === 1 ? 0 : (8 - currentDay) % 7 || 7;
     target.setUTCDate(now.getUTCDate() + daysUntilMonday);
     target.setUTCHours(9, 0, 0, 0);
-
+ 
     // If we landed on today-Monday but the window has already passed, push 7 days
     if (target <= now) {
       target.setUTCDate(target.getUTCDate() + 7);
     }
-
+ 
     return target - now;
   }
-
+ 
   async function runDigest() {
     try {
       const stats = await weeklyDigestService.sendWeeklyDigest(sendEmailFn);
@@ -705,15 +730,15 @@ function startWeeklyDigestScheduler() {
       logError(digestLogger, err, { operation: "weekly_digest_run" });
     }
   }
-
+ 
   const delay = msUntilNextMonday9amUTC();
   const nextRun = new Date(Date.now() + delay);
-
+ 
   digestLogger.info(
     { nextRunUTC: nextRun.toISOString(), delayMs: delay },
     "Weekly digest scheduler armed"
   );
-
+ 
   // One-shot: fires at the exact next Monday 09:00 UTC
   setTimeout(async () => {
     await runDigest();
@@ -721,7 +746,7 @@ function startWeeklyDigestScheduler() {
     setInterval(runDigest, 7 * 24 * 60 * 60 * 1000).unref();
   }, delay).unref();
 }
-
+ 
 /**
  * Schedule the weekly admin PDF report for every Monday at 08:00 UTC
  * (one hour before the freelancer digest at 09:00 UTC).
@@ -732,11 +757,11 @@ function startWeeklyDigestScheduler() {
 function startAdminReportScheduler() {
   const { generateAndSendAdminReport } = require("./services/adminReportService");
   const reportLogger = createServiceLogger("admin-report-scheduler");
-
+ 
   const sendEmailFn = async (payload) => {
     await sendEmail(payload);
   };
-
+ 
   function msUntilNextMonday8amUTC() {
     const now = new Date();
     const target = new Date(now);
@@ -749,7 +774,7 @@ function startAdminReportScheduler() {
     }
     return target - now;
   }
-
+ 
   async function runReport() {
     try {
       const result = await generateAndSendAdminReport(sendEmailFn);
@@ -758,21 +783,21 @@ function startAdminReportScheduler() {
       logError(reportLogger, err, { operation: "weekly_admin_report" });
     }
   }
-
+ 
   const delay = msUntilNextMonday8amUTC();
   const nextRun = new Date(Date.now() + delay);
-
+ 
   reportLogger.info(
     { nextRunUTC: nextRun.toISOString(), delayMs: delay },
     "Admin report scheduler armed"
   );
-
+ 
   setTimeout(async () => {
     await runReport();
     setInterval(runReport, 7 * 24 * 60 * 60 * 1000).unref();
   }, delay).unref();
 }
-
+ 
 /**
  * Periodically purge soft-deleted jobs and profiles older than 90 days (runs daily).
  */
@@ -780,7 +805,7 @@ function startPurgeDeletedRecords() {
   const { purgeDeletedJobs } = require("./services/jobService");
   const { purgeDeletedProfiles } = require("./services/profileService");
   const purgeLogger = createServiceLogger("purge-deleted");
-
+ 
   async function purge() {
     try {
       const jobsCount = await purgeDeletedJobs(90);
@@ -792,10 +817,10 @@ function startPurgeDeletedRecords() {
       logError(purgeLogger, err, { operation: "purge_deleted_records" });
     }
   }
-
+ 
   setInterval(purge, 24 * 60 * 60 * 1000).unref();
 }
-
+ 
 /**
  * Start the recurring escrow ticker (Issue #450).
  * Ticks recurring escrows every hour to release payments on schedule.
@@ -804,16 +829,17 @@ function startRecurringEscrowTicker() {
   const { startRecurringEscrowTicker: startTicker } = require("./services/recurringEscrowService");
   startTicker();
 }
-
+ 
 if (process.env.NODE_ENV !== 'test') {
   bootstrap();
 }
-
+ 
 // Expose WebSocket internals for testing
 app._ws = wsServer;
 app._ws.server = server;
 app._ws.wsServer = wsServer;
 app._ws.realtimeClients = realtimeClients;
+app._ws.realtimeRooms = realtimeRooms;
 app._ws.userClients = userClients;
 app._ws.userLastSeen = userLastSeen;
 app._ws.realtimeRooms = realtimeRooms;
@@ -826,3 +852,4 @@ app.locals.broadcastToRoom = broadcastToRoom;
 app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
 
 module.exports = app;
+ 

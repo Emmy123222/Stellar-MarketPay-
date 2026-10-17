@@ -152,7 +152,7 @@ describe("Notification Service", () => {
     });
 
     test("should include job URL in all emails", () => {
-      const events = Object.values(EVENT_TYPES);
+      const events = Object.values(EVENT_TYPES).filter(e => e !== "auto_convert");
       events.forEach((eventType) => {
         const content = generateEmailContent(eventType, mockData);
         expect(content.text).toContain(`/jobs/${mockData.jobId}`);

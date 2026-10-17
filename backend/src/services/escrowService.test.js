@@ -50,6 +50,9 @@ const {
   requestEscrowExtension,
   approveEscrowExtension,
   ESCROW_TIMEOUT_DAYS,
+  ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS,
+  ESCROW_TIMEOUT_CHECK_MAX_DELAY_MS,
+  getEscrowTimeoutCheckDelay,
 } = require("./escrowService");
 
 const CLIENT_ADDRESS = "GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
@@ -57,6 +60,25 @@ const FREELANCER_ADDRESS = "GBBCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXY
 const OTHER_ADDRESS = "GCCCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC";
 const JOB_ID = "job-123";
 const TX_HASH = "tx-hash-abc";
+
+describe("escrow timeout scheduler", () => {
+  it("chooses a delay inside the 55–65 second jitter window", () => {
+    expect(getEscrowTimeoutCheckDelay(() => 0)).toBe(
+      ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS,
+    );
+    expect(getEscrowTimeoutCheckDelay(() => 0.999999)).toBe(
+      ESCROW_TIMEOUT_CHECK_MAX_DELAY_MS,
+    );
+  });
+
+  it("keeps the random delay bounded for arbitrary samples", () => {
+    for (const sample of [0, 0.1, 0.5, 0.999999]) {
+      const delay = getEscrowTimeoutCheckDelay(() => sample);
+      expect(delay).toBeGreaterThanOrEqual(ESCROW_TIMEOUT_CHECK_MIN_DELAY_MS);
+      expect(delay).toBeLessThanOrEqual(ESCROW_TIMEOUT_CHECK_MAX_DELAY_MS);
+    }
+  });
+});
 
 function makeJob(overrides = {}) {
   return {

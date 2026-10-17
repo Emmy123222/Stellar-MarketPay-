@@ -1,0 +1,14 @@
+--- backend/src/services/recurringEscrowService.test.js
++++ backend/src/services/recurringEscrowService.test.js
+@@ -215,8 +215,9 @@
+       global.Date = class extends RealDate {
+         constructor(date) {
+           if (date) {
+             super(date);
+-          }
+-          super(mockDate);
++          } else {
++            super(mockDate);
++          }
+         }
+       };

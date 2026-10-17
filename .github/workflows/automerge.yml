@@ -1,0 +1,64 @@
+name: Auto-merge bot
+
+# Merges every non-draft pull request automatically, without waiting for CI.
+# To disable the bot, delete this file from the default branch.
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge the pull request
+        env:
+          # AUTOMERGE_TOKEN is the repo owner's token, so merges are
+          # attributed to them; falls back to the Actions bot token.
+          GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN || secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          # Only auto-merge Stellar Wave PRs: the PR must close an issue
+          # labeled "Stellar Wave" (via "Fixes #123" in its description),
+          # or carry the "Stellar Wave" label itself.
+          PR_LABELS=$(gh pr view "$PR_URL" --json labels --jq '.labels[].name')
+          LINKED_LABELS=$(gh api graphql \
+            -f query='query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){closingIssuesReferences(first:20){nodes{labels(first:50){nodes{name}}}}}}}' \
+            -f owner="$OWNER" -f repo="$REPO" -F pr="$PR_NUMBER" \
+            --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[].labels.nodes[].name')
+          if ! printf '%s\n%s\n' "$PR_LABELS" "$LINKED_LABELS" | grep -qx "Stellar Wave"; then
+            if [ "$EVENT_ACTION" = "opened" ]; then
+              gh pr comment "$PR_URL" --body "👋 Hey @$AUTHOR, thanks for the contribution! 🙌 To get this PR auto-merged, link it to a **Stellar Wave** issue by adding \`Fixes #<issue-number>\` to the PR description. A maintainer can also review and merge it manually."
+            fi
+            echo "Skipping: not a Stellar Wave PR"
+            exit 0
+          fi
+          # Contributors may never change the auto-merge bot itself:
+          # a PR touching this workflow always needs a maintainer merge.
+          if gh pr view "$PR_URL" --json files --jq '.files[].path' | grep -qxF '.github/workflows/automerge.yml'; then
+            gh pr comment "$PR_URL" --body "👋 Hey @$AUTHOR, thanks for the PR! 🙏 Changes to the auto-merge bot itself (\`.github/workflows/automerge.yml\`) can only be merged by a maintainer, so this PR will wait for a manual review."
+            echo "Skipping: PR modifies the automerge workflow"
+            exit 0
+          fi
+          # Retry a few times: GitHub may still be computing mergeability
+          # right after the PR event fires.
+          for attempt in 1 2 3 4 5; do
+            if gh pr merge --merge "$PR_URL"; then
+              gh pr comment "$PR_URL" --body "🎉 Well done @$AUTHOR — great implementation! Your PR has been merged. Thank you for contributing to **Stellar Wave**! 🚀"
+              echo "Merged $PR_URL"
+              exit 0
+            fi
+            echo "Attempt $attempt failed; retrying in 20s..."
+            sleep 20
+          done
+          gh pr comment "$PR_URL" --body "👋 Hey @$AUTHOR, nice work so far! 💪 There's just a merge conflict with \`main\` — please update your branch and resolve it, and this will be merged right away."
+          exit 1

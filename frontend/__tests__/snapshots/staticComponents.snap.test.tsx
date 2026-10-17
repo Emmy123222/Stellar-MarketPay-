@@ -52,12 +52,12 @@ import FeeEstimationModal from "@/components/FeeEstimationModal";
 const mockTransaction = {} as import("@stellar/stellar-sdk").Transaction;
 
 const noop: any = jest.fn();
+const MOCK_TIMESTAMP = new Date("2026-08-25T00:00:00.000Z").getTime();
 
 describe("static component snapshots", () => {
   let dateSpy: jest.SpyInstance;
 
   beforeAll(() => {
-    const MOCK_TIMESTAMP = new Date("2026-08-25T00:00:00.000Z").getTime();
     dateSpy = jest.spyOn(Date, "now").mockImplementation(() => MOCK_TIMESTAMP);
   });
 
@@ -292,7 +292,7 @@ describe("static component snapshots", () => {
       jest.spyOn(Date, "now").mockReturnValue(new Date("2026-01-15T12:00:00Z").getTime());
     });
     afterAll(() => {
-      jest.restoreAllMocks();
+      dateSpy.mockReturnValue(MOCK_TIMESTAMP);
     });
     it("default", () =>
       snapshotContainer(

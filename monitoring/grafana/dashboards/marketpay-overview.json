@@ -98,6 +98,49 @@
         },
         "overrides": []
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "Escrow Release Error Rate",
+      "description": "Percentage of escrow release attempts that failed (Horizon/network errors, insufficient balance, contract rejection). Shows red above the 5% alert threshold.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 17 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * sum(rate(marketpay_escrow_release_errors_total[5m])) / clamp_min(sum(rate(marketpay_escrow_releases_total[5m])), 0.001)",
+          "legendFormat": "escrow release error %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "single", "sort": "none" }
+      }
     }
   ]
 }

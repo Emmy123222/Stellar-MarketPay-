@@ -20,11 +20,7 @@ const {
   Networks,
   rpc,
 } = require("@stellar/stellar-sdk");
-
-const SOROBAN_RPC_URL =
-  process.env.SOROBAN_RPC_URL ||
-  process.env.STELLAR_RPC_URL ||
-  "https://soroban-testnet.stellar.org";
+const { getServer } = require("./sorobanClient");
 const NETWORK_PASSPHRASE =
   process.env.STELLAR_NETWORK_PASSPHRASE || Networks.TESTNET;
 
@@ -46,9 +42,7 @@ function resolveContractId() {
 }
 
 async function readVersionFromChain(contractId) {
-  const server = new rpc.Server(SOROBAN_RPC_URL, {
-    allowHttp: SOROBAN_RPC_URL.startsWith("http://"),
-  });
+  const server = getServer();
   const tx = new TransactionBuilder(new Account(SIMULATION_SOURCE, "0"), {
     fee: "100",
     networkPassphrase: NETWORK_PASSPHRASE,

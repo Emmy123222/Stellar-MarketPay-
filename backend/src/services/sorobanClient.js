@@ -4,17 +4,24 @@ const { SorobanRpc, Contract } = require("@stellar/stellar-sdk");
 
 const SOROBAN_RPC_URL =
   process.env.SOROBAN_RPC_URL ||
+  process.env.STELLAR_RPC_URL ||
   (process.env.STELLAR_NETWORK === "mainnet"
     ? "https://rpc.mainnet.stellar.org"
     : "https://rpc-testnet.stellar.org");
 
-let _server = null;
+// Keep one RPC client for the lifetime of the process. Creating a Server for
+// every contract read creates a new connection and defeats HTTP keep-alive.
+// Initialize lazily so importing services in tests does not require an RPC
+// constructor in every Stellar SDK mock.
+let sorobanServer;
 
 function getServer() {
-  if (!_server) {
-    _server = new SorobanRpc.Server(SOROBAN_RPC_URL);
+  if (!sorobanServer) {
+    sorobanServer = new SorobanRpc.Server(SOROBAN_RPC_URL, {
+      allowHttp: SOROBAN_RPC_URL.startsWith("http://"),
+    });
   }
-  return _server;
+  return sorobanServer;
 }
 
 function getContract(contractId) {
@@ -46,6 +53,7 @@ async function readContractValue(contractId, method, args = []) {
 }
 
 module.exports = {
+  sorobanServer,
   getServer,
   getContract,
   readContractValue,

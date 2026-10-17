@@ -171,7 +171,9 @@ async function checkSavedSearchAlerts() {
              p.name, p.email, p.email_notifications_enabled
       FROM saved_searches ss
       LEFT JOIN profiles p ON p.public_key = ss.user_address
-      WHERE ss.notify_in_app = TRUE OR ss.notify_email = TRUE
+      WHERE ss.active = TRUE
+        AND ss.deleted_at IS NULL
+        AND (ss.notify_in_app = TRUE OR ss.notify_email = TRUE)
     `);
 
     let inAppNotifications = 0;

@@ -1,8 +1,8 @@
 // @ts-nocheck
 /**
  * components/InvoicePDF.tsx
- * PDF invoice document for time tracking invoices.
- * Generates a branded PDF with job details, time entries, and totals.
+ * Multi-language PDF invoice document for time tracking invoices (Issue #1555).
+ * Generates a branded PDF with job details, time entries, and totals in the selected language.
  *
  * Note: TypeScript checking is disabled for this file due to @react-pdf/renderer's
  * limited TypeScript support. The component is tested at runtime and works correctly.
@@ -18,6 +18,11 @@ import {
   Font,
 } from "@react-pdf/renderer";
 import type { TimeInvoice, TimeEntry, Job } from "@/utils/types";
+import {
+  getInvoiceTranslations,
+  formatInvoiceDate,
+  formatInvoiceCurrency,
+} from "@/utils/invoiceI18n";
 
 // Register a default font for consistency
 Font.register({
@@ -80,6 +85,12 @@ const styles = StyleSheet.create({
     color: "#92400e",
     borderWidth: 1,
     borderColor: "#fde68a",
+  },
+  statusRejected: {
+    backgroundColor: "#fef2f2",
+    color: "#991b1b",
+    borderWidth: 1,
+    borderColor: "#fecaca",
   },
   section: {
     marginBottom: 25,
@@ -199,18 +210,19 @@ const styles = StyleSheet.create({
   },
 });
 
-interface InvoicePDFProps {
+export interface InvoicePDFProps {
   job: Job;
   invoice: TimeInvoice;
   entries: TimeEntry[];
   freelancerAddress: string;
   clientAddress: string;
+  locale?: string;
 }
 
-function minutesToHHMM(minutes: number): string {
+function minutesToHHMM(minutes: number, hoursUnit = "h", minutesUnit = "m"): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  return `${h}h ${m.toString().padStart(2, "0")}m`;
+  return `${h}${hoursUnit} ${m.toString().padStart(2, "0")}${minutesUnit}`;
 }
 
 export const InvoicePDF: React.FC<InvoicePDFProps> = ({
@@ -219,16 +231,30 @@ export const InvoicePDF: React.FC<InvoicePDFProps> = ({
   entries,
   freelancerAddress,
   clientAddress,
+  locale = "en",
 }) => {
+  const t = getInvoiceTranslations(locale);
+  const currency = job?.currency || "XLM";
+
   const invoiceDate = new Date(invoice.createdAt);
-  const formattedDate = invoiceDate.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const formattedDate = formatInvoiceDate(invoiceDate, locale);
 
   const hourlyRate = parseFloat(String(invoice.hourlyRateXlm ?? "0"));
   const totalAmount = parseFloat(String(invoice.totalAmountXlm ?? "0"));
+
+  const statusLabel =
+    invoice.status === "approved"
+      ? t.statusApproved
+      : invoice.status === "rejected"
+      ? t.statusRejected
+      : t.statusPending;
+
+  const statusStyle =
+    invoice.status === "approved"
+      ? styles.statusApproved
+      : invoice.status === "rejected"
+      ? styles.statusRejected
+      : styles.statusPending;
 
   return (
     <Document>
@@ -237,21 +263,13 @@ export const InvoicePDF: React.FC<InvoicePDFProps> = ({
         <View style={styles.header}>
           <View>
             <Text style={styles.logo}>💫 MarketPay</Text>
-            <Text style={styles.logoSubtext}>Time Invoice</Text>
+            <Text style={styles.logoSubtext}>{t.logoSubtext}</Text>
           </View>
           <View style={styles.invoiceInfo}>
-            <Text style={styles.invoiceLabel}>Invoice ID</Text>
+            <Text style={styles.invoiceLabel}>{t.invoiceId}</Text>
             <Text style={styles.invoiceNumber}>{invoice.id.slice(0, 8)}</Text>
-            <Text
-              style={[
-                styles.status,
-                invoice.status === "approved"
-                  ? styles.statusApproved
-                  : styles.statusPending,
-              ]}
-            >
-              {invoice.status.charAt(0).toUpperCase() +
-                invoice.status.slice(1)}
+            <Text style={[styles.status, statusStyle]}>
+              {statusLabel}
             </Text>
           </View>
         </View>
@@ -267,38 +285,38 @@ export const InvoicePDF: React.FC<InvoicePDFProps> = ({
         {/* Parties */}
         <View style={[styles.section, styles.twoColumn]}>
           <View style={styles.column}>
-            <Text style={styles.sectionTitle}>Freelancer</Text>
-            <Text style={styles.label}>Stellar Address</Text>
+            <Text style={styles.sectionTitle}>{t.freelancer}</Text>
+            <Text style={styles.label}>{t.stellarAddress}</Text>
             <Text style={styles.value}>{freelancerAddress}</Text>
           </View>
           <View style={styles.column}>
-            <Text style={styles.sectionTitle}>Client</Text>
-            <Text style={styles.label}>Stellar Address</Text>
+            <Text style={styles.sectionTitle}>{t.client}</Text>
+            <Text style={styles.label}>{t.stellarAddress}</Text>
             <Text style={styles.value}>{clientAddress}</Text>
           </View>
         </View>
 
         {/* Invoice Date */}
         <View style={styles.section}>
-          <Text style={styles.label}>Invoice Date</Text>
+          <Text style={styles.label}>{t.invoiceDate}</Text>
           <Text style={styles.value}>{formattedDate}</Text>
         </View>
 
         {/* Time Entries Table */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Time Entries</Text>
+          <Text style={styles.sectionTitle}>{t.timeEntries}</Text>
           <View style={styles.table}>
             <View style={styles.tableHeader}>
               <Text style={[styles.tableCellHeader, styles.tableDescription]}>
-                Description
+                {t.description}
               </Text>
               <Text style={[styles.tableCellHeader, styles.tableDuration]}>
-                Duration
+                {t.duration}
               </Text>
               <Text
                 style={[styles.tableCellHeader, { flex: 1, textAlign: "right" }]}
               >
-                Date
+                {t.date}
               </Text>
             </View>
             {entries.map((entry) => (
@@ -307,11 +325,13 @@ export const InvoicePDF: React.FC<InvoicePDFProps> = ({
                   {entry.description || <Text style={{ opacity: 0.5 }}>—</Text>}
                 </Text>
                 <Text style={[styles.tableCell, styles.tableDuration]}>
-                  {minutesToHHMM(entry.durationMinutes)}
+                  {minutesToHHMM(entry.durationMinutes, t.hours)}
                 </Text>
                 <Text style={[styles.tableCell, { flex: 1, textAlign: "right" }]}>
-                  {new Date(entry.startedAt || entry.createdAt).toLocaleDateString(
-                    "en-US"
+                  {formatInvoiceDate(
+                    entry.startedAt || entry.createdAt,
+                    locale,
+                    { year: "numeric", month: "2-digit", day: "2-digit" }
                   )}
                 </Text>
               </View>
@@ -322,28 +342,30 @@ export const InvoicePDF: React.FC<InvoicePDFProps> = ({
         {/* Summary */}
         <View style={styles.section}>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Total Hours:</Text>
+            <Text style={styles.summaryLabel}>{t.totalHours}:</Text>
             <Text style={styles.summaryValue}>
-              {(invoice.totalMinutes / 60).toFixed(2)} hrs
+              {(invoice.totalMinutes / 60).toFixed(2)} {t.hours}
             </Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Hourly Rate:</Text>
-            <Text style={styles.summaryValue}>{hourlyRate.toFixed(2)} XLM</Text>
+            <Text style={styles.summaryLabel}>{t.hourlyRate}:</Text>
+            <Text style={styles.summaryValue}>
+              {formatInvoiceCurrency(hourlyRate, locale, currency, 2)}
+            </Text>
           </View>
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total Amount:</Text>
-            <Text style={styles.totalValue}>{totalAmount.toFixed(4)} XLM</Text>
+            <Text style={styles.totalLabel}>{t.totalAmount}:</Text>
+            <Text style={styles.totalValue}>
+              {formatInvoiceCurrency(totalAmount, locale, currency, 4)}
+            </Text>
           </View>
         </View>
 
         {/* Footer */}
         <View style={styles.footer}>
-          <Text>
-            This is an automatically generated invoice from MarketPay
-          </Text>
+          <Text>{t.footerNotice}</Text>
           <Text style={{ marginTop: 4 }}>
-            Invoice ID: {invoice.id} | Generated: {formattedDate}
+            {t.invoiceId}: {invoice.id} | {t.generated}: {formattedDate}
           </Text>
         </View>
       </Page>

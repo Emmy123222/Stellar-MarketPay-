@@ -38,6 +38,8 @@ export default function InsightsPage() {
     });
   }, [categories, sortKey, sortDir]);
 
+  const maxJobCount = sorted.length > 0 ? Math.max(...sorted.map((c) => c.jobCount)) : 1;
+
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
     else {

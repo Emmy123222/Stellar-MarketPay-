@@ -1,5 +1,5 @@
-use soroban_sdk::{symbol_short, Address, Bytes, BytesN, Env, String, Vec};
 use soroban_sdk::xdr::ToXdr;
+use soroban_sdk::{symbol_short, Address, Bytes, BytesN, Env, String, Vec};
 
 use crate::helpers::check_not_frozen;
 use crate::types::*;
@@ -98,8 +98,7 @@ mod tests {
         let second_contract = env.register(MarketPayContract, ());
 
         let first_token_id = env.as_contract(&first_contract, || certificate_token_id(&env, 0));
-        let second_token_id =
-            env.as_contract(&second_contract, || certificate_token_id(&env, 0));
+        let second_token_id = env.as_contract(&second_contract, || certificate_token_id(&env, 0));
 
         assert_ne!(first_contract, second_contract);
         assert_ne!(first_token_id, second_token_id);

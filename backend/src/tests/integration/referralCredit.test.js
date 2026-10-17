@@ -177,10 +177,12 @@ describe("Referral credit end-to-end flow (#1492)", () => {
       refereeToken,
     );
 
+    // Issue #1401: the release is authorized from the JWT, so the client must
+    // authenticate as themselves rather than naming their wallet in the body.
     const releaseResponse = await request(app)
       .post(`/api/escrow/${jobId}/release`)
+      .set("Authorization", `Bearer ${referrerToken}`)
       .send({
-        clientAddress: referrerKey,
         contractTxHash: `offchain-e2e-${Date.now()}`,
       });
 

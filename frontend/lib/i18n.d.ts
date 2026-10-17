@@ -7,8 +7,6 @@ declare module "@/lib/i18n" {
     ready: boolean;
   };
 
-  export function appWithTranslation<T>(Component: React.ComponentType<T>): React.ComponentType<T>;
-
   declare const i18next: typeof import("i18next").default;
   export default i18next;
 }

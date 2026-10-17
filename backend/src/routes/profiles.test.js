@@ -18,6 +18,10 @@ jest.mock("../services/profileService", () => ({
   markProfileForDeletion: jest.fn(),
 }));
 
+jest.mock("../services/profileMigrationService", () => ({
+  migrateProfile: jest.fn(),
+  getRedirectTarget: jest.fn(),
+}));
 jest.mock("../services/priceAlertService", () => ({}));
 jest.mock("../services/notificationService", () => ({}));
 jest.mock("../services/notificationPreferencesService", () => ({

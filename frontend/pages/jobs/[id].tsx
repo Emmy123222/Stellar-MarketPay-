@@ -1,3 +1,4 @@
+import SubmitDeliverableHash from "@/components/SubmitDeliverableHash";
 import TimeTracker from "@/components/TimeTracker";
 import FeeEstimationModal from "@/components/FeeEstimationModal";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -45,6 +46,7 @@ import { signTransactionWithWallet } from "@/lib/wallet";
 import { optionalClientEnv } from "@/lib/env";
 import type { Transaction } from "@stellar/stellar-sdk";
 import type { Application, Job } from "@/utils/types";
+import DisputeWizard from "@/components/DisputeWizard";
 import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import RealtimeBidComparison from "@/components/RealtimeBidComparison";
 
@@ -184,7 +186,6 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const [loadingMoreApplications, setLoadingMoreApplications] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showApplyForm, setShowApplyForm] = useState(false);
-  const [optimisticallyApplied, setOptimisticallyApplied] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -199,6 +200,7 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
   const [disputeReason, setDisputeReason] = useState("");
   const [disputeDescription, setDisputeDescription] = useState("");
   const [raisingDispute, setRaisingDispute] = useState(false);
+  const [showDisputeWizard, setShowDisputeWizard] = useState(false);
   // Escrow timeout state
   const [timeoutLedger, setTimeoutLedger] = useState<number | null>(null);
   const [currentLedger, setCurrentLedger] = useState(0);
@@ -218,7 +220,7 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
 
   const isClient = Boolean(publicKey && job?.clientAddress === publicKey);
   const isFreelancer = Boolean(publicKey && job?.freelancerAddress === publicKey);
-  const hasApplied = optimisticallyApplied || applications.some((a) => a.freelancerAddress === publicKey);
+  const hasApplied = applications.some((a) => a.freelancerAddress === publicKey);
 
   // ── fetchApplications wrapper for useRealtimeBids ────────────────────────
   const fetchAppsForJob = useCallback(async (): Promise<Application[]> => {
@@ -725,6 +727,10 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
           <TimeTracker jobId={job.id} isFreelancer={isFreelancer} isClient={isClient} />
         )}
 
+        {isFreelancer && job.status === "in_progress" && publicKey && (
+          <SubmitDeliverableHash jobId={job.id} freelancerAddress={publicKey} />
+        )}
+
         {/* ── Applications list (client only, real-time via RealtimeBidComparison) ── */}
         {isClient && (
           <div className="mb-6">
@@ -752,17 +758,9 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
         {/* ── Apply section (non-client, open jobs) ── */}
         {job.status === "open" && !isClient && (
           <>
-            {hasApplied ? (
+            {hasApplied && !showApplyForm ? (
               <div className="card text-center py-8 border-market-500/20 mb-6">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  {optimisticallyApplied && !applications.some((a) => a.freelancerAddress === publicKey) && (
-                    <svg className="animate-spin h-4 w-4 text-market-400" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                  )}
-                  <p className="text-market-400 font-medium">Application submitted</p>
-                </div>
+                <p className="text-market-400 font-medium mb-1">Application submitted</p>
                 <p className="text-amber-800 text-sm">
                   The client will review your proposal shortly.
                 </p>
@@ -772,10 +770,7 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
                 job={job}
                 publicKey={publicKey}
                 prefillData={prefillData}
-                onOptimisticSubmit={() => setOptimisticallyApplied(true)}
-                onRevert={() => setOptimisticallyApplied(false)}
                 onSuccess={() => {
-                  setShowApplyForm(false);
                   fetchApplicationsPage(job.id).then((page) => {
                     setApplications(page.applications);
                     setApplicationsCursor(page.nextCursor);
@@ -968,7 +963,21 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
           />
           <div className="relative w-full max-w-md bg-ink-900 border border-market-500/20 rounded-2xl p-4 sm:p-6 shadow-2xl animate-scale-in max-h-[90vh] overflow-y-auto">
             <h3 className="font-display text-lg sm:text-xl font-bold text-amber-100 mb-2">Raise a Dispute</h3>
-            <p className="text-xs sm:text-sm text-amber-800 mb-6">Flag this job for admin review. This will block escrow release until resolved.</p>
+            <p className="text-xs sm:text-sm text-amber-800 mb-4">Flag this job for admin review. This will block escrow release until resolved.</p>
+
+            <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🤖</span>
+                <span className="text-xs text-amber-200">First time filing a dispute?</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDisputeWizard(true)}
+                className="text-xs font-semibold text-market-400 hover:text-market-300 underline"
+              >
+                Launch Dispute Assistant →
+              </button>
+            </div>
 
             <div className="space-y-4">
               <div>
@@ -1020,6 +1029,27 @@ export default function JobDetail({ publicKey, onConnect, ssrJob, ogBaseUrl }: J
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Dispute Wizard Chatbot (Issue #1557) ── */}
+      {showDisputeWizard && job && (
+        <DisputeWizard
+          jobId={job.id}
+          isOpen={showDisputeWizard}
+          initialReason={disputeReason}
+          initialDescription={disputeDescription}
+          onClose={() => setShowDisputeWizard(false)}
+          onPrefillForm={({ reason, description }) => {
+            setDisputeReason(reason);
+            setDisputeDescription(description);
+            setShowDisputeWizard(false);
+          }}
+          onComplete={() => {
+            setShowDisputeWizard(false);
+            setShowDisputeModal(false);
+            fetchJob();
+          }}
+        />
       )}
 
       {/* ── Invite Freelancer modal ── */}

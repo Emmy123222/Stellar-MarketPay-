@@ -72,3 +72,18 @@ export async function timeoutRefund(
   });
   return data.data;
 }
+
+export async function submitDeliverableHash(
+  jobId: string,
+  freelancerAddress: string,
+  hashHex: string,
+) {
+  const { data } = await api.post<{ success: boolean; data: any }>(
+    `/api/escrow/${jobId}/deliverable-hash`,
+    {
+      freelancerAddress,
+      hashHex,
+    }
+  );
+  return data.data;
+}

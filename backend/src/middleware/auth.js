@@ -4,17 +4,16 @@
 "use strict";
 const jwt = require("jsonwebtoken");
 
-function requireJwtSecret() {
-  if (!process.env.JWT_SECRET) {
-    const message = "FATAL: JWT_SECRET environment variable is required";
-    console.error(message);
-    process.exit(1);
-  }
+const JWT_SECRET = process.env.JWT_SECRET;
 
-  return process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET env var is required");
 }
 
-const JWT_SECRET = requireJwtSecret();
+function requireJwtSecret() {
+  return JWT_SECRET;
+}
+
 const pool = require("../db/pool");
 
 function parseCookies(cookieHeader) {

@@ -132,7 +132,9 @@ async function installDisputeMocks(
 
       const getState = (): typeof state => {
         try {
-          return JSON.parse(sessionStorage.getItem(stateKey) || "{}") as typeof state;
+          return JSON.parse(
+            sessionStorage.getItem(stateKey) || "{}",
+          ) as typeof state;
         } catch {
           return state;
         }
@@ -143,9 +145,11 @@ async function installDisputeMocks(
       const origOpen = XMLHttpRequest.prototype.open;
       const origSend = XMLHttpRequest.prototype.send;
 
-      XMLHttpRequest.prototype.open = function (method: string, url: string | URL) {
-        (this as any).__url =
-          typeof url === "string" ? url : (url as any).href;
+      XMLHttpRequest.prototype.open = function (
+        method: string,
+        url: string | URL,
+      ) {
+        (this as any).__url = typeof url === "string" ? url : (url as any).href;
         (this as any).__method = method;
         return origOpen.apply(this, arguments as any);
       };
@@ -180,7 +184,10 @@ async function installDisputeMocks(
         // ── Dispute detail ─────────────────────────────────────────────
         else if (pathname === `/api/disputes/${jobId}` && method === "GET") {
           const s = getState();
-          responseData = { success: true, data: { job: s.job, evidence: s.evidence } };
+          responseData = {
+            success: true,
+            data: { job: s.job, evidence: s.evidence },
+          };
         }
 
         // ── Evidence upload (multipart FormData) ──────────────────────
@@ -211,9 +218,24 @@ async function installDisputeMocks(
           // 2. Fake a 201 response so Axios resolves cleanly.
           const responseBody = JSON.stringify({ success: true, data: ev });
           setTimeout(() => {
-            try { Object.defineProperty(xhr, "readyState",    { value: 4,            configurable: true }); } catch (_) {}
-            try { Object.defineProperty(xhr, "status",        { value: 201,          configurable: true }); } catch (_) {}
-            try { Object.defineProperty(xhr, "responseText",  { value: responseBody, configurable: true }); } catch (_) {}
+            try {
+              Object.defineProperty(xhr, "readyState", {
+                value: 4,
+                configurable: true,
+              });
+            } catch (_) {}
+            try {
+              Object.defineProperty(xhr, "status", {
+                value: 201,
+                configurable: true,
+              });
+            } catch (_) {}
+            try {
+              Object.defineProperty(xhr, "responseText", {
+                value: responseBody,
+                configurable: true,
+              });
+            } catch (_) {}
             xhr.dispatchEvent(new Event("readystatechange"));
             xhr.dispatchEvent(new Event("load"));
             xhr.dispatchEvent(new Event("loadend"));
@@ -222,13 +244,17 @@ async function installDisputeMocks(
         }
 
         // ── Resolve dispute ─────────────────────────────────────────────
-        else if (pathname === `/api/jobs/${jobId}/resolve` && method === "POST") {
+        else if (
+          pathname === `/api/jobs/${jobId}/resolve` &&
+          method === "POST"
+        ) {
           const s = getState();
           let releaseTo = "freelancer";
           try {
             // After the bug-fix, body is JSON: { note, releaseTo }
             const parsed = JSON.parse(body as string);
-            if (typeof parsed.releaseTo === "string") releaseTo = parsed.releaseTo;
+            if (typeof parsed.releaseTo === "string")
+              releaseTo = parsed.releaseTo;
           } catch {
             // FormData or missing body — keep default
           }
@@ -280,11 +306,32 @@ async function installDisputeMocks(
             success: true,
             data: {
               period: "30d",
-              platformHealth: { total_jobs: 0, open_jobs: 0, completed_jobs: 0, disputed_jobs: 0, completion_rate: 0, dispute_rate: 0 },
-              userGrowth: { total_users: 0, freelancers: 0, clients: 0, new_users_period: 0 },
+              platformHealth: {
+                total_jobs: 0,
+                open_jobs: 0,
+                completed_jobs: 0,
+                disputed_jobs: 0,
+                completion_rate: 0,
+                dispute_rate: 0,
+              },
+              userGrowth: {
+                total_users: 0,
+                freelancers: 0,
+                clients: 0,
+                new_users_period: 0,
+              },
               weeklyGrowth: [],
-              financialMetrics: { total_xlm_escrow: 0, total_xlm_released: 0, avg_job_budget: 0, active_escrows: 0 },
-              qualityMetrics: { avg_rating: 0, total_ratings: 0, repeat_hires: 0 },
+              financialMetrics: {
+                total_xlm_escrow: 0,
+                total_xlm_released: 0,
+                avg_job_budget: 0,
+                active_escrows: 0,
+              },
+              qualityMetrics: {
+                avg_rating: 0,
+                total_ratings: 0,
+                repeat_hires: 0,
+              },
               disputeMetrics: [],
               topEarners: [],
               jobVolume: [],
@@ -303,7 +350,10 @@ async function installDisputeMocks(
         }
 
         setTimeout(() => {
-          Object.defineProperty(xhr, "readyState", { value: 4, configurable: true });
+          Object.defineProperty(xhr, "readyState", {
+            value: 4,
+            configurable: true,
+          });
           Object.defineProperty(xhr, "status", {
             value: status,
             configurable: true,
@@ -359,7 +409,6 @@ async function installDisputeMocks(
       });
     }
   });
-
 }
 
 // Switch persona helpers — clear the stored wallet key before each goto so the
@@ -367,25 +416,33 @@ async function installDisputeMocks(
 // hydration useEffect in _app.tsx.
 
 async function switchToClient(page: Page) {
-  await page.evaluate(() =>
-    localStorage.removeItem("smp_wallet_public_key"),
-  );
+  await page.evaluate(() => localStorage.removeItem("smp_wallet_public_key"));
   await mockFreighter(page, CLIENT_ADDRESS);
 }
 
 async function switchToAdmin(page: Page) {
-  await page.evaluate(() =>
-    localStorage.removeItem("smp_wallet_public_key"),
-  );
+  await page.evaluate(() => localStorage.removeItem("smp_wallet_public_key"));
   await mockFreighter(page, ADMIN_ADDRESS);
+  // /admin validates the session server-side in getServerSideProps
+  // (Issue #1423). The mocked auth flow never receives the backend's real
+  // Set-Cookie header, so install the admin JWT `token` session cookie
+  // directly to mirror it before the navigation.
+  await page.context().addCookies([
+    {
+      name: "token",
+      value: makeJwt("admin", ADMIN_ADDRESS),
+      domain: "localhost",
+      path: "/",
+    },
+  ]);
 }
 
 // ─── Shared evidence-upload phase ─────────────────────────────────────────────
 
 async function uploadEvidenceAsClient(page: Page, fileName: string) {
-  await expect(
-    page.getByRole("heading", { name: "Dispute" }),
-  ).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("heading", { name: "Dispute" })).toBeVisible({
+    timeout: 10_000,
+  });
 
   const fileInput = page.locator("#evidence-upload");
 
@@ -408,7 +465,9 @@ async function uploadEvidenceAsClient(page: Page, fileName: string) {
   await expect(page.getByText(fileName)).toBeVisible();
 
   // Upload triggers POST /api/disputes/:jobId/evidence (mocked → IPFS CID fixture)
-  await page.getByRole("button", { name: /file\(s\) to IPFS/i }).click({ force: true });
+  await page
+    .getByRole("button", { name: /file\(s\) to IPFS/i })
+    .click({ force: true });
 
   // Wait for evidence to appear in sessionStorage (XHR interceptor updates it
   // synchronously when the POST fires; the 50ms setTimeout then fires the XHR events).
@@ -422,7 +481,8 @@ async function uploadEvidenceAsClient(page: Page, fileName: string) {
   );
 
   const evidenceAfterUpload = await page.evaluate(
-    (key) => (JSON.parse(sessionStorage.getItem(key) || "{}") as any).evidence ?? [],
+    (key) =>
+      (JSON.parse(sessionStorage.getItem(key) || "{}") as any).evidence ?? [],
     DISPUTE_STATE_KEY,
   );
   expect((evidenceAfterUpload as any[]).length).toBeGreaterThan(0);
@@ -439,11 +499,15 @@ async function resolveAsAdmin(
 ) {
   // The hydration-error overlay is prevented by pinning locale: "en-US" in
   // playwright.config.ts, so we can interact directly with the admin page.
-  await expect(page.getByText("Admin Dashboard")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Admin Dashboard")).toBeVisible({
+    timeout: 20_000,
+  });
 
   // Wait until the disputes tab button is present (appears only when
   // adminState === "authorized" AND twoFaState === "ready").
-  await expect(page.locator("#admin-tab-disputes")).toBeAttached({ timeout: 20_000 });
+  await expect(page.locator("#admin-tab-disputes")).toBeAttached({
+    timeout: 20_000,
+  });
   await page.click("#admin-tab-disputes", { force: true });
   await expect(
     page.getByRole("article", { name: `Dispute: ${jobTitle}` }),
@@ -492,9 +556,9 @@ test.describe("dispute resolution flow (#518)", () => {
     ).toBeVisible();
 
     // After loadData() re-fetches, the resolved dispute is gone from the list.
-    await expect(
-      page.getByText("No open disputes. All clear!"),
-    ).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText("No open disputes. All clear!")).toBeVisible({
+      timeout: 8_000,
+    });
 
     // ── Database (sessionStorage) state assertions ────────────────────────
     const finalState: DisputeState = await page.evaluate(
@@ -546,9 +610,9 @@ test.describe("dispute resolution flow (#518)", () => {
       page.getByText(/Dispute resolved — funds released to freelancer/i),
     ).toBeVisible();
 
-    await expect(
-      page.getByText("No open disputes. All clear!"),
-    ).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText("No open disputes. All clear!")).toBeVisible({
+      timeout: 8_000,
+    });
 
     // ── Database (sessionStorage) state assertions ────────────────────────
     const finalState: DisputeState = await page.evaluate(

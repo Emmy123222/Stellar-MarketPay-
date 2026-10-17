@@ -168,4 +168,67 @@ router.get("/trends/pay", insightsRateLimiter, async (req, res, next) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/insights/earnings:
+ *   get:
+ *     summary: Get freelancer monthly earnings breakdown
+ *     tags: [Insights]
+ *     parameters:
+ *       - in: query
+ *         name: freelancerId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: months
+ *         schema:
+ *           type: integer
+ *           default: 12
+ *     responses:
+ *       200:
+ *         description: Monthly freelancer earnings aggregation
+ */
+router.get("/earnings", insightsRateLimiter, async (req, res, next) => {
+  try {
+    const { freelancerId, months } = req.query;
+    const earnings = await insightsService.getFreelancerEarnings(freelancerId, { months });
+    res.json({ success: true, data: earnings });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * @swagger
+ * /api/insights/earnings/{freelancerId}:
+ *   get:
+ *     summary: Get earnings breakdown for a specific freelancer
+ *     tags: [Insights]
+ *     parameters:
+ *       - in: path
+ *         name: freelancerId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: months
+ *         schema:
+ *           type: integer
+ *           default: 12
+ *     responses:
+ *       200:
+ *         description: Monthly earnings aggregation for specific freelancer
+ */
+router.get("/earnings/:freelancerId", insightsRateLimiter, async (req, res, next) => {
+  try {
+    const { freelancerId } = req.params;
+    const { months } = req.query;
+    const earnings = await insightsService.getFreelancerEarnings(freelancerId, { months });
+    res.json({ success: true, data: earnings });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;
+

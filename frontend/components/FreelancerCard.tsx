@@ -10,9 +10,11 @@ import type { UserProfile } from "@/utils/types";
 
 interface FreelancerCardProps {
   profile: UserProfile;
+  onSave?: (profile: UserProfile) => void;
+  saved?: boolean;
 }
 
-export default function FreelancerCard({ profile }: FreelancerCardProps) {
+export default function FreelancerCard({ profile, onSave, saved }: FreelancerCardProps) {
   const availabilityStatus = profile.availability?.status;
 
   return (
@@ -34,6 +36,17 @@ export default function FreelancerCard({ profile }: FreelancerCardProps) {
                 {availabilityStatusLabel(availabilityStatus)}
               </span>
               {profile.tier ? <FreelancerTierBadge tier={profile.tier} className="hidden sm:inline-flex" /> : null}
+              {onSave && (
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSave(profile); }}
+                  title={saved ? "Saved to talent pool" : "Save to talent pool"}
+                  className={`p-1.5 rounded-md border transition-colors ${saved ? "text-market-400 border-market-400/30 bg-market-400/10" : "text-amber-700 border-transparent hover:text-market-400 hover:bg-market-400/10"}`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill={saved ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
 

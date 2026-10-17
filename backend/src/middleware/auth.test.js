@@ -12,7 +12,7 @@ function createMockResponse() {
 }
 
 describe("JWT secret configuration", () => {
-  it("exits with a fatal error when JWT_SECRET is missing", () => {
+  it("throws immediately when JWT_SECRET is missing", () => {
     const authModule = path.join(__dirname, "auth.js");
     const env = {
       ...process.env,
@@ -28,7 +28,7 @@ describe("JWT secret configuration", () => {
     );
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("FATAL: JWT_SECRET environment variable is required");
+    expect(result.stderr).toContain("JWT_SECRET env var is required");
   });
 });
 

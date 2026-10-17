@@ -161,7 +161,7 @@ describe("async component snapshots", () => {
     it("empty", async () => {
       const { container } = render(<ReferralDashboard publicKey={MOCK_PK} />);
       await waitFor(() => {
-        expect(container.textContent).toMatch(/Refer & Earn/i);
+        expect(container.querySelector('[data-testid="referral-empty"]')).toBeTruthy();
       });
       expect(container.firstChild).toMatchSnapshot("ReferralDashboard empty");
     });

@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS saved_searches (
   query_params JSONB NOT NULL DEFAULT '{}',
   notify_in_app BOOLEAN NOT NULL DEFAULT TRUE,
   notify_email BOOLEAN NOT NULL DEFAULT FALSE,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  deleted_at TIMESTAMPTZ,
   last_notified_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
