@@ -66,6 +66,16 @@ The formal verification suite validates three critical security invariants for t
 ---
 
 ## Project Structure
+The smart contract code lives in the `contracts/marketpay-contract` crate. The `contracts/marketpay` stub directory (which previously contained empty placeholder files such as `auction.rs`, `dispute_admin.rs`, `escrow_history.rs`, and `escrow_topup.rs`) has been removed; those intended features are tracked as follow-up issues and will be implemented in the real crate.
+
+Contract layout:
+
+* `contracts/marketpay-contract/`: The real Soroban smart contract crate (with `Cargo.toml`, `src/lib.rs`, and tests).
+* `contracts/marketpay-contract/src/`: Contract source modules.
+* `contracts/certora/`: Formal verification specifications and configuration.
+
+Formal verification files:
+
 
 All formal verification files are located in the `contracts/certora` directory:
 
