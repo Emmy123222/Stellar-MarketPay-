@@ -6,7 +6,7 @@ const jwt = require("jsonwebtoken");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-if (!JWT_SECRET) {
+if (!JWT_SECRET && process.env.NODE_ENV !== "test") {
   throw new Error("JWT_SECRET env var is required");
 }
 
