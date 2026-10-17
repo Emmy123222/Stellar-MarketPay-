@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "cp public/sw.src.js public/sw.js && next dev",
+    "dev": "node scripts/copy-sw.mjs && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -16,7 +16,7 @@
     "test:e2e": "playwright test",
     "test:a11y": "playwright test accessibility",
     "audit:contrast": "node scripts/audit-contrast.mjs",
-    "analyze": "ANALYZE=true next build",
+    "analyze": "node scripts/build-analyze.mjs",
     "storybook": "storybook dev -p 6006",
     "storybook:build": "storybook build -o storybook-static",
     "i18n:check": "node scripts/check-translations.mjs --strict"

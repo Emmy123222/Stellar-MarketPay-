@@ -77,6 +77,20 @@ Access the App
 
 - Backend API: http://localhost:3001
 
+### Production Build & Bundle Analysis
+To build the frontend for production or analyze bundle sizes:
+```bash
+cd frontend
+
+# Production build
+npm run build
+
+# Build with bundle analyzer
+npm run analyze
+```
+
+> **Cross-Platform / Windows Support**: All frontend build and development tasks are driven by cross-platform Node.js scripts that run uniformly across Linux, macOS, and Windows (PowerShell, Command Prompt, Git Bash, and WSL) without requiring platform-specific scripts.
+
 ## 3. Getting Testnet XLM
 You need test tokens to use the app.
 
