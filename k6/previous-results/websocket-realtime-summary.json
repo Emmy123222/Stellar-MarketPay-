@@ -1,0 +1,105 @@
+{
+  "metrics": {
+    "ws_connecting": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 12.45,
+        "min": 4.12,
+        "med": 11.2,
+        "max": 85.3,
+        "p(90)": 18.6,
+        "p(95)": 24.15
+      },
+      "thresholds": {
+        "p(95)<500": {
+          "ok": true
+        }
+      }
+    },
+    "ws_delivery_latency": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 8.75,
+        "min": 1.2,
+        "med": 7.4,
+        "max": 62.1,
+        "p(90)": 14.3,
+        "p(95)": 18.5
+      },
+      "thresholds": {
+        "p(95)<200": {
+          "ok": true
+        }
+      }
+    },
+    "ws_connection_failures": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.0,
+        "passes": 0,
+        "fails": 150
+      },
+      "thresholds": {
+        "rate<0.01": {
+          "ok": true
+        }
+      }
+    },
+    "ws_messages_received": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 1840,
+        "rate": 30.67
+      }
+    },
+    "ws_broadcasts_received": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 920,
+        "rate": 15.33
+      }
+    },
+    "ws_pings_sent": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 450,
+        "rate": 7.5
+      }
+    },
+    "checks": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 1.0,
+        "passes": 150,
+        "fails": 0
+      },
+      "thresholds": {
+        "rate>0.99": {
+          "ok": true
+        }
+      }
+    }
+  },
+  "root_group": {
+    "name": "",
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": [],
+    "checks": [
+      {
+        "name": "status is 101",
+        "path": "::status is 101",
+        "id": "c1f7b0a88094943fcfd432321853d9e8",
+        "passes": 150,
+        "fails": 0
+      }
+    ]
+  }
+}

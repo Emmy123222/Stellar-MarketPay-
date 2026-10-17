@@ -834,7 +834,7 @@ pub(crate) fn boost_job(
 /// Permissionless resolution after timeout.
 /// Refunds the client if status is Locked; pays freelancer pro-rata if status is InProgress.
 pub(crate) fn resolve_timeout(env: Env, job_id: String) {
-    check_not_frozen(&env);
+    check_not_frozen(&env, &job_id);
 
     let mut escrow: Escrow = env
         .storage()

@@ -37,6 +37,10 @@ router.use(generalRateLimiter);
 // oversized payloads causing slow DB writes and potential OOM
 router.use(express.json({ limit: '50kb' }));
 
+// Issue #1392: Set JSON body size limit to 50KB as a safeguard against
+// oversized payloads causing slow DB writes and potential OOM
+router.use(express.json({ limit: '50kb' }));
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_FILE_SIZE },
