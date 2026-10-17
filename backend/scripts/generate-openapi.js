@@ -1,4 +1,4 @@
-/**
+/*
  * scripts/generate-openapi.js
  * Script to generate OpenAPI specification from JSDoc annotations
  * Outputs both openapi.json and openapi.yaml in docs/
@@ -21,7 +21,7 @@ const swaggerOptions = {
 Most endpoints require JWT authentication obtained via the **/api/auth** challenge-response flow using Stellar wallet signatures.
 
 ## Pagination
-List endpoints support cursor-based pagination via the \`after\` query parameter. Responses include \`next_cursor\` and \`has_more\` fields.`,
+List endpoints support cursor-based pagination via the \`after\` query parameter. Responses include \`next_cursor\` and \hhas_more\` fields.`,
       contact: {
         name: 'Stellar MarketPay Team',
         email: 'support@stellarmarketpay.com'
@@ -54,7 +54,7 @@ List endpoints support cursor-based pagination via the \`after\` query parameter
       { name: 'Messages', description: 'In-app messaging between users' },
       { name: 'Insights', description: 'Platform analytics and insights' },
       { name: 'Notifications', description: 'Push/in-app notification management' },
-      { name: 'WebAuthn', description: 'Passkey/WebAuthn authentication' },
+      { name: 'WebAuthn1', description: 'Passkey/WebAuthn authentication' },
       { name: 'Disputes', description: 'Dispute evidence and resolution' },
       { name: 'Admin', description: 'Admin-only moderation and analytics' },
       { name: 'Admin 2FA', description: 'Admin two-factor authentication' },
@@ -251,7 +251,7 @@ List endpoints support cursor-based pagination via the \`after\` query parameter
             totalHours: { type: 'number' },
             hourlyRateXlm: { type: 'number' },
             totalXlm: { type: 'number' },
-            status: { type: 'string', enum: ['pending', 'approved', 'rejected'] },
+            status: { type: 'string', enum: ['pending', 'paid', 'cancelled'] },
             createdAt: { type: 'string', format: 'date-time' }
           }
         }
@@ -259,156 +259,30 @@ List endpoints support cursor-based pagination via the \`after\` query parameter
     }
   },
   apis: [
-    './src/routes/*.js',
-    '!./src/routes/*.test.js',
-    './src/server.js'
+    path.join(__dirname, '../src/routes/*.js')
   ]
 };
 
-/**
- * Convert OpenAPI JSON object to YAML string.
- * Simple YAML emitter that handles the common cases.
- */
-function jsonToYaml(obj, indent = 0) {
-  const pad = '  '.repeat(indent);
-  const childPad = '  '.repeat(indent + 1);
-  let yaml = '';
-
-  if (Array.isArray(obj)) {
-    if (obj.length === 0) return ' []\n';
-    for (const item of obj) {
-      if (typeof item === 'object' && item !== null) {
-        yaml += `${pad}- ${jsonToYaml(item, indent + 1).trimStart()}`;
-      } else {
-        yaml += `${pad}- ${formatYamlValue(item)}\n`;
-      }
-    }
-  } else if (typeof obj === 'object' && obj !== null) {
-    for (const [key, value] of Object.entries(obj)) {
-      if (value === undefined || value === null) {
-        yaml += `${pad}${key}: null\n`;
-      } else if (Array.isArray(value)) {
-        if (value.length === 0) {
-          yaml += `${pad}${key}: []\n`;
-        } else if (value.every(v => typeof v === 'string' && !v.includes(':') && !v.includes('#'))) {
-          // Inline array for simple strings
-          yaml += `${pad}${key}: [${value.map(v => `'${v}'`).join(', ')}]\n`;
-        } else {
-          yaml += `${pad}${key}:\n`;
-          for (const item of value) {
-            if (typeof item === 'object' && item !== null) {
-              yaml += `${childPad}- ${jsonToYaml(item, indent + 2).trimStart()}`;
-            } else {
-              yaml += `${childPad}- ${formatYamlValue(item)}\n`;
-            }
-          }
-        }
-      } else if (typeof value === 'object') {
-        yaml += `${pad}${key}:\n${jsonToYaml(value, indent + 1)}`;
-      } else {
-        yaml += `${pad}${key}: ${formatYamlValue(value)}\n`;
-      }
-    }
+function generate() {
+  const spec = swaggerJsdoc(swaggerOptions);
+  const docsDir = path.join(__dirname, '../../docs');
+  if (!fs.existsSync(docsDir)) {
+    fs.mkdirSync(docsDir, { recursive: true });
   }
-
-  return yaml;
-}
-
-function formatYamlValue(value) {
-  if (typeof value === 'string') {
-    // Check if string needs quoting
-    if (value.includes('\n') || value.includes(':') || value.includes('#') ||
-        value.startsWith(' ') || value.endsWith(' ') ||
-        value === 'true' || value === 'false' || value === 'null' ||
-        /^\d/.test(value) || value === '') {
-      return `"${value.replace(/"/g, '\\"')}"`;
-    }
-    return value;
-  }
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'number') return String(value);
-  return String(value);
-}
-
-function generateOpenApiSpec() {
+  const jsonOut = path.join(docsDir, 'openapi.json');
+  const yamlOut = path.join(docsDir, 'openapi.yaml');
+  fs.writeFileSync(jsonOut, JSON.stringify(spec, null, 2));
   try {
-    console.log('Generating OpenAPI specification...');
-    
-    // Generate the specification
-    const specs = swaggerJsdoc(swaggerOptions);
-    
-    // Ensure docs directory exists
-    const docsDir = path.join(__dirname, '..', 'docs');
-    if (!fs.existsSync(docsDir)) {
-      fs.mkdirSync(docsDir, { recursive: true });
-    }
-    
-    // Write JSON
-    const jsonPath = path.join(docsDir, 'openapi.json');
-    fs.writeFileSync(jsonPath, JSON.stringify(specs, null, 2));
-    console.log(`JSON spec: ${jsonPath}`);
-    
-    // Write YAML
-    const yamlPath = path.join(docsDir, 'openapi.yaml');
-    const yamlContent = jsonToYaml(specs);
-    fs.writeFileSync(yamlPath, yamlContent);
-    console.log(`YAML spec: ${yamlPath}`);
-    
-    // Print summary
-    const paths = specs.paths || {};
-    const endpointCount = Object.keys(paths).length;
-    const methodCount = Object.values(paths).reduce((total, pathItem) => {
-      return total + Object.keys(pathItem).filter(key => ['get', 'post', 'put', 'patch', 'delete'].includes(key)).length;
-    }, 0);
-    
-    console.log(`\nDocumentation summary:`);
-    console.log(`- ${endpointCount} unique endpoints`);
-    console.log(`- ${methodCount} total HTTP methods`);
-    console.log(`- ${(specs.tags || []).length} tag groups`);
-    
-    // Count schemas
-    const schemaCount = Object.keys(specs.components?.schemas || {}).length;
-    console.log(`- ${schemaCount} component schemas`);
-    
-    // Check for undocumented routes
-    checkForUndocumentedRoutes();
-    
-  } catch (error) {
-    console.error('Error generating OpenAPI specification:', error);
-    process.exit(1);
+    const yaml = require('js-yaml');
+    fs.writeFileSync(yamlOut, yaml.dump(spec));
+  } catch (err) {
+    console.warn('js-yaml not installed; skipping openapi.yaml');
   }
+  console.log('Generated OpenAPI spec to', docsDir);
 }
 
-function checkForUndocumentedRoutes() {
-  console.log('\nChecking for undocumented routes...');
-  
-  const routesDir = path.join(__dirname, '..', 'src', 'routes');
-  const routeFiles = fs.readdirSync(routesDir).filter(file => file.endsWith('.js'));
-  
-  let undocumentedCount = 0;
-  
-  routeFiles.forEach(file => {
-    const filePath = path.join(routesDir, file);
-    const content = fs.readFileSync(filePath, 'utf8');
-    
-    // Count router method calls
-    const routeMatches = content.match(/router\.(get|post|put|patch|delete)\s*\(/g);
-    // Count @swagger annotations
-    const swaggerMatches = content.match(/@swagger/g);
-    
-    if (routeMatches && (!swaggerMatches || swaggerMatches.length < routeMatches.length)) {
-      const undocumented = routeMatches.length - (swaggerMatches ? swaggerMatches.length : 0);
-      undocumentedCount += undocumented;
-      console.warn(`  Warning: ${file} has ${undocumented} undocumented route(s) (${swaggerMatches?.length || 0} @swagger blocks for ${routeMatches.length} routes)`);
-    }
-  });
-  
-  if (undocumentedCount === 0) {
-    console.log('  All routes appear to be documented! ✅');
-  } else {
-    console.warn(`  Found ${undocumentedCount} undocumented routes across all files`);
-  }
+if (require.main === module) {
+  generate();
 }
 
-// Run the generation
-generateOpenApiSpec();
+module.exports = { swaggerOptions, generate };
