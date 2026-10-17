@@ -24,6 +24,7 @@
 import { check } from "k6";
 
 export const BASE_URL = (__ENV.K6_BASE_URL || "http://localhost:4000").replace(/\/$/, "");
+export const WS_BASE_URL = (__ENV.K6_WS_BASE_URL || BASE_URL.replace(/^http/, "ws")).replace(/\/$/, "");
 export const FIXTURES_PATH = __ENV.K6_FIXTURES || "./test-fixtures.json";
 
 /** Canonical SLA limits — kept as constants so reports can reference them. */
@@ -49,6 +50,17 @@ export const thresholds = {
   http_req_failed: [`rate<0.001`], // effectively 0 % (< 0.1 %)
   http_req_duration: [`p(95)<${SLA.P95_MS}`], // p(95) < 200 ms
   checks: [`rate>0.99`], // > 99 % of business checks pass
+};
+
+/**
+ * WebSocket thresholds for realtime connections, fan-out delivery latency,
+ * and connection-failure rates (#1824).
+ */
+export const wsThresholds = {
+  ws_connecting: ["p(95)<500"], // connection handshake < 500 ms
+  ws_connection_failures: ["rate<0.01"], // < 1 % connection failure rate
+  ws_delivery_latency: [`p(95)<${SLA.P95_MS}`], // p(95) < 200 ms
+  checks: ["rate>0.99"], // > 99 % of checks pass
 };
 
 /**

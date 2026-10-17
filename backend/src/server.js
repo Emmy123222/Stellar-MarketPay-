@@ -15,6 +15,8 @@ const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
 const { WebSocketServer } = require("ws");
 const nodemailer = require("nodemailer");
+const jwt = require("jsonwebtoken");
+const { JWT_SECRET } = require("./middleware/auth");
 
 const jobRoutes = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
@@ -50,6 +52,8 @@ const pool                  = require("./db/pool");
 const { scheduleStatsRefresh } = require("./services/statsService");
 const { startPushSubscriptionPurge } = require("./services/pushSubscriptionService");
 const { startLinkVerificationScheduler } = require("./services/linkVerificationScheduler");
+const { startEscrowTimeoutChecker } = require("./services/escrowService");
+const { setWebsocketConnections } = require("./metrics");
 
 // Start workers
 require("./workers/auditWorker");
@@ -60,13 +64,40 @@ app.set("trust proxy", 1);
 const PORT = process.env.PORT || 4000;
 const server = http.createServer(app);
 const WS_OPEN = 1;
+const MAX_WS_CONNECTIONS_PER_USER = Number(process.env.MAX_WS_CONNECTIONS_PER_USER || 5);
 
 const realtimeClients = new Set();
+const userClients = new Map();
+const userLastSeen = new Map();
+const realtimeRooms = new Map();
 const scopeSessionClients = new Map();
 
 function broadcastRealtime(event, payload) {
-  const message = JSON.stringify({ event, payload });
+  const message = JSON.stringify({ event, payload, timestamp: Date.now() });
   for (const ws of realtimeClients) {
+    if (ws.readyState === WS_OPEN) ws.send(message);
+  }
+}
+
+function broadcastToUser(userAddress, event, payload) {
+  const sockets = userClients.get(userAddress);
+  if (!sockets) return;
+  const message = JSON.stringify({ event, payload, timestamp: Date.now() });
+  for (const ws of sockets) {
+    if (ws.readyState === WS_OPEN) ws.send(message);
+  }
+}
+
+function broadcastToRoom(room, event, payload, timestamp) {
+  const clients = realtimeRooms.get(room);
+  if (!clients) return;
+  const message = JSON.stringify({
+    event,
+    payload,
+    room,
+    timestamp: timestamp || Date.now(),
+  });
+  for (const ws of clients) {
     if (ws.readyState === WS_OPEN) ws.send(message);
   }
 }
@@ -251,9 +282,65 @@ wsServer.on("connection", async (ws, request) => {
         ws.close(1008, "Too many connections");
         return;
       }
+      let sockets = userClients.get(userAddress);
+      if (!sockets) {
+        sockets = new Set();
+        userClients.set(userAddress, sockets);
+      }
+      sockets.add(ws);
+      ws.userAddress = userAddress;
     }
     realtimeClients.add(ws);
     sendJson(ws, "connected", { channel: "realtime" });
+
+    ws.on("message", (raw) => {
+      try {
+        const msg = JSON.parse(String(raw));
+        if (!msg || typeof msg !== "object") return;
+
+        const type = msg.type || msg.event || msg.action;
+        if (type === "subscribe" && msg.room) {
+          const room = String(msg.room);
+          let roomSockets = realtimeRooms.get(room);
+          if (!roomSockets) {
+            roomSockets = new Set();
+            realtimeRooms.set(room, roomSockets);
+          }
+          roomSockets.add(ws);
+          if (!ws.rooms) ws.rooms = new Set();
+          ws.rooms.add(room);
+          sendJson(ws, "subscribed", { room });
+          return;
+        }
+
+        if (type === "unsubscribe" && msg.room) {
+          const room = String(msg.room);
+          const roomSockets = realtimeRooms.get(room);
+          if (roomSockets) {
+            roomSockets.delete(ws);
+            if (!roomSockets.size) realtimeRooms.delete(room);
+          }
+          if (ws.rooms) ws.rooms.delete(room);
+          sendJson(ws, "unsubscribed", { room });
+          return;
+        }
+
+        if (type === "ping") {
+          sendJson(ws, "pong", {
+            timestamp: msg.timestamp || Date.now(),
+            serverTime: Date.now(),
+          });
+          return;
+        }
+
+        if (type === "broadcast" && msg.room) {
+          broadcastToRoom(msg.room, msg.event || "message", msg.payload || msg.data, msg.timestamp);
+          return;
+        }
+      } catch {
+        /* ignore invalid JSON */
+      }
+    });
 
     // Replay notifications missed while the user was disconnected
     if (userAddress) {
@@ -285,6 +372,15 @@ wsServer.on("connection", async (ws, request) => {
     ws.on("close", () => {
       realtimeClients.delete(ws);
       setWebsocketConnections("realtime", realtimeClients.size);
+      if (ws.rooms) {
+        for (const room of ws.rooms) {
+          const roomSockets = realtimeRooms.get(room);
+          if (roomSockets) {
+            roomSockets.delete(ws);
+            if (!roomSockets.size) realtimeRooms.delete(room);
+          }
+        }
+      }
       if (userAddress) {
         userLastSeen.set(userAddress, new Date());
         const sockets = userClients.get(userAddress);
@@ -399,7 +495,7 @@ wsServer.on("connection", async (ws, request) => {
     ws.on("close", async () => {
       clients.delete(ws);
       if (!clients.size) scopeSessionClients.delete(sessionId);
-      refreshWsMetrics();
+      setWebsocketConnections("scope", scopeSessionClients.size);
       try {
         const freshSession = await loadScopeSession(sessionId);
         if (!freshSession) return;
@@ -494,8 +590,6 @@ async function startJobExpiryChecker() {
     }
   }, 60 * 60 * 1000).unref();
 }
-
-bootstrap();
 
 /**
  * Periodically process pending notifications (runs every 2 minutes).
@@ -722,9 +816,12 @@ app._ws.wsServer = wsServer;
 app._ws.realtimeClients = realtimeClients;
 app._ws.userClients = userClients;
 app._ws.userLastSeen = userLastSeen;
+app._ws.realtimeRooms = realtimeRooms;
 app._ws.scopeSessionClients = scopeSessionClients;
 app._ws.broadcastRealtime = broadcastRealtime;
 app._ws.broadcastToUser = broadcastToUser;
+app._ws.broadcastToRoom = broadcastToRoom;
+app.locals.broadcastToRoom = broadcastToRoom;
 
 app.startEscrowTimeoutChecker = startEscrowTimeoutChecker;
 

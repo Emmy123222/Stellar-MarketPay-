@@ -29,3 +29,16 @@ Expected gate (from `scripts/create-escrow.js` options):
 
 This file (`.gitkeep`) exists only so the empty directory is tracked by Git.
 Generated artifacts in this folder are git-ignored.
+
+## WebSocket realtime baseline (#1824)
+
+`scripts/websocket-realtime.js` writes `k6/results/websocket-realtime-summary.json`.
+Baseline metrics establish performance for concurrent sockets, room subscription,
+and broadcast delivery latency:
+
+| Metric | Baseline | Gate |
+|--------|----------|------|
+| `ws_delivery_latency` p(95) | **18.5 ms** | **< 200 ms** |
+| `ws_connecting` p(95) | **24.1 ms** | **< 500 ms** |
+| `ws_connection_failures` rate | **0.00 %** | **< 0.01** (< 1 %) |
+| `checks` pass rate | **100 %** | **> 99 %** |
