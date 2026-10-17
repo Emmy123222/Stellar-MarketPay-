@@ -3,8 +3,7 @@ node_modules/
 out/
 target/
 dist/
-build/
-*.log
+build/*.log
 
 # Env files
 .env
@@ -54,8 +53,11 @@ migrations_list.txt
 
 # Build artifacts
 frontend/.next/
-frontend/tsconfig.tsbuildinfo
+frontend/tsconfig.tsbuildinfo 
 
 # Stryker output
 .stryker-tmp/
 reports/
+
+# Stray patch files
+/*.patch
