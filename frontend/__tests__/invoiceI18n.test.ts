@@ -82,4 +82,30 @@ describe("Invoice i18n & Formatting (Issue #1555)", () => {
     // German uses period as thousands separator and comma as decimal
     expect(deFormatted).toMatch(/1\.250,50/);
   });
+
+  test("resolves non-English translations via the unified invoice namespace", () => {
+    // Spanish
+    const es = getInvoiceTranslations("es");
+    expect(es.statusApproved).toBe("Aprobada");
+    expect(es.freelancer).toBe("Profesional");
+    expect(es.client).toBe("Cliente");
+
+    // French
+    const fr = getInvoiceTranslations("fr");
+    expect(fr.statusApproved).toBe("Approuvée");
+    expect(fr.freelancer).toBe("Freelance");
+    expect(fr.client).toBe("Client");
+
+    // German
+    const de = getInvoiceTranslations("de");
+    expect(de.statusApproved).toBe("Genehmigt");
+    expect(de.freelancer).toBe("Auftragnehmer");
+    expect(de.client).toBe("Auftraggeber");
+
+    // Portuguese
+    const pt = getInvoiceTranslations("pt");
+    expect(pt.statusApproved).toBe("Aprovada");
+    expect(pt.freelancer).toBe("Freelancer");
+    expect(pt.client).toBe("Cliente");
+  });
 });
