@@ -33,6 +33,7 @@ Key properties:
 ## SEP-10 Standard
 
 - Specification: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md
+- Architecture Decision: [ADR-004: SEP-10 vs OAuth for Authentication](adr/adr-004-sep10-authentication.md)
 - **Challenge transaction** — an unsigned `TransactionEnvelope` (XDR) containing a nonce, home domain, and short expiry (~5 minutes)
 - **Signed XDR** — the client returns the same envelope signed with the Stellar account's private key
 - **Verification** — the server checks the signature against the public key on the Stellar network
@@ -782,3 +783,4 @@ const signedXdr = tx.toEnvelope().toXDR("base64");
 _For WebAuthn credential management see `backend/src/routes/webauthn.js`._
 _For 2FA enrollment see `backend/src/routes/twoFactor.js`._
 _For rate limiting configuration see `backend/src/middleware/rateLimiter.js`._
+_For architecture rationale see [ADR-004: SEP-10 vs OAuth for Authentication](adr/adr-004-sep10-authentication.md)._

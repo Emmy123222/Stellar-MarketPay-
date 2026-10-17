@@ -92,6 +92,10 @@ Traditional password authentication was rejected because:
 - **Not Wallet-Proof**: Doesn't verify blockchain wallet ownership
 - **Attack Surface**: Vulnerable to credential stuffing, phishing
 
+### Why Not Pure JWT?
+
+While JSON Web Tokens are excellent for maintaining stateless session state after initial verification, issuing them without an initial strong, cryptographic authentication challenge is problematic and insecure for Web3 applications with no centralized password credentials.
+
 ### Why Not Magic Links?
 
 Email-based magic links were considered but rejected:
@@ -100,6 +104,10 @@ Email-based magic links were considered but rejected:
 - **Latency**: Slower authentication flow
 - **Spam/Deliverability**: Email may not arrive
 - **Not Wallet-Proof**: Email ownership ≠ wallet ownership
+
+## Notes
+
+- **Supersedes**: Early draft `001-sep10-authentication.md` (which used non-standard numbering colliding with ADR-001). All unique points and wallet references (Freighter, xBull, Albedo) have been consolidated here.
 
 ## Consequences
 
