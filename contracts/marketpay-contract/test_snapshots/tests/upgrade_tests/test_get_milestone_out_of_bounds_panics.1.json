@@ -446,6 +446,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "ExecutionDelaySeconds"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "172800"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "Frozen"
                           }
                         ]

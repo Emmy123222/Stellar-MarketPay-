@@ -624,6 +624,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "ExecutionDelaySeconds"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "172800"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "Frozen"
                           }
                         ]
@@ -873,6 +885,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "executed"
+                            },
+                            "val": {
+                              "bool": false
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "id"
                             },
                             "val": {
@@ -885,6 +905,14 @@
                             },
                             "val": {
                               "bool": true
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "resolved_at_timestamp"
+                            },
+                            "val": {
+                              "u64": "0"
                             }
                           },
                           {
@@ -953,6 +981,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "executed"
+                            },
+                            "val": {
+                              "bool": false
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "id"
                             },
                             "val": {
@@ -965,6 +1001,14 @@
                             },
                             "val": {
                               "bool": true
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "resolved_at_timestamp"
+                            },
+                            "val": {
+                              "u64": "0"
                             }
                           },
                           {
