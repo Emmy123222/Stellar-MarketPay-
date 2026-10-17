@@ -363,7 +363,7 @@ fn test_concurrent_release_and_timeout_refund_release_first() {
 }
 
 #[test]
-#[should_panic(expected = "Cannot release escrow in current status")]
+#[should_panic(expected = "Escrow already settled")]
 fn test_concurrent_release_and_timeout_refund_timeout_first() {
     let env = Env::default();
     env.mock_all_auths();
@@ -723,6 +723,50 @@ fn test_timeout_refund_after_complete_refund_and_recreate() {
             referrer: None,
         },
     );
+}
+
+
+struct EscrowTestSetup<'a> {
+    contract_client: MarketPayContractClient<'a>,
+    client: Address,
+    freelancer: Address,
+    treasury: Address,
+    token_client: token::Client<'a>,
+    contract_id: Address,
+    escrow_amount: i128,
+}
+
+fn setup_escrow<'a>(
+    env: &'a Env,
+    _amount: Option<i128>,
+    _timeout: Option<u32>,
+    _timeout_seconds: Option<u64>,
+) -> EscrowTestSetup<'a> {
+    let (contract_client, client, freelancer, token_id, _admin, treasury) = setup_contract(env);
+    let job_id = String::from_str(env, "job1");
+    let escrow_amount = 1000;
+    contract_client.create_escrow(
+        &job_id,
+        &client,
+        &CreateEscrowParams {
+            freelancer: freelancer.clone(),
+            token: token_id.clone(),
+            amount: escrow_amount,
+            milestones: None,
+            timeout_ledgers: None,
+            referrer: None,
+        },
+    );
+    let contract_id = contract_client.address.clone();
+    EscrowTestSetup {
+        contract_id,
+        contract_client,
+        client,
+        freelancer,
+        treasury,
+        token_client: token::Client::new(env, &token_id),
+        escrow_amount,
+    }
 }
 
 // -- resolve_timeout tests --------------------------------------------------

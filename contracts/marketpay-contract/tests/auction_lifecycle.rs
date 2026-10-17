@@ -28,6 +28,7 @@
 
 mod tests {
     use marketpay_contract::{MarketPayContract, MarketPayContractClient};
+    use marketpay_contract::CreateEscrowParams;
     use soroban_sdk::{
         testutils::{Address as _, Ledger},
         token, Address, Bytes, BytesN, Env, String,
@@ -446,4 +447,107 @@ mod tests {
             &bid_commitment(&env, 777, &nonce(&env, 42)),
         );
     }
+
+    // ─── Minimum Bid Increment Lifecycle Tests ─────────────────────────────
+
+    #[test]
+    fn test_place_bid_enforces_default_minimum_increment_and_boundaries() {
+        let env = Env::default();
+        let (contract, _contract_id, token_id, client, alice, bob, carol) = setup(&env);
+        let job_id = String::from_str(&env, "job-min-inc-default");
+
+        let params = CreateEscrowParams {
+            freelancer: alice.clone(),
+            token: token_id.clone(),
+            amount: 1000,
+            milestones: None,
+            timeout_ledgers: Some(1000),
+            referrer: None,
+        };
+        contract.create_escrow(&job_id, &client, &params);
+
+        // Default increment is 100
+        assert_eq!(contract.get_min_bid_increment(&job_id), 100);
+
+        // First bid by Alice: 500
+        contract.place_bid(&job_id, &alice, &500);
+
+        // Bob tries boundary values:
+        // 500 + 100 - 1 = 599 -> must fail
+        let under_bid = contract.try_place_bid(&job_id, &bob, &599);
+        assert!(under_bid.is_err(), "Bid below highest + min_increment must fail");
+
+        // Exact boundary: 500 + 100 = 600 -> must succeed
+        contract.place_bid(&job_id, &bob, &600);
+
+        // Carol tries boundary values against 600:
+        // 600 + 100 - 1 = 699 -> must fail
+        let carol_under = contract.try_place_bid(&job_id, &carol, &699);
+        assert!(carol_under.is_err(), "Bid below highest + min_increment must fail");
+
+        // Above boundary: 600 + 150 = 750 -> must succeed
+        contract.place_bid(&job_id, &carol, &750);
+    }
+
+    #[test]
+    #[should_panic(expected = "Bid does not meet the minimum increment requirement")]
+    fn test_place_bid_rejects_under_minimum_increment_exact_panic() {
+        let env = Env::default();
+        let (contract, _contract_id, token_id, client, alice, bob, _carol) = setup(&env);
+        let job_id = String::from_str(&env, "job-min-inc-panic");
+
+        let params = CreateEscrowParams {
+            freelancer: alice.clone(),
+            token: token_id.clone(),
+            amount: 1000,
+            milestones: None,
+            timeout_ledgers: Some(1000),
+            referrer: None,
+        };
+        contract.create_escrow(&job_id, &client, &params);
+
+        contract.place_bid(&job_id, &alice, &500);
+        // Under by 1 unit: 599 < 500 + 100
+        contract.place_bid(&job_id, &bob, &599);
+    }
+
+    #[test]
+    fn test_place_bid_custom_increment_and_boundaries() {
+        let env = Env::default();
+        let (contract, _contract_id, token_id, client, alice, bob, carol) = setup(&env);
+        let job_id = String::from_str(&env, "job-custom-inc");
+
+        let params = CreateEscrowParams {
+            freelancer: alice.clone(),
+            token: token_id.clone(),
+            amount: 2000,
+            milestones: None,
+            timeout_ledgers: Some(1000),
+            referrer: None,
+        };
+        contract.create_escrow(&job_id, &client, &params);
+
+        // Configure custom increment of 250
+        contract.create_auction(&job_id, &client, &Some(250));
+        assert_eq!(contract.get_min_bid_increment(&job_id), 250);
+
+        // First bid
+        contract.place_bid(&job_id, &alice, &500);
+
+        // Boundary tests for custom increment 250:
+        // 500 + 250 - 1 = 749 -> fails
+        let res_under = contract.try_place_bid(&job_id, &bob, &749);
+        assert!(res_under.is_err(), "749 is below 500 + 250");
+
+        // Exact: 500 + 250 = 750 -> succeeds
+        contract.place_bid(&job_id, &bob, &750);
+
+        // Next boundary for Carol: 750 + 250 - 1 = 999 -> fails
+        let res_carol_under = contract.try_place_bid(&job_id, &carol, &999);
+        assert!(res_carol_under.is_err(), "999 is below 750 + 250");
+
+        // Exact boundary 1000 -> succeeds
+        contract.place_bid(&job_id, &carol, &1000);
+    }
+
 }

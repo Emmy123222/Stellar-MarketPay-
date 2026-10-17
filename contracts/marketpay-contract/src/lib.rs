@@ -49,6 +49,7 @@ mod milestones;
 mod types;
 
 pub use types::*;
+pub use errors::ContractError;
 
 #[contract]
 pub struct MarketPayContract;
@@ -543,6 +544,31 @@ impl MarketPayContract {
     /// Read all bids that were revealed during reveal phase.
     pub fn get_revealed_bids(env: Env, job_id: String) -> Vec<types::RevealedBid> {
         auction::get_revealed_bids(env, job_id)
+    }
+
+    /// Create or configure an auction with an optional minimum bid increment.
+    pub fn create_auction(
+        env: Env,
+        job_id: String,
+        client: Address,
+        min_increment: Option<i128>,
+    ) {
+        auction::create_auction(env, job_id, client, min_increment)
+    }
+
+    /// Configure a custom minimum bid increment for an auction.
+    pub fn set_min_bid_increment(
+        env: Env,
+        job_id: String,
+        client: Address,
+        min_increment: i128,
+    ) {
+        auction::set_min_bid_increment(env, job_id, client, min_increment)
+    }
+
+    /// Get the effective minimum bid increment for a job auction.
+    pub fn get_min_bid_increment(env: Env, job_id: String) -> i128 {
+        auction::get_min_bid_increment(env, job_id)
     }
 
     /// Place a token-backed bid. A higher bid automatically refunds the

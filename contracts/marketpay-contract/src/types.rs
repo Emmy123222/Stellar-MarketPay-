@@ -132,6 +132,17 @@ pub struct BiddingState {
     pub reveal_deadline_ledger: u32,
 }
 
+
+pub const DEFAULT_MIN_BID_INCREMENT: i128 = 100;
+
+/// Current highest bid in an auction.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HighestBid {
+    pub bidder: Address,
+    pub amount: i128,
+}
+
 /// A successfully revealed bid.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -283,6 +294,8 @@ pub enum DataKey {
     BidCommitment(String, Address),
     BiddingState(String),
     RevealedBids(String),
+    MinBidIncrement(String),
+    HighestBid(String),
     LiveAuction(String),
     LiveBid(String, Address),
     Certificate(String),
