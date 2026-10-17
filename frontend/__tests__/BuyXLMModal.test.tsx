@@ -19,7 +19,6 @@ jest.mock("../lib/anchors", () => ({
   ANCHOR_HOME_DOMAIN: "anchor.example.com",
   fetchApprovedAnchors: jest.fn(),
   fetchAnchorEndpoints: jest.fn(),
-  fetchAnchorEndpoints: jest.fn(),\n  fetchApprovedAnchors: jest.fn(),
   startInteractiveDeposit: jest.fn(),
   pollAnchorTransaction: jest.fn(),
 }));

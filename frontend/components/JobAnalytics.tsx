@@ -26,14 +26,14 @@ function ApplicationsPerDayChart({ data }: { data: JobAnalytics["applicationsPer
           <div key={i} className="flex-1 flex flex-col items-center gap-1">
             <div className="w-full max-w-[28px] bg-gradient-to-t from-amber-500/30 to-amber-400 rounded-t-sm transition-all duration-300 hover:from-amber-500/50 hover:to-amber-300" style={{ height: `${Math.max(4, (item.count / maxCount) * 100)}%` }} />
             <span className="text-[10px] text-amber-700 whitespace-nowrap">
-              {new Date(item.day).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+              {new Date(item.day).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
             </span>
           </div>
         ))}
       </div>
       <div className="flex justify-between text-[10px] text-amber-800 px-1">
-        <span>{lastSeven[0]?.day ? new Date(lastSeven[0].day).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "-"}</span>
-        <span>{lastSeven[lastSeven.length - 1]?.day ? new Date(lastSeven[lastSeven.length - 1].day).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "-"}</span>
+        <span>{lastSeven[0]?.day ? new Date(lastSeven[0].day).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "-"}</span>
+        <span>{lastSeven[lastSeven.length - 1]?.day ? new Date(lastSeven[lastSeven.length - 1].day).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "-"}</span>
       </div>
     </div>
   );
@@ -239,7 +239,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
           <div>
             <p className="text-xs text-amber-700 mb-1">Posted</p>
-            <p className="font-mono text-sm text-amber-400">{new Date(job.createdAt).toLocaleDateString()}</p>
+            <p className="font-mono text-sm text-amber-400">{new Date(job.createdAt).toLocaleDateString("en-US")}</p>
           </div>
           <div>
             <p className="text-xs text-amber-700 mb-1">Expires</p>
@@ -247,7 +247,7 @@ export default function JobAnalyticsPanel({ job, onExtend }: JobAnalyticsProps) 
               "font-mono text-sm",
               isExpired ? "text-red-400" : isExpiringSoon ? "text-amber-400" : "text-amber-400"
             )}>
-              {job.expiresAt ? new Date(job.expiresAt).toLocaleDateString() : "—"}
+              {job.expiresAt ? new Date(job.expiresAt).toLocaleDateString("en-US") : "—"}
             </p>
           </div>
           <div>
