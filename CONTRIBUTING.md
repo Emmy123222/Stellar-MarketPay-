@@ -22,11 +22,12 @@ Stellar MarketPay is a decentralized freelance marketplace built on the Stellar 
 6. [Project Structure](#project-structure)
 7. [Testing](#testing)
 8. [Adding a new API Endpoint](#adding-a-new-api-endpoint)
-9. [Branch Naming](#branch-naming)
-10. [Commit Style](#commit-style)
-11. [Submitting a Pull Request](#submitting-a-pull-request)
-12. [Smart Contract Development](#smart-contract-development)
-13. [Pre-commit Hooks (husky + lint-staged)](#pre-commit-hooks-husky--lint-staged)
+9. [Tool-Generated and Editor Directories](#tool-generated-and-editor-directories)
+10. [Branch Naming](#branch-naming)
+11. [Commit Style](#commit-style)
+12. [Submitting a Pull Request](#submitting-a-pull-request)
+13. [Smart Contract Development](#smart-contract-development)
+14. [Pre-commit Hooks (husky + lint-staged)](#pre-commit-hooks-husky--lint-staged)
 
 ---
 
@@ -483,6 +484,34 @@ Rules of thumb for the suite:
 - [ ] `backend/src/routes/<resource>.test.js` covering happy path + failures
 - [ ] Migration added if the endpoint introduces a table/column
 - [ ] `cd backend && npm run lint && npx jest --selectProjects unit --forceExit`
+
+---
+
+## Tool-Generated and Editor Directories
+
+Editor and AI coding-tool state is personal working state, not project source.
+It goes stale quickly and nothing in the app depends on it, so it must not be
+committed.
+
+- **Never commit tool state.** Directories such as `.vscode/`, `.idea/`,
+  `.kiro/`, and `.opencode/` are listed in `.gitignore`. Do not force-add them
+  with `git add -f`.
+- **Promote the content, not the format.** If a tool produces material with
+  lasting value — requirements, design decisions, operational notes — move the
+  human-readable substance into `docs/` as plain Markdown and link the files
+  that implement it. Strip tool metadata such as spec IDs, workflow state, and
+  generated task checklists.
+- **Specs belong where everyone can read them.** Requirements for work that is
+  not yet done belong in a GitHub issue with acceptance criteria. Requirements
+  for shipped or in-progress features belong in `docs/`, with an honest status
+  note when the implementation and the intent differ.
+- **Add ignores with the tool.** When a PR introduces a new editor or agent
+  tool, add its state directory to `.gitignore` in the same PR.
+
+This policy is why `.kiro/specs/` was promoted into
+[docs/mobile-tab-bar.md](docs/mobile-tab-bar.md) and
+[docs/xlm-price-chart.md](docs/xlm-price-chart.md) and then removed from the
+repository (see #1849).
 
 ---
 

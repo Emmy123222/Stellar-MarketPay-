@@ -192,6 +192,30 @@ Decisions that shaped Stellar MarketPay's architecture:
 
 ---
 
+### Mobile Bottom Tab Bar
+
+**File**: [mobile-tab-bar.md](./mobile-tab-bar.md)
+
+**Contents**:
+
+- Intended behaviour for the mobile navigation (`<768px`)
+- Tabs, active state, notification badge, and accessibility contract
+- Current implementation status, including the outstanding layout wiring
+
+---
+
+### XLM Price Chart
+
+**File**: [xlm-price-chart.md](./xlm-price-chart.md)
+
+**Contents**:
+
+- 1D / 7D / 30D timeframe behaviour and Horizon request parameters
+- Chart, tooltip, loading skeleton, and ARIA contracts
+- Design decisions and the files that implement them
+
+---
+
 ## 📋 Implementation Guides
 
 ### Implementation Summary

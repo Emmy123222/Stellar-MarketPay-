@@ -17,9 +17,10 @@ build/
 .DS_Store
 Thumbs.db
 
-# Editor
+# Editor and AI tool state (see CONTRIBUTING.md)
 .vscode/
 .idea/
+.kiro/
 *.swp
 
 # Coverage
