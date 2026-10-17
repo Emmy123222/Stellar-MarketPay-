@@ -1,5 +1,3 @@
-
-Server · JS
 /* global userAddress, userLastSeen, userClients, setWebsocketConnections, broadcastToUser, createServiceLogger, sendEmail, logError, startEscrowTimeoutChecker, refreshWsMetrics, startNotificationProcessor, startAdminReportScheduler, startWeeklyDigestScheduler, startPurgeDeletedRecords, startRecurringEscrowTicker */
 /* eslint-disable */
 /**
@@ -57,7 +55,7 @@ const scopeRoutes        = require("./routes/scope");
 const analyticsRoutes    = require("./routes/analytics");
 const searchRoutes       = require("./routes/search");
  
-const { setWebsocketConnections } = require("./metrics");
+const { setWebsocketConnections, setWebsocketRooms, recordWebsocketReplay } = require("./metrics");
 const { startEscrowTimeoutChecker } = require("./services/escrowService");
 const { scheduleStatsRefresh } = require("./services/statsService");
 const { startPushSubscriptionPurge } = require("./services/pushSubscriptionService");
@@ -257,6 +255,8 @@ function refreshWsMetrics() {
   for (const clients of scopeSessionClients.values()) scopeConnections += clients.size;
   setWebsocketConnections("scope", scopeConnections);
   setWebsocketConnections("realtime", realtimeClients.size);
+  setWebsocketRooms("scope", scopeSessionClients.size);
+  setWebsocketRooms("realtime", realtimeRooms.size);
 }
  
 server.on("upgrade", (request, socket, head) => {
@@ -328,6 +328,7 @@ wsServer.on("connection", async (ws, request) => {
           .filter((n) => new Date(n.created_at) > lastSeen)
           .sort((a, b) => new Date(a.created_at) - new Date(b.created_at) || a.id - b.id);
         for (const row of missed) {
+          recordWebsocketReplay();
           sendJson(ws, "notification:created", {
             id: row.id,
             userAddress: row.user_address,

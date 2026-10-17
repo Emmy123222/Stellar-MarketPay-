@@ -30,3 +30,10 @@ name = "fuzz_timeout_refund"
 path = "fuzz_targets/fuzz_timeout_refund.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_milestone_release"
+path = "fuzz_targets/fuzz_milestone_release.rs"
+test = false
+doc = false
+

@@ -94,6 +94,34 @@ const legacyWsConnectionsActive = createMetric(promClient.Gauge, {
   help: "Active WebSocket connections (legacy name)",
 });
 
+/** Number of currently active WebSocket rooms or scoped sessions, by channel. */
+const activeWebsocketRooms = createMetric(promClient.Gauge, {
+  name: "active_websocket_rooms",
+  help: "Currently active WebSocket rooms or scoped sessions",
+  labelNames: ["channel"],
+});
+
+/** Total notifications replayed to reconnecting WebSocket clients. */
+const websocketReplayedMessagesTotal = createMetric(promClient.Counter, {
+  name: "websocket_replayed_messages_total",
+  help: "Total notifications replayed to reconnecting WebSocket clients",
+});
+
+// ─── Bull queue metrics ───────────────────────────────────────────────────────
+/** Current Bull queue depth by queue and job state. */
+const queueDepth = createMetric(promClient.Gauge, {
+  name: "queue_depth",
+  help: "Current Bull queue depth by queue name and status",
+  labelNames: ["queue", "status"],
+});
+
+/** Total processed Bull queue jobs by queue and terminal status. */
+const queueJobsTotal = createMetric(promClient.Counter, {
+  name: "queue_jobs_total",
+  help: "Total processed Bull queue jobs by queue name and terminal status",
+  labelNames: ["queue", "status"],
+});
+
 // ─── Database pool metrics ────────────────────────────────────────────────────
 /** PostgreSQL query latency in milliseconds. */
 const poolQueryDurationMs = createMetric(promClient.Histogram, {
@@ -324,6 +352,46 @@ function setWebsocketConnections(channel, count) {
   if (channel === "realtime") legacyWsConnectionsActive.set(count);
 }
 
+/**
+ * Update the WebSocket room counts for a channel.
+ *
+ * @param {string} channel channel name ("realtime", "scope", …)
+ * @param {number} count   number of active rooms/sessions
+ */
+function setWebsocketRooms(channel, count) {
+  activeWebsocketRooms.set({ channel }, count);
+}
+
+/**
+ * Record replayed WebSocket notifications.
+ *
+ * @param {number} [count=1] number of messages replayed
+ */
+function recordWebsocketReplay(count = 1) {
+  websocketReplayedMessagesTotal.inc(count);
+}
+
+/**
+ * Update the Bull queue depth gauge.
+ *
+ * @param {string} queue  queue name ("email", "audit", "linkVerification", …)
+ * @param {string} status job status ("waiting", "active", "delayed", "failed")
+ * @param {number} count  number of jobs in that state
+ */
+function setQueueDepth(queue, status, count) {
+  queueDepth.set({ queue, status }, count);
+}
+
+/**
+ * Record a processed queue job.
+ *
+ * @param {string} queue  queue name ("email", "audit", "linkVerification", …)
+ * @param {string} status terminal status ("completed" | "failed")
+ */
+function recordQueueJob(queue, status) {
+  queueJobsTotal.inc({ queue, status });
+}
+
 // Bounded failure-reason set for escrow releases. Raw error messages are never
 // used as label values (cardinality + PII safety).
 const ESCROW_RELEASE_REASONS = [
@@ -392,6 +460,10 @@ module.exports = {
   httpRequestsTotal,
   httpRequestDurationMs,
   activeWebsocketConnections,
+  activeWebsocketRooms,
+  websocketReplayedMessagesTotal,
+  queueDepth,
+  queueJobsTotal,
   poolQueryDurationMs,
   poolQueriesTotal,
   escrowReleasesTotal,
@@ -420,6 +492,10 @@ module.exports = {
   observeHttpRequest,
   observePoolQuery,
   setWebsocketConnections,
+  setWebsocketRooms,
+  recordWebsocketReplay,
+  setQueueDepth,
+  recordQueueJob,
   recordEscrowRelease,
   escrowReleaseReason,
   recordCacheHit,

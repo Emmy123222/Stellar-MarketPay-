@@ -26,8 +26,47 @@ const linkVerificationQueue = new Queue("linkVerificationQueue", redisConfig, {
   },
 });
 
+const { recordQueueJob, setQueueDepth } = require("../metrics");
+
+function instrumentQueue(queue, name) {
+  queue.on("completed", () => {
+    recordQueueJob(name, "completed");
+  });
+  queue.on("failed", () => {
+    recordQueueJob(name, "failed");
+  });
+}
+
+instrumentQueue(emailQueue, "email");
+instrumentQueue(auditQueue, "audit");
+instrumentQueue(linkVerificationQueue, "linkVerification");
+
+/**
+ * Poll job counts across all registered queues and update queue_depth gauges.
+ */
+async function refreshQueueDepths() {
+  const queues = [
+    { q: emailQueue, name: "email" },
+    { q: auditQueue, name: "audit" },
+    { q: linkVerificationQueue, name: "linkVerification" },
+  ];
+  for (const { q, name } of queues) {
+    if (!q.client || q.client.status !== "ready") continue;
+    try {
+      const counts = await q.getJobCounts();
+      setQueueDepth(name, "waiting", counts.waiting || 0);
+      setQueueDepth(name, "active", counts.active || 0);
+      setQueueDepth(name, "delayed", counts.delayed || 0);
+      setQueueDepth(name, "failed", counts.failed || 0);
+    } catch {
+      // Non-fatal if Redis is unavailable
+    }
+  }
+}
+
 module.exports = {
   emailQueue,
   auditQueue,
   linkVerificationQueue,
+  refreshQueueDepths,
 };
