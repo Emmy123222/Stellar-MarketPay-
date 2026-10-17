@@ -186,6 +186,12 @@ pub enum ContractError {
     NoMatchingQuorumProposal = 6011,
     /// "TimelockActive"
     TimelockActive = 6012,
+    /// "Proposal has not been resolved"
+    ProposalNotResolved = 6013,
+    /// "Proposal did not pass"
+    ProposalDidNotPass = 6014,
+    /// "Proposal already executed"
+    ProposalAlreadyExecuted = 6015,
 
     // ── 7xxx: Disputes & arbitration ──────────────────────────────────────
     /// "Only participants can raise a dispute"
@@ -348,6 +354,9 @@ impl ContractError {
             Self::QuorumProposalNotPassed => "Quorum change proposal has not passed",
             Self::NoMatchingQuorumProposal => "No matching quorum change proposal",
             Self::TimelockActive => "TimelockActive",
+            Self::ProposalNotResolved => "Proposal has not been resolved",
+            Self::ProposalDidNotPass => "Proposal did not pass",
+            Self::ProposalAlreadyExecuted => "Proposal already executed",
             // 7xxx
             Self::OnlyParticipantsCanDispute => "Only participants can raise a dispute",
             Self::CannotDisputeResolved => {

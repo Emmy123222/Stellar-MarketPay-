@@ -49,6 +49,7 @@ mod milestones;
 mod types;
 
 pub use types::*;
+pub use errors::ContractError;
 
 #[contract]
 pub struct MarketPayContract;
