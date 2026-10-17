@@ -7,7 +7,7 @@ const {
   rollbackLastMigration,
 } = require("./migrate");
 
-describe("Database Migrations (V1–V49)", () => {
+describe("Database Migrations (V1–V74)", () => {
   let hasPostgres = false;
 
   beforeAll(async () => {
@@ -133,7 +133,7 @@ describe("Database Migrations (V1–V49)", () => {
         expect(remaining.length).toBe(count);
       }
 
-      // After rolling back everything (V49 -> V1), public schema should have no core tables left
+      // After rolling back everything (V74 -> V1), public schema should have no core tables left
       const { rows: remainingTables } = await client.query(`
         SELECT table_name 
         FROM information_schema.tables 
