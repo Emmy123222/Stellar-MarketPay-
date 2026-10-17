@@ -43,11 +43,11 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run E2E tests (chromium)
-        run: npx playwright test tests/e2e/freelancer-onboarding.spec.ts tests/e2e/full-marketplace-flow.spec.ts --project=chromium --pass-with-no-tests
+        run: npx playwright test tests/e2e/freelancer-onboarding.spec.ts tests/e2e/full-marketplace-flow.spec.ts --project=chromium
         continue-on-error: true
 
       - name: Run E2E tests (chromium-dark)
-        run: npx playwright test tests/e2e/freelancer-onboarding.spec.ts tests/e2e/full-marketplace-flow.spec.ts --project=chromium-dark --pass-with-no-tests
+        run: npx playwright test tests/e2e/freelancer-onboarding.spec.ts tests/e2e/full-marketplace-flow.spec.ts --project=chromium-dark
         continue-on-error: true
 
       - name: Upload Playwright report on failure
