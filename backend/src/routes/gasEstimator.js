@@ -11,7 +11,7 @@
 
 const express = require("express");
 const { createRateLimiter } = require("../middleware/rateLimiter");
-const { getSafeGasEstimate } = require("../services/gas_estimator");
+const { getFeeEstimate, getSafeGasEstimate } = require("../services/gas_estimator");
 const { getXlmUsd7dHistory } = require("../services/xlmPriceService");
 
 const router = express.Router();
@@ -45,6 +45,34 @@ const refreshLimiter = createRateLimiter(10, 1);
  *                 data:
  *                   $ref: '#/components/schemas/GasEstimate'
  */
+/**
+ * @swagger
+ * /api/gas-estimator:
+ *   get:
+ *     summary: Get Horizon accepted-fee percentiles in stroops
+ *     tags: [Gas]
+ *     responses:
+ *       200:
+ *         description: Fee percentiles
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [low, medium, high, unit]
+ *               properties:
+ *                 low:
+ *                   type: integer
+ *                   description: 10th percentile accepted fee
+ *                 medium:
+ *                   type: integer
+ *                   description: 50th percentile accepted fee
+ *                 high:
+ *                   type: integer
+ *                   description: 90th percentile accepted fee
+ *                 unit:
+ *                   type: string
+ *                   enum: [stroops]
+ */
 router.get("/", async (req, res, next) => {
   try {
     let xlmUsd = null;
@@ -58,6 +86,10 @@ router.get("/", async (req, res, next) => {
       }
     }
 
+    if (req.baseUrl === "/api/gas-estimator") {
+      const estimate = await getFeeEstimate({ xlmUsd });
+      return res.json(estimate);
+    }
     const estimate = await getSafeGasEstimate({ xlmUsd });
     return res.json({ success: true, data: estimate });
   } catch (err) {

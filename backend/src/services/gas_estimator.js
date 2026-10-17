@@ -13,32 +13,16 @@ const cache = require("./cacheService");
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CACHE_KEY = "soroban:fee:estimate";
-const CACHE_TTL = 30; // seconds — refresh frequently for real-time accuracy
+const CACHE_TTL = 60;
 
 const STROOPS_PER_XLM = 10_000_000n;
 
-// How many ledgers of fee history to request from Horizon fee_stats endpoint
-const FEE_STATS_ENDPOINT = "/fee_stats";
-
-// Percentile thresholds for each tier
-const PERCENTILES = {
-  slow: 20,    // 20th percentile — economical, might wait longer
-  medium: 50,  // 50th percentile — typical confirmation speed
-  fast: 90,    // 90th percentile — fast inclusion
-};
+const HORIZON_FEE_STATS_URL = "https://horizon.stellar.org/fee_stats";
 
 // Spike detection: if fast tier is > SPIKE_MULTIPLIER × slow tier, flag a spike
 const SPIKE_MULTIPLIER = 3;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function getHorizonUrl() {
-  const network = (process.env.STELLAR_NETWORK || "testnet").toLowerCase();
-  if (process.env.HORIZON_URL) return process.env.HORIZON_URL.replace(/\/$/, "");
-  return network === "mainnet"
-    ? "https://horizon.stellar.org"
-    : "https://horizon-testnet.stellar.org";
-}
 
 /**
  * Convert a stroops integer (number or string) to a human-readable XLM string.
@@ -132,12 +116,29 @@ function buildTier(label, stroops, xlmUsd) {
  * @returns {Promise<Object>}
  */
 async function fetchFeeStats() {
-  const url = `${getHorizonUrl()}${FEE_STATS_ENDPOINT}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const res = await fetch(HORIZON_FEE_STATS_URL, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) {
     throw new Error(`Horizon fee_stats request failed: ${res.status} ${res.statusText}`);
   }
   return res.json();
+}
+
+function getAcceptedFeePercentile(feeStats, percentile, fallback) {
+  const value = feeStats?.[`${percentile}_accepted_fee`]
+    ?? feeStats?.[`${percentile}AcceptedFee`]
+    ?? feeStats?.fee_charged?.[percentile];
+  const fee = Number(value);
+  return Number.isFinite(fee) && fee > 0 ? fee : fallback;
+}
+
+function computeFeePercentiles(feeStats) {
+  const feeCharged = feeStats?.fee_charged || {};
+  return {
+    low: getAcceptedFeePercentile(feeStats, "p10", Number(feeCharged.min) || 100),
+    medium: getAcceptedFeePercentile(feeStats, "p50", 200),
+    high: getAcceptedFeePercentile(feeStats, "p90", 400),
+    unit: "stroops",
+  };
 }
 
 /**
@@ -147,40 +148,13 @@ async function fetchFeeStats() {
  * @returns {FeeEstimateResult}
  */
 function computeTiers(feeStats, xlmUsd = null) {
-  const dataPoints = extractFeeDataPoints(feeStats);
-
-  // Base fees from Horizon's pre-computed percentiles (most reliable)
-  const feeCharged = feeStats?.fee_charged || {};
-  const baseMin   = parseInt(feeCharged.min   || "100", 10) || 100;
-  const baseP50   = parseInt(feeCharged.p50   || "200", 10) || 200;
-  const baseP90   = parseInt(feeCharged.p90   || "400", 10) || 400;
-
-  let slowStroops, mediumStroops, fastStroops;
-
-  if (dataPoints.length >= 5) {
-    // Use our own percentile computation over histogram data
-    slowStroops   = Math.max(baseMin, percentile(dataPoints, PERCENTILES.slow));
-    mediumStroops = Math.max(slowStroops, percentile(dataPoints, PERCENTILES.medium));
-    fastStroops   = Math.max(mediumStroops, percentile(dataPoints, PERCENTILES.fast));
-  } else {
-    // Fall back to Horizon's reported percentiles
-    slowStroops   = baseMin;
-    mediumStroops = baseP50;
-    fastStroops   = baseP90;
-  }
-
-  // Enforce minimum base fee of 100 stroops (Stellar protocol minimum)
-  slowStroops   = Math.max(slowStroops, 100);
-  mediumStroops = Math.max(mediumStroops, slowStroops);
-  fastStroops   = Math.max(fastStroops, mediumStroops);
+  const percentiles = computeFeePercentiles(feeStats);
+  const slowStroops = Math.max(100, percentiles.low);
+  const mediumStroops = Math.max(slowStroops, percentiles.medium);
+  const fastStroops = Math.max(mediumStroops, percentiles.high);
 
   // Spike detection: flag when fast is 3× or more above slow
   const spikeDetected = fastStroops >= slowStroops * SPIKE_MULTIPLIER;
-
-  // Predictive surge: apply a 20% buffer on fast tier during spikes
-  if (spikeDetected) {
-    fastStroops = Math.round(fastStroops * 1.2);
-  }
 
   const networkCongestion = spikeDetected
     ? "high"
@@ -189,6 +163,7 @@ function computeTiers(feeStats, xlmUsd = null) {
       : "low";
 
   return {
+    feePercentiles: percentiles,
     slow:   buildTier("slow",   slowStroops,   xlmUsd),
     medium: buildTier("medium", mediumStroops, xlmUsd),
     fast:   buildTier("fast",   fastStroops,   xlmUsd),
@@ -213,6 +188,7 @@ function computeTiers(feeStats, xlmUsd = null) {
  * @property {FeeTier}  slow
  * @property {FeeTier}  medium
  * @property {FeeTier}  fast
+ * @property {{low:number, medium:number, high:number, unit:"stroops"}} feePercentiles
  * @property {boolean}  spikeDetected       True when the network is experiencing a fee spike.
  * @property {"low"|"medium"|"high"} networkCongestion
  * @property {string|null} ledger           Last processed ledger sequence number.
@@ -262,6 +238,7 @@ async function getSafeGasEstimate(opts = {}) {
       networkCongestion: "unknown",
       ledger: null,
       ledgerBaseFeeStroops: 100,
+      feePercentiles: { low: 100, medium: 200, high: 1000, unit: "stroops" },
       updatedAt: new Date().toISOString(),
       cached: false,
       fallback: true,
@@ -269,9 +246,20 @@ async function getSafeGasEstimate(opts = {}) {
   }
 }
 
+async function getFeeEstimate(opts = {}) {
+  const estimate = await getSafeGasEstimate(opts);
+  return estimate.feePercentiles ?? {
+    low: estimate.slow.stroops,
+    medium: estimate.medium.stroops,
+    high: estimate.fast.stroops,
+    unit: "stroops",
+  };
+}
+
 module.exports = {
   getGasEstimate,
   getSafeGasEstimate,
+  getFeeEstimate,
   computeTiers,
   extractFeeDataPoints,
   stroopsToXlm,

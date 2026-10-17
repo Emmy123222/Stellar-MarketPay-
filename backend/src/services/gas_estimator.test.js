@@ -18,8 +18,12 @@ const {
   percentile,
   computeTiers,
   stroopsToXlm,
+  getFeeEstimate,
   getSafeGasEstimate,
+  CACHE_KEY,
+  CACHE_TTL,
 } = require("./gas_estimator");
+const cache = require("./cacheService");
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -167,8 +171,7 @@ describe("computeTiers", () => {
     // fast is p90 (1000), slow is min (100): 1000 >= 3*100 → spike
     if (result.spikeDetected) {
       expect(result.networkCongestion).toBe("high");
-      // fast tier gets 20% buffer on top
-      expect(result.fast.stroops).toBeGreaterThan(1000);
+      expect(result.fast.stroops).toBe(1000);
     }
   });
 
@@ -246,6 +249,38 @@ describe("getSafeGasEstimate", () => {
     expect(result.fast).toBeDefined();
 
     global.fetch = originalFetch;
+  });
+
+  test("uses Horizon accepted-fee percentiles and caches them for 60 seconds", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        p10_accepted_fee: "500",
+        p50_accepted_fee: "1200",
+        p90_accepted_fee: "5000",
+        fee_charged: { p10: "100", p50: "200", p90: "400" },
+      }),
+    });
+
+    try {
+      const result = await getFeeEstimate({ forceRefresh: true });
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "https://horizon.stellar.org/fee_stats",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+      expect(result).toEqual({
+        low: 500,
+        medium: 1200,
+        high: 5000,
+        unit: "stroops",
+      });
+      expect(cache.set).toHaveBeenCalledWith(CACHE_KEY, expect.any(Object), 60);
+      expect(CACHE_TTL).toBe(60);
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 });
 
