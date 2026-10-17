@@ -57,7 +57,7 @@ const scopeRoutes        = require("./routes/scope");
 const analyticsRoutes    = require("./routes/analytics");
 const searchRoutes       = require("./routes/search");
  
-const { setWebsocketConnections } = require("./metrics");
+const { setWebsocketConnections, recordRejectedWebsocketUpgrade } = require("./metrics");
 const { startEscrowTimeoutChecker } = require("./services/escrowService");
 const { scheduleStatsRefresh } = require("./services/statsService");
 const { startPushSubscriptionPurge } = require("./services/pushSubscriptionService");
@@ -75,12 +75,25 @@ const userClients = new Map();
 const userLastSeen = new Map();
 const realtimeRooms = new Map();
 const scopeSessionClients = new Map();
+const websocketClientsByIp = new Map();
+const MAX_WEBSOCKET_CONNECTIONS_PER_IP = positiveIntEnv("WS_MAX_CONNECTIONS_PER_IP", 20);
+const MAX_REALTIME_ROOMS_PER_SOCKET = positiveIntEnv("WS_MAX_ROOMS_PER_SOCKET", 50);
+const MAX_SUBSCRIBE_MESSAGES_PER_WINDOW = positiveIntEnv("WS_SUBSCRIBE_RATE_LIMIT", 10);
+const SUBSCRIBE_RATE_WINDOW_MS = positiveIntEnv("WS_SUBSCRIBE_RATE_WINDOW_MS", 10_000);
+
+function positiveIntEnv(name, fallback) {
+  const value = Number.parseInt(process.env[name], 10);
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
  
 function subscribeRealtime(ws, roomId) {
-  if (typeof roomId !== "string" || !/^(job|user):[^\s:]+$/.test(roomId)) return;
+  if (typeof roomId !== "string" || !/^(job|user):[^\s:]+$/.test(roomId)) return "invalid_room";
+  if (ws.realtimeRooms.has(roomId)) return null;
+  if (ws.realtimeRooms.size >= MAX_REALTIME_ROOMS_PER_SOCKET) return "room_limit_exceeded";
   if (!realtimeRooms.has(roomId)) realtimeRooms.set(roomId, new Set());
   realtimeRooms.get(roomId).add(ws);
   ws.realtimeRooms.add(roomId);
+  return null;
 }
  
 function unsubscribeRealtime(ws) {
@@ -261,12 +274,29 @@ function refreshWsMetrics() {
  
 server.on("upgrade", (request, socket, head) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
-  if (url.pathname === "/ws/realtime" || url.pathname.startsWith("/ws/scope/")) {
+  const channel = url.pathname === "/ws/realtime" ? "realtime" :
+    url.pathname.startsWith("/ws/scope/") ? "scope" : "unknown";
+  if (channel !== "unknown") {
+    const ip = request.socket.remoteAddress || "unknown";
+    const clients = websocketClientsByIp.get(ip);
+    if ((clients?.size || 0) >= MAX_WEBSOCKET_CONNECTIONS_PER_IP) {
+      recordRejectedWebsocketUpgrade(channel, "connection_limit");
+      socket.end("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n");
+      return;
+    }
     wsServer.handleUpgrade(request, socket, head, (ws) => {
+      if (!websocketClientsByIp.has(ip)) websocketClientsByIp.set(ip, new Set());
+      websocketClientsByIp.get(ip).add(ws);
+      ws.on("close", () => {
+        const ipClients = websocketClientsByIp.get(ip);
+        ipClients?.delete(ws);
+        if (ipClients?.size === 0) websocketClientsByIp.delete(ip);
+      });
       wsServer.emit("connection", ws, request);
     });
     return;
   }
+  recordRejectedWebsocketUpgrade(channel, "unsupported_path");
   socket.destroy();
 });
  
@@ -284,6 +314,7 @@ wsServer.on("connection", async (ws, request) => {
       }
     }
     ws.realtimeRooms = new Set();
+    ws.subscribeMessageTimes = [];
     realtimeClients.add(ws);
     if (userAddress) {
       if (!userClients.has(userAddress)) userClients.set(userAddress, new Set());
@@ -293,14 +324,29 @@ wsServer.on("connection", async (ws, request) => {
       ...url.searchParams.getAll("room"),
       ...(url.searchParams.get("rooms") || "").split(","),
     ].map((roomId) => roomId.trim()).filter(Boolean);
-    requestedRooms.forEach((roomId) => subscribeRealtime(ws, roomId));
+    for (const roomId of requestedRooms) {
+      const error = subscribeRealtime(ws, roomId);
+      if (error) sendJson(ws, "error", { code: error, roomId });
+    }
     sendJson(ws, "connected", { channel: "realtime" });
  
     ws.on("message", (raw) => {
       try {
         const message = JSON.parse(String(raw));
         if (message?.type === "subscribe" && Array.isArray(message.rooms)) {
-          message.rooms.forEach((roomId) => subscribeRealtime(ws, roomId));
+          const now = Date.now();
+          ws.subscribeMessageTimes = ws.subscribeMessageTimes.filter(
+            (timestamp) => now - timestamp < SUBSCRIBE_RATE_WINDOW_MS,
+          );
+          if (ws.subscribeMessageTimes.length >= MAX_SUBSCRIBE_MESSAGES_PER_WINDOW) {
+            sendJson(ws, "error", { code: "subscribe_rate_limited" });
+            return;
+          }
+          ws.subscribeMessageTimes.push(now);
+          for (const roomId of message.rooms) {
+            const error = subscribeRealtime(ws, roomId);
+            if (error) sendJson(ws, "error", { code: error, roomId });
+          }
           sendJson(ws, "subscribed", { rooms: [...ws.realtimeRooms] });
         }
         if (message?.type === "unsubscribe" && Array.isArray(message.rooms)) {

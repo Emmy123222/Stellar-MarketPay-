@@ -16,6 +16,12 @@
 
 const { WebSocket: WsClient } = require("ws");
 const jwt = require("jsonwebtoken");
+const { websocketRejectedUpgradesTotal } = require("../metrics");
+
+process.env.WS_MAX_CONNECTIONS_PER_IP = "4";
+process.env.WS_MAX_ROOMS_PER_SOCKET = "2";
+process.env.WS_SUBSCRIBE_RATE_LIMIT = "2";
+process.env.WS_SUBSCRIBE_RATE_WINDOW_MS = "10000";
 
 const TEST_USER_A = "GAXJ4S6F7W2K3H5N8D9P0Q2R4T6V8W1Z3X5C7V9B2N4M6P8R0T2V4X6Z8";
 const TEST_USER_B = "GBYJ4S6F7W2K3H5N8D9P0Q2R4T6V8W1Z3X5C7V9B2N4M6P8R0T2V4X6Z9";
@@ -193,6 +199,15 @@ function waitForOpen(ws) {
   return new Promise((resolve) => ws.on("open", resolve));
 }
 
+function waitForClose(ws) {
+  if (ws.readyState === WsClient.CLOSED) return Promise.resolve();
+  return new Promise((resolve) => ws.once("close", resolve));
+}
+
+function waitForEvent(ws, event, timeoutMs = 1_000) {
+  return ws._waitForMessage((message) => message.event === event, timeoutMs);
+}
+
 /**
  * Deterministic pseudo-random shuffle using a simple LCG.
  * Seed is the iteration index so every run is reproducible.
@@ -292,6 +307,62 @@ describe("WebSocket chaos & reconnection resilience (#888)", () => {
     app._ws.realtimeClients.clear();
     app._ws.scopeSessionClients.clear();
     if (app._ws.userLastSeen) app._ws.userLastSeen.clear();
+  });
+
+  test("rejects upgrades above the per-IP connection cap", async () => {
+    const clients = Array.from({ length: 4 }, () => wsConnect());
+    await Promise.all(clients.map(waitForOpen));
+    const rejected = new WsClient(`ws://localhost:${port}/ws/realtime`);
+    openClients.add(rejected);
+    rejected.on("close", () => openClients.delete(rejected));
+    rejected.on("error", () => {});
+
+    const statusCode = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Upgrade was not rejected")), 1_000);
+      rejected.on("unexpected-response", (_request, response) => {
+        clearTimeout(timeout);
+        resolve(response.statusCode);
+      });
+      rejected.on("open", () => {
+        clearTimeout(timeout);
+        reject(new Error("Upgrade unexpectedly succeeded"));
+      });
+    });
+
+    expect(statusCode).toBe(429);
+    const rejectedUpgrades = await websocketRejectedUpgradesTotal.get();
+    expect(rejectedUpgrades.values).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          labels: { channel: "realtime", reason: "connection_limit" },
+          value: 1,
+        }),
+      ]),
+    );
+    clients.forEach((client) => client.close());
+    await Promise.all([...clients, rejected].map(waitForClose));
+  });
+
+  test("rejects excess realtime rooms and throttles subscribe messages", async () => {
+    const ws = wsConnect();
+    await waitForOpen(ws);
+    await waitForEvent(ws, "connected");
+
+    ws.send(JSON.stringify({ type: "subscribe", rooms: ["job:first", "job:second"] }));
+    await ws._waitForMessage((message) => message.event === "subscribed");
+    ws.send(JSON.stringify({ type: "subscribe", rooms: ["job:third"] }));
+    const roomError = await ws._waitForMessage(
+      (message) => message.event === "error" && message.payload.code === "room_limit_exceeded",
+    );
+    expect(roomError.payload.roomId).toBe("job:third");
+
+    ws.send(JSON.stringify({ type: "subscribe", rooms: ["job:first"] }));
+    const rateError = await ws._waitForMessage(
+      (message) => message.event === "error" && message.payload.code === "subscribe_rate_limited",
+    );
+    expect(rateError.payload.code).toBe("subscribe_rate_limited");
+    ws.close();
+    await waitForClose(ws);
   });
 
   // ─────────────────────────────────────────────────────────────────────────
