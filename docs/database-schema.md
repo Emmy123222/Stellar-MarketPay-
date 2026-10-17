@@ -766,6 +766,35 @@ Migrations follow a Flyway-style `V{n}__{description}.{up|down}.sql` naming conv
 | V47 | Time entry milestone index |
 | V48 | Missing foreign key and index optimizations |
 | V49 | NFT certificates |
+| V50 | Developer API keys and audit trail |
+| V51 | Push subscriptions |
+| V52 | Onboarding progress |
+| V54 | Job timeline |
+| V55 | Reputation scores |
+| V56 | USDC auto convert |
+| V57 | Application status history |
+| V58 | Recurring escrow dst |
+| V59 | Indexes on payments created_at |
+| V60 | Application status history |
+| V61 | Jobs status created index |
+| V62 | Saved search lifecycle |
+| V63 | DAO proposal votes unique |
+| V64 | Evidence pin verification |
+| V65 | Jobs full text search index |
+| V66 | Refresh tokens |
+| V67 | Scope session content limit |
+| V68 | Index escrow freelancer date |
+| V69 | Dispute events |
+| V70 | Recurring escrow monthly |
+| V71 | Link verification metadata |
+| V72 | Applications job status index |
+| V73 | Invitation expiry and revocation |
+| V74 | Contract events and indexer state |
+
+Some version numbers are intentionally skipped and must not be "fixed": `V3`, `V36`,
+and `V53` are absent from `backend/src/db/migrations/`. Do not reuse these numbers.
+Validate that no duplicate versions exist before adding a new migration with
+`scripts/verify-migration-versions.sh`.
 
 The schema is applied idempotently (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`). No destructive changes are made to existing data by default.
 

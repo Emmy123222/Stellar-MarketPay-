@@ -121,7 +121,7 @@ npm run dev
 
 ### 5. Database Migrations
 
-Run and rollback database migrations sequentially (`V1` to `V49`):
+Run and rollback database migrations sequentially (`V1` to `V74`):
 
 ```bash
 cd backend
@@ -130,6 +130,21 @@ npm run migrate
 
 # Roll back the most recently applied migration
 npm run migrate:rollback
+```
+
+Migrations live in `backend/src/db/migrations/` and run from `V1` up to the current
+highest version, `V74`
+(`backend/src/db/migrations/V74__contract_events_and_indexer_state.up.sql`). To add a
+new migration, pick the next number after the highest existing version (for example,
+`V75` after `V74`).
+
+Some version numbers are intentionally skipped and must not be "fixed": `V3`, `V36`,
+and `V53` are absent from `backend/src/db/migrations/`. Do not reuse these numbers.
+
+Validate that no duplicate versions exist before adding a new migration:
+
+```bash
+scripts/verify-migration-versions.sh
 ```
 
 ---
