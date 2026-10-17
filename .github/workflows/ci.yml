@@ -274,7 +274,7 @@ jobs:
           retention-days: 7
 
   contracts:
-    name: Soroban Contracts — marketpay-contract
+    name: Soroban Contracts
     runs-on: ubuntu-latest
     needs: secrets-scan
     defaults:
@@ -295,27 +295,43 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contracts/marketpay-contract/target
+            contracts/arbitrator-registry/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Format check
+      - name: MarketPay Contract — Format check
         run: cargo fmt --check
         continue-on-error: true
 
-      - name: Clippy
+      - name: MarketPay Contract — Clippy
         run: cargo clippy --all-targets -- -D warnings
         continue-on-error: true
 
-      - name: Tests
+      - name: MarketPay Contract — Tests
         run: cargo test
         continue-on-error: true
 
-      - name: Property-based tests (milestone percentages)
+      - name: MarketPay Contract — Property-based tests (milestone percentages)
         run: cargo test --features proptest milestone_pct_proptests
 
-      - name: Release WASM build
+      - name: MarketPay Contract — Release WASM build
         run: cargo build --target wasm32v1-none --release
         continue-on-error: true
+
+      # ── Arbitrator Registry Contract ──────────────────────────────────────────
+      - name: Arbitrator Registry — Tests
+        run: cargo test
+        working-directory: contracts/arbitrator-registry
+        continue-on-error: true
+
+      - name: Arbitrator Registry — Release WASM build
+        run: cargo build --target wasm32v1-none --release
+        working-directory: contracts/arbitrator-registry
+        continue-on-error: true
+
+      # Note: make build-optimized (wasm-opt) post-processing is executed during
+      # release deployment via scripts/deploy-contract.sh. CI validates the
+      # release wasm32v1-none target compilation.
 
   docs:
     name: Docs Link Checker

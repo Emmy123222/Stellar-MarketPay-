@@ -64,21 +64,53 @@ rustc --version && stellar --version && node --version
 
 ## 1. Build the contract
 
-### Option A: Using Cargo directly
+Both `contracts/marketpay-contract` and `contracts/arbitrator-registry` include a `Makefile` with targets for building, optimizing (`wasm-opt`), running tests, and cleaning artifacts.
+
+### Option A: Using Makefile (Recommended)
+
+To build standard release artifacts:
+```bash
+# For MarketPay Escrow contract
+cd contracts/marketpay-contract
+make build
+
+# For Arbitrator Registry contract
+cd contracts/arbitrator-registry
+make build
+```
+
+To build optimized WASM artifacts with `wasm-opt -Oz` post-processing and binary size reduction:
+```bash
+# Requires wasm-opt (cargo install wasm-opt OR brew install binaryen OR apt install binaryen)
+cd contracts/marketpay-contract
+make build-optimized
+
+cd contracts/arbitrator-registry
+make build-optimized
+```
+
+The Makefile will report a binary size comparison before and after optimization:
+- `marketpay_contract.optimized.wasm`
+- `arbitrator_registry.optimized.wasm`
+
+To run contract tests:
+```bash
+make test
+```
+
+### Option B: Using Cargo directly
 
 From the repository root:
 
 ```bash
 cd contracts/marketpay-contract
 cargo build --target wasm32v1-none --release
+
+cd ../arbitrator-registry
+cargo build --target wasm32v1-none --release
 ```
 
-The WASM artifact is written to:
-```
-contracts/marketpay-contract/target/wasm32-unknown-unknown/release/marketpay_contract.wasm
-```
-
-`target/wasm32v1-none/release/marketpay_contract.wasm`
+The WASM artifacts are written to `target/wasm32v1-none/release/`.
 
 ## 2. Configure your deploy identity
 
