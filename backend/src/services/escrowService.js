@@ -12,6 +12,7 @@ const insightsService = require("./insightsService");
 const { createServiceLogger, logError } = require("../utils/logger");
 const { getClientIp } = require("../utils/clientIp");
 const { signWithServiceKey, getServicePublicKey } = require("./stellarServiceKey");
+const { recordEscrowTimeoutCheck } = require("../metrics");
 
 const ESCROW_TIMEOUT_DAYS = 7;
 // Spread each instance's one-minute guardian run over a ten-second window.
@@ -779,6 +780,8 @@ async function startEscrowTimeoutChecker() {
   const timeoutLogger = createServiceLogger('escrow-timeout');
 
   async function checkAndRefund() {
+    const startTime = Date.now();
+    let success = true;
     try {
       const { rows } = await pool.query(
         `SELECT e.job_id, j.client_address
@@ -796,7 +799,11 @@ async function startEscrowTimeoutChecker() {
         }
       }
     } catch (err) {
+      success = false;
       logError(timeoutLogger, err, { operation: 'escrow_timeout_check' });
+    } finally {
+      const durationMs = Date.now() - startTime;
+      recordEscrowTimeoutCheck({ durationMs, ok: success });
     }
   }
 

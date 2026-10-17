@@ -1,0 +1,78 @@
+groups:
+  - name: marketpay-indexer-alerts
+    rules:
+      - alert: IndexerLagHigh
+        expr: indexer_lag_seconds{job="marketpay-backend"} > 300
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Horizon indexer is lagging behind head"
+          description: "Horizon indexer lag has exceeded 300 seconds (5 minutes). On-chain events and contract payments are not being reflected in real time, causing stale job states."
+          runbook_url: "docs/runbooks/indexer-lag.md"
+
+      - alert: IndexerSyncStalled
+        expr: indexer_sync_status{job="marketpay-backend"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Horizon indexer stream disconnected or stalled"
+          description: "Horizon indexer sync status is 0 for more than 3 minutes — the indexer is either stopped, un-synced, or encountering unhandled stream errors."
+          runbook_url: "docs/runbooks/indexer-lag.md"
+
+      - alert: IndexerErrorRateHigh
+        expr: rate(indexer_errors_total{job="marketpay-backend"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Horizon indexer error rate is elevated"
+          description: "Horizon indexer is experiencing frequent errors while processing transactions or events."
+          runbook_url: "docs/runbooks/indexer-lag.md"
+
+  - name: marketpay-scheduler-alerts
+    rules:
+      - alert: EscrowTimeoutCheckerStalled
+        expr: (time() - escrow_timeout_checker_last_run_timestamp_seconds{job="marketpay-backend"}) > 7200
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Escrow timeout checker has stalled"
+          description: "The escrow timeout checker has not completed a run for more than 2 hours (normal cadence is ~1 hour). Expired funded escrows older than 7 days are not being refunded."
+          runbook_url: "docs/runbooks/escrow-timeout-checker-stall.md"
+
+      - alert: EscrowTimeoutCheckerErrorRateHigh
+        expr: rate(escrow_timeout_checker_runs_total{job="marketpay-backend",status="error"}[30m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Escrow timeout checker runs are failing"
+          description: "Escrow timeout checker is throwing errors during execution — check database connectivity and Horizon client health."
+          runbook_url: "docs/runbooks/escrow-timeout-checker-stall.md"
+
+  - name: marketpay-api-alerts
+    rules:
+      - alert: High5xxErrorRate
+        expr: 100 * sum(rate(http_requests_total{job="marketpay-backend",status_code=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{job="marketpay-backend"}[5m])), 0.001) > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MarketPay API 5xx error rate is above 5%"
+          description: "More than 5% of HTTP requests returned 5xx server errors over the last 5 minutes."
+          runbook_url: "docs/runbooks/high-error-rate.md"
+
+  - name: marketpay-migration-alerts
+    rules:
+      - alert: DatabaseMigrationFailed
+        expr: db_migration_status{job="marketpay-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database schema migration failed or version mismatch"
+          description: "Database migration status is 0 — the database schema does not match the expected migration files on disk, or a migration failed on startup."
+          runbook_url: "docs/runbooks/migration-failure.md"

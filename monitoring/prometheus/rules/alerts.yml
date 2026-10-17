@@ -9,6 +9,7 @@ groups:
         annotations:
           summary: "MarketPay p99 latency is above 2s"
           description: "The 99th percentile request latency has exceeded 2 seconds for more than 10 minutes."
+          runbook_url: "docs/runbooks/high-latency.md"
 
       - alert: HighErrorRate
         expr: sum(rate(marketpay_http_requests_total{status_code=~"5.."}[5m])) / clamp_min(sum(rate(marketpay_http_requests_total[5m])), 1) > 0.05
@@ -18,6 +19,7 @@ groups:
         annotations:
           summary: "MarketPay error rate is above 5%"
           description: "More than 5% of API requests are returning 5xx responses."
+          runbook_url: "docs/runbooks/high-error-rate.md"
 
       - alert: EscrowReleaseErrorRateHigh
         expr: 100 * sum(rate(marketpay_escrow_release_errors_total[5m])) / clamp_min(sum(rate(marketpay_escrow_releases_total[5m])), 0.001) > 5
@@ -27,6 +29,7 @@ groups:
         annotations:
           summary: "Escrow release error rate is above 5%"
           description: "More than 5% of escrow release attempts have failed over the last 5 minutes — investigate Horizon/network errors, insufficient balances or contract rejections."
+          runbook_url: "docs/runbooks/escrow-release-failure.md"
 
       - alert: HighDatabaseConnections
         expr: marketpay_db_connections{state="total"} > 80
@@ -36,6 +39,7 @@ groups:
         annotations:
           summary: "PostgreSQL pool is near capacity"
           description: "The shared PostgreSQL pool is using more than 80 connections."
+          runbook_url: "docs/runbooks/db-pool-exhaustion.md"
 
       - alert: MonthlySpendWarning
         expr: sum(container_memory_usage_bytes{project="stellar-marketpay"}) by (environment) > 0
@@ -45,6 +49,7 @@ groups:
         annotations:
           summary: "Infrastructure cost threshold warning"
           description: "Project stellar-marketpay estimated monthly spend may exceed $100 threshold. Review cost report."
+          runbook_url: "docs/runbooks/infrastructure-monitoring.md"
 
       - alert: HighComputeUtilization
         expr: node_cpu_seconds_total{mode="idle"} < 20
@@ -54,6 +59,7 @@ groups:
         annotations:
           summary: "High CPU utilization detected"
           description: "Compute resources are above 80% utilization — review right-sizing recommendations."
+          runbook_url: "docs/runbooks/infrastructure-monitoring.md"
 
   - name: marketpay-backend-metrics
     rules:
@@ -65,6 +71,7 @@ groups:
         annotations:
           summary: "MarketPay /metrics scrape is failing"
           description: "Prometheus cannot scrape the backend metrics endpoint. Check METRICS_TOKEN / network reachability."
+          runbook_url: "docs/runbooks/infrastructure-monitoring.md"
 
       - alert: HighRequestLatencyMs
         expr: histogram_quantile(0.99, sum(rate(http_request_duration_ms_bucket{job="marketpay-backend"}[5m])) by (le)) > 2000
@@ -74,6 +81,7 @@ groups:
         annotations:
           summary: "MarketPay p99 request latency above 2000ms"
           description: "The 99th percentile of http_request_duration_ms has exceeded 2s for more than 10 minutes."
+          runbook_url: "docs/runbooks/high-latency.md"
 
       - alert: HighApiErrorRate
         expr: 100 * sum(rate(http_requests_total{job="marketpay-backend",status_code=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{job="marketpay-backend"}[5m])), 0.001) > 5
@@ -83,6 +91,7 @@ groups:
         annotations:
           summary: "MarketPay 5xx error rate above 5%"
           description: "More than 5% of requests are returning 5xx responses."
+          runbook_url: "docs/runbooks/high-error-rate.md"
 
       - alert: SlowDatabaseQueries
         expr: histogram_quantile(0.95, sum(rate(pool_query_duration_ms_bucket{job="marketpay-backend"}[5m])) by (le)) > 500
@@ -92,6 +101,7 @@ groups:
         annotations:
           summary: "PostgreSQL p95 query latency above 500ms"
           description: "pool_query_duration_ms p95 has exceeded 500ms for more than 10 minutes."
+          runbook_url: "docs/runbooks/db-pool-exhaustion.md"
 
       - alert: DBPoolExhausted
         expr: pg_pool_waiting_connections{job="marketpay-backend"} > 10
@@ -101,6 +111,7 @@ groups:
         annotations:
           summary: "PostgreSQL connection pool is exhausted"
           description: "More than 10 requests have been waiting for a PostgreSQL connection for over 30 seconds."
+          runbook_url: "docs/runbooks/db-pool-exhaustion.md"
 
       - alert: DBPoolUtilizationHigh
         expr: (pg_pool_total{job="marketpay-backend"} - pg_pool_idle{job="marketpay-backend"}) / clamp_min(pg_pool_total{job="marketpay-backend"}, 1) > 0.8
@@ -109,6 +120,7 @@ groups:
         annotations:
           summary: "PostgreSQL connection pool utilization is above 80%"
           description: "More than 80% of PostgreSQL pool connections are currently in use."
+          runbook_url: "docs/runbooks/db-pool-exhaustion.md"
 
       - alert: WebSocketConnectionsSpike
         expr: sum(active_websocket_connections{job="marketpay-backend"}) > 5000
@@ -118,6 +130,7 @@ groups:
         annotations:
           summary: "Unusually high number of open WebSocket connections"
           description: "active_websocket_connections has been above 5000 for 15 minutes — check for reconnect storms or leaked sockets."
+          runbook_url: "docs/runbooks/infrastructure-monitoring.md"
 
       # Issue #1439: an evidence CID was handed back to a caller while the
       # IPFS pin could not be confirmed, so the file may be garbage-collected.
@@ -129,3 +142,4 @@ groups:
         annotations:
           summary: "IPFS evidence pin could not be verified"
           description: "ipfs_pin_verification_failures_total increased in the last 15 minutes. Evidence may be unpinned and at risk of garbage collection — reconcile dispute_evidence rows with pinned = false."
+          runbook_url: "docs/runbooks/ipfs-gateway-failure.md"

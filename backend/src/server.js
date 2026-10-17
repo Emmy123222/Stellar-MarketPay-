@@ -475,10 +475,19 @@ wsServer.on("connection", async (ws, request) => {
 async function bootstrap() {
   try {
   await migrate();
+  const { getCurrentMigrationVersion, getExpectedMigrationVersion } = require("./db/migrate");
+  const { recordMigrationStatus } = require("./metrics");
+  const currentVer = await getCurrentMigrationVersion();
+  const expectedVer = getExpectedMigrationVersion();
+  recordMigrationStatus(currentVer, expectedVer, currentVer === expectedVer);
+
   await cleanupExpiredScopeSessions();
   await indexerService.start();
   priceAlertService.start();
- 
+
+  // Start escrow timeout checker - checks for expired funded escrows hourly
+  startEscrowTimeoutChecker();
+
   // Start job expiry checker - run every hour
   startJobExpiryChecker();
  
